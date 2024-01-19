@@ -15,7 +15,7 @@ authors = [
 ]
 maintainers = [
     {name = "Hanqing Liu", email = "hanqingliu@fas.harvard.edu"},
-    {name = "Hanqing Liu", email = "hanqingliu@fas.harvard.edu"},
+    {name = "Hanchen Wang", email = "hanchenw.au@gmail.com"},
 ]
 urls.Documentation = "https://bolero.readthedocs.io/"
 urls.Source = "https://github.com/lhqing/bolero"
@@ -25,6 +25,8 @@ dependencies = [
     "deeptools",
     "xarray",
     "zarr",
+    "dnaio",
+    "seaborn",
     # for debug logging (referenced from the issue template)
     "session-info",
 ]
@@ -94,6 +96,7 @@ ignore = [
     # Missing docstring in public module
     "D100",
     # Missing docstring in __init__
+    "D200",
     "D107",
     # Errors from function calls in argument defaults. These are fine when the result is immutable.
     "B008",

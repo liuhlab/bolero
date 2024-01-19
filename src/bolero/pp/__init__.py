@@ -1,1 +1,2 @@
-from .basic import basic_preproc
+from .genome import Genome
+from .seq import Seq
