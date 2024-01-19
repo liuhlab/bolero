@@ -1,0 +1,28 @@
+{
+  "template": "https://github.com/scverse/cookiecutter-scverse",
+  "commit": "2f766dd6b8cef64e3a127bd316dd61415fbc37b6",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "project_name": "bolero",
+      "package_name": "bolero",
+      "project_description": "sequence",
+      "author_full_name": "Hanqing Liu",
+      "author_email": "hanqingliu@fas.harvard.edu",
+      "github_user": "lhqing",
+      "project_repo": "https://github.com/lhqing/bolero",
+      "license": "MIT License",
+      "_copy_without_render": [
+        ".github/workflows/**.yaml",
+        "docs/_templates/autosummary/**.rst"
+      ],
+      "_render_devdocs": false,
+      "_jinja2_env_vars": {
+        "lstrip_blocks": true,
+        "trim_blocks": true
+      },
+      "_template": "https://github.com/scverse/cookiecutter-scverse"
+    }
+  },
+  "directory": null
+}
