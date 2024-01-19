@@ -1,2 +1,2 @@
 from .genome import Genome
-from .seq import Seq
+from .seq import Sequence

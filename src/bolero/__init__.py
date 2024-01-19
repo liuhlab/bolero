@@ -6,4 +6,4 @@ __all__ = ["pl", "pp", "tl"]
 
 __version__ = version("bolero")
 
-from .pp import Genome, Seq
+from .pp import Genome, Sequence

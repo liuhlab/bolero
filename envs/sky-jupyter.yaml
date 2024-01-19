@@ -1,0 +1,35 @@
+# jupyter.yaml
+
+resources:
+  cloud: gcp
+  instance_type: n1-standard-16
+  region: us-central1
+  disk_size: 384
+  image_id: projects/hms-dev-greenberg-4923/global/images/hanqing-analysis-base
+
+file_mounts:
+  /data:
+    source: gs://hms-hanqing-analysis
+    mode: MOUNT
+  /ref:
+    source: gs://hms-hanqing-reference
+    mode: MOUNT
+  /wmb:
+    source: gs://hms-hanqing-wmb
+    mode: MOUNT
+  /tempdata:
+    source: gs://hms-hanqing-temp
+    mode: MOUNT
+
+setup: |
+  if [ -f $HOME/mambaforge/SKIPSETUP ]
+  then
+    echo "Skip setup"
+  else
+    gsutil -m cp gs://hms-hanqing-reference/pkg/env.yml /tmp/env.yml
+    mamba env update -n base -f /tmp/env.yml
+    touch $HOME/mambaforge/SKIPSETUP
+  fi
+
+run: |
+  nohup jupyter-lab --LabApp.token='' --no-browser --port 8898 > ~/jupyter.log 2>&1 &
