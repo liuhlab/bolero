@@ -23,12 +23,12 @@ urls.Home-page = "https://github.com/lhqing/bolero"
 dependencies = [
     "anndata",
     "deeptools",
+    "dnaio",
+    "pyranges",
+    "seaborn",
+    "session-info",
     "xarray",
     "zarr",
-    "dnaio",
-    "seaborn",
-    # for debug logging (referenced from the issue template)
-    "session-info",
 ]
 
 [project.optional-dependencies]

@@ -14,8 +14,13 @@ def _one_hot_encoding(seq, order, dtype):
 class Sequence(Seq):
     """Utility class for DNA sequence manipulation. Inherits from Bio.Seq.Seq."""
 
-    def __init__(self, data):
+    def __init__(self, data, name=None, chrom=None, start=None, end=None, strand=None):
         super().__init__(data=data)
+        self.name = name
+        self.chrom = chrom
+        self.start = start
+        self.end = end
+        self.strand = strand
 
     def one_hot_encoding(self, order="ATCG", dtype=np.int8) -> np.ndarray:
         """
@@ -35,3 +40,27 @@ class Sequence(Seq):
         """
         one_hot = _one_hot_encoding(str(self), order, dtype)
         return one_hot
+
+    def reverse_complement(self):
+        """Returns the reverse complement of the sequence."""
+        seq = super().reverse_complement()
+
+        strand = self.strand
+        if strand:
+            if strand == "+":
+                strand = "-"
+            elif strand == "-":
+                strand = "+"
+        return Sequence(
+            seq,
+            name=self.name,
+            chrom=self.chrom,
+            start=self.start,
+            end=self.end,
+            strand=strand,
+        )
+
+    @property
+    def sequence(self):
+        """Returns the sequence as a string."""
+        return str(self)
