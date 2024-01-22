@@ -511,9 +511,7 @@ class Genome:
             results = pd.DataFrame(results[k] for k in bw_paths.index)
 
             regions = pr.read_bed(str(bed_path))
-            results.columns = (
-                regions.Chromosome.astype(str) + ":" + regions.Start.astype(str) + "-" + regions.End.astype(str)
-            ).values
+            results.columns = regions.Name
             results.columns.name = "region"
             results.index.name = "bigwig"
 
@@ -545,7 +543,9 @@ class Genome:
         da.to_zarr(zarr_path, mode="w")
         return
 
-    def dump_region_bigwig_zarr(self, bw_table, bed_path, partition_dir, partition_size=50000000, cpu=None):
+    def dump_region_bigwig_zarr(
+        self, bw_table, bed_path, partition_dir, region_id=None, partition_size=50000000, cpu=None
+    ):
         """
         Dum
         """
@@ -553,11 +553,17 @@ class Genome:
         partition_dir.mkdir(exist_ok=True, parents=True)
         bed_df = pr.read_bed(str(bed_path), as_df=True)
         bed_df["Partition"] = bed_df.Chromosome.astype(str) + "-" + (bed_df.Start // partition_size).astype(str)
+        if region_id is None:
+            region_id = "Name"
+            bed_df[region_id] = (
+                bed_df.Chromosome.astype(str) + ":" + bed_df.Start.astype(str) + "-" + bed_df.End.astype(str)
+            )
+        bed_df = bed_df[["Chromosome", "Start", "End", region_id, "Partition"]]
 
         for chunk_name, chunk_bed in tqdm(bed_df.groupby("Partition")):
             chunk_bed_path = partition_dir / f"{chunk_name}.bed"
             chunk_zarr_path = partition_dir / f"{chunk_name}.zarr"
-            chunk_bed.iloc[:, :3].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
+            chunk_bed.iloc[:, :4].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
 
             self._scan_bw_table(
                 bw_table=bw_table,
