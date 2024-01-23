@@ -2,6 +2,7 @@ import pathlib
 import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from io import StringIO
 
 import numpy as np
 import pandas as pd
@@ -94,6 +95,104 @@ def _scan_bw(bw_path, bed_path, type="mean", dtype="float32"):
     return values
 
 
+def _dump_fa(path, name, seq):
+    with open(path, "w") as f:
+        f.write(f">{name}\n")
+        f.write(str(seq.seq).upper() + "\n")
+
+
+def _process_cbust_bed(df):
+    chrom, chunk_start, chunk_end, slop = df["# chrom"][0].split(":")
+    chunk_start = int(chunk_start)
+    chunk_end = int(chunk_end)
+    slop = int(slop)
+    seq_start = max(0, chunk_start - slop)
+
+    # adjust to genome coords
+    df["genomic_start__bed"] += seq_start
+    df["genomic_end__bed"] += seq_start
+    df["# chrom"] = chrom
+
+    use_cols = [
+        "# chrom",
+        "genomic_start__bed",
+        "genomic_end__bed",
+        "cluster_id_or_motif_name",
+        "cluster_or_motif_score",
+        "strand",
+        "cluster_or_motif",
+        "motif_sequence",
+        "motif_type_contribution_score",
+    ]
+    df = df[use_cols].copy()
+    df = df.loc[(df["genomic_end__bed"] <= chunk_end) & (df["genomic_start__bed"] > chunk_start)].copy()
+    return df
+
+
+def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r):
+    fasta_chunk_path = pathlib.Path(fasta_chunk_path)
+    fa_name = fasta_chunk_path.name
+    output_path = f"{output_dir}/{fa_name}.csv.gz"
+    temp_path = f"{output_dir}/{fa_name}.temp.csv.gz"
+    if pathlib.Path(output_path).exists():
+        return
+
+    cmd = f"{cbust_path} -f 5 -c {min_cluster_score} -b {b} -r {r} -t 1000000000 {motif_path} {fasta_chunk_path}"
+    p = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=True,
+        shell=True,
+    )
+    try:
+        df = pd.read_csv(StringIO(p.stdout), sep="\t")
+    except pd.errors.EmptyDataError:
+        return
+
+    df = _process_cbust_bed(df)
+
+    df.to_csv(temp_path)
+    pathlib.Path(temp_path).rename(output_path)
+    return
+
+
+def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_motif_scan):
+    motif = pathlib.Path(output_dir).name
+    all_chunk_paths = list(output_dir.glob("*.csv.gz"))
+    total_results = []
+    for path in tqdm(all_chunk_paths):
+        df = pd.read_csv(path, index_col=0)
+        total_results.append(df)
+    total_results = pd.concat(total_results).rename(
+        columns={
+            "# chrom": "chrom",
+            "genomic_start__bed": "start",
+            "genomic_end__bed": "end",
+        }
+    )
+    cluster_bed = total_results[total_results["cluster_or_motif"] == "cluster"]
+    cluster_bed = cluster_bed.sort_values(["chrom", "start"])
+    with pyBigWig.open(f"{genome}+{motif}.bw", "w") as bw:
+        bw.addHeader(list(chrom_sizes.sort_index().items()))
+        bw.addEntries(
+            cluster_bed["chrom"].astype(str).tolist(),
+            cluster_bed["start"].astype("int64").tolist(),
+            ends=cluster_bed["end"].astype("int64").tolist(),
+            values=cluster_bed["cluster_or_motif_score"].astype("float32").tolist(),
+        )
+    if save_motif_scan:
+        total_results.to_csv(f"{genome}+{motif}.motif_scan.csv.gz")
+    return
+
+
+def _is_macos():
+    import platform
+
+    return platform.system() == "Darwin"
+
+
 class Genome:
     """Class for utilities related to a genome."""
 
@@ -101,9 +200,11 @@ class Genome:
         self.genome = genome
         self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta()
         self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
+        self.chromosomes = self.chrom_sizes.index
         self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
         self.all_chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=False)
         self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
+        self.all_chromosomes = self.all_chrom_sizes.index
 
         # load blacklist if it exists
         package_dir = _get_package_dir()
@@ -544,7 +645,13 @@ class Genome:
         return
 
     def dump_region_bigwig_zarr(
-        self, bw_table, bed_path, partition_dir, region_id=None, partition_size=50000000, cpu=None
+        self,
+        bw_table,
+        bed_path,
+        partition_dir,
+        region_id=None,
+        partition_size=50000000,
+        cpu=None,
     ):
         """
         Dum
@@ -572,4 +679,128 @@ class Genome:
                 cpu=cpu,
             )
             pathlib.Path(chunk_bed_path).unlink()
+        return
+
+    def split_genome_fasta(self, fasta_chunk_dir, chunk_size=10000000, slop_size=10000):
+        """
+        Split genome fasta into chunks.
+
+        Parameters
+        ----------
+        fasta_chunk_dir : str or pathlib.Path
+            Path to directory to save the fasta chunks
+        chunk_size : int, optional
+            Size of each chunk in base pairs
+        slop_size : int, optional
+            Size of slop for each chunk
+        """
+        fasta_chunk_dir = pathlib.Path(fasta_chunk_dir)
+        fasta_chunk_dir.mkdir(exist_ok=True)
+        success_flag_path = fasta_chunk_dir / ".success"
+
+        if success_flag_path.exists():
+            return
+
+        with Fasta(self.fasta_path) as fasta:
+            for chrom in fasta:
+                if chrom.name not in self.chromosomes:
+                    continue
+
+                chrom_size = self.chrom_sizes[chrom.name]
+
+                chunk_starts = list(range(0, chrom_size, chunk_size))
+                slop = (
+                    slop_size + 1000
+                )  # slop this size for the -r parameter in cbust, estimating background motif occurance
+                for chunk_start in chunk_starts:
+                    seq_start = max(chunk_start - slop, 0)
+                    chunk_end = min(chunk_start + chunk_size, chrom_size)
+                    seq_end = min(chunk_start + chunk_size + slop, chrom_size)
+                    _name = f"{chrom.name}:{chunk_start}:{chunk_end}:{slop}"
+                    _path = f"{fasta_chunk_dir}/{_name}.fa"
+                    _seq = chrom[seq_start:seq_end]
+                    _dump_fa(path=_path, name=_name, seq=_seq)
+
+        success_flag_path.touch()
+        return
+
+    def scan_motif_with_cbust(
+        self, output_dir, motif_table, cpu=None, min_cluster_score=0, r=10000, b=0, save_motif_scan=False
+    ):
+        """
+        Scan motifs with cbust.
+
+        Parameters
+        ----------
+        output_dir : str or pathlib.Path
+            Path to directory to save the output bigwig files
+        motif_table : str or pathlib.Path
+            Path to a table of motif names and paths
+        cpu : int, optional
+            Number of cpus to use, if None, will use all available cpus
+        min_cluster_score : int, optional
+            Minimum cluster score
+        r : int, optional
+            cbust -r parameter. Range in bp for counting local nucleotide abundances.
+        b : int, optional
+            cbust -b parameter. Background padding in bp.
+        save_motif_scan : bool, optional
+            If True, will save the motif scan table file, which has exact motif locations and scores.
+        """
+        motif_paths = pd.read_csv(motif_table, index_col=0, header=None).squeeze()
+        package_dir = _get_package_dir()
+
+        if _is_macos():
+            cbust_path = package_dir / "pkg_data/cbust_macos"
+        else:
+            cbust_path = package_dir / "pkg_data/cbust"
+
+        output_dir = pathlib.Path(output_dir)
+        fasta_chunk_dir = output_dir / "fasta_chunks_for_motif_scan"
+        fasta_chunk_dir.mkdir(exist_ok=True, parents=True)
+
+        self.split_genome_fasta(fasta_chunk_dir=fasta_chunk_dir, slop_size=r)
+
+        fasta_chunk_paths = list(pathlib.Path(fasta_chunk_dir).glob("*.fa"))
+
+        with ProcessPoolExecutor(cpu) as pool:
+            fs = []
+            for motif, motif_path in motif_paths.items():
+                motif_temp_dir = output_dir / (motif + "_temp")
+                motif_temp_dir.mkdir(exist_ok=True, parents=True)
+
+                for fasta_chunk_path in fasta_chunk_paths:
+                    fs.append(
+                        pool.submit(
+                            _run_cbust_chunk,
+                            output_dir=motif_temp_dir,
+                            fasta_chunk_path=fasta_chunk_path,
+                            cbust_path=cbust_path,
+                            motif_path=motif_path,
+                            min_cluster_score=min_cluster_score,
+                            b=b,
+                            r=r,
+                        )
+                    )
+
+            for f in as_completed(fs):
+                f.result()
+
+        motif_temp_dirs = list(output_dir.glob("*_temp"))
+        with ProcessPoolExecutor(cpu) as pool:
+            fs = {}
+            for motif_temp_dir in motif_temp_dirs:
+                future = pool.submit(
+                    _combine_single_motif_scan_to_bigwig,
+                    output_dir=motif_temp_dir,
+                    genome=self.genome,
+                    chrom_sizes=self.chrom_sizes,
+                    save_motif_scan=save_motif_scan,
+                )
+                fs[future] = motif_temp_dir
+
+            for f in as_completed(fs):
+                f.result()
+                motif_temp_dir = fs[f]
+                shutil.rmtree(motif_temp_dir)
         return
