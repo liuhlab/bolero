@@ -1,0 +1,42 @@
+# jupyter.yaml
+
+resources:
+  cloud: gcp
+  instance_type: n1-highcpu-96
+  region: us-central1
+  disk_size: 384
+  image_id: projects/hms-dev-greenberg-4923/global/images/hanqing-analysis-base
+
+file_mounts:
+  /data:
+    source: gs://hms-hanqing-analysis
+    mode: MOUNT
+  /ref:
+    source: gs://hms-hanqing-reference
+    mode: MOUNT
+  /wmb:
+    source: gs://hms-hanqing-wmb
+    mode: MOUNT
+  /tempdata:
+    source: gs://hms-hanqing-temp
+    mode: MOUNT
+
+setup: |
+  if [ -f $HOME/mambaforge/SKIPSETUP ]
+  then
+    echo "Skip setup"
+  else
+    gsutil -m cp gs://hms-hanqing-reference/pkg/env.yml /tmp/env.yml
+    mamba env update -n base -f /tmp/env.yml
+    mamba install -y bowtie2 samtools picard deeptools bedtools macs2 STAR kallisto==0.46 subread multiqc
+    touch $HOME/mambaforge/SKIPSETUP
+  fi
+
+run: |
+  snakemake -d /tempdata/240123-Su2017Nature/atac -s /tempdata/240123-Su2017Nature/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
+  snakemake -d /tempdata/240123-Ibarra2022MSB/atac -s /tempdata/240123-Ibarra2022MSB/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
+  snakemake -d /tempdata/240123-Su2017Nature/rna/pe -s /tempdata/240123-Su2017Nature/rna/pe/Snakefile --keep-going --rerun-incomplete -j --nolock
+  snakemake -d /tempdata/240123-Su2017Nature/rna/se -s /tempdata/240123-Su2017Nature/rna/se/Snakefile --keep-going --rerun-incomplete -j --nolock
+  snakemake -d /tempdata/240123-Ibarra2022MSB/rna -s /tempdata/240123-Ibarra2022MSB/rna/Snakefile --keep-going --rerun-incomplete -j --nolock
+
+  # jupyter-lab --LabApp.token='' --no-browser --port 9393
