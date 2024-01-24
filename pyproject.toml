@@ -1,10 +1,10 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 
 [project]
 name = "bolero"
-version = "0.0.1"
+dynamic = ["version"]
 description = "sequence"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -136,3 +136,6 @@ skip = [
     "docs/references.md",
     "docs/notebooks/example.ipynb",
 ]
+
+[tool.hatch.version]
+source = "vcs"
