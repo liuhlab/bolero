@@ -15,7 +15,7 @@ def test_genome():
     )
     test_bed_path = "test.bed"
     test_bed.to_csv(test_bed_path, sep="\t", header=False, index=False)
-    genome.get_region_fasta(test_bed_path, output_path="test.fa", region_id=None)
-    assert os.path.exists("test.fa")
-    # os.remove('test.fa')
-    # os.remove('test.bed')
+    genome.get_region_fasta(test_bed_path, output_path="test.fa", compress=True)
+    assert os.path.exists("test.fa.gz")
+    os.remove("test.fa.gz")
+    os.remove("test.bed")

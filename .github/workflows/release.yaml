@@ -1,8 +1,11 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: ["main"]
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
 
 # Use "trusted publishing", see https://docs.pypi.org/trusted-publishers/
 jobs:

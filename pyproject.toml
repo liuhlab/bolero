@@ -22,11 +22,14 @@ urls.Source = "https://github.com/lhqing/bolero"
 urls.Home-page = "https://github.com/lhqing/bolero"
 dependencies = [
     "anndata",
+    "biopython",
     "deeptools",
     "dnaio",
+    "pyfaidx",
     "pyranges",
     "seaborn",
     "session-info",
+    "tqdm",
     "xarray",
     "zarr",
 ]
