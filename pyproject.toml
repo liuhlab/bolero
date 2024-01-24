@@ -24,7 +24,6 @@ dependencies = [
     "anndata",
     "biopython",
     "deeptools",
-    "dnaio",
     "pyfaidx",
     "pyranges",
     "seaborn",
