@@ -39,6 +39,9 @@ jobs:
       PYTHON: ${{ matrix.python }}
 
     steps:
+      # checkout need to be first
+      - uses: actions/checkout@v3
+
       - uses: mamba-org/setup-micromamba@v1
         with:
           environment-file: environment.yml
@@ -48,7 +51,6 @@ jobs:
           cache-environment: true
           post-cleanup: "all"
 
-      - uses: actions/checkout@v3
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v4
         with:
