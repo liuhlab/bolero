@@ -28,13 +28,13 @@ setup: |
   else
     gsutil -m cp gs://hms-hanqing-reference/pkg/env.yml /tmp/env.yml
     mamba env update -n base -f /tmp/env.yml
-    mamba install -y bowtie2 samtools picard deeptools bedtools macs2 STAR kallisto==0.46 subread multiqc
+    mamba install -y bowtie2 samtools picard deeptools bedtools macs2 STAR kallisto==0.46 subread multiqc trim_galore
     touch $HOME/mambaforge/SKIPSETUP
   fi
 
 run: |
-  snakemake -d /tempdata/240123-Su2017Nature/atac -s /tempdata/240123-Su2017Nature/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
-  snakemake -d /tempdata/240123-Ibarra2022MSB/atac -s /tempdata/240123-Ibarra2022MSB/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
+  # snakemake -d /tempdata/240123-Su2017Nature/atac -s /tempdata/240123-Su2017Nature/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
+  # snakemake -d /tempdata/240123-Ibarra2022MSB/atac -s /tempdata/240123-Ibarra2022MSB/atac/Snakefile --keep-going --rerun-incomplete -j --nolock
   snakemake -d /tempdata/240123-Su2017Nature/rna/pe -s /tempdata/240123-Su2017Nature/rna/pe/Snakefile --keep-going --rerun-incomplete -j --nolock
   snakemake -d /tempdata/240123-Su2017Nature/rna/se -s /tempdata/240123-Su2017Nature/rna/se/Snakefile --keep-going --rerun-incomplete -j --nolock
   snakemake -d /tempdata/240123-Ibarra2022MSB/rna -s /tempdata/240123-Ibarra2022MSB/rna/Snakefile --keep-going --rerun-incomplete -j --nolock

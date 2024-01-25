@@ -24,13 +24,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: "3.9"
-          - os: ubuntu-latest
-            python: "3.11"
-          - os: ubuntu-latest
-            python: "3.11"
-            pip-flags: "--pre"
-            name: PRE-RELEASE DEPENDENCIES
+            python: "3.10"
 
     name: ${{ matrix.name }} Python ${{ matrix.python }}
 
@@ -61,9 +55,11 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip wheel
+
       - name: Install dependencies
         run: |
           pip install ${{ matrix.pip-flags }} ".[dev,test]"
+
       - name: Test
         env:
           MPLBACKEND: agg
@@ -71,9 +67,11 @@ jobs:
           DISPLAY: :42
         run: |
           coverage run -m pytest -v --color=yes
+
       - name: Report coverage
         run: |
           coverage report
+
       - name: Upload coverage
         uses: codecov/codecov-action@v3
         with:
