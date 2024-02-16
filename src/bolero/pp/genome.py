@@ -7,6 +7,7 @@ import re
 import tempfile
 import numpy as np
 import pandas as pd
+import warnings
 import pyBigWig
 import pyranges as pr
 import xarray as xr
@@ -648,7 +649,9 @@ class Genome:
         # load all partitions and save to one zarr file
         total_da = self.load_partiton_zarr(temp_dir)
         total_ds = total_da.to_dataset(name="X_dna_one_hot")
-        total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", xr.SerializationWarning)
+            total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
         shutil.rmtree(temp_dir)
         return total_ds
 
@@ -743,7 +746,7 @@ class Genome:
     ):
         """Prepare a dataset for training a model with X and y."""
 
-        success_flag_path = input_zarr_path / ".success"
+        success_flag_path = pathlib.Path(input_zarr_path) / ".success"
         if success_flag_path.exists():
             region_ds = xr.open_zarr(input_zarr_path)
             return region_ds
