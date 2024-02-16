@@ -3,7 +3,8 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-
+import re
+import tempfile
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -20,8 +21,24 @@ from .seq import Sequence
 
 zarr.storage.default_compressor = Zstd(level=3)
 
-UCSC_GENOME = "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
-UCSC_CHROM_SIZES = "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
+UCSC_GENOME = (
+    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
+)
+UCSC_CHROM_SIZES = (
+    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
+)
+
+
+def _region_names_to_bed(names):
+    bed_record = []
+    for name in names:
+        c, se = name.split(":")
+        s, e = se.split("-")
+        bed_record.append([c, s, e, name])
+    bed = pr.PyRanges(
+        pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
+    )
+    return bed
 
 
 def _read_chrom_sizes(chrom_sizes_path, main=True):
@@ -35,7 +52,9 @@ def _read_chrom_sizes(chrom_sizes_path, main=True):
 
     if main:
         # only keep main chromosomes
-        chrom_sizes = chrom_sizes[~chrom_sizes.index.str.contains("_|random|chrUn|chrEBV|chrM|chrU|hap")]
+        chrom_sizes = chrom_sizes[
+            ~chrom_sizes.index.str.contains("_|random|chrUn|chrEBV|chrM|chrU|hap")
+        ]
 
     return chrom_sizes
 
@@ -125,11 +144,15 @@ def _process_cbust_bed(df):
         "motif_type_contribution_score",
     ]
     df = df[use_cols].copy()
-    df = df.loc[(df["genomic_end__bed"] <= chunk_end) & (df["genomic_start__bed"] > chunk_start)].copy()
+    df = df.loc[
+        (df["genomic_end__bed"] <= chunk_end) & (df["genomic_start__bed"] > chunk_start)
+    ].copy()
     return df
 
 
-def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r):
+def _run_cbust_chunk(
+    output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r
+):
     fasta_chunk_path = pathlib.Path(fasta_chunk_path)
     fa_name = fasta_chunk_path.name
     output_path = f"{output_dir}/{fa_name}.csv.gz"
@@ -158,7 +181,9 @@ def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_c
     return
 
 
-def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_motif_scan):
+def _combine_single_motif_scan_to_bigwig(
+    output_dir, genome, chrom_sizes, save_motif_scan
+):
     motif = pathlib.Path(output_dir).name
     all_chunk_paths = list(output_dir.glob("*.csv.gz"))
     total_results = []
@@ -187,6 +212,22 @@ def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_m
     return
 
 
+def _open_bed(bed, as_df=False):
+    if isinstance(bed, pr.PyRanges):
+        pass
+    elif isinstance(bed, pd.DataFrame):
+        bed = pr.PyRanges(bed)
+    elif isinstance(bed, str):
+        bed = pr.read_bed(bed)
+    elif isinstance(bed, pathlib.Path):
+        bed = pr.read_bed(str(bed))
+    else:
+        raise ValueError("bed must be a PyRanges, DataFrame, str or Path")
+    if as_df:
+        return bed.df
+    return bed
+
+
 def _is_macos():
     import platform
 
@@ -208,7 +249,9 @@ class Genome:
 
         # load blacklist if it exists
         package_dir = _get_package_dir()
-        blacklist_path = package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+        blacklist_path = (
+            package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+        )
         if blacklist_path.exists():
             _df = pr.read_bed(str(blacklist_path), as_df=True)
             self.blacklist_bed = pr.PyRanges(_df.iloc[:, :3]).sort()
@@ -234,7 +277,9 @@ class Genome:
         if not fasta_file.exists():
             fasta_gz_file = fasta_file.parent / (fasta_file.name + ".gz")
             print(
-                f"Downloading {genome} fasta file from UCSC" f"\nUCSC url: {fasta_url}" f"\nLocal path: {fasta_file}\n"
+                f"Downloading {genome} fasta file from UCSC"
+                f"\nUCSC url: {fasta_url}"
+                f"\nLocal path: {fasta_file}\n"
             )
             _download_file(fasta_url, fasta_gz_file)
             _download_file(chrom_sizes_url, chrom_sizes_file)
@@ -299,7 +344,13 @@ class Genome:
 
         return output_path
 
-    def prepare_bed(
+    def _remove_blacklist(self, bed):
+        """Remove blacklist regions from a bed file"""
+        if self.blacklist_bed is not None:
+            bed = bed.subtract(self.blacklist_bed)
+        return bed
+
+    def prepare_window_bed(
         self,
         bed_path,
         output_path=None,
@@ -347,8 +398,8 @@ class Genome:
             bed = bed[bed.Chromosome.isin(self.all_chrom_sizes.index)].copy()
 
         # remove blacklist regions
-        if remove_blacklist and self.blacklist_bed is not None:
-            bed = bed.subtract(self.blacklist_bed)
+        if remove_blacklist:
+            bed = self._remove_blacklist(bed)
 
         # use genome windows with window_size and window_step to cover the entire bed file
         if window:
@@ -371,7 +422,11 @@ class Genome:
                 no_name = True
         if no_name:
             bed.Name = (
-                bed.df["Chromosome"].astype(str) + ":" + bed.df["Start"].astype(str) + "-" + bed.df["End"].astype(str)
+                bed.df["Chromosome"].astype(str)
+                + ":"
+                + bed.df["Start"].astype(str)
+                + "-"
+                + bed.df["End"].astype(str)
             )
 
         # downsample
@@ -400,7 +455,9 @@ class Genome:
         sequences : list of bolero.pp.seq.Sequence
             List of Sequence objects
         """
-        fasta_path = self.get_region_fasta(bed_path, output_path=None, compress=save_fasta)
+        fasta_path = self.get_region_fasta(
+            bed_path, output_path=None, compress=save_fasta
+        )
         sequences = list(_iter_fasta(fasta_path))
         if not save_fasta:
             fasta_path.unlink()
@@ -456,9 +513,13 @@ class Genome:
             one_hot[i] = seq.one_hot_encoding(order=base_order, dtype=dtype)
 
         if add_reverse_complement:
-            one_hot_rc = np.zeros((len(sequences), seq_len, len(base_order)), dtype=dtype)
+            one_hot_rc = np.zeros(
+                (len(sequences), seq_len, len(base_order)), dtype=dtype
+            )
             for i, seq in enumerate(sequences):
-                one_hot_rc[i] = seq.reverse_complement().one_hot_encoding(order=base_order, dtype=dtype)
+                one_hot_rc[i] = seq.reverse_complement().one_hot_encoding(
+                    order=base_order, dtype=dtype
+                )
             one_hot = np.concatenate([one_hot, one_hot_rc], axis=0)
 
         # construct xarray.DataArray
@@ -495,7 +556,9 @@ class Genome:
         # chunk
         base_len = len(base_order)
         region_chunk_size = max(5000, 100000000 // seq_len // base_len // 10000 * 10000)
-        one_hot = one_hot.chunk({"region": region_chunk_size, "position": seq_len, "base": len(base_order)})
+        one_hot = one_hot.chunk(
+            {"region": region_chunk_size, "position": seq_len, "base": len(base_order)}
+        )
 
         for coord in list(one_hot.coords.keys()):
             _coords = one_hot.coords[coord]
@@ -505,7 +568,9 @@ class Genome:
                 one_hot.coords[coord] = _coords.chunk({coord: len(_coords)})
             elif coord == "chrom":
                 chrom_max_size = max([len(k) for k in self.chrom_sizes.index])
-                one_hot.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk({"region": 100000000})
+                one_hot.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk(
+                    {"region": 100000000}
+                )
             elif coord in {"start", "end", "is_rc"}:
                 one_hot.coords[coord] = _coords.chunk({"region": 100000000})
 
@@ -524,7 +589,9 @@ class Genome:
         da.to_zarr(_zarr_path, mode="w")
         return
 
-    def dump_region_sequence_zarr(self, bed_path, partition_dir, partition_size=50000000, cpu=None):
+    def dump_region_sequence_zarr(
+        self, bed_path, zarr_path, temp_dir, partition_size=50000000, cpu=None
+    ):
         """
         Dump one-hot encoded sequences from a bed file into zarr files.
 
@@ -541,17 +608,29 @@ class Genome:
         cpu : int, optional
             Number of cpus to use, if None, will use all available cpus
         """
-        partition_dir = pathlib.Path(partition_dir)
-        partition_dir.mkdir(exist_ok=True, parents=True)
-        bed_df = pr.read_bed(str(bed_path), as_df=True)
-        bed_df["Partition"] = bed_df.Chromosome.astype(str) + "-" + (bed_df.Start // partition_size).astype(str)
+        zarr_path = pathlib.Path(zarr_path)
+        if temp_dir is None:
+            # get random temp path
+            temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="bolero_"))
+        else:
+            temp_dir = pathlib.Path(temp_dir)
+            temp_dir.mkdir(exist_ok=True, parents=True)
+
+        bed_df = _open_bed(bed_path, as_df=True)
+        bed_df["Partition"] = (
+            bed_df.Chromosome.astype(str)
+            + "-"
+            + (bed_df.Start // partition_size).astype(str)
+        )
 
         with ProcessPoolExecutor(cpu) as pool:
             futures = {}
             for chunk_name, chunk_bed in bed_df.groupby("Partition"):
-                chunk_bed_path = partition_dir / f"{chunk_name}.bed"
-                chunk_zarr_path = partition_dir / f"{chunk_name}.zarr"
-                chunk_bed.iloc[:, :3].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
+                chunk_bed_path = temp_dir / f"{chunk_name}.bed"
+                chunk_zarr_path = temp_dir / f"{chunk_name}.zarr"
+                chunk_bed.iloc[:, :3].to_csv(
+                    chunk_bed_path, sep="\t", index=None, header=None
+                )
 
                 future = pool.submit(
                     self._dump_zarr,
@@ -563,17 +642,30 @@ class Genome:
             for future in as_completed(futures):
                 chunk_name = futures[future]
                 future.result()
-                chunk_bed_path = partition_dir / f"{chunk_name}.bed"
+                chunk_bed_path = temp_dir / f"{chunk_name}.bed"
                 pathlib.Path(chunk_bed_path).unlink()
-        return
+
+        # load all partitions and save to one zarr file
+        total_da = self.load_partiton_zarr(temp_dir)
+        total_ds = total_da.to_dataset(name="X_dna_one_hot")
+        total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
+        shutil.rmtree(temp_dir)
+        return total_ds
 
     @staticmethod
     def load_partiton_zarr(partition_dir):
         """Load zarr files of a region set partitioned by large genome chunks."""
         partition_dir = pathlib.Path(partition_dir)
         partition_da_dict = {
-            p.name[:-5]: xr.open_zarr(p)["__xarray_dataarray_variable__"] for p in partition_dir.glob("*.zarr")
+            p.name[:-5]: xr.open_zarr(p)["__xarray_dataarray_variable__"]
+            for p in partition_dir.glob("*.zarr")
         }
+        # add partition name to each DataArray
+        for k in list(partition_da_dict.keys()):
+            da = partition_da_dict[k]
+            n_regions = len(da.coords["region"])
+            _p = pd.Series([k] * n_regions, index=da.get_index("region"))
+            partition_da_dict[k] = da.assign_coords({"partition": ("region", _p)})
 
         # order partitions by chromosome and index
         partitions = []
@@ -637,12 +729,57 @@ class Genome:
                 da.coords[coord] = _coords.chunk({coord: len(_coords)})
             elif coord == "chrom":
                 chrom_max_size = max([len(k) for k in self.chrom_sizes.index])
-                da.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk({"region": 100000000})
+                da.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk(
+                    {"region": 100000000}
+                )
             elif coord in {"start", "end"}:
                 da.coords[coord] = _coords.chunk({"region": 100000000})
 
         da.to_zarr(zarr_path, mode="w")
         return
+
+    def prepare_xy_dataset(
+        self, y_path, input_zarr_path, partition_size=50000000, cpu=None, temp_dir=None
+    ):
+        """Prepare a dataset for training a model with X and y."""
+
+        success_flag_path = input_zarr_path / ".success"
+        if success_flag_path.exists():
+            region_ds = xr.open_zarr(input_zarr_path)
+            return region_ds
+        
+        labels = pd.read_feather(y_path)
+        labels = labels.set_index(labels.columns[0])
+
+        regions_bed = _region_names_to_bed(labels.index)
+
+        # generate region one-hot encoding zarr, spearate partitions, load into partition zarr
+        region_ds = self.dump_region_sequence_zarr(
+            bed_path=regions_bed,
+            zarr_path=input_zarr_path,
+            temp_dir=temp_dir,
+            partition_size=partition_size,
+            cpu=cpu,
+        )
+
+        # order the label mat
+        rc_suffix = re.compile("_rc$")
+        use_index = region_ds.get_index("region")
+        ordered_labels = pd.DataFrame(
+            labels.reindex(use_index.map(lambda i: rc_suffix.split(i)[0])).values,
+            index=use_index,
+            columns=labels.columns,
+        )
+        ordered_labels.columns.name = "category"
+
+        # save labels into region_ds
+        region_ds["y"] = xr.DataArray(ordered_labels).chunk(
+            {"region": 1000000, "category": 20}
+        )
+        region_ds.to_zarr(input_zarr_path, mode="a")
+
+        success_flag_path.touch()
+        return region_ds
 
     def dump_region_bigwig_zarr(
         self,
@@ -654,23 +791,33 @@ class Genome:
         cpu=None,
     ):
         """
-        Dum
+        Dump bigwig values from a bed file into zarr files.
         """
         partition_dir = pathlib.Path(partition_dir)
         partition_dir.mkdir(exist_ok=True, parents=True)
         bed_df = pr.read_bed(str(bed_path), as_df=True)
-        bed_df["Partition"] = bed_df.Chromosome.astype(str) + "-" + (bed_df.Start // partition_size).astype(str)
+        bed_df["Partition"] = (
+            bed_df.Chromosome.astype(str)
+            + "-"
+            + (bed_df.Start // partition_size).astype(str)
+        )
         if region_id is None:
             region_id = "Name"
             bed_df[region_id] = (
-                bed_df.Chromosome.astype(str) + ":" + bed_df.Start.astype(str) + "-" + bed_df.End.astype(str)
+                bed_df.Chromosome.astype(str)
+                + ":"
+                + bed_df.Start.astype(str)
+                + "-"
+                + bed_df.End.astype(str)
             )
         bed_df = bed_df[["Chromosome", "Start", "End", region_id, "Partition"]]
 
         for chunk_name, chunk_bed in tqdm(bed_df.groupby("Partition")):
             chunk_bed_path = partition_dir / f"{chunk_name}.bed"
             chunk_zarr_path = partition_dir / f"{chunk_name}.zarr"
-            chunk_bed.iloc[:, :4].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
+            chunk_bed.iloc[:, :4].to_csv(
+                chunk_bed_path, sep="\t", index=None, header=None
+            )
 
             self._scan_bw_table(
                 bw_table=bw_table,
@@ -725,7 +872,14 @@ class Genome:
         return
 
     def scan_motif_with_cbust(
-        self, output_dir, motif_table, cpu=None, min_cluster_score=0, r=10000, b=0, save_motif_scan=False
+        self,
+        output_dir,
+        motif_table,
+        cpu=None,
+        min_cluster_score=0,
+        r=10000,
+        b=0,
+        save_motif_scan=False,
     ):
         """
         Scan motifs with cbust.
