@@ -495,6 +495,7 @@ class Genome:
         one_hot : xarray.DataArray
             One-hot encoded sequences
         """
+        base_order = seq.DEFAULT_ONE_HOT_ORDER
         bed_path = pathlib.Path(bed_path)
         bed = pr.read_bed(str(bed_path))
 
@@ -507,7 +508,7 @@ class Genome:
 
         one_hot = np.zeros((len(sequences), seq_len, len(base_order)), dtype=dtype)
         for i, seq in enumerate(sequences):
-            one_hot[i] = seq.one_hot_encoding(dtype=dtype)
+            one_hot[i] = seq.one_hot_encoding(base_order=base_order, dtype=dtype)
 
         # construct xarray.DataArray
         region_index = [seq.name for seq in sequences]

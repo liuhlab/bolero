@@ -20,7 +20,9 @@ urls.Home-page = "https://github.com/lhqing/bolero"
 dependencies = [
     "anndata",
     "biopython",
+    "bolero_process",
     "deeptools",
+    "joblib",
     "pyfaidx",
     "pyranges",
     "seaborn",
