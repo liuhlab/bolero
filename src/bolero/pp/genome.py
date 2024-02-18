@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 import bolero
 
-from bolero.pp.seq import Sequence
+from bolero.pp.seq import Sequence, DEFAULT_ONE_HOT_ORDER
 
 zarr.storage.default_compressor = Zstd(level=3)
 
@@ -495,7 +495,7 @@ class Genome:
         one_hot : xarray.DataArray
             One-hot encoded sequences
         """
-        base_order = seq.DEFAULT_ONE_HOT_ORDER
+        base_order = DEFAULT_ONE_HOT_ORDER
         bed_path = pathlib.Path(bed_path)
         bed = pr.read_bed(str(bed_path))
 
