@@ -1,6 +1,7 @@
 import numpy as np
 from Bio.Seq import Seq
 
+DEFAULT_ONE_HOT_ORDER = "ACGT"
 
 def _one_hot_encoding(seq, order, dtype):
     one_hot = np.zeros((len(seq), 4), dtype=dtype)
@@ -22,14 +23,14 @@ class Sequence(Seq):
         self.end = end
         self.strand = strand
 
-    def one_hot_encoding(self, order="ATCG", dtype=np.int8) -> np.ndarray:
+    def one_hot_encoding(self, order=DEFAULT_ONE_HOT_ORDER, dtype=np.int8) -> np.ndarray:
         """
         One-hot encoding of a DNA sequence string. Output is a numpy array of shape (len(seq), 4).
 
         Parameters
         ----------
         order : str, optional
-            Order of the one-hot encoding base axis. Default is 'ATCG'.
+            Order of the one-hot encoding base axis. Default is 'ACGT' so reverse the base axis will be equal to make a compelment conversion.
         dtype : numpy.dtype, optional
             Data type of the output array. Default is np.int8.
 

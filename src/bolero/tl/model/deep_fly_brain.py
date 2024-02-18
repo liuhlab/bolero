@@ -6,17 +6,18 @@ import torch.nn.functional as F
 class DeepFlyBrain(nn.Module):
     """DeepFlyBrain model."""
 
-    def __init__(self, out_dims, seq_shape=(1001, 4), motif_file_path=None):
+    def __init__(self, out_dims, seq_shape=(499, 4), motif_file_path=None):
         super().__init__()
 
-        # Define layers
-        self.conv1d = nn.Conv1d(in_channels=seq_shape[0], out_channels=1024, kernel_size=24)
+        # Layers used in process_input
+        self.conv1d = nn.Conv1d(in_channels=seq_shape[1], out_channels=1024, kernel_size=24)
         self.maxpool = nn.MaxPool1d(kernel_size=12, stride=12)
         self.dropout1 = nn.Dropout(0.5)
-        self.dense1 = nn.Linear(1024, 128)  # Assuming the correct input size here
+        self.dense1 = nn.Linear(1024, 128)
         self.lstm = nn.LSTM(
             input_size=128,
             hidden_size=128,
+            num_layers=1,
             batch_first=True,
             dropout=0.2,
             bidirectional=True,
@@ -25,21 +26,22 @@ class DeepFlyBrain(nn.Module):
         self.flatten = nn.Flatten()
         self.dense2 = nn.Linear(256, 256)  # Assuming the correct input size here
         self.dropout3 = nn.Dropout(0.5)
+
+        # final output layer
         self.output_layer = nn.Linear(256, out_dims)  # Assuming the correct input size here
 
         # Custom weight initialization
-        self.motif_file_path = motif_file_path
-        if self.motif_file_path is not None:
-            self.initialize_weights()
+        # self.motif_file_path = motif_file_path
+        # if self.motif_file_path is not None:
+        #     self.initialize_weights()
 
     def process_input(self, x):
         """Process input through the layers."""
+        x = x.permute(0, 2, 1)  # Rearrange dimensions to batch, bases/channels, sequence positions
         x = F.relu(self.conv1d(x))
         x = self.maxpool(x)
         x = self.dropout1(x)
-        x = x.permute(0, 2, 1)  # Rearrange dimensions for TimeDistributed Dense
         x = F.relu(self.dense1(x))
-        x = x.permute(0, 2, 1)  # Rearrange back after Dense
         x, _ = self.lstm(x)
         x = self.dropout2(x)
         x = self.flatten(x)
@@ -53,15 +55,14 @@ class DeepFlyBrain(nn.Module):
         x_forward = self.process_input(x)
 
         # Reverse input
-        x_reversed = x.flip(dims=[1]).flip(dims=[2])
-        x_reversed = self.process_input(x_reversed)
+        x_reversed_complemented = x.flip(dims=[1]).flip(dims=[2])
+        x_reversed_complemented = self.process_input(x_reversed_complemented)
 
         # Concatenate
-        merged = torch.cat((x_forward, x_reversed), dim=1)
+        merged = torch.cat((x_forward, x_reversed_complemented), dim=1)
 
         # Final layers
-        out = self.output_layer(merged)
-        out = F.sigmoid(out)
+        out = F.sigmoid(self.output_layer(merged))
         return out
 
     # def initialize_weights(self):

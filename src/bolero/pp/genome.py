@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 import bolero
 
-from .seq import Sequence
+from bolero.pp.seq import Sequence
 
 zarr.storage.default_compressor = Zstd(level=3)
 
@@ -470,15 +470,15 @@ class Genome:
     def get_region_one_hot(
         self,
         bed_path=None,
-        base_order="ATCG",
         dtype=np.int8,
-        add_reverse_complement=True,
     ):
         """
         Extract one-hot encoded sequences from a bed file.
 
         Regions in the bed file must be sorted and have chrom, start, end and name columns.
         Regions also needs to have the same length.
+        The order of the base axis in one-hot encoding matrix is "ACGT", 
+        reverse this axis will be equal to make a compelment conversion ("TGCA").
 
         Parameters
         ----------
@@ -487,12 +487,8 @@ class Genome:
             If None, will extract sequences from fasta_path
         region_id : str, optional
             Column name of the region ID in the bed file. If None, will use chrom:start-end as the ID
-        order : str, optional
-            Order of the one-hot encoding base axis. Default is 'ATCG'.
         dtype : numpy.dtype, optional
             Data type of the output array. Default is np.int8.
-        add_reverse_complement : bool, optional
-            If True, will add the reverse complement of each sequence to the output
 
         Returns
         -------
@@ -511,30 +507,13 @@ class Genome:
 
         one_hot = np.zeros((len(sequences), seq_len, len(base_order)), dtype=dtype)
         for i, seq in enumerate(sequences):
-            one_hot[i] = seq.one_hot_encoding(order=base_order, dtype=dtype)
-
-        if add_reverse_complement:
-            one_hot_rc = np.zeros(
-                (len(sequences), seq_len, len(base_order)), dtype=dtype
-            )
-            for i, seq in enumerate(sequences):
-                one_hot_rc[i] = seq.reverse_complement().one_hot_encoding(
-                    order=base_order, dtype=dtype
-                )
-            one_hot = np.concatenate([one_hot, one_hot_rc], axis=0)
+            one_hot[i] = seq.one_hot_encoding(dtype=dtype)
 
         # construct xarray.DataArray
         region_index = [seq.name for seq in sequences]
         region_chrom = bed.Chromosome
         region_start = bed.Start
         region_end = bed.End
-        is_rc = [False] * len(sequences)
-        if add_reverse_complement:
-            region_index = region_index + [seq.name + "_rc" for seq in sequences]
-            region_chrom = pd.concat([region_chrom, region_chrom])
-            region_start = pd.concat([region_start, region_start])
-            region_end = pd.concat([region_end, region_end])
-            is_rc = is_rc + [True] * len(sequences)
 
         one_hot = xr.DataArray(
             one_hot,
@@ -550,7 +529,6 @@ class Genome:
                 "chrom": ("region", region_chrom),
                 "start": ("region", region_start),
                 "end": ("region", region_end),
-                "is_rc": ("region", is_rc),
             }
         )
 
@@ -560,7 +538,6 @@ class Genome:
         one_hot = one_hot.chunk(
             {"region": region_chunk_size, "position": seq_len, "base": len(base_order)}
         )
-
         for coord in list(one_hot.coords.keys()):
             _coords = one_hot.coords[coord]
             if coord == "region":
@@ -572,9 +549,8 @@ class Genome:
                 one_hot.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk(
                     {"region": 100000000}
                 )
-            elif coord in {"start", "end", "is_rc"}:
+            elif coord in {"start", "end"}:
                 one_hot.coords[coord] = _coords.chunk({"region": 100000000})
-
         return one_hot
 
     def delete_genome_data(self):
@@ -623,6 +599,7 @@ class Genome:
             + "-"
             + (bed_df.Start // partition_size).astype(str)
         )
+        max_region_name_length = bed_df["Name"].map(lambda i: len(i)).max()
 
         with ProcessPoolExecutor(cpu) as pool:
             futures = {}
@@ -649,9 +626,10 @@ class Genome:
         # load all partitions and save to one zarr file
         total_da = self.load_partiton_zarr(temp_dir)
         total_ds = total_da.to_dataset(name="X_dna_one_hot")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", xr.SerializationWarning)
-            total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
+        total_ds.coords["region"] = total_ds.coords["region"].astype(
+            f"<U{max_region_name_length}"
+        )
+        total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
         shutil.rmtree(temp_dir)
         return total_ds
 
@@ -748,9 +726,8 @@ class Genome:
 
         success_flag_path = pathlib.Path(input_zarr_path) / ".success"
         if success_flag_path.exists():
-            region_ds = xr.open_zarr(input_zarr_path)
-            return region_ds
-        
+            return
+
         labels = pd.read_feather(y_path)
         labels = labels.set_index(labels.columns[0])
 
@@ -759,30 +736,25 @@ class Genome:
         # generate region one-hot encoding zarr, spearate partitions, load into partition zarr
         region_ds = self.dump_region_sequence_zarr(
             bed_path=regions_bed,
-            zarr_path=input_zarr_path,
+            zarr_path=f"{input_zarr_path}/X_dna_one_hot.zarr",
             temp_dir=temp_dir,
             partition_size=partition_size,
             cpu=cpu,
         )
 
         # order the label mat
-        rc_suffix = re.compile("_rc$")
         use_index = region_ds.get_index("region")
-        ordered_labels = pd.DataFrame(
-            labels.reindex(use_index.map(lambda i: rc_suffix.split(i)[0])).values,
-            index=use_index,
-            columns=labels.columns,
+        labels = labels.reindex(use_index)
+        labels.index.name = "region"
+        labels.columns.name = "category"
+        # save labels into zarr
+        label_ds = xr.Dataset({"y": xr.DataArray(labels)})
+        label_ds.chunk({"region": 1000000, "category": 20}).to_zarr(
+            f"{input_zarr_path}/y.zarr", mode="w"
         )
-        ordered_labels.columns.name = "category"
-
-        # save labels into region_ds
-        region_ds["y"] = xr.DataArray(ordered_labels).chunk(
-            {"region": 1000000, "category": 20}
-        )
-        region_ds.to_zarr(input_zarr_path, mode="a")
 
         success_flag_path.touch()
-        return region_ds
+        return
 
     def dump_region_bigwig_zarr(
         self,
