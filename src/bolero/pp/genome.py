@@ -3,11 +3,9 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-import re
 import tempfile
 import numpy as np
 import pandas as pd
-import warnings
 import pyBigWig
 import pyranges as pr
 import xarray as xr
@@ -477,7 +475,7 @@ class Genome:
 
         Regions in the bed file must be sorted and have chrom, start, end and name columns.
         Regions also needs to have the same length.
-        The order of the base axis in one-hot encoding matrix is "ACGT", 
+        The order of the base axis in one-hot encoding matrix is "ACGT",
         reverse this axis will be equal to make a compelment conversion ("TGCA").
 
         Parameters
@@ -508,7 +506,7 @@ class Genome:
 
         one_hot = np.zeros((len(sequences), seq_len, len(base_order)), dtype=dtype)
         for i, seq in enumerate(sequences):
-            one_hot[i] = seq.one_hot_encoding(base_order=base_order, dtype=dtype)
+            one_hot[i] = seq.one_hot_encoding(order=base_order, dtype=dtype)
 
         # construct xarray.DataArray
         region_index = [seq.name for seq in sequences]
