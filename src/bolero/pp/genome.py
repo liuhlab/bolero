@@ -7,6 +7,7 @@ import tempfile
 import numpy as np
 import pandas as pd
 import pyBigWig
+import dask
 import pyranges as pr
 import xarray as xr
 import zarr
@@ -236,9 +237,9 @@ def _is_macos():
 class Genome:
     """Class for utilities related to a genome."""
 
-    def __init__(self, genome):
+    def __init__(self, genome, save_dir=None):
         self.genome = genome
-        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta()
+        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta(save_dir=save_dir)
         self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
         self.chromosomes = self.chrom_sizes.index
         self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
@@ -246,10 +247,14 @@ class Genome:
         self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
         self.all_chromosomes = self.all_chrom_sizes.index
 
+        if save_dir is None:
+            save_dir = _get_package_dir()
+        self.save_dir = pathlib.Path(save_dir).absolute()
+        self.save_dir.mkdir(exist_ok=True, parents=True)
+
         # load blacklist if it exists
-        package_dir = _get_package_dir()
         blacklist_path = (
-            package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+            save_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
         )
         if blacklist_path.exists():
             _df = pr.read_bed(str(blacklist_path), as_df=True)
@@ -257,13 +262,18 @@ class Genome:
         else:
             self.blacklist_bed = None
 
-    def download_genome_fasta(self):
+    def download_genome_fasta(self, save_dir=None):
         """Download a genome fasta file from UCSC"""
         genome = self.genome
 
         # create a data directory within the package if it doesn't exist
-        package_dir = _get_package_dir()
-        data_dir = package_dir / "data"
+        if save_dir is None:
+            package_dir = _get_package_dir()
+            save_dir = package_dir
+        else:
+            save_dir = pathlib.Path(save_dir)
+            save_dir.mkdir(exist_ok=True, parents=True)
+        data_dir = save_dir / "data"
         fasta_dir = data_dir / genome / "fasta"
         fasta_dir.mkdir(exist_ok=True, parents=True)
 
@@ -286,7 +296,6 @@ class Genome:
             # unzip fasta file
             print(f"Unzipping {fasta_gz_file}")
             subprocess.check_call(["gunzip", fasta_gz_file])
-
         return fasta_file, chrom_sizes_file
 
     def get_region_fasta(self, bed_path, output_path=None, compress=True):
@@ -554,19 +563,19 @@ class Genome:
 
     def delete_genome_data(self):
         """Delete genome data files"""
-        package_dir = _get_package_dir()
-        data_dir = package_dir / "data"
+        data_dir = self.save_dir / "data"
         genome_dir = data_dir / self.genome
         shutil.rmtree(genome_dir)
         return
 
     def _dump_zarr(self, _bed_path, _zarr_path):
-        da = self.get_region_one_hot(bed_path=_bed_path)
-        da.to_zarr(_zarr_path, mode="w")
+        with dask.config.set(scheduler="synchronous"):
+            da = self.get_region_one_hot(bed_path=_bed_path)
+            da.to_zarr(_zarr_path, mode="w")
         return
 
     def dump_region_sequence_zarr(
-        self, bed_path, zarr_path, temp_dir, partition_size=50000000, cpu=None
+        self, bed_path, zarr_path, temp_dir=None, partition_size=50000000, cpu=None
     ):
         """
         Dump one-hot encoded sequences from a bed file into zarr files.
@@ -585,12 +594,11 @@ class Genome:
             Number of cpus to use, if None, will use all available cpus
         """
         zarr_path = pathlib.Path(zarr_path)
-        if temp_dir is None:
+        temp_prefix = 'bolero_'
+        if temp_dir is not None:
             # get random temp path
-            temp_dir = pathlib.Path(tempfile.mkdtemp(prefix="bolero_"))
-        else:
-            temp_dir = pathlib.Path(temp_dir)
-            temp_dir.mkdir(exist_ok=True, parents=True)
+            temp_prefix = f'{temp_dir}/{temp_prefix}'
+        temp_dir = pathlib.Path(tempfile.mkdtemp(prefix=temp_prefix))
 
         bed_df = _open_bed(bed_path, as_df=True)
         bed_df["Partition"] = (
@@ -876,12 +884,11 @@ class Genome:
             If True, will save the motif scan table file, which has exact motif locations and scores.
         """
         motif_paths = pd.read_csv(motif_table, index_col=0, header=None).squeeze()
-        package_dir = _get_package_dir()
-
+        
         if _is_macos():
-            cbust_path = package_dir / "pkg_data/cbust_macos"
+            cbust_path = self.save_dir / "pkg_data/cbust_macos"
         else:
-            cbust_path = package_dir / "pkg_data/cbust"
+            cbust_path = self.save_dir / "pkg_data/cbust"
 
         output_dir = pathlib.Path(output_dir)
         fasta_chunk_dir = output_dir / "fasta_chunks_for_motif_scan"
