@@ -239,7 +239,9 @@ class Genome:
 
     def __init__(self, genome, save_dir=None):
         self.genome = genome
-        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta(save_dir=save_dir)
+        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta(
+            save_dir=save_dir
+        )
         self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
         self.chromosomes = self.chrom_sizes.index
         self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
@@ -594,10 +596,10 @@ class Genome:
             Number of cpus to use, if None, will use all available cpus
         """
         zarr_path = pathlib.Path(zarr_path)
-        temp_prefix = 'bolero_'
+        temp_prefix = "bolero_"
         if temp_dir is not None:
             # get random temp path
-            temp_prefix = f'{temp_dir}/{temp_prefix}'
+            temp_prefix = f"{temp_dir}/{temp_prefix}"
         temp_dir = pathlib.Path(tempfile.mkdtemp(prefix=temp_prefix))
 
         bed_df = _open_bed(bed_path, as_df=True)
@@ -726,8 +728,42 @@ class Genome:
         da.to_zarr(zarr_path, mode="w")
         return
 
+    def _standard_region_length(self, regions_bed, length):
+        # make sure all regions have the same size
+        regions_center = (regions_bed.Start + regions_bed.End) // 2
+        regions_bed.Start = regions_center - length // 2
+        regions_bed.End = regions_center + length // 2
+        # make sure for each chrom, start and end are not out of range
+        # only keep regions that are in range
+        chrom_sizes = self.chrom_sizes
+        use_regions = []
+        for chrom, chrom_df in regions_bed.df.groupby("Chromosome"):
+            chrom_size = chrom_sizes[chrom]
+            chrom_df = chrom_df[(chrom_df.Start >= 0) & (chrom_df.End <= chrom_size)]
+            use_regions.append(chrom_df)
+        use_regions = pd.concat(use_regions)
+
+        # update Name col
+        original_names = use_regions["Name"].values
+        use_regions["Name"] = (
+            use_regions["Chromosome"].astype(str)
+            + ":"
+            + use_regions["Start"].astype(str)
+            + "-"
+            + use_regions["End"].astype(str)
+        )
+        regions_bed = pr.PyRanges(use_regions[["Chromosome", "Start", "End", "Name"]])
+        old_name_to_new_name = dict(zip(original_names, use_regions["Name"].values))
+        return regions_bed, old_name_to_new_name
+
     def prepare_xy_dataset(
-        self, y_path, input_zarr_path, partition_size=50000000, cpu=None, temp_dir=None
+        self,
+        y_path,
+        input_zarr_path,
+        sync_region_size=None,
+        partition_size=50000000,
+        cpu=None,
+        temp_dir=None,
     ):
         """Prepare a dataset for training a model with X and y."""
 
@@ -739,6 +775,16 @@ class Genome:
         labels = labels.set_index(labels.columns[0])
 
         regions_bed = _region_names_to_bed(labels.index)
+
+        if sync_region_size is not None:
+            regions_bed, old_name_to_new_name = self._standard_region_length(regions_bed, sync_region_size)
+            labels.index = labels.index.map(old_name_to_new_name)
+        else:
+            # check region size of bed file are the same
+            size = regions_bed.End - regions_bed.Start
+            assert (
+                size == size.iloc[0]
+            ).all(), "All regions must have the same size, if sync_region_size is None"
 
         # generate region one-hot encoding zarr, spearate partitions, load into partition zarr
         region_ds = self.dump_region_sequence_zarr(
@@ -884,7 +930,7 @@ class Genome:
             If True, will save the motif scan table file, which has exact motif locations and scores.
         """
         motif_paths = pd.read_csv(motif_table, index_col=0, header=None).squeeze()
-        
+
         if _is_macos():
             cbust_path = self.save_dir / "pkg_data/cbust_macos"
         else:

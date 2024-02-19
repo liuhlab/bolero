@@ -15,7 +15,7 @@ from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
 PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
 JASPAR_MTOFI_DBS = {
     "_".join(p.name.split("_")[:3]): p
-    for p in pathlib.Path(PKG_DATA_PATH).glob("*.motif_pwm.dict")
+    for p in pathlib.Path(PKG_DATA_PATH).glob("jaspar/*.motif_pwm.dict")
 }
 
 # The above motif_pwm.dict files are generated from the JASPAR 2024 CORE motif database using dump_jaspar_motif_pwm_dict
