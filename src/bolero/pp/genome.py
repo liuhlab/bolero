@@ -778,6 +778,7 @@ class Genome:
 
         if sync_region_size is not None:
             regions_bed, old_name_to_new_name = self._standard_region_length(regions_bed, sync_region_size)
+            labels = labels[labels.index.isin(old_name_to_new_name.keys())].copy()
             labels.index = labels.index.map(old_name_to_new_name)
         else:
             # check region size of bed file are the same
