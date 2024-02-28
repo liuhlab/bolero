@@ -1,16 +1,17 @@
-import pathlib
-
-import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
+import numpy as np
 from torch.utils.data import DataLoader, Dataset
-
 from bolero.pp import Genome
 from bolero.pp.genome import parse_region_names
+import pathlib
 
 
 def try_gpu():
+    """
+    Try to use GPU if available.
+    """
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
@@ -28,7 +29,7 @@ def split_genome_regions(
     random_state=None,
 ):
     """
-    Split
+    Split the genome regions into train, valid, and test sets with large genome partitioning.
     """
     if len(bed) <= 3:
         raise ValueError("Too few regions to split")
@@ -41,12 +42,15 @@ def split_genome_regions(
     n_valid_parts = max(1, n_valid_parts)
 
     partition_order = pd.Series(range(n_parts))
-    partition_order = partition_order.sample(n_parts, random_state=random_state).tolist()
+    partition_order = partition_order.sample(
+        n_parts, random_state=random_state
+    ).tolist()
 
     bed = bed.sort()
     n_regions_in_chunk = len(bed) // n_parts
     partition_regions = {
-        p: r for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
+        p: r
+        for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
     }
     train_regions = pd.concat(
         [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
@@ -55,12 +59,17 @@ def split_genome_regions(
     valid_regions = pd.concat(
         [
             partition_regions[p]
-            for p in sorted(partition_order[n_train_parts : n_train_parts + n_valid_parts])
+            for p in sorted(
+                partition_order[n_train_parts : n_train_parts + n_valid_parts]
+            )
         ]
     )
     valid_regions = pd.Index(valid_regions["Name"])
     test_regions = pd.concat(
-        [partition_regions[p] for p in sorted(partition_order[n_train_parts + n_valid_parts :])]
+        [
+            partition_regions[p]
+            for p in sorted(partition_order[n_train_parts + n_valid_parts :])
+        ]
     )
     test_regions = pd.Index(test_regions["Name"])
     return train_regions, valid_regions, test_regions
@@ -93,7 +102,7 @@ class BinaryDataset(Dataset):
                 _df.index.name = self.region_dim
                 self._ds = xr.Dataset({"y": _df})
             else:
-                raise ValueError(f"Unknown file format {task_path}")
+                raise ValueError("Unknown file format {}".format(task_path))
         else:
             self._ds = task_data
 
@@ -165,6 +174,18 @@ class BinaryDataset(Dataset):
                 shuffle=sh,
                 num_workers=0,  # DO NOT USE MULTIPROCESSING, it has issue with the genome object
             )
-            for ds, sh in zip(tri_datasets, shuffle, strict=False)
+            for ds, sh in zip(tri_datasets, shuffle)
         ]
         return tri_loaders
+
+class TrackDataset(Dataset):
+    def __init__(
+        self,
+        task_data,
+        genome,
+        genome_dir=None,
+        label_da_name="y",
+        downsample=None,
+        load=True,
+    ):
+        pass
