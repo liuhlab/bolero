@@ -280,16 +280,6 @@ class Genome:
 
     def __init__(self, genome, save_dir=None):
         self.name = genome
-        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta(
-            save_dir=save_dir
-        )
-        self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
-        self.chrom_offsets = _chrom_size_to_chrom_offsets(self.chrom_sizes)
-        self.chromosomes = self.chrom_sizes.index
-        self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
-        self.all_chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=False)
-        self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
-        self.all_chromosomes = self.all_chrom_sizes.index
 
         package_dir = _get_package_dir()
         if save_dir is None:
@@ -301,6 +291,16 @@ class Genome:
                 save_dir = package_dir
         self.save_dir = pathlib.Path(save_dir).absolute()
         self.save_dir.mkdir(exist_ok=True, parents=True)
+
+        self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta()
+        self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
+        self.chrom_offsets = _chrom_size_to_chrom_offsets(self.chrom_sizes)
+        self.chromosomes = self.chrom_sizes.index
+        self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
+        self.all_chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=False)
+        self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
+        self.all_chromosomes = self.all_chrom_sizes.index
+
 
         # load blacklist if it exists
         blacklist_path = (
@@ -321,17 +321,12 @@ class Genome:
         one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
         return f"{name_str}\n{fastq_path}\n{one_hot_zarr}"
 
-    def download_genome_fasta(self, save_dir=None):
+    def download_genome_fasta(self):
         """Download a genome fasta file from UCSC"""
         _genome = self.name
 
         # create a data directory within the package if it doesn't exist
-        if save_dir is None:
-            package_dir = _get_package_dir()
-            save_dir = package_dir
-        else:
-            save_dir = pathlib.Path(save_dir)
-            save_dir.mkdir(exist_ok=True, parents=True)
+        save_dir = self.save_dir
         data_dir = save_dir / "data"
         fasta_dir = data_dir / _genome / "fasta"
         fasta_dir.mkdir(exist_ok=True, parents=True)
