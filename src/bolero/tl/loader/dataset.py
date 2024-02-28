@@ -1,11 +1,13 @@
+import pathlib
+
+import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-import numpy as np
 from torch.utils.data import DataLoader, Dataset
+
 from bolero.pp import Genome
 from bolero.pp.genome import parse_region_names
-import pathlib
 
 
 def try_gpu():
@@ -39,15 +41,12 @@ def split_genome_regions(
     n_valid_parts = max(1, n_valid_parts)
 
     partition_order = pd.Series(range(n_parts))
-    partition_order = partition_order.sample(
-        n_parts, random_state=random_state
-    ).tolist()
+    partition_order = partition_order.sample(n_parts, random_state=random_state).tolist()
 
     bed = bed.sort()
     n_regions_in_chunk = len(bed) // n_parts
     partition_regions = {
-        p: r
-        for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
+        p: r for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
     }
     train_regions = pd.concat(
         [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
@@ -56,17 +55,12 @@ def split_genome_regions(
     valid_regions = pd.concat(
         [
             partition_regions[p]
-            for p in sorted(
-                partition_order[n_train_parts : n_train_parts + n_valid_parts]
-            )
+            for p in sorted(partition_order[n_train_parts : n_train_parts + n_valid_parts])
         ]
     )
     valid_regions = pd.Index(valid_regions["Name"])
     test_regions = pd.concat(
-        [
-            partition_regions[p]
-            for p in sorted(partition_order[n_train_parts + n_valid_parts :])
-        ]
+        [partition_regions[p] for p in sorted(partition_order[n_train_parts + n_valid_parts :])]
     )
     test_regions = pd.Index(test_regions["Name"])
     return train_regions, valid_regions, test_regions
@@ -99,7 +93,7 @@ class BinaryDataset(Dataset):
                 _df.index.name = self.region_dim
                 self._ds = xr.Dataset({"y": _df})
             else:
-                raise ValueError("Unknown file format {}".format(task_path))
+                raise ValueError(f"Unknown file format {task_path}")
         else:
             self._ds = task_data
 
@@ -126,7 +120,7 @@ class BinaryDataset(Dataset):
         # new input
         _data = self._isel_region(idx)
         label = torch.FloatTensor(_data.values).squeeze(0)
-        
+
         regions = _data.get_index(self.region_dim)
         one_hot = self.genome.get_regions_one_hot(regions).squeeze(0)
         return one_hot, label
@@ -169,8 +163,8 @@ class BinaryDataset(Dataset):
                 dataset=ds,
                 batch_size=batch_size,
                 shuffle=sh,
-                num_workers=0, # DO NOT USE MULTIPROCESSING, it has issue with the genome object
+                num_workers=0,  # DO NOT USE MULTIPROCESSING, it has issue with the genome object
             )
-            for ds, sh in zip(tri_datasets, shuffle)
+            for ds, sh in zip(tri_datasets, shuffle, strict=False)
         ]
         return tri_loaders
