@@ -90,17 +90,6 @@ def _chrom_size_to_chrom_offsets(chrom_sizes):
     return chrom_offsets
 
 
-def _get_global_coords(region_bed, chrom_offsets):
-    if isinstance(region_bed, pr.PyRanges):
-        region_bed = region_bed.df
-    region_bed = region_bed.copy()
-    add_start = region_bed["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
-    region_bed["Start"] += add_start
-    region_bed["End"] += add_start
-    global_coords = region_bed[["Start", "End"]].values
-    return global_coords
-
-
 def _iter_fasta(fasta_path):
     with Fasta(fasta_path) as f:
         for record in f:
@@ -269,6 +258,15 @@ def _open_bed(bed, as_df=False):
     return bed
 
 
+def _get_global_coords(chrom_offsets, region_bed):
+    region_bed = _open_bed(region_bed, as_df=True)
+    add_start = region_bed["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    region_bed["Start"] += add_start
+    region_bed["End"] += add_start
+    global_coords = region_bed[["Start", "End"]].values
+    return global_coords
+
+
 def _is_macos():
     import platform
 
@@ -300,7 +298,6 @@ class Genome:
         self.all_chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=False)
         self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
         self.all_chromosomes = self.all_chrom_sizes.index
-
 
         # load blacklist if it exists
         blacklist_path = (
@@ -620,10 +617,10 @@ class Genome:
             chrom_size = chrom_sizes[chrom]
             chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
                 chrom_df.Start < 0, "Start"
-            ]
+            ].values[:, None]
             chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
                 chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
-            )
+            ).values[:, None]
             use_regions.append(chrom_df)
         use_regions = pd.concat(use_regions)
 
@@ -869,6 +866,9 @@ class Genome:
                 "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
             )
         return self.genome_one_hot.get_regions_one_hot(regions)
+
+    def get_global_coords(self, region_bed):
+        _get_global_coords(chrom_offsets=self.chrom_offsets, region_bed=region_bed)
 
 
 class GenomeOneHotZarr:
