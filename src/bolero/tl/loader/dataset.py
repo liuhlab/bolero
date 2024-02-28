@@ -30,14 +30,14 @@ def split_genome_regions(
     """
     if len(bed) <= 3:
         raise ValueError("Too few regions to split")
-    
+
     n_parts = min(len(bed), n_parts)
     _t = train_ratio + valid_ratio + test_ratio
     n_train_parts = int(np.round(train_ratio / _t * n_parts))
     n_train_parts = max(1, n_train_parts)
     n_valid_parts = int(np.round(valid_ratio / _t * n_parts))
     n_valid_parts = max(1, n_valid_parts)
-    
+
     partition_order = pd.Series(range(n_parts))
     partition_order = partition_order.sample(
         n_parts, random_state=random_state
@@ -52,7 +52,7 @@ def split_genome_regions(
     train_regions = pd.concat(
         [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
     )
-    train_regions = pd.Index(train_regions['Name'])
+    train_regions = pd.Index(train_regions["Name"])
     valid_regions = pd.concat(
         [
             partition_regions[p]
@@ -61,14 +61,14 @@ def split_genome_regions(
             )
         ]
     )
-    valid_regions = pd.Index(valid_regions['Name'])
+    valid_regions = pd.Index(valid_regions["Name"])
     test_regions = pd.concat(
         [
             partition_regions[p]
             for p in sorted(partition_order[n_train_parts + n_valid_parts :])
         ]
     )
-    test_regions = pd.Index(test_regions['Name'])
+    test_regions = pd.Index(test_regions["Name"])
     return train_regions, valid_regions, test_regions
 
 
@@ -82,7 +82,10 @@ class BinaryDataset(Dataset):
         downsample=None,
         load=True,
     ):
-        self.genome = Genome(genome, save_dir=genome_dir)
+        if isinstance(genome, Genome):
+            self.genome = genome
+        else:
+            self.genome = Genome(genome, save_dir=genome_dir)
         self.region_dim = "region"
         self.label_da_name = label_da_name
 
@@ -115,19 +118,23 @@ class BinaryDataset(Dataset):
         return self._ds.sizes[self.region_dim]
 
     def _isel_region(self, idx):
-        return self._ds[self.label_name].isel({self.region_dim: idx}).load()
+        if isinstance(idx, int):
+            idx = [idx]
+        return self._ds[self.label_da_name].isel({self.region_dim: idx})
 
     def __getitem__(self, idx):
         # new input
         _data = self._isel_region(idx)
-        label = torch.FloatTensor(_data.values)
-        one_hot = self.genome.get_regions_one_hot(_data.get_index(self.region_dim))
+        label = torch.FloatTensor(_data.values).squeeze(0)
+        
+        regions = _data.get_index(self.region_dim)
+        one_hot = self.genome.get_regions_one_hot(regions).squeeze(0)
         return one_hot, label
 
     def __repr__(self) -> str:
-        super_repr = super().__repr__()
-        ds_repr = self._ds.__repr__()
-        return f"{super_repr}\n{ds_repr}"
+        class_str = f"{self.__class__.__name__} object with {len(self)} regions"
+        genome_str = f"Genome: {self.genome.name}"
+        return f"{class_str}\n{genome_str}"
 
     def get_dataloader(
         self,
@@ -138,7 +145,6 @@ class BinaryDataset(Dataset):
         n_parts=100,
         batch_size=128,
         shuffle=(True, False, False),
-        num_workers=8,
     ):
         train_regions, valid_regions, test_regions = split_genome_regions(
             self.region_bed,
@@ -151,9 +157,10 @@ class BinaryDataset(Dataset):
         tri_datasets = [
             self.__class__(
                 task_data=self._ds.sel(**{self.region_dim: region_sel}),
-                genome=self.genome.name,
+                genome=self.genome,
                 genome_dir=self.genome.save_dir,
                 label_da_name=self.label_da_name,
+                load=False,
             )
             for region_sel in [train_regions, valid_regions, test_regions]
         ]
@@ -162,7 +169,7 @@ class BinaryDataset(Dataset):
                 dataset=ds,
                 batch_size=batch_size,
                 shuffle=sh,
-                num_workers=num_workers,
+                num_workers=0, # DO NOT USE MULTIPROCESSING, it has issue with the genome object
             )
             for ds, sh in zip(tri_datasets, shuffle)
         ]

@@ -315,6 +315,12 @@ class Genome:
         self.get_genome_one_hot()
         return
 
+    def __repr__(self):
+        name_str = f"Genome: {self.name}"
+        fastq_path = f"Fasta Path: {self.fasta_path}"
+        one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
+        return f"{name_str}\n{fastq_path}\n{one_hot_zarr}"
+
     def download_genome_fasta(self, save_dir=None):
         """Download a genome fasta file from UCSC"""
         _genome = self.name

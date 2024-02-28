@@ -65,7 +65,7 @@ addopts = [
 
 [tool.ruff]
 src = ["src"]
-line-length = 120
+line-length = 100
 select = [
     "F",      # Errors detected by Pyflakes
     "E",      # Error detected by Pycodestyle
