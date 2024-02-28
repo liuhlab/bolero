@@ -3,6 +3,7 @@ from Bio.Seq import Seq
 
 DEFAULT_ONE_HOT_ORDER = "ACGT"
 
+
 def _one_hot_encoding(seq, order, dtype):
     one_hot = np.zeros((len(seq), 4), dtype=dtype)
     seq_array = np.array(list(seq.upper()))
@@ -23,7 +24,9 @@ class Sequence(Seq):
         self.end = end
         self.strand = strand
 
-    def one_hot_encoding(self, order=DEFAULT_ONE_HOT_ORDER, dtype=np.int8) -> np.ndarray:
+    def one_hot_encoding(
+        self, order=DEFAULT_ONE_HOT_ORDER, dtype=np.int8
+    ) -> np.ndarray:
         """
         One-hot encoding of a DNA sequence string. Output is a numpy array of shape (len(seq), 4).
 
@@ -65,3 +68,5 @@ class Sequence(Seq):
     def sequence(self):
         """Returns the sequence as a string."""
         return str(self)
+
+    

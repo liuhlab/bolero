@@ -3,13 +3,12 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-import tempfile
 import numpy as np
 import pandas as pd
 import pyBigWig
-import dask
 import pyranges as pr
 import xarray as xr
+import pyfaidx
 import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
@@ -29,7 +28,7 @@ UCSC_CHROM_SIZES = (
 )
 
 
-def _region_names_to_bed(names):
+def parse_region_names(names):
     bed_record = []
     for name in names:
         c, se = name.split(":")
@@ -39,6 +38,14 @@ def _region_names_to_bed(names):
         pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
     )
     return bed
+
+
+def parse_region_name(name):
+    c, se = name.split(":")
+    s, e = se.split("-")
+    s = int(s)
+    e = int(e)
+    return c, s, e
 
 
 def _read_chrom_sizes(chrom_sizes_path, main=True):
@@ -68,6 +75,32 @@ def _chrom_sizes_to_bed(chrom_sizes):
     return genome_bed
 
 
+def _chrom_size_to_chrom_offsets(chrom_sizes):
+    cur_start = 0
+    cur_end = 0
+    records = []
+    for chrom, size in chrom_sizes.items():
+        cur_end += size
+        records.append([chrom, cur_start, cur_end, size])
+        cur_start += size
+    chrom_offsets = pd.DataFrame(
+        records, columns=["chrom", "global_start", "global_end", "size"]
+    ).set_index("chrom")
+    chrom_offsets.columns.name = "coords"
+    return chrom_offsets
+
+
+def _get_global_coords(region_bed, chrom_offsets):
+    if isinstance(region_bed, pr.PyRanges):
+        region_bed = region_bed.df
+    region_bed = region_bed.copy()
+    add_start = region_bed["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    region_bed["Start"] += add_start
+    region_bed["End"] += add_start
+    global_coords = region_bed[["Start", "End"]].values
+    return global_coords
+
+
 def _iter_fasta(fasta_path):
     with Fasta(fasta_path) as f:
         for record in f:
@@ -92,10 +125,18 @@ def _download_file(url, local_path):
     temp_path = local_path.parent / (local_path.name + ".temp")
     # download with wget
     if shutil.which("wget"):
-        subprocess.check_call(["wget", "-O", temp_path, url])
+        subprocess.check_call(
+            ["wget", "-O", temp_path, url],
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
     # download with curl
     elif shutil.which("curl"):
-        subprocess.check_call(["curl", "-o", temp_path, url])
+        subprocess.check_call(
+            ["curl", "-o", temp_path, url],
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
     else:
         raise RuntimeError("Neither wget nor curl found on system")
     # rename temp file to final file
@@ -238,25 +279,32 @@ class Genome:
     """Class for utilities related to a genome."""
 
     def __init__(self, genome, save_dir=None):
-        self.genome = genome
+        self.name = genome
         self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta(
             save_dir=save_dir
         )
         self.chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=True)
+        self.chrom_offsets = _chrom_size_to_chrom_offsets(self.chrom_sizes)
         self.chromosomes = self.chrom_sizes.index
         self.genome_bed = _chrom_sizes_to_bed(self.chrom_sizes)
         self.all_chrom_sizes = _read_chrom_sizes(self.chrom_sizes_path, main=False)
         self.all_genome_bed = _chrom_sizes_to_bed(self.all_chrom_sizes)
         self.all_chromosomes = self.all_chrom_sizes.index
 
+        package_dir = _get_package_dir()
         if save_dir is None:
-            save_dir = _get_package_dir()
+            # check if "/ref/bolero" exists
+            _my_default = pathlib.Path("/ref/bolero")
+            if _my_default.exists():
+                save_dir = _my_default
+            else:
+                save_dir = package_dir
         self.save_dir = pathlib.Path(save_dir).absolute()
         self.save_dir.mkdir(exist_ok=True, parents=True)
 
         # load blacklist if it exists
         blacklist_path = (
-            save_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+            package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
         )
         if blacklist_path.exists():
             _df = pr.read_bed(str(blacklist_path), as_df=True)
@@ -264,9 +312,12 @@ class Genome:
         else:
             self.blacklist_bed = None
 
+        self.get_genome_one_hot()
+        return
+
     def download_genome_fasta(self, save_dir=None):
         """Download a genome fasta file from UCSC"""
-        genome = self.genome
+        _genome = self.name
 
         # create a data directory within the package if it doesn't exist
         if save_dir is None:
@@ -276,19 +327,19 @@ class Genome:
             save_dir = pathlib.Path(save_dir)
             save_dir.mkdir(exist_ok=True, parents=True)
         data_dir = save_dir / "data"
-        fasta_dir = data_dir / genome / "fasta"
+        fasta_dir = data_dir / _genome / "fasta"
         fasta_dir.mkdir(exist_ok=True, parents=True)
 
-        fasta_url = UCSC_GENOME.format(genome=genome)
-        fasta_file = fasta_dir / f"{genome}.fa"
-        chrom_sizes_url = UCSC_CHROM_SIZES.format(genome=genome)
-        chrom_sizes_file = fasta_dir / f"{genome}.chrom.sizes"
+        fasta_url = UCSC_GENOME.format(genome=_genome)
+        fasta_file = fasta_dir / f"{_genome}.fa"
+        chrom_sizes_url = UCSC_CHROM_SIZES.format(genome=_genome)
+        chrom_sizes_file = fasta_dir / f"{_genome}.chrom.sizes"
 
         # download fasta file
         if not fasta_file.exists():
             fasta_gz_file = fasta_file.parent / (fasta_file.name + ".gz")
             print(
-                f"Downloading {genome} fasta file from UCSC"
+                f"Downloading {_genome} fasta file from UCSC"
                 f"\nUCSC url: {fasta_url}"
                 f"\nLocal path: {fasta_file}\n"
             )
@@ -476,199 +527,12 @@ class Genome:
 
         return sequences
 
-    def get_region_one_hot(
-        self,
-        bed_path=None,
-        dtype=np.int8,
-    ):
-        """
-        Extract one-hot encoded sequences from a bed file.
-
-        Regions in the bed file must be sorted and have chrom, start, end and name columns.
-        Regions also needs to have the same length.
-        The order of the base axis in one-hot encoding matrix is "ACGT",
-        reverse this axis will be equal to make a compelment conversion ("TGCA").
-
-        Parameters
-        ----------
-        bed_path : str or pathlib.Path, optional
-            Path to a bed file, bed file must be sorted and have chrom, start, end and name columns.
-            If None, will extract sequences from fasta_path
-        region_id : str, optional
-            Column name of the region ID in the bed file. If None, will use chrom:start-end as the ID
-        dtype : numpy.dtype, optional
-            Data type of the output array. Default is np.int8.
-
-        Returns
-        -------
-        one_hot : xarray.DataArray
-            One-hot encoded sequences
-        """
-        base_order = DEFAULT_ONE_HOT_ORDER
-        bed_path = pathlib.Path(bed_path)
-        bed = pr.read_bed(str(bed_path))
-
-        sequences = self.get_region_sequences(bed_path, save_fasta=False)
-
-        # make sure all sequences are the same length
-        seq_len = len(sequences[0])
-        for seq in sequences:
-            assert len(seq) == seq_len, "All sequences must be the same length"
-
-        one_hot = np.zeros((len(sequences), seq_len, len(base_order)), dtype=dtype)
-        for i, seq in enumerate(sequences):
-            one_hot[i] = seq.one_hot_encoding(order=base_order, dtype=dtype)
-
-        # construct xarray.DataArray
-        region_index = [seq.name for seq in sequences]
-        region_chrom = bed.Chromosome
-        region_start = bed.Start
-        region_end = bed.End
-
-        one_hot = xr.DataArray(
-            one_hot,
-            dims=("region", "position", "base"),
-            coords={
-                "region": region_index,
-                "position": np.arange(seq_len),
-                "base": list(base_order),
-            },
-        )
-        one_hot = one_hot.assign_coords(
-            {
-                "chrom": ("region", region_chrom),
-                "start": ("region", region_start),
-                "end": ("region", region_end),
-            }
-        )
-
-        # chunk
-        base_len = len(base_order)
-        region_chunk_size = max(5000, 100000000 // seq_len // base_len // 10000 * 10000)
-        one_hot = one_hot.chunk(
-            {"region": region_chunk_size, "position": seq_len, "base": len(base_order)}
-        )
-        for coord in list(one_hot.coords.keys()):
-            _coords = one_hot.coords[coord]
-            if coord == "region":
-                one_hot.coords[coord] = _coords.chunk({"region": 100000000})
-            elif coord in {"position", "base"}:
-                one_hot.coords[coord] = _coords.chunk({coord: len(_coords)})
-            elif coord == "chrom":
-                chrom_max_size = max([len(k) for k in self.chrom_sizes.index])
-                one_hot.coords[coord] = _coords.astype(f"<U{chrom_max_size}").chunk(
-                    {"region": 100000000}
-                )
-            elif coord in {"start", "end"}:
-                one_hot.coords[coord] = _coords.chunk({"region": 100000000})
-        return one_hot
-
     def delete_genome_data(self):
         """Delete genome data files"""
         data_dir = self.save_dir / "data"
-        genome_dir = data_dir / self.genome
+        genome_dir = data_dir / self.name
         shutil.rmtree(genome_dir)
         return
-
-    def _dump_zarr(self, _bed_path, _zarr_path):
-        with dask.config.set(scheduler="synchronous"):
-            da = self.get_region_one_hot(bed_path=_bed_path)
-            da.to_zarr(_zarr_path, mode="w")
-        return
-
-    def dump_region_sequence_zarr(
-        self, bed_path, zarr_path, temp_dir=None, partition_size=50000000, cpu=None
-    ):
-        """
-        Dump one-hot encoded sequences from a bed file into zarr files.
-
-        Each zarr file contains one partition of the bed file, which can be used as a fold of a cross-validation.
-
-        Parameters
-        ----------
-        bed_path : str or pathlib.Path
-            Path to a bed file, bed file must be sorted and have chrom, start, end and name columns.
-        partition_dir : str or pathlib.Path
-            Path to directory to save the zarr files
-        partition_size : int, optional
-            Size of each partition in base pairs
-        cpu : int, optional
-            Number of cpus to use, if None, will use all available cpus
-        """
-        zarr_path = pathlib.Path(zarr_path)
-        temp_prefix = "bolero_"
-        if temp_dir is not None:
-            # get random temp path
-            temp_prefix = f"{temp_dir}/{temp_prefix}"
-        temp_dir = pathlib.Path(tempfile.mkdtemp(prefix=temp_prefix))
-
-        bed_df = _open_bed(bed_path, as_df=True)
-        bed_df["Partition"] = (
-            bed_df.Chromosome.astype(str)
-            + "-"
-            + (bed_df.Start // partition_size).astype(str)
-        )
-        max_region_name_length = bed_df["Name"].map(lambda i: len(i)).max()
-
-        with ProcessPoolExecutor(cpu) as pool:
-            futures = {}
-            for chunk_name, chunk_bed in bed_df.groupby("Partition"):
-                chunk_bed_path = temp_dir / f"{chunk_name}.bed"
-                chunk_zarr_path = temp_dir / f"{chunk_name}.zarr"
-                chunk_bed.iloc[:, :3].to_csv(
-                    chunk_bed_path, sep="\t", index=None, header=None
-                )
-
-                future = pool.submit(
-                    self._dump_zarr,
-                    _bed_path=chunk_bed_path.absolute(),
-                    _zarr_path=chunk_zarr_path.absolute(),
-                )
-                futures[future] = chunk_name
-
-            for future in as_completed(futures):
-                chunk_name = futures[future]
-                future.result()
-                chunk_bed_path = temp_dir / f"{chunk_name}.bed"
-                pathlib.Path(chunk_bed_path).unlink()
-
-        # load all partitions and save to one zarr file
-        total_da = self.load_partiton_zarr(temp_dir)
-        total_ds = total_da.to_dataset(name="X_dna_one_hot")
-        total_ds.coords["region"] = total_ds.coords["region"].astype(
-            f"<U{max_region_name_length}"
-        )
-        total_ds.chunk(region=1000000).to_zarr(zarr_path, mode="w")
-        shutil.rmtree(temp_dir)
-        return total_ds
-
-    @staticmethod
-    def load_partiton_zarr(partition_dir):
-        """Load zarr files of a region set partitioned by large genome chunks."""
-        partition_dir = pathlib.Path(partition_dir)
-        partition_da_dict = {
-            p.name[:-5]: xr.open_zarr(p)["__xarray_dataarray_variable__"]
-            for p in partition_dir.glob("*.zarr")
-        }
-        # add partition name to each DataArray
-        for k in list(partition_da_dict.keys()):
-            da = partition_da_dict[k]
-            n_regions = len(da.coords["region"])
-            _p = pd.Series([k] * n_regions, index=da.get_index("region"))
-            partition_da_dict[k] = da.assign_coords({"partition": ("region", _p)})
-
-        # order partitions by chromosome and index
-        partitions = []
-        for k in partition_da_dict:
-            *chrom, idx = k.split("-")
-            chrom = "-".join(chrom)
-            partitions.append([chrom, idx])
-        partitions = pd.DataFrame(partitions).sort_values([0, 1])
-        partitions = [row[0] + "-" + row[1] for _, row in partitions.iterrows()]
-
-        # concat partitions in order
-        da = xr.concat([partition_da_dict[p] for p in partitions], dim="region")
-        return da
 
     def _scan_bw_table(self, bw_table, bed_path, zarr_path, cpu=None):
         bw_paths = pd.read_csv(bw_table, index_col=0, header=None).squeeze()
@@ -728,7 +592,21 @@ class Genome:
         da.to_zarr(zarr_path, mode="w")
         return
 
-    def _standard_region_length(self, regions_bed, length):
+    def standard_region_length(self, regions, length, remove_blacklist=True):
+
+        if isinstance(regions, pr.PyRanges):
+            regions_bed = regions
+        elif isinstance(regions, pd.DataFrame):
+            regions_bed = pr.PyRanges(regions)
+        elif isinstance(regions, (str, pathlib.Path)):
+            regions_bed = pr.read_bed(regions)
+        elif isinstance(regions, (list, pd.Index)):
+            regions_bed = parse_region_names(regions)
+        else:
+            raise ValueError(
+                "regions must be a PyRanges, DataFrame, str, Path, list or Index"
+            )
+
         # make sure all regions have the same size
         regions_center = (regions_bed.Start + regions_bed.End) // 2
         regions_bed.Start = regions_center - length // 2
@@ -739,7 +617,12 @@ class Genome:
         use_regions = []
         for chrom, chrom_df in regions_bed.df.groupby("Chromosome"):
             chrom_size = chrom_sizes[chrom]
-            chrom_df = chrom_df[(chrom_df.Start >= 0) & (chrom_df.End <= chrom_size)]
+            chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
+                chrom_df.Start < 0, "Start"
+            ]
+            chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
+                chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
+            )
             use_regions.append(chrom_df)
         use_regions = pd.concat(use_regions)
 
@@ -754,60 +637,45 @@ class Genome:
         )
         regions_bed = pr.PyRanges(use_regions[["Chromosome", "Start", "End", "Name"]])
         old_name_to_new_name = dict(zip(original_names, use_regions["Name"].values))
+
+        if remove_blacklist and self.blacklist_bed is not None:
+            regions_bed = self._remove_blacklist(regions_bed)
         return regions_bed, old_name_to_new_name
 
-    def prepare_xy_dataset(
-        self,
-        y_path,
-        input_zarr_path,
-        sync_region_size=None,
-        partition_size=50000000,
-        cpu=None,
-        temp_dir=None,
-    ):
-        """Prepare a dataset for training a model with X and y."""
-
-        success_flag_path = pathlib.Path(input_zarr_path) / ".success"
+    def get_genome_one_hot(self):
+        zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+        zarr_path.mkdir(exist_ok=True, parents=True)
+        success_flag_path = zarr_path / ".success"
         if success_flag_path.exists():
+            genome_one_hot = GenomeOneHotZarr(zarr_path)
+            self.genome_one_hot = genome_one_hot
             return
 
-        labels = pd.read_feather(y_path)
-        labels = labels.set_index(labels.columns[0])
-
-        regions_bed = _region_names_to_bed(labels.index)
-
-        if sync_region_size is not None:
-            regions_bed, old_name_to_new_name = self._standard_region_length(regions_bed, sync_region_size)
-            labels = labels[labels.index.isin(old_name_to_new_name.keys())].copy()
-            labels.index = labels.index.map(old_name_to_new_name)
-        else:
-            # check region size of bed file are the same
-            size = regions_bed.End - regions_bed.Start
-            assert (
-                size == size.iloc[0]
-            ).all(), "All regions must have the same size, if sync_region_size is None"
-
-        # generate region one-hot encoding zarr, spearate partitions, load into partition zarr
-        region_ds = self.dump_region_sequence_zarr(
-            bed_path=regions_bed,
-            zarr_path=f"{input_zarr_path}/X_dna_one_hot.zarr",
-            temp_dir=temp_dir,
-            partition_size=partition_size,
-            cpu=cpu,
+        print("Generating genome one-hot encoding")
+        total_chrom_size = self.chrom_sizes.sum()
+        one_hot_da = xr.DataArray(
+            np.zeros([total_chrom_size, 4], dtype="bool"),
+            dims=["pos", "base"],
+            coords={"base": list(DEFAULT_ONE_HOT_ORDER)},
         )
-
-        # order the label mat
-        use_index = region_ds.get_index("region")
-        labels = labels.reindex(use_index)
-        labels.index.name = "region"
-        labels.columns.name = "category"
-        # save labels into zarr
-        label_ds = xr.Dataset({"y": xr.DataArray(labels)})
-        label_ds.chunk({"region": 1000000, "category": 20}).to_zarr(
-            f"{input_zarr_path}/y.zarr", mode="w"
+        one_hot_ds = xr.Dataset({"X": one_hot_da, "offsets": self.chrom_offsets})
+        one_hot_ds.to_zarr(
+            zarr_path, encoding={"X": {"chunks": (50000000, 4)}}, mode="w"
         )
+        zarr_da = zarr.open_array(f"{zarr_path}/X")
+        with pyfaidx.Fasta(self.fasta_path) as fa:
+            cur_start = 0
+            for chrom in tqdm(self.chrom_sizes.index):
+                seq = Sequence(str(fa[chrom]))
+                seq_len = len(seq)
+                one_hot = seq.one_hot_encoding(dtype=bool)
 
+                zarr_da[cur_start : cur_start + seq_len, :] = one_hot
+                cur_start += seq_len
         success_flag_path.touch()
+
+        genome_one_hot = GenomeOneHotZarr(zarr_path)
+        self.genome_one_hot = genome_one_hot
         return
 
     def dump_region_bigwig_zarr(
@@ -975,7 +843,7 @@ class Genome:
                 future = pool.submit(
                     _combine_single_motif_scan_to_bigwig,
                     output_dir=motif_temp_dir,
-                    genome=self.genome,
+                    genome=self.name,
                     chrom_sizes=self.chrom_sizes,
                     save_motif_scan=save_motif_scan,
                 )
@@ -986,3 +854,68 @@ class Genome:
                 motif_temp_dir = fs[f]
                 shutil.rmtree(motif_temp_dir)
         return
+
+    def get_region_one_hot(self, *args):
+        if self.genome_one_hot is None:
+            raise ValueError(
+                "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
+            )
+        return self.genome_one_hot.get_region_one_hot(*args)
+
+    def get_regions_one_hot(self, regions):
+        if self.genome_one_hot is None:
+            raise ValueError(
+                "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
+            )
+        return self.genome_one_hot.get_regions_one_hot(regions)
+
+
+class GenomeOneHotZarr:
+    def __init__(self, ds_path, load=True):
+        self.ds = xr.open_zarr(ds_path)
+        self.one_hot = self.ds["X"]
+        if load:
+            self.one_hot.load()
+        self.offsets = self.ds["offsets"].to_pandas()
+
+    def __repr__(self):
+        return self.ds.__repr__()
+
+    def get_region_one_hot(self, *args):
+        if len(args) == 1:
+            # assume it's a region name
+            chrom, start, end = parse_region_name(args[0])
+        elif len(args) == 3:
+            # assume it's chrom, start, end
+            chrom, start, end = args
+        else:
+            raise ValueError("args must be a region name or chrom, start, end")
+        add_start = self.offsets.loc[chrom, "global_start"]
+        global_start = start + add_start
+        global_end = end + add_start
+        region_one_hot = self.one_hot.isel(pos=slice(global_start, global_end)).values
+        return region_one_hot
+
+    def get_regions_one_hot(self, regions):
+        # get global coords
+        if isinstance(regions, pd.DataFrame):
+            regions = regions[["Chromosome", "Start", "End"]]
+        elif isinstance(regions, pr.PyRanges):
+            regions = regions.df[["Chromosome", "Start", "End"]]
+        elif isinstance(regions, str):
+            regions = parse_region_names([regions]).df[["Chromosome", "Start", "End"]]
+        else:
+            regions = parse_region_names(regions).df[["Chromosome", "Start", "End"]]
+        global_coords = _get_global_coords(regions, self.offsets)
+        # make sure regions are in the same length
+        region_lengths = global_coords[:, 1] - global_coords[:, 0]
+        assert (
+            region_lengths == region_lengths[0]
+        ).all(), "All regions must have the same length."
+
+        # init an empty array
+        n_regions = len(global_coords)
+        region_one_hot = np.zeros((n_regions, region_lengths[0], 4), dtype=bool)
+        for i, (start, end) in enumerate(global_coords):
+            region_one_hot[i] = self.one_hot.isel(pos=slice(start, end)).values
+        return region_one_hot

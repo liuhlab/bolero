@@ -1,49 +1,169 @@
-import pathlib
-
 import pandas as pd
 import torch
 import xarray as xr
-from torch.utils.data import DataLoader, Dataset, random_split
+import numpy as np
+from torch.utils.data import DataLoader, Dataset
+from bolero.pp import Genome
+from bolero.pp.genome import parse_region_names
+import pathlib
 
 
-class CTDataset(Dataset):
+def try_gpu():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+DEFAULT_DEVICE = try_gpu()
+
+
+def split_genome_regions(
+    bed,
+    n_parts=100,
+    train_ratio=0.7,
+    valid_ratio=0.1,
+    test_ratio=0.2,
+    random_state=None,
+):
+    """
+    Split
+    """
+    if len(bed) <= 3:
+        raise ValueError("Too few regions to split")
+    
+    n_parts = min(len(bed), n_parts)
+    _t = train_ratio + valid_ratio + test_ratio
+    n_train_parts = int(np.round(train_ratio / _t * n_parts))
+    n_train_parts = max(1, n_train_parts)
+    n_valid_parts = int(np.round(valid_ratio / _t * n_parts))
+    n_valid_parts = max(1, n_valid_parts)
+    
+    partition_order = pd.Series(range(n_parts))
+    partition_order = partition_order.sample(
+        n_parts, random_state=random_state
+    ).tolist()
+
+    bed = bed.sort()
+    n_regions_in_chunk = len(bed) // n_parts
+    partition_regions = {
+        p: r
+        for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
+    }
+    train_regions = pd.concat(
+        [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
+    )
+    train_regions = pd.Index(train_regions['Name'])
+    valid_regions = pd.concat(
+        [
+            partition_regions[p]
+            for p in sorted(
+                partition_order[n_train_parts : n_train_parts + n_valid_parts]
+            )
+        ]
+    )
+    valid_regions = pd.Index(valid_regions['Name'])
+    test_regions = pd.concat(
+        [
+            partition_regions[p]
+            for p in sorted(partition_order[n_train_parts + n_valid_parts :])
+        ]
+    )
+    test_regions = pd.Index(test_regions['Name'])
+    return train_regions, valid_regions, test_regions
+
+
+class BinaryDataset(Dataset):
     def __init__(
-        self, dataset_path, features="X_dna_one_hot", binary_labels="y", sample_dim='region', load=True
+        self,
+        task_data,
+        genome,
+        genome_dir=None,
+        label_da_name="y",
+        downsample=None,
+        load=True,
     ):
-        """
-        features: Tensor of shape (n_seqs, seq_length, bases)
-        cell_type_embedding: Tensor of shape (n_category, 1024)
-        cell_type_tokens: Dict with keys input_ids and attention mask, each is Tensor of shape (n_category, max_len)
-        binary_labels: Tensor of shape (n_seqs, n_category)
-        """
-        dataset_path = pathlib.Path(dataset_path).absolute()
+        self.genome = Genome(genome, save_dir=genome_dir)
+        self.region_dim = "region"
+        self.label_da_name = label_da_name
 
-        total_ds = []
-        for p in dataset_path.glob("*.zarr"):
-            _ds = xr.open_zarr(p)
-            total_ds.append(_ds)
-        total_ds = xr.merge(total_ds)
+        if isinstance(task_data, (str, pathlib.Path)):
+            task_path = str(task_data)
+            if task_path.endswith(".zarr"):
+                self._ds = xr.open_zarr(task_path)
+            elif task_path.endswith(".feather"):
+                _df = pd.read_feather(task_path)
+                _df.set_index(_df.columns[0], inplace=True)
+                _df.index.name = self.region_dim
+                self._ds = xr.Dataset({"y": _df})
+            else:
+                raise ValueError("Unknown file format {}".format(task_path))
+        else:
+            self._ds = task_data
 
         if load:
-            total_ds.load()
+            self._ds = self._ds.load()
+        if downsample is not None and (downsample > len(self)):
+            _regions = self._ds.get_index(self.region_dim)
+            # random downsample while keep the order
+            sel_regions = np.random.choice(_regions, downsample, replace=False)
+            self._ds = self._ds.sel({self.region_dim: _regions.isin(sel_regions)})
 
-        self._ds = total_ds
-        assert features in total_ds, f"{features} not in {total_ds}"
-        self.features = features
-        assert binary_labels in total_ds, f"{binary_labels} not in {total_ds}"
-        self.binary_labels = binary_labels
-
-        self.sample_dim = sample_dim
+        self.regions = self._ds.get_index(self.region_dim)
+        self.region_bed = parse_region_names(self.regions)
 
     def __len__(self):
-        return self._ds.sizes[self.sample_dim]
-    
+        return self._ds.sizes[self.region_dim]
+
     def _isel_region(self, idx):
-        return self._ds.isel({self.sample_dim: idx}).load()
+        return self._ds[self.label_name].isel({self.region_dim: idx}).load()
 
     def __getitem__(self, idx):
         # new input
-        data = self._isel_region(idx)
-        feature_vector = torch.FloatTensor(data[self.features].values)
-        label = torch.FloatTensor(data[self.binary_labels].values)
-        return feature_vector, label
+        _data = self._isel_region(idx)
+        label = torch.FloatTensor(_data.values)
+        one_hot = self.genome.get_regions_one_hot(_data.get_index(self.region_dim))
+        return one_hot, label
+
+    def __repr__(self) -> str:
+        super_repr = super().__repr__()
+        ds_repr = self._ds.__repr__()
+        return f"{super_repr}\n{ds_repr}"
+
+    def get_dataloader(
+        self,
+        train_ratio=0.7,
+        valid_ratio=0.1,
+        test_ratio=0.2,
+        random_state=None,
+        n_parts=100,
+        batch_size=128,
+        shuffle=(True, False, False),
+        num_workers=8,
+    ):
+        train_regions, valid_regions, test_regions = split_genome_regions(
+            self.region_bed,
+            train_ratio=train_ratio,
+            valid_ratio=valid_ratio,
+            test_ratio=test_ratio,
+            random_state=random_state,
+            n_parts=n_parts,
+        )
+        tri_datasets = [
+            self.__class__(
+                task_data=self._ds.sel(**{self.region_dim: region_sel}),
+                genome=self.genome.name,
+                genome_dir=self.genome.save_dir,
+                label_da_name=self.label_da_name,
+            )
+            for region_sel in [train_regions, valid_regions, test_regions]
+        ]
+        tri_loaders = [
+            DataLoader(
+                dataset=ds,
+                batch_size=batch_size,
+                shuffle=sh,
+                num_workers=num_workers,
+            )
+            for ds, sh in zip(tri_datasets, shuffle)
+        ]
+        return tri_loaders

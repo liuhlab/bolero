@@ -5,6 +5,7 @@ buck-out/
 node_modules/
 playground/
 data/
+temp/
 
 # Compiled files
 .venv/
