@@ -280,7 +280,8 @@ class Genome:
         else:
             self.blacklist_bed = None
 
-        self.get_genome_one_hot()
+        # one hot
+        self._one_hot_obj = None
         return
 
     def __repr__(self):
@@ -561,7 +562,7 @@ class Genome:
         da.to_zarr(zarr_path, mode="w")
         return
 
-    def standard_region_length(self, regions, length, remove_blacklist=True):
+    def standard_region_length(self, regions, length, remove_blacklist=False):
 
         if isinstance(regions, pr.PyRanges):
             regions_bed = regions
@@ -611,16 +612,27 @@ class Genome:
             regions_bed = self._remove_blacklist(regions_bed)
         return regions_bed, old_name_to_new_name
 
-    def get_genome_one_hot(self):
-        zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
-        zarr_path.mkdir(exist_ok=True, parents=True)
+    @property
+    def genome_one_hot(self):
+        if self._one_hot_obj is None:
+            zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+            success_flag_path = zarr_path / ".success"
+            if not success_flag_path.exists():
+                self.generate_genome_one_hot(zarr_path=zarr_path)
+            genome_one_hot = GenomeOneHotZarr(zarr_path)
+            self._one_hot_obj = genome_one_hot
+        return self._one_hot_obj
+
+    def generate_genome_one_hot(self, zarr_path=None):
+        print("Generating genome one-hot encoding")
+        if zarr_path is None:
+            zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+            zarr_path.mkdir(exist_ok=True, parents=True)
+
         success_flag_path = zarr_path / ".success"
         if success_flag_path.exists():
-            genome_one_hot = GenomeOneHotZarr(zarr_path)
-            self.genome_one_hot = genome_one_hot
             return
 
-        print("Generating genome one-hot encoding")
         total_chrom_size = self.chrom_sizes.sum()
         one_hot_da = xr.DataArray(
             np.zeros([total_chrom_size, 4], dtype="bool"),
@@ -642,9 +654,6 @@ class Genome:
                 zarr_da[cur_start : cur_start + seq_len, :] = one_hot
                 cur_start += seq_len
         success_flag_path.touch()
-
-        genome_one_hot = GenomeOneHotZarr(zarr_path)
-        self.genome_one_hot = genome_one_hot
         return
 
     def dump_region_bigwig_zarr(
@@ -857,9 +866,9 @@ def _remote_sel(da, dim, sel):
 
 class GenomePositionZarr:
     def __init__(self, da, offsets, load=False, pos_dim="pos"):
-        if 'position' in da.dims:
-            pos_dim = 'position'
-            
+        if "position" in da.dims:
+            pos_dim = "position"
+
         assert pos_dim in da.dims
         self.da = da.rename({pos_dim: "pos"})
         self.pos_dim = pos_dim

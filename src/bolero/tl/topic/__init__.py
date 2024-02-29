@@ -252,7 +252,7 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             self.alpha,
             self.eta,
             self.optimize_interval,
-            self.n_cpu,
+            int(self.n_cpu * 1.5),
             self.state_path,
             self.doctopics_path,
             self.topickeys_path,
@@ -335,8 +335,8 @@ def run_lda_mallet(
     Parameters
     ----------
     data: Union[anndata.AnnData, pd.DataFrame]
-        Data matrix containing cells as rows and regions as columns. 
-        If an anndata.AnnData is provided, the data matrix will be extracted from data.X.T. 
+        Data matrix containing cells as rows and regions as columns.
+        If an anndata.AnnData is provided, the data matrix will be extracted from data.X.T.
         If a pd.DataFrame is provided, the data matrix will be extracted from data.values.T.
     n_topics: list of int
         A list containing the number of topics to use in each model.
@@ -351,7 +351,7 @@ def run_lda_mallet(
     top_topics_coh: int, optional
         Number of topics to use to calculate the model coherence. For each model,
         the coherence will be calculated as the average of the top coherence values. Default: 5.
-    
+
     Return
     ------
     list of :class:`CistopicLDAModel`
@@ -375,13 +375,15 @@ def run_lda_mallet(
         region_names = data.columns
     else:
         raise ValueError("data has to be an anndata.AnnData or a pd.DataFrame")
-    
+
     if isinstance(binary_matrix, np.ndarray):
         binary_matrix = sparse.csc_matrix(binary_matrix)
     elif sparse.issparse(binary_matrix):
         binary_matrix = binary_matrix.tocsc()
     else:
-        raise ValueError("binary_matrix has to be a numpy.ndarray or a sparse.csr_matrix")
+        raise ValueError(
+            "binary_matrix has to be a numpy.ndarray or a sparse.csr_matrix"
+        )
 
     corpus = matutils.Sparse2Corpus(binary_matrix)
     names_dict = {x: str(x) for x in range(len(region_names))}
@@ -410,6 +412,10 @@ def run_lda_mallet(
         for n_topic in n_topics
     ]
     model_list = ray.get(futures)
+
+    # delete mallet and id2word files
+    corpus_mallet_path.unlink()
+    id2word_path.unlink()
     return model_list
 
 
@@ -830,6 +836,7 @@ def _norm_topics(x):
     """
     return x * (np.log(x + 1e-100) - np.sum(np.log(x + 1e-100)) / len(x))
 
+
 def _smooth_topics_f(topic_region):
     """
     Smooth topic-region distributions.
@@ -850,7 +857,7 @@ def _smooth_topics_f(topic_region):
     return topic_region
 
 
-def threshold_otsu(array, nbins=100):
+def _threshold_otsu(array, nbins=100):
     """
     Apply Otsu threshold on topic-region distributions [Otsu, 1979].
 
@@ -871,7 +878,7 @@ def threshold_otsu(array, nbins=100):
     Otsu, N., 1979. A threshold selection method from gray-level histograms. IEEE transactions on systems, man, and
     cybernetics, 9(1), pp.62-66.
     """
-    hist, bin_centers = np.histogram(array, nbins)
+    hist, bin_centers = _histogram(array, nbins)
     hist = hist.astype(float)
     # Class probabilities for all possible thresholds
     weight1 = np.cumsum(hist)
@@ -886,6 +893,29 @@ def threshold_otsu(array, nbins=100):
     idx = np.argmax(variance12)
     threshold = bin_centers[:-1][idx]
     return threshold
+
+
+def _histogram(array, nbins=100):
+    """
+    Draw histogram from distribution and identify centers.
+
+    Parameters
+    ---------
+    array: `class::np.array`
+            Scores distribution
+    nbins: int
+            Number of bins to use in the histogram
+
+    Return
+    ---------
+    float
+            Histogram values and bin centers.
+    """
+    array = array.ravel().flatten()
+    hist, bin_edges = np.histogram(array, bins=nbins, range=None)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+    return hist, bin_centers
+
 
 def binarize_topics(
     topic_dist: pd.DataFrame,
@@ -924,14 +954,18 @@ def binarize_topics(
     for i in range(topic_dist.shape[1]):
         l = np.asarray(topic_dist.iloc[:, i])
         l_norm = (l - np.min(l)) / np.ptp(l)
-        
-        thr = threshold_otsu(l_norm, nbins=nbins)
+
+        thr = _threshold_otsu(l_norm, nbins=nbins)
         binarized_topics["Topic" + str(i + 1)] = pd.DataFrame(
             topic_dist.iloc[l_norm > thr, i]
         )
-        
+
     # binary empty df
-    binarized_df = pd.DataFrame(index=topic_dist.index, columns=topic_dist.columns, dtype='bool')
+    binarized_df = pd.DataFrame(
+        np.zeros(shape=topic_dist.shape, dtype=bool),
+        index=topic_dist.index,
+        columns=topic_dist.columns,
+    )
     for k, v in binarized_topics.items():
         binarized_df.loc[v.index, k] = True
     return binarized_df
