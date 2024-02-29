@@ -1,1 +1,1 @@
-from .dataset import BinaryDataset
+from .dataset import BinaryDataset, GenomeDataset

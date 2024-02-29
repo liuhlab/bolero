@@ -13,12 +13,18 @@ import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
 from tqdm import tqdm
+import ray
 
 import bolero
 
 from bolero.pp.seq import Sequence, DEFAULT_ONE_HOT_ORDER
+from bolero.utils import *
 
 zarr.storage.default_compressor = Zstd(level=3)
+
+if not ray.is_initialized():
+    ray.init(ignore_reinit_error=True)
+
 
 UCSC_GENOME = (
     "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
@@ -26,26 +32,6 @@ UCSC_GENOME = (
 UCSC_CHROM_SIZES = (
     "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
 )
-
-
-def parse_region_names(names):
-    bed_record = []
-    for name in names:
-        c, se = name.split(":")
-        s, e = se.split("-")
-        bed_record.append([c, s, e, name])
-    bed = pr.PyRanges(
-        pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
-    )
-    return bed
-
-
-def parse_region_name(name):
-    c, se = name.split(":")
-    s, e = se.split("-")
-    s = int(s)
-    e = int(e)
-    return c, s, e
 
 
 def _read_chrom_sizes(chrom_sizes_path, main=True):
@@ -242,28 +228,13 @@ def _combine_single_motif_scan_to_bigwig(
     return
 
 
-def _open_bed(bed, as_df=False):
-    if isinstance(bed, pr.PyRanges):
-        pass
-    elif isinstance(bed, pd.DataFrame):
-        bed = pr.PyRanges(bed)
-    elif isinstance(bed, str):
-        bed = pr.read_bed(bed)
-    elif isinstance(bed, pathlib.Path):
-        bed = pr.read_bed(str(bed))
-    else:
-        raise ValueError("bed must be a PyRanges, DataFrame, str or Path")
-    if as_df:
-        return bed.df
-    return bed
-
-
-def _get_global_coords(chrom_offsets, region_bed):
-    region_bed = _open_bed(region_bed, as_df=True)
-    add_start = region_bed["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
-    region_bed["Start"] += add_start
-    region_bed["End"] += add_start
-    global_coords = region_bed[["Start", "End"]].values
+def _get_global_coords(chrom_offsets, region_bed_df):
+    add_start = (
+        region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    )
+    start = region_bed_df["Start"] + add_start
+    end = region_bed_df["End"] + add_start
+    global_coords = np.hstack([start.values[:, None], end.values[:, None]])
     return global_coords
 
 
@@ -868,16 +839,101 @@ class Genome:
         return self.genome_one_hot.get_regions_one_hot(regions)
 
     def get_global_coords(self, region_bed):
-        _get_global_coords(chrom_offsets=self.chrom_offsets, region_bed=region_bed)
+        return _get_global_coords(
+            chrom_offsets=self.chrom_offsets,
+            region_bed_df=understand_regions(region_bed, as_df=True),
+        )
 
 
-class GenomeOneHotZarr:
+@ray.remote
+def _remote_isel(da, dim, sel):
+    return da.isel({dim: sel}).values
+
+
+@ray.remote
+def _remote_sel(da, dim, sel):
+    return da.sel({dim: sel}).values
+
+
+class GenomePositionZarr:
+    def __init__(self, da, offsets, load=False, pos_dim="pos"):
+        if 'position' in da.dims:
+            pos_dim = 'position'
+            
+        assert pos_dim in da.dims
+        self.da = da.rename({pos_dim: "pos"})
+        self.pos_dim = pos_dim
+        self.offsets = offsets
+        self.global_start = self.offsets["global_start"].to_dict()
+        self.load = load
+        if load:
+            self.da.load()
+            self._remote_da = None
+        else:
+            self._remote_da = ray.put(self.da)
+
+    def get_region_data(self, chrom, start, end):
+        add_start = self.global_start[chrom]
+        global_start = start + add_start
+        global_end = end + add_start
+
+        region_data = self.da.sel(pos=slice(global_start, global_end)).values
+        return region_data
+
+    def get_regions_data(self, regions_df):
+        global_coords = _get_global_coords(
+            chrom_offsets=self.offsets, region_bed_df=regions_df
+        )
+
+        # init an empty array, assume all regions have the same length
+        n_regions = len(global_coords)
+        region_size = global_coords[0, 1] - global_coords[0, 0]
+        shape_list = [n_regions]
+        for dim, size in self.da.sizes.items():
+            if dim == "pos":
+                shape_list.append(region_size)
+            else:
+                shape_list.append(size)
+        regions_data = np.zeros(shape_list, dtype=self.da.dtype)
+        for i, (start, end) in enumerate(global_coords):
+            _data = self.da.isel(pos=slice(start, end)).values
+            regions_data[i] = _data
+        return regions_data
+
+
+class GenomeRegionZarr:
+    def __init__(self, da, load=False, region_dim="region"):
+        assert region_dim in da.dims
+        self.da = da.rename({region_dim: "region"})
+        self.region_dim = region_dim
+        self.load = load
+        if load:
+            self.da.load()
+            self._remote_da = None
+        else:
+            self._remote_da = ray.put(self.da)
+
+    def get_region_data(self, region):
+        if isinstance(region, (int, slice)):
+            region_data = self.da.isel(region=region).values
+        else:
+            region_data = self.da.sel(region=region).values
+        return region_data
+
+    def get_regions_data(self, *regions):
+        return self.get_region_data(*regions)
+
+
+class GenomeOneHotZarr(GenomePositionZarr):
     def __init__(self, ds_path, load=True):
         self.ds = xr.open_zarr(ds_path)
         self.one_hot = self.ds["X"]
-        if load:
-            self.one_hot.load()
-        self.offsets = self.ds["offsets"].to_pandas()
+        super().__init__(
+            da=self.one_hot,
+            offsets=self.ds["offsets"].to_pandas(),
+            load=load,
+            pos_dim="pos",
+        )
 
     def __repr__(self):
         return self.ds.__repr__()
@@ -891,10 +947,8 @@ class GenomeOneHotZarr:
             chrom, start, end = args
         else:
             raise ValueError("args must be a region name or chrom, start, end")
-        add_start = self.offsets.loc[chrom, "global_start"]
-        global_start = start + add_start
-        global_end = end + add_start
-        region_one_hot = self.one_hot.isel(pos=slice(global_start, global_end)).values
+
+        region_one_hot = self.get_region_data(chrom, start, end)
         return region_one_hot
 
     def get_regions_one_hot(self, regions):
@@ -907,16 +961,15 @@ class GenomeOneHotZarr:
             regions = parse_region_names([regions]).df[["Chromosome", "Start", "End"]]
         else:
             regions = parse_region_names(regions).df[["Chromosome", "Start", "End"]]
-        global_coords = _get_global_coords(regions, self.offsets)
+        global_coords = _get_global_coords(
+            chrom_offsets=self.offsets, region_bed_df=regions
+        )
+
         # make sure regions are in the same length
         region_lengths = global_coords[:, 1] - global_coords[:, 0]
         assert (
             region_lengths == region_lengths[0]
         ).all(), "All regions must have the same length."
 
-        # init an empty array
-        n_regions = len(global_coords)
-        region_one_hot = np.zeros((n_regions, region_lengths[0], 4), dtype=bool)
-        for i, (start, end) in enumerate(global_coords):
-            region_one_hot[i] = self.one_hot.isel(pos=slice(start, end)).values
+        region_one_hot = self.get_regions_data(regions)
         return region_one_hot

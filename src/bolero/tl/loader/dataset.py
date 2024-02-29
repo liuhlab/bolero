@@ -3,19 +3,12 @@ import torch
 import xarray as xr
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
-from bolero.pp import Genome
-from bolero.pp.genome import parse_region_names
+from bolero.pp import Genome, GenomePositionZarr, GenomeRegionZarr
+from bolero.utils import parse_region_names
 import pathlib
-
-
-def try_gpu():
-    """
-    Try to use GPU if available.
-    """
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
-
+import pyranges as pr
+from collections import OrderedDict
+from bolero.utils import *
 
 DEFAULT_DEVICE = try_gpu()
 
@@ -31,6 +24,9 @@ def split_genome_regions(
     """
     Split the genome regions into train, valid, and test sets with large genome partitioning.
     """
+
+    if isinstance(bed, pd.DataFrame):
+        bed = pr.PyRanges(bed)
     if len(bed) <= 3:
         raise ValueError("Too few regions to split")
 
@@ -75,69 +71,128 @@ def split_genome_regions(
     return train_regions, valid_regions, test_regions
 
 
-class BinaryDataset(Dataset):
-    def __init__(
-        self,
-        task_data,
-        genome,
-        genome_dir=None,
-        label_da_name="y",
-        downsample=None,
-        load=True,
-    ):
+class GenomeDataset(Dataset):
+    def __init__(self, regions, genome, save_dir=None) -> None:
+        super().__init__()
+        self.region_bed = understand_regions(regions)
+        self.region_bed_df = self.region_bed.df
+        self.regions = pd.Index(self.region_bed_df["Name"].values)
+
         if isinstance(genome, Genome):
             self.genome = genome
         else:
-            self.genome = Genome(genome, save_dir=genome_dir)
-        self.region_dim = "region"
-        self.label_da_name = label_da_name
+            self.genome = Genome(genome, save_dir=save_dir)
+        self.offsets = self.genome.chrom_offsets.copy()
 
-        if isinstance(task_data, (str, pathlib.Path)):
-            task_path = str(task_data)
-            if task_path.endswith(".zarr"):
-                self._ds = xr.open_zarr(task_path)
-            elif task_path.endswith(".feather"):
-                _df = pd.read_feather(task_path)
-                _df.set_index(_df.columns[0], inplace=True)
-                _df.index.name = self.region_dim
-                self._ds = xr.Dataset({"y": _df})
-            else:
-                raise ValueError("Unknown file format {}".format(task_path))
-        else:
-            self._ds = task_data
+        self._datasets = OrderedDict()
+        self.input_datasets = []
+        self.output_datasets = []
 
-        if load:
-            self._ds = self._ds.load()
-        if downsample is not None and (downsample > len(self)):
-            _regions = self._ds.get_index(self.region_dim)
-            # random downsample while keep the order
-            sel_regions = np.random.choice(_regions, downsample, replace=False)
-            self._ds = self._ds.sel({self.region_dim: _regions.isin(sel_regions)})
-
-        self.regions = self._ds.get_index(self.region_dim)
-        self.region_bed = parse_region_names(self.regions)
+        # add genome one-hot encoding
+        self._datasets["genome_one_hot"] = GenomePositionZarr(
+            da=self.genome.genome_one_hot.one_hot, offsets=self.offsets, load=True
+        )
 
     def __len__(self):
-        return self._ds.sizes[self.region_dim]
+        return len(self.regions)
 
-    def _isel_region(self, idx):
-        if isinstance(idx, int):
-            idx = [idx]
-        return self._ds[self.label_da_name].isel({self.region_dim: idx})
+    def _get_idx_data(self, name, idx):
+        ds = self._datasets[name]
+        if isinstance(ds, GenomePositionZarr):
+            chrom, start, end, *_ = self.region_bed_df.iloc[idx]
+            _data = ds.get_region_data(chrom, start, end)
+        elif isinstance(ds, GenomeRegionZarr):
+            _data = ds.get_region_data(self.regions[idx])
+        else:
+            raise ValueError("Unknown dataset type")
+        return _data.copy()
+
+    def _get_slice_data(self, name, slice_obj):
+        ds = self._datasets[name]
+        if isinstance(ds, GenomePositionZarr):
+            _data = ds.get_regions_data(self.region_bed_df.iloc[slice_obj])
+        elif isinstance(ds, GenomeRegionZarr):
+            _data = ds.get_regions_data(self.regions[slice_obj])
+        else:
+            raise ValueError("Unknown dataset type")
+        return _data.copy()
 
     def __getitem__(self, idx):
-        # new input
-        _data = self._isel_region(idx)
-        label = torch.FloatTensor(_data.values).squeeze(0)
+        if isinstance(idx, int):
+            _func = self._get_idx_data
+        elif isinstance(idx, slice):
+            _func = self._get_slice_data
+        else:
+            raise ValueError(f"Unknown idx type, got {type(idx)} idx {idx}")
 
-        regions = _data.get_index(self.region_dim)
-        one_hot = self.genome.get_regions_one_hot(regions).squeeze(0)
-        return one_hot, label
+        input = []
+        output = []
+        for name in self.input_datasets:
+            input.append(_func(name, idx))
+        for name in self.output_datasets:
+            output.append(_func(name, idx))
+        return input, output
 
     def __repr__(self) -> str:
         class_str = f"{self.__class__.__name__} object with {len(self)} regions"
         genome_str = f"Genome: {self.genome.name}"
         return f"{class_str}\n{genome_str}"
+
+    def add_position_dataset(self, name, da, datatype, load=False, pos_dim="pos"):
+        if "position" in da.dims:
+            pos_dim = "position"
+
+        assert datatype in (
+            "input",
+            "output",
+        ), f"datatype must be either 'input' or 'output'"
+        assert name not in self._datasets, f"Dataset {name} already exists"
+        assert isinstance(da, xr.DataArray), "da must be an xarray DataArray"
+        assert pos_dim in da.dims, f"pos_dim {pos_dim} not found in da"
+        self._datasets[name] = GenomePositionZarr(
+            da=da, offsets=self.offsets, load=load, pos_dim=pos_dim
+        )
+        if datatype == "input":
+            self.input_datasets.append(name)
+        else:
+            self.output_datasets.append(name)
+
+    def add_region_dataset(self, name, da, datatype, load=False, region_dim="region"):
+        assert datatype in (
+            "input",
+            "output",
+        ), f"datatype must be either 'input' or 'output'"
+        assert name not in self._datasets, f"Dataset {name} already exists"
+        assert isinstance(da, xr.DataArray), "da must be an xarray DataArray"
+        self._datasets[name] = GenomeRegionZarr(da=da, load=load, region_dim=region_dim)
+        if datatype == "input":
+            self.input_datasets.append(name)
+        else:
+            self.output_datasets.append(name)
+
+    def downsample(self, downsample):
+        if downsample < len(self):
+            _regions = self.regions
+            # random downsample while keep the order
+            sel_regions = np.random.choice(_regions, downsample, replace=False)
+            return self.get_subset(sel_regions)
+        else:
+            return self
+
+    def get_subset(self, regions):
+        """
+        Subset the dataset to a new set of regions.
+
+        Only regions needs to be subsetted, the genome and other datasets are shared and queried on the fly.
+        """
+        # create a new object with the same genome and subsetted regions, using the same subclasses
+        subset_obj = self.__class__(
+            regions=regions, genome=self.genome, save_dir=self.genome.save_dir
+        )
+        subset_obj._datasets = self._datasets
+        subset_obj.input_datasets = self.input_datasets
+        subset_obj.output_datasets = self.output_datasets
+        return subset_obj
 
     def get_dataloader(
         self,
@@ -157,35 +212,83 @@ class BinaryDataset(Dataset):
             random_state=random_state,
             n_parts=n_parts,
         )
-        tri_datasets = [
-            self.__class__(
-                task_data=self._ds.sel(**{self.region_dim: region_sel}),
-                genome=self.genome,
-                genome_dir=self.genome.save_dir,
-                label_da_name=self.label_da_name,
-                load=False,
-            )
-            for region_sel in [train_regions, valid_regions, test_regions]
-        ]
-        tri_loaders = [
+        train, valid, test = (
             DataLoader(
-                dataset=ds,
+                dataset=self.get_subset(region_sel),
                 batch_size=batch_size,
                 shuffle=sh,
                 num_workers=0,  # DO NOT USE MULTIPROCESSING, it has issue with the genome object
             )
-            for ds, sh in zip(tri_datasets, shuffle)
-        ]
-        return tri_loaders
+            for region_sel, sh in zip(
+                [train_regions, valid_regions, test_regions], shuffle
+            )
+        )
+        return train, valid, test
 
-class TrackDataset(Dataset):
+
+class BinaryDataset(GenomeDataset):
     def __init__(
         self,
-        task_data,
+        data,
         genome,
-        genome_dir=None,
+        save_dir=None,
         label_da_name="y",
-        downsample=None,
         load=True,
     ):
-        pass
+        self.region_dim = "region"
+        self.label_da_name = label_da_name
+        self._ds = self.read_binary_data(data, label_da_name)
+
+        super().__init__(
+            regions=self._ds.get_index("region"),
+            genome=genome,
+            save_dir=save_dir,
+        )
+
+        # setup input output datasets
+        self.input_datasets.append("genome_one_hot")
+        self._register_binary_label_dataset(load)
+
+    @staticmethod
+    def read_binary_data(task_data, label_da_name="y"):
+        if isinstance(task_data, (str, pathlib.Path)):
+            task_path = str(task_data)
+            if task_path.endswith(".zarr"):
+                _ds = xr.open_zarr(task_path)
+            elif task_path.endswith(".feather"):
+                _df = pd.read_feather(task_path)
+                _df.set_index(_df.columns[0], inplace=True)
+                _df.index.name = "region"
+                _ds = xr.Dataset({label_da_name: _df})
+            else:
+                raise ValueError("Unknown file format {}".format(task_path))
+        else:
+            if isinstance(task_data, pd.DataFrame):
+                task_data.index.name = "region"
+                _ds = xr.Dataset({label_da_name: task_data})
+        return _ds
+
+    def _register_binary_label_dataset(self, load):
+        self.add_region_dataset(
+            name=self.label_da_name,
+            da=self._ds[self.label_da_name],
+            datatype="output",
+            load=load,
+            region_dim=self.region_dim,
+        )
+        self.output_datasets.append(self.label_da_name)
+
+
+class TrackDataset(GenomeDataset):
+    def __init__(
+        self,
+        genome,
+        regions,
+        save_dir=None,
+    ):
+        super().__init__(genome=genome, regions=regions, save_dir=save_dir)
+
+    def add_position_dataset(self, *args, **kwargs):
+        norm_func = kwargs.pop("norm_func", None)
+        
+        self.add_position_dataset(*args, **kwargs)
