@@ -234,31 +234,9 @@ class GenomeDataset(Dataset):
         return train, valid, test
 
 
-class BinaryDataset(GenomeDataset):
-    def __init__(
-        self,
-        data,
-        genome,
-        save_dir=None,
-        label_da_name="y",
-        load=True,
-    ):
-        self.region_dim = "region"
-        self.label_da_name = label_da_name
-        self._ds = self.read_binary_data(data, label_da_name)
-
-        super().__init__(
-            regions=self._ds.get_index("region"),
-            genome=genome,
-            save_dir=save_dir,
-        )
-
-        # setup input output datasets
-        self.input_datasets.append("genome_one_hot")
-        self._register_binary_label_dataset(load)
-
+class RegionDataset(GenomeDataset):
     @staticmethod
-    def read_binary_data(task_data, label_da_name="y"):
+    def read_region_data(task_data, label_da_name="y"):
         if isinstance(task_data, (str, pathlib.Path)):
             task_path = str(task_data)
             if task_path.endswith(".zarr"):
@@ -276,45 +254,67 @@ class BinaryDataset(GenomeDataset):
                 _ds = xr.Dataset({label_da_name: task_data})
         return _ds
 
-    def _register_binary_label_dataset(self, load):
-        self.add_region_dataset(
-            name=self.label_da_name,
-            da=self._ds[self.label_da_name],
+    @classmethod
+    # create a new object from a binary dataframe
+    def from_labels(cls, labels, genome, save_dir=None, label_name="y", load=True):
+        _ds = cls.read_region_data(labels, label_da_name=label_name)
+        regions = understand_regions(_ds.get_index("region"))
+        
+        # init the object with the genome and regions
+        obj = cls(genome=genome, regions=regions, save_dir=save_dir)
+        obj.input_datasets.append("genome_one_hot")
+        obj.add_region_dataset(
+            name=label_name,
+            da=_ds[label_name],
             datatype="output",
             load=load,
-            region_dim=self.region_dim,
+            region_dim='region',
         )
-        self.output_datasets.append(self.label_da_name)
-
-    def load(self):
-        # TODO load all the dataset to mem
-        raise NotImplementedError("Not implemented")
+        return obj
 
 
 class ATACTrackDataset(GenomeDataset):
-    def __init__(
-        self,
-        genome,
+    def __init__(self, regions, genome, save_dir=None, conv_size=50) -> None:
+        super().__init__(regions, genome, save_dir)
+        self.conv_size = conv_size
+        self.position_dataset_norm_value = {}
+        return
+
+    @classmethod
+    def from_regions(
+        cls,
         regions,
+        genome,
         conv_size=50,
         save_dir=None,
     ):
         # load regions and extend by conv_size, the additional bases are loaded to prevent boundary effect during convolution
-        self.conv_size = conv_size
         regions = understand_regions(regions)
+        if not isinstance(genome, Genome):
+            genome = Genome(genome, save_dir=save_dir)
 
         # get region length
         region_length = regions.End - regions.Start
         # make sure region length is all the same
         assert region_length.unique().shape[0] == 1, f"Region length is not consistent"
-        self.region_length = region_length[0]
+        region_length = region_length[0]
+        regions = cls._extend_regions_for_conv(
+            regions=regions, 
+            region_length=region_length, 
+            conv_size=conv_size, 
+            chrom_sizes=genome.chrom_sizes
+        )
+        
+        obj = cls(genome=genome, regions=regions, save_dir=save_dir, conv_size=conv_size)
+        return obj
+        
 
-        if not isinstance(genome, Genome):
-            genome = Genome(genome, save_dir=save_dir)
-        regions = self._extend_regions_for_conv(regions, chrom_sizes=genome.chrom_sizes)
+    def get_subset(self, regions):
+        obj = super().get_subset(regions)
+        obj.conv_size = self.conv_size
+        obj.position_dataset_norm_value = self.position_dataset_norm_value
+        return obj
 
-        super().__init__(genome=genome, regions=regions, save_dir=save_dir)
-        self.position_dataset_norm_value = {}
 
     def add_position_dataset(self, zarr_path, datatype, load=False, pos_dim="pos"):
         ds = xr.open_zarr(zarr_path)
@@ -331,18 +331,19 @@ class ATACTrackDataset(GenomeDataset):
                 f"Normalization value not found in {zarr_path}, run calculate_atac_norm_value first"
             )
             return
-
-    def _extend_regions_for_conv(self, regions, chrom_sizes):
+        
+    @staticmethod
+    def _extend_regions_for_conv(regions, region_length, conv_size, chrom_sizes):
         # NOTE: This function only changes region coordinates, but not the region names
         # For region dataset that uses region names as index, their data will not be impacted
         # For position dataset, the region will be loaded with a flanking size of conv_size
-        regions = regions.extend(self.conv_size)
-        not_length_judge = (regions.End - regions.Start) != int(
-            self.region_length + 2 * self.conv_size
+        regions = regions.extend(conv_size).df
+        not_length_judge = (regions['End'] - regions['Start']) != int(
+            region_length + 2 * conv_size
         )
-        pass_end_judge = regions.End > regions.Chromosome.map(chrom_sizes).astype(int)
-        region_df = regions.df[~(not_length_judge | pass_end_judge)]
-        return pr.PyRanges(region_df)
+        pass_end_judge = regions['End'] > regions['Chromosome'].map(chrom_sizes).astype(int)
+        regions = regions.loc[~(not_length_judge | pass_end_judge).values]
+        return pr.PyRanges(regions)
 
     def __process_batch__(self, input, output):
         # process atac data
