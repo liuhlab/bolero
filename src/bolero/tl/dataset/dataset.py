@@ -259,7 +259,7 @@ class RegionDataset(GenomeDataset):
     def from_labels(cls, labels, genome, save_dir=None, label_name="y", load=True):
         _ds = cls.read_region_data(labels, label_da_name=label_name)
         regions = understand_regions(_ds.get_index("region"))
-        
+
         # init the object with the genome and regions
         obj = cls(genome=genome, regions=regions, save_dir=save_dir)
         obj.input_datasets.append("genome_one_hot")
@@ -268,7 +268,7 @@ class RegionDataset(GenomeDataset):
             da=_ds[label_name],
             datatype="output",
             load=load,
-            region_dim='region',
+            region_dim="region",
         )
         return obj
 
@@ -299,22 +299,23 @@ class ATACTrackDataset(GenomeDataset):
         assert region_length.unique().shape[0] == 1, f"Region length is not consistent"
         region_length = region_length[0]
         regions = cls._extend_regions_for_conv(
-            regions=regions, 
-            region_length=region_length, 
-            conv_size=conv_size, 
-            chrom_sizes=genome.chrom_sizes
+            regions=regions,
+            region_length=region_length,
+            conv_size=conv_size,
+            chrom_sizes=genome.chrom_sizes,
         )
-        
-        obj = cls(genome=genome, regions=regions, save_dir=save_dir, conv_size=conv_size)
+
+        obj = cls(
+            genome=genome, regions=regions, save_dir=save_dir, conv_size=conv_size
+        )
+        obj.input_datasets.append("genome_one_hot")
         return obj
-        
 
     def get_subset(self, regions):
         obj = super().get_subset(regions)
         obj.conv_size = self.conv_size
         obj.position_dataset_norm_value = self.position_dataset_norm_value
         return obj
-
 
     def add_position_dataset(self, zarr_path, datatype, load=False, pos_dim="pos"):
         ds = xr.open_zarr(zarr_path)
@@ -331,17 +332,19 @@ class ATACTrackDataset(GenomeDataset):
                 f"Normalization value not found in {zarr_path}, run calculate_atac_norm_value first"
             )
             return
-        
+
     @staticmethod
     def _extend_regions_for_conv(regions, region_length, conv_size, chrom_sizes):
         # NOTE: This function only changes region coordinates, but not the region names
         # For region dataset that uses region names as index, their data will not be impacted
         # For position dataset, the region will be loaded with a flanking size of conv_size
         regions = regions.extend(conv_size).df
-        not_length_judge = (regions['End'] - regions['Start']) != int(
+        not_length_judge = (regions["End"] - regions["Start"]) != int(
             region_length + 2 * conv_size
         )
-        pass_end_judge = regions['End'] > regions['Chromosome'].map(chrom_sizes).astype(int)
+        pass_end_judge = regions["End"] > regions["Chromosome"].map(chrom_sizes).astype(
+            int
+        )
         regions = regions.loc[~(not_length_judge | pass_end_judge).values]
         return pr.PyRanges(regions)
 
