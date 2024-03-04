@@ -22,9 +22,6 @@ from bolero.utils import *
 
 zarr.storage.default_compressor = Zstd(level=3)
 
-if not ray.is_initialized():
-    ray.init(ignore_reinit_error=True)
-
 
 UCSC_GENOME = (
     "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
@@ -248,6 +245,9 @@ class Genome:
     """Class for utilities related to a genome."""
 
     def __init__(self, genome, save_dir=None):
+        if isinstance(genome, self.__class__):
+            return genome
+
         self.name = genome
 
         package_dir = _get_package_dir()
@@ -597,7 +597,6 @@ class Genome:
         use_regions = pd.concat(use_regions)
 
         # update Name col
-        original_names = use_regions["Name"].values
         use_regions["Name"] = (
             use_regions["Chromosome"].astype(str)
             + ":"
@@ -606,11 +605,10 @@ class Genome:
             + use_regions["End"].astype(str)
         )
         regions_bed = pr.PyRanges(use_regions[["Chromosome", "Start", "End", "Name"]])
-        old_name_to_new_name = dict(zip(original_names, use_regions["Name"].values))
 
         if remove_blacklist and self.blacklist_bed is not None:
             regions_bed = self._remove_blacklist(regions_bed)
-        return regions_bed, old_name_to_new_name
+        return regions_bed
 
     @property
     def genome_one_hot(self):
@@ -856,27 +854,33 @@ class Genome:
 
 @ray.remote
 def _remote_isel(da, dim, sel):
+    da = da.copy()
     return da.isel({dim: sel}).values
 
 
 @ray.remote
 def _remote_sel(da, dim, sel):
+    da = da.copy()
     return da.sel({dim: sel}).values
 
 
 class GenomePositionZarr:
     def __init__(self, da, offsets, load=False, pos_dim="pos"):
-        if "position" in da.dims:
-            pos_dim = "position"
-
-        assert pos_dim in da.dims
-        self.da = da.rename({pos_dim: "pos"})
-        self.pos_dim = pos_dim
-        self.offsets = offsets
-        self.global_start = self.offsets["global_start"].to_dict()
+        self.da = da
         self.load = load
         if load:
             self.da.load()
+
+        if "position" in da.dims:
+            pos_dim = "position"
+        assert pos_dim in da.dims
+        self.da = self.da.rename({pos_dim: "pos"})
+        self.pos_dim = pos_dim
+
+        self.offsets = offsets
+        self.global_start = self.offsets["global_start"].to_dict()
+
+        if load:
             self._remote_da = None
         else:
             self._remote_da = ray.put(self.da)
@@ -886,7 +890,7 @@ class GenomePositionZarr:
         global_start = start + add_start
         global_end = end + add_start
 
-        region_data = self.da.sel(pos=slice(global_start, global_end)).values
+        region_data = self.da.isel(pos=slice(global_start, global_end)).values
         return region_data
 
     def get_regions_data(self, regions_df):
@@ -904,20 +908,32 @@ class GenomePositionZarr:
             else:
                 shape_list.append(size)
         regions_data = np.zeros(shape_list, dtype=self.da.dtype)
-        for i, (start, end) in enumerate(global_coords):
-            _data = self.da.isel(pos=slice(start, end)).values
-            regions_data[i] = _data
+        if self.load:
+            for i, (start, end) in enumerate(global_coords):
+                _data = self.da.isel(pos=slice(start, end)).values
+                regions_data[i] = _data
+        else:
+            futures = [
+                _remote_isel.remote(self._remote_da, "pos", slice(start, end))
+                for start, end in global_coords
+            ]
+            for i, future in enumerate(futures):
+                regions_data[i] = ray.get(future)
         return regions_data
 
 
 class GenomeRegionZarr:
     def __init__(self, da, load=False, region_dim="region"):
-        assert region_dim in da.dims
-        self.da = da.rename({region_dim: "region"})
-        self.region_dim = region_dim
+        self.da = da
         self.load = load
         if load:
-            self.da.load()
+            self.da = self.da.load()
+
+        assert region_dim in self.da.dims
+        self.da = self.da.rename({region_dim: "region"})
+        self.region_dim = region_dim
+
+        if load:
             self._remote_da = None
         else:
             self._remote_da = ray.put(self.da)
@@ -936,7 +952,7 @@ class GenomeRegionZarr:
 class GenomeOneHotZarr(GenomePositionZarr):
     def __init__(self, ds_path, load=True):
         self.ds = xr.open_zarr(ds_path)
-        self.one_hot = self.ds["X"]
+        self.one_hot = self.ds["X"].load()
         super().__init__(
             da=self.one_hot,
             offsets=self.ds["offsets"].to_pandas(),

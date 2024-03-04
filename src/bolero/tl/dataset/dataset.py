@@ -1,5 +1,5 @@
 import pandas as pd
-import torch
+from torch.utils.data.dataloader import _BaseDataLoaderIter
 import xarray as xr
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
@@ -9,6 +9,7 @@ import pathlib
 import pyranges as pr
 from collections import OrderedDict
 from bolero.utils import *
+from bolero.pp.normalize import normalize_atac_batch, convolve_data
 
 DEFAULT_DEVICE = try_gpu()
 
@@ -107,21 +108,21 @@ class GenomeDataset(Dataset):
             raise ValueError("Unknown dataset type")
         return _data.copy()
 
-    def _get_slice_data(self, name, slice_obj):
+    def _get_slice_or_list_data(self, name, sel):
         ds = self._datasets[name]
         if isinstance(ds, GenomePositionZarr):
-            _data = ds.get_regions_data(self.region_bed_df.iloc[slice_obj])
+            _data = ds.get_regions_data(self.region_bed_df.iloc[sel])
         elif isinstance(ds, GenomeRegionZarr):
-            _data = ds.get_regions_data(self.regions[slice_obj])
+            _data = ds.get_regions_data(self.regions[sel])
         else:
             raise ValueError("Unknown dataset type")
         return _data.copy()
 
     def __getitem__(self, idx):
-        if isinstance(idx, int):
+        if isinstance(idx, (slice, list)):
+            _func = self._get_slice_or_list_data
+        elif isinstance(idx, int):
             _func = self._get_idx_data
-        elif isinstance(idx, slice):
-            _func = self._get_slice_data
         else:
             raise ValueError(f"Unknown idx type, got {type(idx)} idx {idx}")
 
@@ -132,6 +133,13 @@ class GenomeDataset(Dataset):
         for name in self.output_datasets:
             output.append(_func(name, idx))
         return input, output
+
+    def __getitems__(self, idx_list):
+        # if __getitems__ is defined, pytorch dataloader's fetch function will use
+        # this instead of __getitem__ and pass a list of indices at once.
+        # See pytorch code here:
+        # https://github.com/pytorch/pytorch/blob/main/torch/utils/data/_utils/fetch.py#L51
+        return self.__getitem__(idx_list)
 
     def __repr__(self) -> str:
         class_str = f"{self.__class__.__name__} object with {len(self)} regions"
@@ -278,17 +286,90 @@ class BinaryDataset(GenomeDataset):
         )
         self.output_datasets.append(self.label_da_name)
 
+    def load(self):
+        # TODO load all the dataset to mem
+        raise NotImplementedError("Not implemented")
 
-class TrackDataset(GenomeDataset):
+
+class ATACTrackDataset(GenomeDataset):
     def __init__(
         self,
         genome,
         regions,
+        conv_size=50,
         save_dir=None,
     ):
-        super().__init__(genome=genome, regions=regions, save_dir=save_dir)
+        # load regions and extend by conv_size, the additional bases are loaded to prevent boundary effect during convolution
+        self.conv_size = conv_size
+        regions = understand_regions(regions)
 
-    def add_position_dataset(self, *args, **kwargs):
-        norm_func = kwargs.pop("norm_func", None)
-        
-        self.add_position_dataset(*args, **kwargs)
+        # get region length
+        region_length = regions.End - regions.Start
+        # make sure region length is all the same
+        assert region_length.unique().shape[0] == 1, f"Region length is not consistent"
+        self.region_length = region_length[0]
+
+        if not isinstance(genome, Genome):
+            genome = Genome(genome, save_dir=save_dir)
+        regions = self._extend_regions_for_conv(regions, chrom_sizes=genome.chrom_sizes)
+
+        super().__init__(genome=genome, regions=regions, save_dir=save_dir)
+        self.position_dataset_norm_value = {}
+
+    def add_position_dataset(self, zarr_path, datatype, load=False, pos_dim="pos"):
+        ds = xr.open_zarr(zarr_path)
+        da = ds["site_count"]
+        name = str(zarr_path)
+        super().add_position_dataset(
+            name=name, da=da, datatype=datatype, load=load, pos_dim=pos_dim
+        )
+        try:
+            norm_value = ds["normalize"].to_pandas()
+            self.position_dataset_norm_value[name] = norm_value
+        except KeyError:
+            print(
+                f"Normalization value not found in {zarr_path}, run calculate_atac_norm_value first"
+            )
+            return
+
+    def _extend_regions_for_conv(self, regions, chrom_sizes):
+        # NOTE: This function only changes region coordinates, but not the region names
+        # For region dataset that uses region names as index, their data will not be impacted
+        # For position dataset, the region will be loaded with a flanking size of conv_size
+        regions = regions.extend(self.conv_size)
+        not_length_judge = (regions.End - regions.Start) != int(
+            self.region_length + 2 * self.conv_size
+        )
+        pass_end_judge = regions.End > regions.Chromosome.map(chrom_sizes).astype(int)
+        region_df = regions.df[~(not_length_judge | pass_end_judge)]
+        return pr.PyRanges(region_df)
+
+    def __process_batch__(self, input, output):
+        # process atac data
+        def _process_batch(batch, norm_value):
+            norm_data = normalize_atac_batch(batch=batch, norm_value=norm_value)
+            conv_data = convolve_data(norm_data, conv_size=self.conv_size)
+            # remove the additional extended bases after convolution to prevent boundary effect
+            conv_data = conv_data[..., self.conv_size : -self.conv_size]
+            return conv_data
+
+        # normalize input and output from a position zarr dataset when its norm value is available
+        for i, name in enumerate(self.input_datasets):
+            if name in self.position_dataset_norm_value:
+                norm_value = self.position_dataset_norm_value[name]
+                input[i] = _process_batch(input[i], norm_value)
+        for i, name in enumerate(self.output_datasets):
+            if name in self.position_dataset_norm_value:
+                norm_value = self.position_dataset_norm_value[name]
+                output[i] = _process_batch(output[i], norm_value)
+        return input, output
+
+    def __getitem__(self, idx):
+        input, output = super().__getitem__(idx)
+        input, output = self.__process_batch__(input, output)
+        return input, output
+
+    def __getitems__(self, idx_list):
+        input, output = super().__getitems__(idx_list)
+        input, output = self.__process_batch__(input, output)
+        return input, output
