@@ -24,6 +24,30 @@ def split_genome_regions(
 ):
     """
     Split the genome regions into train, valid, and test sets with large genome partitioning.
+
+    Parameters
+    ----------
+    bed : pyranges.PyRanges
+        The genome regions to be split.
+    n_parts : int, optional
+        The number of partitions to split the genome into. Default is 100.
+    train_ratio : float, optional
+        The ratio of the training set. Default is 0.7.
+    valid_ratio : float, optional
+        The ratio of the validation set. Default is 0.1.
+    test_ratio : float, optional
+        The ratio of the test set. Default is 0.2.
+    random_state : int, optional
+        The random seed for splitting. Default is None.
+
+    Returns
+    -------
+    train_regions : pyranges.PyRanges
+        The training set.
+    valid_regions : pyranges.PyRanges
+        The validation set.
+    test_regions : pyranges.PyRanges
+        The test set.
     """
 
     if isinstance(bed, pd.DataFrame):
@@ -49,10 +73,12 @@ def split_genome_regions(
         p: r
         for p, r in bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
     }
+
     train_regions = pd.concat(
         [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
     )
-    train_regions = pd.Index(train_regions["Name"])
+    train_regions = pr.PyRanges(train_regions)
+
     valid_regions = pd.concat(
         [
             partition_regions[p]
@@ -61,14 +87,16 @@ def split_genome_regions(
             )
         ]
     )
-    valid_regions = pd.Index(valid_regions["Name"])
+    valid_regions = pr.PyRanges(valid_regions)
+
     test_regions = pd.concat(
         [
             partition_regions[p]
             for p in sorted(partition_order[n_train_parts + n_valid_parts :])
         ]
     )
-    test_regions = pd.Index(test_regions["Name"])
+    test_regions = pr.PyRanges(test_regions)
+ 
     return train_regions, valid_regions, test_regions
 
 
@@ -376,5 +404,4 @@ class ATACTrackDataset(GenomeDataset):
 
     def __getitems__(self, idx_list):
         input, output = super().__getitems__(idx_list)
-        input, output = self.__process_batch__(input, output)
         return input, output
