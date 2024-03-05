@@ -226,6 +226,7 @@ class GenomeDataset(Dataset):
                 batch_size=batch_size,
                 shuffle=sh,
                 num_workers=0,  # DO NOT USE MULTIPROCESSING, it has issue with the genome object
+                collate_fn=lambda x: x,
             )
             for region_sel, sh in zip(
                 [train_regions, valid_regions, test_regions], shuffle
