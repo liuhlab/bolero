@@ -396,7 +396,7 @@ def run_lda_mallet(
     )
 
     @ray.remote(num_cpus=mallet_cpu)
-    def _remote_run_cgs_model_mallet(*args, kwargs):
+    def _remote_run_cgs_model_mallet(*args, **kwargs):
         return run_cgs_model_mallet(*args, **kwargs)
 
     # save the corpus to disk and call mallet in parallel
