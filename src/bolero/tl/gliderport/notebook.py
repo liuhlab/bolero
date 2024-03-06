@@ -214,7 +214,7 @@ rule {rule_name}:
             input_path=params.input_nb, 
             output_path=log.output_nb, 
             cwd=wildcards.group_name, 
-            config_path="{{wildcards.group_name}}/log/{rule_name}.config.yaml", 
+            config_path=str(wildcards.group_name) + "/log/{rule_name}.config.yaml", 
             log_path=log.log, 
             success_flag=output
         )
@@ -262,7 +262,6 @@ groups = {groups}
 
 # the notebook execution function
 {inspect.getsource(papermill_notebook)}
-
 
 rule final:
     input:

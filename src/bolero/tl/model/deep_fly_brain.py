@@ -6,11 +6,13 @@ import torch.nn.functional as F
 class DeepFlyBrain(nn.Module):
     """DeepFlyBrain model."""
 
-    def __init__(self, out_dims, seq_shape=(499, 4), motif_file_path=None):
-        super().__init__()
+    def __init__(self, out_dims, seq_shape=(500, 4), motif_db=None):
+        super(DeepFlyBrain, self).__init__()
 
-        # Layers used in process_input
-        self.conv1d = nn.Conv1d(in_channels=seq_shape[1], out_channels=1024, kernel_size=24)
+        # Define layers
+        self.conv1d = nn.Conv1d(
+            in_channels=seq_shape[1], out_channels=1024, kernel_size=24
+        )
         self.maxpool = nn.MaxPool1d(kernel_size=12, stride=12)
         self.dropout1 = nn.Dropout(0.5)
         self.dense1 = nn.Linear(1024, 128)
@@ -24,23 +26,22 @@ class DeepFlyBrain(nn.Module):
         )
         self.dropout2 = nn.Dropout(0.5)
         self.flatten = nn.Flatten()
-        self.dense2 = nn.Linear(256, 256)  # Assuming the correct input size here
+        self.dense2 = nn.Linear(256 * 39, 256)
         self.dropout3 = nn.Dropout(0.5)
+        self.output_layer = nn.Linear(512, out_dims)
 
-        # final output layer
-        self.output_layer = nn.Linear(256, out_dims)  # Assuming the correct input size here
-
-        # Custom weight initialization
-        # self.motif_file_path = motif_file_path
-        # if self.motif_file_path is not None:
-        #     self.initialize_weights()
+        self.motif_db = motif_db
+        if self.motif_db is not None:
+            self.update_conv1d_weights()
 
     def process_input(self, x):
         """Process input through the layers."""
-        x = x.permute(0, 2, 1)  # Rearrange dimensions to batch, bases/channels, sequence positions
+        # Rearrange dimensions to batch, bases/channels, sequence positions
+        x = x.permute(0, 2, 1)
         x = F.relu(self.conv1d(x))
         x = self.maxpool(x)
         x = self.dropout1(x)
+        x = x.permute(0, 2, 1)
         x = F.relu(self.dense1(x))
         x, _ = self.lstm(x)
         x = self.dropout2(x)
@@ -49,6 +50,22 @@ class DeepFlyBrain(nn.Module):
         x = self.dropout3(x)
         return x
 
+    def update_conv1d_weights(self):
+        # Get the default initialized weights
+        init_weights = self.conv1d.weight.data.clone()
+        kernel_size = init_weights.shape[2]
+        
+        for out_channel_idx, pwm in enumerate(self.motif_db.motif_pwms.values()):
+            # pwm.shape == (motif_length, base)
+            
+            pwm = torch.from_numpy(pwm.T.values).to(dtype=self.conv1d.weight.dtype, device=self.conv1d.weight.device)
+            pwm_size = pwm.shape[1]
+            pad = int((kernel_size - pwm_size)/2)
+            init_weights[out_channel_idx, :, pad:pad+pwm_size] = pwm
+
+        # Assign the modified weights back
+        self.conv1d.weight.data = init_weights
+    
     def forward(self, x):
         """Forward pass."""
         # Forward input
@@ -62,68 +79,5 @@ class DeepFlyBrain(nn.Module):
         merged = torch.cat((x_forward, x_reversed_complemented), dim=1)
 
         # Final layers
-        out = F.sigmoid(self.output_layer(merged))
+        out = self.output_layer(merged)
         return out
-
-    # def initialize_weights(self):
-    #     """Initialize weights using the motif file."""
-    #     with open(self.motif_file_path, "rb") as f:
-    #         motif_dict = pickle.load(f)
-    #     conv_weights = self.conv1d.weight.data
-    #     # Assuming 'w' and other required variables are defined
-    #     # Initialize weights here as done in the Keras model
-
-
-# Usage
-seq_shape = (1, 100, 100)  # Example shape
-model = DeepFlyBrain(seq_shape, "/motif_file.pkl")
-
-# Define optimizer and loss function
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-criterion = nn.BCEWithLogitsLoss()
-
-
-# TensorFlow code from the original DeepFlyBrain model
-
-# reverse_lambda_ax2 = Lambda(lambda x: K.reverse(x,axes=2))
-# reverse_lambda_ax1 = Lambda(lambda x: K.reverse(x,axes=1))
-
-# def get_output(input_layer, hidden_layers):
-#     output = input_layer
-#     for hidden_layer in hidden_layers:
-#         output = hidden_layer(output)
-#     return output
-
-# def build_model():
-#     forward_input = Input(shape=seq_shape)
-#     reverse_input = Input(shape=seq_shape)
-
-#     layer0 = [
-#         Conv1D(1024, kernel_size=24, padding="valid", activation='relu', kernel_initializer='random_uniform'),
-#         MaxPooling1D(pool_size=12, strides=12, padding='valid'),
-#         Dropout(0.5),
-#         TimeDistributed(Dense(128, activation='relu')),
-#         Bidirectional(LSTM(128, dropout=0.2, recurrent_dropout=0.2, return_sequences=True)),
-#         Dropout(0.5),
-#         Flatten(),
-#         Dense(256, activation='relu'),
-#         Dropout(0.5),]
-#     layer1 = [
-#         Dense(81, activation='sigmoid')]
-#     forward_output_f = get_output(forward_input, layer0)
-#     reverse_output_r = get_output(reverse_lambda_ax2(reverse_lambda_ax1(forward_input)), layer0)
-#     merged_output = concatenate([forward_output_f,reverse_output_r],axis=1)
-#     output = get_output(merged_output, layer1)
-#     model = Model(input=forward_input, output=output)
-
-#     f = open("/motif_file.pkl", "rb")
-#     motif_dict = pickle.load(f)
-#     f.close()
-#     conv_weights = model.layers[3].get_weights()
-#     for i, name in enumerate(motif_dict):
-#         conv_weights[0][int((w-len(motif_dict[name]))/2):int((w-len(motif_dict[name]))/2) + len(motif_dict[name]), :, i] = motif_dict[name]
-#     model.layers[3].set_weights(conv_weights)
-
-#     model.summary()
-#     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-#     return model

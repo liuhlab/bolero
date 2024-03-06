@@ -328,6 +328,7 @@ def run_lda_mallet(
     alpha: Optional[float] = 50,
     eta: Optional[float] = 0.1,
     top_topics_coh: Optional[int] = 5,
+    mallet_cpu = 4,
 ):
     """
     Run Latent Dirichlet Allocation per model as implemented in Mallet (McCallum, 2002).
@@ -351,6 +352,8 @@ def run_lda_mallet(
     top_topics_coh: int, optional
         Number of topics to use to calculate the model coherence. For each model,
         the coherence will be calculated as the average of the top coherence values. Default: 5.
+    mallet_cpu: int, optional
+        Number of threads for each malles train-topics call. Default: 4.
 
     Return
     ------
@@ -392,10 +395,14 @@ def run_lda_mallet(
         corpus=corpus, id2word=id2word, output_dir=output_dir
     )
 
+    @ray.remote(num_cpus=mallet_cpu)
+    def _remote_run_cgs_model_mallet(*args, kwargs):
+        return run_cgs_model_mallet(*args, **kwargs)
+
     # save the corpus to disk and call mallet in parallel
     binary_matrix_remote = ray.put(binary_matrix)
     futures = [
-        run_cgs_model_mallet.remote(
+        _remote_run_cgs_model_mallet.remote(
             binary_matrix=binary_matrix_remote,
             corpus_mallet_path=corpus_mallet_path,
             id2word_path=id2word_path,
@@ -408,6 +415,7 @@ def run_lda_mallet(
             alpha=alpha,
             eta=eta,
             top_topics_coh=top_topics_coh,
+            cpu=mallet_cpu,
         )
         for n_topic in n_topics
     ]
@@ -418,8 +426,6 @@ def run_lda_mallet(
     id2word_path.unlink()
     return model_list
 
-
-@ray.remote(num_cpus=4)
 def run_cgs_model_mallet(
     binary_matrix: sparse.csr_matrix,
     corpus_mallet_path: str,
@@ -433,44 +439,40 @@ def run_cgs_model_mallet(
     alpha: Optional[float] = 50,
     eta: Optional[float] = 0.1,
     top_topics_coh: Optional[int] = 5,
+    cpu=4,
 ):
     """
     Run Latent Dirichlet Allocation in a model as implemented in Mallet (McCallum, 2002).
 
     Parameters
     ----------
-    path_to_mallet_binary: str
-        Path to the mallet binary (e.g. /xxx/Mallet/bin/mallet).
     binary_matrix: sparse.csr_matrix
         Binary sparse matrix containing cells as columns, regions as rows, and 1 if a regions is considered accesible on a cell (otherwise, 0).
+    corpus_mallet_path: str
+        Path to the corpus in Mallet format.
+    id2word_path: str
+        Path to the id2word dictionary.
+    output_dir: str
+        Path to save the model.
     n_topics: list of int
         A list containing the number of topics to use in each model.
     cell_names: list of str
         List containing cell names as ordered in the binary matrix columns.
     region_names: list of str
         List containing region names as ordered in the binary matrix rows.
-    n_cpu: int, optional
-        Number of cpus to use for modelling. In this function parallelization is done per model, that is, one model will run entirely in a unique cpu. We recommend to set the number of cpus as the number of models that will be inferred, so all models start at the same time.
     n_iter: int, optional
         Number of iterations for which the Gibbs sampler will be run. Default: 150.
     random_state: int, optional
         Random seed to initialize the models. Default: 555.
     alpha: float, optional
         Scalar value indicating the symmetric Dirichlet hyperparameter for topic proportions. Default: 50.
-    alpha_by_topic: bool, optional
-        Boolean indicating whether the scalar given in alpha has to be divided by the number of topics. Default: True
     eta: float, optional
         Scalar value indicating the symmetric Dirichlet hyperparameter for topic multinomials. Default: 0.1.
-    eta_by_topic: bool, optional
-        Boolean indicating whether the scalar given in beta has to be divided by the number of topics. Default: False
     top_topics_coh: int, optional
         Number of topics to use to calculate the model coherence. For each model, the coherence will be calculated as the average of the top coherence values. Default: 5.
-    tmp_path: str, optional
-        Path to a temporary folder for Mallet. Default: None.
-    save_path: str, optional
-        Path to save models as independent files as they are completed. This is recommended for large data sets. Default: None.
-    reuse_corpus: bool, optional
-        Whether to reuse the mallet corpus in the tmp directory. Default: False
+    cpu: int, optional
+        Number of threads that will be used for training. Default: 4.
+            
     Return
     ------
     CistopicLDAModel
@@ -491,7 +493,7 @@ def run_cgs_model_mallet(
         output_dir=output_dir,
         alpha=alpha,
         eta=eta,
-        n_cpu=4,
+        n_cpu=cpu,
         optimize_interval=0,
         iterations=n_iter,
         topic_threshold=0.0,
