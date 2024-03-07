@@ -328,7 +328,7 @@ def run_lda_mallet(
     alpha: Optional[float] = 50,
     eta: Optional[float] = 0.1,
     top_topics_coh: Optional[int] = 5,
-    mallet_cpu = 4,
+    mallet_cpu=4,
 ):
     """
     Run Latent Dirichlet Allocation per model as implemented in Mallet (McCallum, 2002).
@@ -426,6 +426,7 @@ def run_lda_mallet(
     id2word_path.unlink()
     return model_list
 
+
 def run_cgs_model_mallet(
     binary_matrix: sparse.csr_matrix,
     corpus_mallet_path: str,
@@ -472,7 +473,7 @@ def run_cgs_model_mallet(
         Number of topics to use to calculate the model coherence. For each model, the coherence will be calculated as the average of the top coherence values. Default: 5.
     cpu: int, optional
         Number of threads that will be used for training. Default: 4.
-            
+
     Return
     ------
     CistopicLDAModel
