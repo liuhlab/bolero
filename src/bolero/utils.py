@@ -4,6 +4,12 @@ import pathlib
 import torch
 import numpy as np
 from typing import Union
+import bolero
+import shutil
+import subprocess
+
+
+from bolero.utils import pathlib
 
 
 def try_gpu():
@@ -56,3 +62,57 @@ def parse_region_name(name):
     s = int(s)
     e = int(e)
     return c, s, e
+
+
+def get_package_dir():
+    package_dir = pathlib.Path(bolero.__file__).parent
+    return package_dir
+
+
+def get_default_save_dir(save_dir):
+    """Get the default save directory for bolero."""
+    if save_dir is None:
+        # check if "/ref/bolero" exists
+        _my_default = pathlib.Path("/ref/bolero")
+        if _my_default.exists():
+            save_dir = _my_default
+        else:
+            save_dir = get_package_dir()
+    return save_dir
+
+
+def get_file_size_gbs(self, url):
+    """Get the file size from a URL."""
+    cmd = f"curl -sI {url} | grep -i Content-Length | awk '{{print $2}}'"
+    size = subprocess.check_output(cmd, shell=True).decode().strip()
+    size = int(size) / 1024**3
+    return size
+
+
+def download_file(url, local_path):
+    """Download a file from a url to a local path using wget or curl"""
+    local_path = pathlib.Path(local_path)
+
+    if local_path.exists():
+        return
+
+    temp_path = local_path.parent / (local_path.name + ".temp")
+    # download with wget
+    if shutil.which("wget"):
+        subprocess.check_call(
+            ["wget", "-O", temp_path, url],
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+    # download with curl
+    elif shutil.which("curl"):
+        subprocess.check_call(
+            ["curl", "-o", temp_path, url],
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+        )
+    else:
+        raise RuntimeError("Neither wget nor curl found on system")
+    # rename temp file to final file
+    temp_path.rename(local_path)
+    return

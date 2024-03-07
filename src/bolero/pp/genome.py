@@ -15,7 +15,6 @@ from pyfaidx import Fasta
 from tqdm import tqdm
 import ray
 
-import bolero
 
 from bolero.pp.seq import Sequence, DEFAULT_ONE_HOT_ORDER
 from bolero.utils import *
@@ -80,40 +79,6 @@ def _iter_fasta(fasta_path):
                 str(record[:]),
                 name=record.name.split("::")[0],
             )
-
-
-def _get_package_dir():
-    package_dir = pathlib.Path(bolero.__file__).parent
-    return package_dir
-
-
-def _download_file(url, local_path):
-    """Download a file from a url to a local path using wget or curl"""
-    local_path = pathlib.Path(local_path)
-
-    if local_path.exists():
-        return
-
-    temp_path = local_path.parent / (local_path.name + ".temp")
-    # download with wget
-    if shutil.which("wget"):
-        subprocess.check_call(
-            ["wget", "-O", temp_path, url],
-            stderr=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-        )
-    # download with curl
-    elif shutil.which("curl"):
-        subprocess.check_call(
-            ["curl", "-o", temp_path, url],
-            stderr=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-        )
-    else:
-        raise RuntimeError("Neither wget nor curl found on system")
-    # rename temp file to final file
-    temp_path.rename(local_path)
-    return
 
 
 def _scan_bw(bw_path, bed_path, type="mean", dtype="float32"):
@@ -250,14 +215,8 @@ class Genome:
 
         self.name = genome
 
-        package_dir = _get_package_dir()
-        if save_dir is None:
-            # check if "/ref/bolero" exists
-            _my_default = pathlib.Path("/ref/bolero")
-            if _my_default.exists():
-                save_dir = _my_default
-            else:
-                save_dir = package_dir
+        package_dir = get_package_dir()
+        self.save_dir = get_default_save_dir(save_dir)
         self.save_dir = pathlib.Path(save_dir).absolute()
         self.save_dir.mkdir(exist_ok=True, parents=True)
 
@@ -313,8 +272,8 @@ class Genome:
                 f"\nUCSC url: {fasta_url}"
                 f"\nLocal path: {fasta_file}\n"
             )
-            _download_file(fasta_url, fasta_gz_file)
-            _download_file(chrom_sizes_url, chrom_sizes_file)
+            download_file(fasta_url, fasta_gz_file)
+            download_file(chrom_sizes_url, chrom_sizes_file)
 
             # unzip fasta file
             print(f"Unzipping {fasta_gz_file}")

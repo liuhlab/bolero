@@ -6,12 +6,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from Bio import motifs
-
+import pyBigWig
 # get pkg_data path from package root
 import bolero
+from bolero.utils import download_file, get_default_save_dir, get_file_size_gbs
 
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
-
 PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
 JASPAR_MTOFI_DBS = {
     "_".join(p.name.split("_")[:3]): p
@@ -121,19 +121,154 @@ class JASPARMotifDatabase:
     def available_databases(cls):
         return set(JASPAR_MTOFI_DBS.keys())
 
-    def __init__(self, db="JASPAR2024_CORE_vertebrates", max_length=24, base_order=DEFAULT_ONE_HOT_ORDER):
+    def __init__(
+        self,
+        db="JASPAR2024_CORE_vertebrates",
+        max_length=24,
+        base_order=DEFAULT_ONE_HOT_ORDER,
+    ):
         # check if db is valid using class method
         if db not in self.available_databases():
             raise ValueError(f"Invalid JASPAR database: {db}")
 
         self.db = db
         self.motif_pwms = joblib.load(JASPAR_MTOFI_DBS[db])
+        self.base_order = base_order
 
         self.motifs = []
         for (motif_id, motif_name), pwm in self.motif_pwms.items():
-            motif = JASPARMotif(motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER)
+            motif = JASPARMotif(
+                motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER
+            )
 
             motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
         return
+
+
+JASPAR_TFBS_GENOME_BIGBED_URL = (
+    "https://frigg.uio.no/JASPAR/JASPAR_TFBSs/2024/JASPAR2024_{genome}.bb"
+)
+
+
+class JASPARMotifBigBed:
+
+    def __init__(self, genome, bb_file=None, save_dir=None):
+        self.genome = genome
+
+        if bb_file is None:
+            self.save_dir = get_default_save_dir(save_dir)
+            jaspar_tfbs_dir = self.save_dir / "jaspar/TFBSs"
+            jaspar_tfbs_dir.mkdir(exist_ok=True, parents=True)
+            self.bb_file = jaspar_tfbs_dir / f"JASPAR2024_{self.genome}.bb"
+            if not self.bb_file.exists():
+                raise FileNotFoundError(
+                    f"BigBed file not found: {self.bb_file}, "
+                    f"please download it with JAASPARMotifBigBed.download_motif_bigbed method "
+                    f"or provide the path to the file using the bb_file argument."
+                )
+        
+        self.bb_handle = pyBigWig.open(str(self.bb_file))
+
+    def __enter__(self):
+        return self
     
+    def __exit__(self, *args):
+        return self.bb_handle.__exit__()
+    
+    def close(self):
+        self.bb_handle.close()
+        return    
+
+    def get_motifs(self, *args, use_genes=None):
+        """
+        Get motifs for a genomic region from the bigbed file.
+
+        Parameters
+        ----------
+        args : str or tuple
+            Genomic region in the format "chr:start-end" or "chr", start, end as separate arguments.
+        use_genes : list of str, optional
+            List of genes to include. Default is None, which includes all genes.
+
+        Returns
+        -------
+        motifs_df : pandas.DataFrame
+            DataFrame with the motifs in the genomic region. 
+            Columns are "Chromosome", "Start", "End", "Motif", "Score", "Strand", "Gene".
+        """
+        if len(args) == 1:
+            chrom ,coords = args[0].split(":")
+            start, end = coords.split("-")
+            start = int(start)
+            end = int(end)
+        else:
+            chrom, start, end = args
+        
+        motifs_df = []
+        for _start, _end, info in self.bb_handle.entries(chrom, start, end):
+            motif, score, strand, gene = info.split("\t")
+            motifs_df.append([chrom, _start, _end, motif, score, strand, gene])
+        motifs_df = pd.DataFrame(
+            motifs_df,
+            columns=["Chromosome", "Start", "End", "Motif", "Score", "Strand", "Gene"],
+        )
+        motifs_df["Score"] = motifs_df["Score"].astype(int)
+
+        if use_genes is not None:
+            motifs_df = motifs_df[motifs_df["Gene"].isin(use_genes)].copy()
+        return motifs_df
+    
+    def get_motif_track_plotter(self, *args, plot_order=None, plot_genes=None):
+        """
+        Get a MotifTrackPlotter instance for the motifs in the bigbed file.
+
+        Parameters
+        ----------
+        args : str or tuple or pd.DataFrame
+            Genomic region in the format "chr:start-end" or "chr", start, end as separate arguments 
+            or a DataFrame from the JAASPARMotifBigBed.get_motifs method.
+        plot_order : list of str, optional
+            Order of the genes to plot. Default is None, which uses the gene's average motif score to determine the order.
+        plot_genes : list of str, optional
+            List of genes to include. Default is None, which includes all genes.
+
+        Returns
+        -------
+        MotifTrackPlotter
+            MotifTrackPlotter instance for the motifs in the genomic region.
+            MotifTrackPlotter.plot() method can be used to plot the motifs on an Axes.
+        """
+        from bolero.pl.motif_track import MotifTrackPlotter
+
+        if isinstance(args[0], pd.DataFrame):
+            motifs_df = args[0]
+        else:
+            motifs_df = self.get_motifs(*args, use_genes=plot_genes)
+        return MotifTrackPlotter(motifs_df, name_col="Gene", plot_order=plot_order, plot_genes=plot_genes)
+
+    @classmethod
+    def download_motif_bigbed(cls, genome, save_dir=None):
+        """Download a genome fasta file from UCSC"""
+
+        # create a data directory within the package if it doesn't exist
+        save_dir = get_default_save_dir(save_dir)
+        bb_url = JASPAR_TFBS_GENOME_BIGBED_URL.format(genome=genome)
+        jaspar_tfbs_dir = save_dir / "jaspar/TFBSs"
+        jaspar_tfbs_dir.mkdir(exist_ok=True, parents=True)
+        bb_file = jaspar_tfbs_dir / f"JASPAR2024_{genome}.bb"
+
+        # download fasta file
+        if not bb_file.exists():
+            print(
+                f"Downloading {genome} TFBSs BigBed file from JASPAR 2024"
+                f"\nJASPAR url: {bb_url}"
+                f"\nLocal path: {bb_file}"
+                f"\nFile size: {get_file_size_gbs(bb_url):.2f} GB"
+                "\nIf the download is too slow, you may maually download the file and "
+                "provide the path to the file using the bb_file argument."
+            )
+            download_file(bb_url, bb_file)
+        return bb_file
+    
+
