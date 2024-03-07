@@ -252,7 +252,7 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             self.alpha,
             self.eta,
             self.optimize_interval,
-            int(self.n_cpu * 1.5),
+            self.n_cpu,
             self.state_path,
             self.doctopics_path,
             self.topickeys_path,
