@@ -7,7 +7,7 @@ name = "bolero"
 dynamic = ["version"]
 description = "sequence"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.6"
 license = { file = "LICENSE" }
 authors = [{ name = "Hanqing Liu" }, { name = "Hanchen Wang" }]
 maintainers = [

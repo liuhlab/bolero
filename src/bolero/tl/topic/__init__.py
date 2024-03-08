@@ -66,6 +66,13 @@ def convert_input(corpus, id2word, output_dir):
     output_dir = pathlib.Path(output_dir)
     txt_path = output_dir / "corpus.txt"
     mallet_path = output_dir / "corpus.mallet"
+    id2word_path = output_dir / "id2word"
+    temp_id2word_path = output_dir / "id2word.temp"
+
+    if mallet_path.exists() and id2word_path.exists():
+        return mallet_path, id2word_path
+
+    temp_mallet_path = output_dir / "corpus.mallet.temp"
     with utils.open(txt_path, "wb") as fout:
         for docno, doc in enumerate(corpus):
             tokens = chain.from_iterable(
@@ -77,13 +84,15 @@ def convert_input(corpus, id2word, output_dir):
         "mallet import-file --preserve-case --keep-sequence "
         '--remove-stopwords --token-regex "\\S+" --input %s --output %s'
     )
-    cmd = cmd % (txt_path, mallet_path)
+    cmd = cmd % (txt_path, temp_mallet_path)
     check_output(args=cmd, shell=True)
     txt_path.unlink()
 
     # dump id2word to a file
-    id2word_path = output_dir / "id2word"
-    joblib.dump(id2word, id2word_path)
+    joblib.dump(id2word, temp_id2word_path)
+
+    temp_mallet_path.rename(mallet_path)
+    temp_id2word_path.rename(id2word_path)
     return mallet_path, id2word_path
 
 
