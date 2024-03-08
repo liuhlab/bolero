@@ -217,7 +217,6 @@ class Genome:
 
         package_dir = get_package_dir()
         self.save_dir = get_default_save_dir(save_dir)
-        self.save_dir = pathlib.Path(save_dir).absolute()
         self.save_dir.mkdir(exist_ok=True, parents=True)
 
         self.fasta_path, self.chrom_sizes_path = self.download_genome_fasta()

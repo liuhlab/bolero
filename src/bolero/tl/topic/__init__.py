@@ -60,8 +60,17 @@ def convert_input(corpus, id2word, output_dir):
     ----------
     corpus : iterable of iterable of (int, int)
     Collection of texts in BoW format.
-    infer : bool, optional
-    serialize_corpus : bool, optional
+    id2word : :class:`gensim.corpora.dictionary.Dictionary`
+        Dictionary of the corpus.
+    output_dir : str
+        Path to save the corpus.
+    
+    Returns
+    -------
+    mallet_path : str
+        Path to the corpus in Mallet format.
+    id2word_path : str
+        Path to the id2word dictionary.    
     """
     output_dir = pathlib.Path(output_dir)
     txt_path = output_dir / "corpus.txt"
@@ -174,7 +183,7 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
         eta: Optional[float] = 0.1,
         n_cpu: Optional[int] = 1,
         optimize_interval: Optional[int] = 0,
-        iterations: Optional[int] = 150,
+        iterations: Optional[int] = 300,
         topic_threshold: Optional[float] = 0.0,
         random_seed: Optional[int] = 555,
     ):

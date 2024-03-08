@@ -78,6 +78,7 @@ def get_default_save_dir(save_dir):
             save_dir = _my_default
         else:
             save_dir = get_package_dir()
+    save_dir = pathlib.Path(save_dir).absolute()
     return save_dir
 
 
