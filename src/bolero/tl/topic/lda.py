@@ -423,8 +423,6 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
         cls,
         data,
         model_dirs,
-        train_mallet_file=None,
-        train_id2word_file=None,
         topic_threshold=0.0,
         num_iterations=300,
         random_seed=555,
@@ -439,10 +437,6 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             Binary matrix containing cell/document as columns and regions/words as rows.
         model_dirs: list of str
             List of paths to the model directories.
-        train_mallet_file: str, optional
-            Path to the corpus in Mallet format. If not provided, will automatically try to find it in the first model_dir. Default: None.
-        train_id2word_file: str, optional
-            Path to the id2word dictionary. If not provided, will automatically try to find it in the first model_dir. Default: None.
         output_prefix: str
             Prefix to save the output files.
         topic_threshold : float, optional
@@ -457,35 +451,41 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
         if isinstance(model_dirs, (str, pathlib.Path)):
             model_dirs = [model_dirs]
         model_dirs = [pathlib.Path(x).absolute() for x in model_dirs]
-        inferencer_dict = {}
+
+        # make sure all model_dir names are unique, because we will use them to name the keys in the model_dict
+        model_names = [x.name for x in model_dirs]
+        assert len(model_names) == len(set(model_names)), "model_dirs names are not unique, please rename them to unique names"
+        
+        model_dict = {}
         for model_dir in model_dirs:
+            model_temp_dir = tempfile.mkdtemp(prefix=model_dir.name)
+            model_files = {
+                'inferencer': {}, 
+                'train_mallet': model_dir / "train_corpus.mallet", 
+                'train_id2word': model_dir / "train_corpus.id2word"
+            }
+            assert model_files['train_mallet'].exists(), f"train_corpus.mallet file does not exist in {model_dir}"
+            assert model_files['train_id2word'].exists(), f"train_corpus.id2word file does not exist in {model_dir}"
+
             inferencer_paths = list(
                 pathlib.Path(model_dir).rglob("model*/*inferencer.mallet")
             )
             for inferencer_path in inferencer_paths:
                 topic_model_name = inferencer_path.parent.name
                 model_dir_name = model_dir.name
-                inferencer_dict[f"{model_dir_name}_{topic_model_name}"] = str(
+                # inferencer name will be unique
+                model_files['inferencer'][f"{model_dir_name}_{topic_model_name}"] = str(
                     inferencer_path
                 )
-        if train_mallet_file is None:
-            train_mallet_file = model_dirs[0] / "train_corpus.mallet"
-            assert (
-                train_mallet_file.exists()
-            ), f"{train_mallet_file} the corpus mallet file does not exist"
-        if train_id2word_file is None:
-            train_id2word_file = model_dirs[0] / "train_corpus.id2word"
-            assert (
-                train_id2word_file.exists()
-            ), f"{train_id2word_file} the id2word file does not exist"
+            model_dict[model_temp_dir] = model_files
 
         data, cell_names, _ = _prepare_binary_matrix(data)
         data_remote = ray.put(data)
 
         @ray.remote(num_cpus=2)
-        def _remote_convert_input(data, chunk_start, chunk_end):
+        def _remote_convert_input(data, chunk_start, chunk_end, temp_dir, train_mallet_file, train_id2word_file, mem_gb=16):
             # get a random dir to save the mallet files
-            temp_prefix = f"{tempfile.mkdtemp()}/infer_{chunk_start}_{chunk_end}"
+            temp_prefix = f"{temp_dir}/infer_{chunk_start}_{chunk_end}"
             _data = data[:, chunk_start:chunk_end]
             mallet_path, _ = convert_input(
                 data=_data,
@@ -516,35 +516,48 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             )
             return doc_topic
 
-        # get the number of cpu available
+        # get the number of cpu available and adjust the chunk size
         n_cpu = int(ray.available_resources()["CPU"])
-
-        # split the data in chunks and prepare inputs
         chunk_size = max(100, (data.shape[1] + n_cpu) // int(n_cpu / 2))
-        futures = [
-            _remote_convert_input.remote(
-                data_remote,
-                chunk_start,
-                min(chunk_start + chunk_size, data.shape[1]),
-            )
-            for chunk_start in range(0, data.shape[1], chunk_size)
-        ]
-        # the mallet paths are in the chunk order
-        mallet_paths = ray.get(futures)
 
+        # convert input for each model, this is required as the train_mallet and train_id2word files are different for each model
+        futures = {}
+        for model_temp_dir, model_files in model_dict.items():
+            # split the data in chunks and prepare inputs
+            _futures = [
+                _remote_convert_input.remote(
+                    data=data_remote,
+                    temp_dir=model_temp_dir,
+                    chunk_start=chunk_start,
+                    chunk_end=min(chunk_start + chunk_size, data.shape[1]),
+                    train_mallet_file=model_files['train_mallet'],
+                    train_id2word_file=model_files['train_id2word'],
+                    mem_gb=mem_gb
+                )
+                for chunk_start in range(0, data.shape[1], chunk_size)
+            ]
+            futures[model_temp_dir] = _futures
+        # the mallet paths for each model
+        mallet_paths_dict = {}
+        for model_temp_dir, _futures in futures.items():
+            mallet_paths = ray.get(_futures)
+            mallet_paths_dict[model_temp_dir] = mallet_paths
+    
         # run the inference in parallel for each inferencer on each chunk
         inferencer_future_dict = {}
-        for name, inferencer_path in inferencer_dict.items():
-            temp_dir = tempfile.mkdtemp(prefix=pathlib.Path(inferencer_path).stem)
-            futures = [
-                _remote_infer.remote(
-                    mallet_path=mallet_path,
-                    inferencer_path=inferencer_path,
-                    temp_prefix=f"{temp_dir}/{pathlib.Path(mallet_path).stem}",
-                )
-                for mallet_path in mallet_paths
-            ]
-            inferencer_future_dict[name] = futures
+        for model_temp_dir, model_files in model_dict.items():
+            mallet_paths = mallet_paths_dict[model_temp_dir]
+            for inferencer_name, inferencer_path in model_files['inferencer'].items():
+                temp_dir = tempfile.mkdtemp(prefix=inferencer_name)
+                futures = [
+                    _remote_infer.remote(
+                        mallet_path=mallet_path,
+                        inferencer_path=inferencer_path,
+                        temp_prefix=f"{temp_dir}/{pathlib.Path(mallet_path).stem}",
+                    )
+                    for mallet_path in mallet_paths
+                ]
+                inferencer_future_dict[inferencer_name] = futures
 
         # get the results
         doc_topic_dict = {}
