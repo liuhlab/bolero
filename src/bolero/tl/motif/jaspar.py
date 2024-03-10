@@ -46,7 +46,7 @@ def dump_jaspar_motif_pwm_dict(db, output_dir="."):
     """
     jaspar_url = JASPAR_URLS[db]
     db_name = jaspar_url.split("/")[-1].split(".")[0]
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix='bolero_') as tmp_dir:
         db_name = jaspar_url.split("/")[-1].split(".")[0]
         subprocess.run(
             f"wget {jaspar_url} -P {tmp_dir}",
