@@ -834,6 +834,10 @@ def run_cgs_model_mallet(
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    final_model_path = output_dir / "model.lib"
+    if final_model_path.exists():
+        return joblib.load(final_model_path)
+
     # Running model
     model = LDAMallet(
         corpus_mallet_path=corpus_mallet_path,
@@ -948,5 +952,5 @@ def run_cgs_model_mallet(
         metrics, coherence, marg_topic, topic_ass, cell_topic, topic_region, parameters
     )
     # save model
-    joblib.dump(model, output_dir / "model.lib")
+    joblib.dump(model, final_model_path)
     return model
