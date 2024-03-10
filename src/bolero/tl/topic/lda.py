@@ -67,7 +67,7 @@ def _prepare_binary_matrix(data):
         region_names = data.columns
     elif isinstance(data, (pathlib.Path, str)):
         assert pathlib.Path(data).exists(), f"{data} does not exist"
-        data = anndata.read(data)
+        data = anndata.read_h5ad(data)
         binary_matrix = data.X.T
         cell_names = data.obs_names
         region_names = data.var_names
@@ -752,10 +752,6 @@ def train_lda(
         for n_topic in n_topics
     ]
     model_list = ray.get(futures)
-
-    # delete mallet and id2word files
-    corpus_mallet_path.unlink()
-    id2word_path.unlink()
     return model_list
 
 
