@@ -456,42 +456,62 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
 
         # make sure all model_dir names are unique, because we will use them to name the keys in the model_dict
         model_names = [x.name for x in model_dirs]
-        assert len(model_names) == len(set(model_names)), "model_dirs names are not unique, please rename them to unique names"
-        
-        with tempfile.TemporaryDirectory(prefix='bolero_') as parent_temp_dir:
+        assert len(model_names) == len(
+            set(model_names)
+        ), "model_dirs names are not unique, please rename them to unique names"
+
+        with tempfile.TemporaryDirectory(prefix="bolero_") as parent_temp_dir:
             model_dict = {}
             for model_dir in model_dirs:
-                model_temp_dir = tempfile.mkdtemp(dir=parent_temp_dir, prefix=model_dir.name)
+                model_temp_dir = tempfile.mkdtemp(
+                    dir=parent_temp_dir, prefix=model_dir.name
+                )
                 model_files = {
-                    'inferencer': {}, 
-                    'train_mallet': pathlib.Path(f"{model_temp_dir}/train_corpus.mallet"), 
-                    'train_id2word': model_dir / "train_corpus.id2word"
+                    "inferencer": {},
+                    "train_mallet": pathlib.Path(
+                        f"{model_temp_dir}/train_corpus.mallet"
+                    ),
+                    "train_id2word": model_dir / "train_corpus.id2word",
                 }
                 actual_train_mallet = model_dir / "train_corpus.mallet"
-                assert actual_train_mallet.exists(), f"train_corpus.mallet file does not exist in {model_dir}"
+                assert (
+                    actual_train_mallet.exists()
+                ), f"train_corpus.mallet file does not exist in {model_dir}"
                 # copy the mallet file to temp path and make it read only
-                subprocess.run(["cp", actual_train_mallet, model_files['train_mallet']], check=True)
-                model_files['train_mallet'].chmod(0o444)
+                subprocess.run(
+                    ["cp", actual_train_mallet, model_files["train_mallet"]], check=True
+                )
+                model_files["train_mallet"].chmod(0o444)
 
-                assert model_files['train_id2word'].exists(), f"train_corpus.id2word file does not exist in {model_dir}"
+                assert model_files[
+                    "train_id2word"
+                ].exists(), f"train_corpus.id2word file does not exist in {model_dir}"
 
                 inferencer_paths = list(
                     pathlib.Path(model_dir).rglob("model*/*inferencer.mallet")
                 )
                 for inferencer_path in inferencer_paths:
-                    topic_model_name = inferencer_path.parent.name 
+                    topic_model_name = inferencer_path.parent.name
                     model_dir_name = model_dir.name
                     # inferencer name will be unique
-                    model_files['inferencer'][f"{model_dir_name}_{topic_model_name}"] = str(
-                        inferencer_path
-                    )
+                    model_files["inferencer"][
+                        f"{model_dir_name}_{topic_model_name}"
+                    ] = str(inferencer_path)
                 model_dict[model_temp_dir] = model_files
 
             data, cell_names, _ = _prepare_binary_matrix(data)
             data_remote = ray.put(data)
 
             @ray.remote(num_cpus=2)
-            def _remote_convert_input(data, chunk_start, chunk_end, temp_dir, train_mallet_file, train_id2word_file, mem_gb=16):
+            def _remote_convert_input(
+                data,
+                chunk_start,
+                chunk_end,
+                temp_dir,
+                train_mallet_file,
+                train_id2word_file,
+                mem_gb=16,
+            ):
                 # get a random dir to save the mallet files
                 temp_prefix = f"{temp_dir}/infer_{chunk_start}_{chunk_end}"
                 _data = data[:, chunk_start:chunk_end]
@@ -538,9 +558,9 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
                         temp_dir=model_temp_dir,
                         chunk_start=chunk_start,
                         chunk_end=min(chunk_start + chunk_size, data.shape[1]),
-                        train_mallet_file=model_files['train_mallet'],
-                        train_id2word_file=model_files['train_id2word'],
-                        mem_gb=mem_gb
+                        train_mallet_file=model_files["train_mallet"],
+                        train_id2word_file=model_files["train_id2word"],
+                        mem_gb=mem_gb,
                     )
                     for chunk_start in range(0, data.shape[1], chunk_size)
                 ]
@@ -550,13 +570,17 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             for model_temp_dir, _futures in futures.items():
                 mallet_paths = ray.get(_futures)
                 mallet_paths_dict[model_temp_dir] = mallet_paths
-        
+
             # run the inference in parallel for each inferencer on each chunk
             inferencer_future_dict = {}
             for model_temp_dir, model_files in model_dict.items():
                 mallet_paths = mallet_paths_dict[model_temp_dir]
-                for inferencer_name, inferencer_path in model_files['inferencer'].items():
-                    temp_dir = tempfile.mkdtemp(dir=parent_temp_dir, prefix=inferencer_name)
+                for inferencer_name, inferencer_path in model_files[
+                    "inferencer"
+                ].items():
+                    temp_dir = tempfile.mkdtemp(
+                        dir=parent_temp_dir, prefix=inferencer_name
+                    )
                     futures = [
                         _remote_infer.remote(
                             mallet_path=mallet_path,
