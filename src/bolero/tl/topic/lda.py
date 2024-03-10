@@ -164,6 +164,7 @@ def convert_input(
         # however, this create a problem when running the mallet command in parallel
         # each parallel process will try to write to the same file and the mallet command will fail
         # also in our usecase the mallet file does not need to be updated if the model is already trained
+        # also, chmod will not work in gcsfuse mounted directories, the current solution is to copy the file to a temp file
         train_mallet_path.chmod(0o444)
 
         id2word_path = pathlib.Path(train_id2word_file)
@@ -461,17 +462,22 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             model_temp_dir = tempfile.mkdtemp(prefix=model_dir.name)
             model_files = {
                 'inferencer': {}, 
-                'train_mallet': model_dir / "train_corpus.mallet", 
+                'train_mallet': pathlib.Path(f"{model_temp_dir}/train_corpus.mallet"), 
                 'train_id2word': model_dir / "train_corpus.id2word"
             }
-            assert model_files['train_mallet'].exists(), f"train_corpus.mallet file does not exist in {model_dir}"
+            actual_train_mallet = model_dir / "train_corpus.mallet"
+            assert actual_train_mallet.exists(), f"train_corpus.mallet file does not exist in {model_dir}"
+            # copy the mallet file to temp path and make it read only
+            subprocess.run(["cp", actual_train_mallet, model_files['train_mallet']], check=True)
+            model_files['train_mallet'].chmod(0o444)
+
             assert model_files['train_id2word'].exists(), f"train_corpus.id2word file does not exist in {model_dir}"
 
             inferencer_paths = list(
                 pathlib.Path(model_dir).rglob("model*/*inferencer.mallet")
             )
             for inferencer_path in inferencer_paths:
-                topic_model_name = inferencer_path.parent.name
+                topic_model_name = inferencer_path.parent.name 
                 model_dir_name = model_dir.name
                 # inferencer name will be unique
                 model_files['inferencer'][f"{model_dir_name}_{topic_model_name}"] = str(
