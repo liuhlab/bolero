@@ -22,7 +22,7 @@ def get_bucket_to_local_map():
     return bucket_to_local
 
 
-def gcsfuse_friendly_copy(source_path, target_dir):
+def gcsfuse_friendly_copy(source_path, target_path, create_target_dir=True):
     """
     Copy data from source_path to target_dir, if target_dir is a GCS bucket mount with gcsfuse, then use gsutil to copy the data to its actual gcs location.
 
@@ -30,28 +30,42 @@ def gcsfuse_friendly_copy(source_path, target_dir):
     ----------
     source_path : str
         Source path.
-    target_dir : str
-        Target directory.
+    target_path : str
+        Target path.
     """
-    source_path = str(pathlib.Path(source_path).absolute().resolve())
-    cur_dir = str(pathlib.Path(target_dir).absolute().resolve())
-    
+    source_path = pathlib.Path(source_path).absolute().resolve()
+    suffix = '/*' if source_path.is_dir() else ''
+    source_path = str(source_path).rstrip('/') + suffix
     bucket_to_local = get_bucket_to_local_map()
     for bucket, local_path in bucket_to_local.items():
-        if cur_dir.startswith(local_path):
-            gsurl = re.sub(f"^{local_path}", f"gs://{bucket}", cur_dir)
+        gsutil = True
+        if source_path.startswith(local_path):
+            source_path = re.sub(f"^{local_path}", f"gs://{bucket}", source_path)
             break
     else:
-        gsurl = None
+        gsutil = False
+
+    target_path = pathlib.Path(target_path).absolute().resolve()
+    if not target_path.parent.exists():
+        target_path.parent.mkdir(exist_ok=True, parents=True)
+    suffix = '/' if target_path.is_dir() else ''
+    target_path = str(target_path).rstrip('/') + suffix
+    for bucket, local_path in bucket_to_local.items():
+        gsutil = True
+        if target_path.startswith(local_path):
+            target_path = re.sub(f"^{local_path}", f"gs://{bucket}", target_path)
+            break
+    else:
+        gsutil = False
         
-    if gsurl is not None:
-        cp_cmd = f"gsutil -m cp -r {source_path} {gsurl}/"
+    if gsutil:
+        cp_cmd = f"gsutil -m cp -r {source_path} {target_path}"
         subprocess.check_call(
             cp_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
     else:
         # only a normal cp
-        cp_cmd = f"cp -r {source_path} {cur_dir}/"
+        cp_cmd = f"cp -r {source_path} {target_path}"
         subprocess.check_call(
             cp_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )

@@ -143,6 +143,8 @@ class JASPARMotifDatabase:
 
             motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
+        
+        self.motif_pwms = [motif.pwm for motif in self.motifs]
         return
 
 
