@@ -55,7 +55,8 @@ class DeepFlyBrain(nn.Module):
         init_weights = self.conv1d.weight.data.clone()
         kernel_size = init_weights.shape[2]
         
-        for out_channel_idx, pwm in enumerate(self.motif_db.motif_pwms.values()):
+        for out_channel_idx, motif in enumerate(self.motif_db.motifs):
+            pwm = motif.pwm
             # pwm.shape == (motif_length, base)
             
             pwm = torch.from_numpy(pwm.T.values).to(dtype=self.conv1d.weight.dtype, device=self.conv1d.weight.device)

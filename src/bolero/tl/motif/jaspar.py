@@ -132,19 +132,17 @@ class JASPARMotifDatabase:
             raise ValueError(f"Invalid JASPAR database: {db}")
 
         self.db = db
-        self.motif_pwms = joblib.load(JASPAR_MTOFI_DBS[db])
+        motif_pwms = joblib.load(JASPAR_MTOFI_DBS[db])
         self.base_order = base_order
 
         self.motifs = []
-        for (motif_id, motif_name), pwm in self.motif_pwms.items():
+        for (motif_id, motif_name), pwm in motif_pwms.items():
             motif = JASPARMotif(
                 motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER
             )
 
             motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
-        
-        self.motif_pwms = [motif.pwm for motif in self.motifs]
         return
 
 
