@@ -245,7 +245,10 @@ class Genome:
     def __repr__(self):
         name_str = f"Genome: {self.name}"
         fastq_path = f"Fasta Path: {self.fasta_path}"
-        one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
+        if self._one_hot_obj is None:
+            one_hot_zarr = "Genome One Hot Zarr: Not created"
+        else:
+            one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
         return f"{name_str}\n{fastq_path}\n{one_hot_zarr}"
 
     def download_genome_fasta(self):

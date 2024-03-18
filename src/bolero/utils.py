@@ -1,7 +1,6 @@
 import pyranges as pr
 import pandas as pd
 import pathlib
-import torch
 import numpy as np
 from typing import Union
 import bolero
@@ -16,6 +15,7 @@ def try_gpu():
     """
     Try to use GPU if available.
     """
+    import torch
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
@@ -74,8 +74,12 @@ def get_default_save_dir(save_dir):
     if save_dir is None:
         # check if "/ref/bolero" exists
         _my_default = pathlib.Path("/ref/bolero")
+        home_dir = pathlib.Path.home()
+        _my_default2 = pathlib.Path(f"{home_dir}/ref/bolero")
         if _my_default.exists():
             save_dir = _my_default
+        elif _my_default2.exists():
+            save_dir = _my_default2
         else:
             save_dir = get_package_dir()
     save_dir = pathlib.Path(save_dir).absolute()
