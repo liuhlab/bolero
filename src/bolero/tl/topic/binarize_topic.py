@@ -124,14 +124,12 @@ def binarize_topics(
 
     binarized_topics = {}
 
-    for i in range(topic_dist.shape[1]):
+    for i, col in enumerate(topic_dist.columns):
         l = np.asarray(topic_dist.iloc[:, i])
         l_norm = (l - np.min(l)) / np.ptp(l)
 
         thr = _threshold_otsu(l_norm, nbins=nbins)
-        binarized_topics["Topic" + str(i + 1)] = pd.DataFrame(
-            topic_dist.iloc[l_norm > thr, i]
-        )
+        binarized_topics[col] = pd.DataFrame(topic_dist.iloc[l_norm > thr, i])
 
     # binary empty df
     binarized_df = pd.DataFrame(
