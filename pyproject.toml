@@ -33,7 +33,7 @@ dependencies = [
     "tmtoolkit",
     "tqdm",
     "xarray",
-    "ray",
+    # "ray", # do not add ray as a dependency, install it separately otherwise skypilot will have issue
     "zarr",
 ]
 
