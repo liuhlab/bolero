@@ -1,6 +1,6 @@
-import seaborn as sns
 import matplotlib.patches as mpatches
 import pandas as pd
+import seaborn as sns
 
 
 def _insert_to_xranges(row_xranges, motif_range, space=2):
@@ -26,6 +26,8 @@ def _insert_to_xranges(row_xranges, motif_range, space=2):
 
 
 class MotifTrackPlotter:
+    """Plot motif tracks."""
+
     def __init__(self, motifs_df, name_col="Gene", plot_order=None, plot_genes=None):
         self.motifs_df = motifs_df
         self.name_col = name_col
@@ -98,8 +100,9 @@ class MotifTrackPlotter:
         top_ticks=True,
         show_legend=True,
         legend_loc=(0.5, -0.1),
-        legend_kwargs={},
+        **legend_kwargs,
     ):
+        """Plot motif tracks on a given axis."""
         rows = self._generate_non_overlap_xrange_rows()
         color_map = self._color_map(cmap)
 
@@ -123,9 +126,9 @@ class MotifTrackPlotter:
             sns.despine(left=True, bottom=False, top=True, ax=ax)
 
         if show_legend:
-            self._plot_legend(ax, color_map, legend_loc, top_ticks, **legend_kwargs)
+            self._plot_legend(ax, color_map, legend_loc, **legend_kwargs)
 
-    def _plot_legend(self, ax, color_map, legend_loc, top_ticks, **legend_kwargs):
+    def _plot_legend(self, ax, color_map, legend_loc, **legend_kwargs):
         patches = [
             mpatches.Patch(color=color_map[label], label=label, linewidth=0)
             for label in self.plot_order
@@ -141,17 +144,17 @@ class MotifTrackPlotter:
 
         anchor_loc = "lower center" if legend_loc == "top" else "upper center"
 
-        _legend_kwargs = dict(
-            handles=patches,
-            loc=anchor_loc,
-            bbox_to_anchor=legend_loc,
-            ncol=ncol,
-            frameon=False,
-            handlelength=1.5,
-            handleheight=1,
-            handletextpad=0.5,
-            fontsize=10,
-        )
+        _legend_kwargs = {
+            "handles": patches,
+            "loc": anchor_loc,
+            "bbox_to_anchor": legend_loc,
+            "ncol": ncol,
+            "frameon": False,
+            "handlelength": 1.5,
+            "handleheight": 1,
+            "handletextpad": 0.5,
+            "fontsize": 10,
+        }
         _legend_kwargs.update(legend_kwargs)
         ax.legend(**_legend_kwargs)
         return

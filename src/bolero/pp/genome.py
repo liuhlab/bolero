@@ -3,28 +3,33 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
+
 import numpy as np
 import pandas as pd
 import pyBigWig
-import pyranges as pr
-import xarray as xr
 import pyfaidx
+import pyranges as pr
+import ray
+import xarray as xr
 import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
 from tqdm import tqdm
-import ray
 
-
-from bolero.pp.seq import Sequence, DEFAULT_ONE_HOT_ORDER
-from bolero.utils import *
+from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
+from bolero.utils import (
+    download_file,
+    get_default_save_dir,
+    get_package_dir,
+    parse_region_name,
+    parse_region_names,
+    understand_regions,
+)
 
 zarr.storage.default_compressor = Zstd(level=3)
 
 
-UCSC_GENOME = (
-    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
-)
+UCSC_GENOME = "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
 UCSC_CHROM_SIZES = (
     "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
 )
@@ -128,9 +133,7 @@ def _process_cbust_bed(df):
     return df
 
 
-def _run_cbust_chunk(
-    output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r
-):
+def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r):
     fasta_chunk_path = pathlib.Path(fasta_chunk_path)
     fa_name = fasta_chunk_path.name
     output_path = f"{output_dir}/{fa_name}.csv.gz"
@@ -159,9 +162,7 @@ def _run_cbust_chunk(
     return
 
 
-def _combine_single_motif_scan_to_bigwig(
-    output_dir, genome, chrom_sizes, save_motif_scan
-):
+def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_motif_scan):
     motif = pathlib.Path(output_dir).name
     all_chunk_paths = list(output_dir.glob("*.csv.gz"))
     total_results = []
@@ -191,9 +192,7 @@ def _combine_single_motif_scan_to_bigwig(
 
 
 def _get_global_coords(chrom_offsets, region_bed_df):
-    add_start = (
-        region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
-    )
+    add_start = region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
     start = region_bed_df["Start"] + add_start
     end = region_bed_df["End"] + add_start
     global_coords = np.hstack([start.values[:, None], end.values[:, None]])
@@ -229,9 +228,7 @@ class Genome:
         self.all_chromosomes = self.all_chrom_sizes.index
 
         # load blacklist if it exists
-        blacklist_path = (
-            package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
-        )
+        blacklist_path = package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
         if blacklist_path.exists():
             _df = pr.read_bed(str(blacklist_path), as_df=True)
             self.blacklist_bed = pr.PyRanges(_df.iloc[:, :3]).sort()
@@ -447,9 +444,7 @@ class Genome:
         sequences : list of bolero.pp.seq.Sequence
             List of Sequence objects
         """
-        fasta_path = self.get_region_fasta(
-            bed_path, output_path=None, compress=save_fasta
-        )
+        fasta_path = self.get_region_fasta(bed_path, output_path=None, compress=save_fasta)
         sequences = list(_iter_fasta(fasta_path))
         if not save_fasta:
             fasta_path.unlink()
@@ -524,7 +519,36 @@ class Genome:
         return
 
     def standard_region_length(self, regions, length, remove_blacklist=False):
+        """
+        Adjusts the length of regions to a standard length.
 
+        Parameters
+        ----------
+        regions : PyRanges, DataFrame, str, Path, list, or Index
+            The regions to be adjusted. It can be a PyRanges object, a DataFrame, a file path, a list, or an Index.
+        length : int
+            The desired length of the regions.
+        remove_blacklist : bool, optional
+            Whether to remove regions that overlap with the blacklist. Default is False.
+
+        Returns
+        -------
+        regions_bed : PyRanges
+            The adjusted regions with the specified length.
+
+        Raises
+        ------
+        ValueError
+            If the regions parameter is not a PyRanges, DataFrame, str, Path, list, or Index.
+
+        Notes
+        -----
+        - The method adjusts the length of the regions to the specified length.
+        - It ensures that all regions have the same size by centering them around their midpoint.
+        - It also ensures that the start and end positions of each region are within the range of the chromosome.
+        - The method updates the 'Name' column of the regions to reflect the adjusted positions.
+
+        """
         if isinstance(regions, pr.PyRanges):
             regions_bed = regions
         elif isinstance(regions, pd.DataFrame):
@@ -534,9 +558,7 @@ class Genome:
         elif isinstance(regions, (list, pd.Index)):
             regions_bed = parse_region_names(regions)
         else:
-            raise ValueError(
-                "regions must be a PyRanges, DataFrame, str, Path, list or Index"
-            )
+            raise ValueError("regions must be a PyRanges, DataFrame, str, Path, list or Index")
 
         # make sure all regions have the same size
         regions_center = (regions_bed.Start + regions_bed.End) // 2
@@ -573,6 +595,16 @@ class Genome:
 
     @property
     def genome_one_hot(self):
+        """
+        Returns the one-hot encoded representation of the genome.
+
+        If the one-hot encoded object is not already created, it generates it and saves it to a zarr file.
+        The generated object is then stored in the `_one_hot_obj` attribute for future use.
+
+        Returns
+        -------
+            GenomeOneHotZarr: The one-hot encoded representation of the genome.
+        """
         if self._one_hot_obj is None:
             zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
             success_flag_path = zarr_path / ".success"
@@ -583,6 +615,21 @@ class Genome:
         return self._one_hot_obj
 
     def generate_genome_one_hot(self, zarr_path=None):
+        """
+        Generate genome one-hot encoding.
+
+        Parameters
+        ----------
+        - zarr_path (str): Path to save the Zarr file. If not provided, a default path will be used.
+
+        Returns
+        -------
+        - None
+
+        Raises
+        ------
+        - None
+        """
         print("Generating genome one-hot encoding")
         if zarr_path is None:
             zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
@@ -599,9 +646,7 @@ class Genome:
             coords={"base": list(DEFAULT_ONE_HOT_ORDER)},
         )
         one_hot_ds = xr.Dataset({"X": one_hot_da, "offsets": self.chrom_offsets})
-        one_hot_ds.to_zarr(
-            zarr_path, encoding={"X": {"chunks": (50000000, 4)}}, mode="w"
-        )
+        one_hot_ds.to_zarr(zarr_path, encoding={"X": {"chunks": (50000000, 4)}}, mode="w")
         zarr_da = zarr.open_array(f"{zarr_path}/X")
         with pyfaidx.Fasta(self.fasta_path) as fa:
             cur_start = 0
@@ -631,9 +676,7 @@ class Genome:
         partition_dir.mkdir(exist_ok=True, parents=True)
         bed_df = pr.read_bed(str(bed_path), as_df=True)
         bed_df["Partition"] = (
-            bed_df.Chromosome.astype(str)
-            + "-"
-            + (bed_df.Start // partition_size).astype(str)
+            bed_df.Chromosome.astype(str) + "-" + (bed_df.Start // partition_size).astype(str)
         )
         if region_id is None:
             region_id = "Name"
@@ -649,9 +692,7 @@ class Genome:
         for chunk_name, chunk_bed in tqdm(bed_df.groupby("Partition")):
             chunk_bed_path = partition_dir / f"{chunk_name}.bed"
             chunk_zarr_path = partition_dir / f"{chunk_name}.zarr"
-            chunk_bed.iloc[:, :4].to_csv(
-                chunk_bed_path, sep="\t", index=None, header=None
-            )
+            chunk_bed.iloc[:, :4].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
 
             self._scan_bw_table(
                 bw_table=bw_table,
@@ -793,6 +834,21 @@ class Genome:
         return
 
     def get_region_one_hot(self, *args):
+        """
+        Returns the one-hot encoding of a genomic region.
+
+        Parameters
+        ----------
+        *args: Variable length argument list specifying the genomic region.
+
+        Returns
+        -------
+        numpy.ndarray: The one-hot encoding of the specified genomic region.
+
+        Raises
+        ------
+        ValueError: If the genome one-hot encoding is not created. Please run `genome.get_genome_one_hot` first.
+        """
         if self.genome_one_hot is None:
             raise ValueError(
                 "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
@@ -800,6 +856,21 @@ class Genome:
         return self.genome_one_hot.get_region_one_hot(*args)
 
     def get_regions_one_hot(self, regions):
+        """
+        Get the one-hot encoding for the given regions.
+
+        Parameters
+        ----------
+            regions (list): A list of regions for which to retrieve the one-hot encoding.
+
+        Returns
+        -------
+            numpy.ndarray: The one-hot encoding for the given regions.
+
+        Raises
+        ------
+            ValueError: If the genome one-hot encoding is not created. Please run `genome.get_genome_one_hot` first.
+        """
         if self.genome_one_hot is None:
             raise ValueError(
                 "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
@@ -807,6 +878,33 @@ class Genome:
         return self.genome_one_hot.get_regions_one_hot(regions)
 
     def get_global_coords(self, region_bed):
+        """
+        Convert the coordinates in the given region bed file to global coordinates.
+
+        Parameters
+        ----------
+        region_bed : str
+            The path to the region bed file.
+
+        Returns
+        -------
+        numpy.ndarray
+            An array of global coordinates corresponding to the coordinates in the region bed file.
+
+        Notes
+        -----
+        This method assumes that the `chrom_offsets` attribute has been properly set.
+
+        The `region_bed` file should be in BED format, with columns for chromosome, start position, and end position.
+
+        Examples
+        --------
+        >>> genome = Genome()
+        >>> genome.chrom_offsets = {"chr1": 0, "chr2": 1000}
+        >>> coords = genome.get_global_coords("regions.bed")
+        >>> print(coords)
+        [100 200 300 1100 1200 1300]
+        """
         return _get_global_coords(
             chrom_offsets=self.chrom_offsets,
             region_bed_df=understand_regions(region_bed, as_df=True),
@@ -826,6 +924,31 @@ def _remote_sel(da, dim, sel):
 
 
 class GenomePositionZarr:
+    """
+    Represents a genomic position in a Zarr dataset.
+
+    Parameters
+    ----------
+    - da (xarray.DataArray): The Zarr dataset.
+    - offsets (dict): A dictionary containing the global start offsets for each chromosome.
+    - load (bool): Whether to load the dataset into memory. Default is False.
+    - pos_dim (str): The name of the position dimension. Default is "pos".
+
+    Attributes
+    ----------
+    - da (xarray.DataArray): The Zarr dataset.
+    - load (bool): Whether the dataset is loaded into memory.
+    - pos_dim (str): The name of the position dimension.
+    - offsets (dict): The global start offsets for each chromosome.
+    - global_start (dict): The global start positions for each chromosome.
+    - _remote_da (ray.ObjectRef): The remote reference to the dataset (if not loaded).
+
+    Methods
+    -------
+    - get_region_data(chrom, start, end): Get the region data for a specific chromosome and range.
+    - get_regions_data(regions_df): Get the region data for multiple regions specified in a DataFrame.
+    """
+
     def __init__(self, da, offsets, load=False, pos_dim="pos"):
         self.da = da
         self.load = load
@@ -847,6 +970,19 @@ class GenomePositionZarr:
             self._remote_da = ray.put(self.da)
 
     def get_region_data(self, chrom, start, end):
+        """
+        Get the region data for a specific chromosome and range.
+
+        Parameters
+        ----------
+        - chrom (str): The chromosome name.
+        - start (int): The start position of the region.
+        - end (int): The end position of the region.
+
+        Returns
+        -------
+        - region_data (numpy.ndarray): The region data as a NumPy array.
+        """
         add_start = self.global_start[chrom]
         global_start = start + add_start
         global_end = end + add_start
@@ -855,9 +991,18 @@ class GenomePositionZarr:
         return region_data
 
     def get_regions_data(self, regions_df):
-        global_coords = _get_global_coords(
-            chrom_offsets=self.offsets, region_bed_df=regions_df
-        )
+        """
+        Get the region data for multiple regions specified in a DataFrame.
+
+        Parameters
+        ----------
+        - regions_df (pandas.DataFrame): A DataFrame containing the regions to retrieve.
+
+        Returns
+        -------
+        - regions_data (numpy.ndarray): The region data as a NumPy array.
+        """
+        global_coords = _get_global_coords(chrom_offsets=self.offsets, region_bed_df=regions_df)
 
         # init an empty array, assume all regions have the same length
         n_regions = len(global_coords)
@@ -884,6 +1029,38 @@ class GenomePositionZarr:
 
 
 class GenomeRegionZarr:
+    """
+    Represents a genomic region in Zarr format.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        The data array containing the genomic region.
+    load : bool, optional
+        Whether to load the data array into memory, by default False.
+    region_dim : str, optional
+        The name of the dimension representing the regions, by default "region".
+
+    Attributes
+    ----------
+    da : xarray.DataArray
+        The data array containing the genomic region.
+    load : bool
+        Whether the data array is loaded into memory.
+    region_dim : str
+        The name of the dimension representing the regions.
+    _remote_da : ray.ObjectRef or None
+        A reference to the remote data array if not loaded into memory, None otherwise.
+
+    Methods
+    -------
+    get_region_data(region)
+        Get the data for a specific region.
+    get_regions_data(*regions)
+        Get the data for multiple regions.
+
+    """
+
     def __init__(self, da, load=False, region_dim="region"):
         self.da = da
         self.load = load
@@ -900,6 +1077,20 @@ class GenomeRegionZarr:
             self._remote_da = ray.put(self.da)
 
     def get_region_data(self, region):
+        """
+        Get the data for a specific region.
+
+        Parameters
+        ----------
+        region : int, slice, or str
+            The region to retrieve the data for.
+
+        Returns
+        -------
+        numpy.ndarray
+            The data for the specified region.
+
+        """
         if isinstance(region, (int, slice)):
             region_data = self.da.isel(region=region).values
         else:
@@ -907,10 +1098,52 @@ class GenomeRegionZarr:
         return region_data
 
     def get_regions_data(self, *regions):
+        """
+        Get the data for multiple regions.
+
+        Parameters
+        ----------
+        regions : int, slice, or str
+            The regions to retrieve the data for.
+
+        Returns
+        -------
+        numpy.ndarray
+            The data for the specified regions.
+
+        """
         return self.get_region_data(*regions)
 
 
 class GenomeOneHotZarr(GenomePositionZarr):
+    """
+    A class for working with one-hot encoded genomic data stored in Zarr format.
+
+    Parameters
+    ----------
+    ds_path : str
+        The path to the Zarr dataset.
+    load : bool, optional
+        Whether to load the dataset into memory, by default True.
+
+    Attributes
+    ----------
+    ds : xr.Dataset
+        The Zarr dataset.
+    one_hot : xr.DataArray
+        The one-hot encoded genomic data.
+
+    Methods
+    -------
+    __repr__()
+        Returns a string representation of the Zarr dataset.
+    get_region_one_hot(*args)
+        Get the one-hot encoded representation of a genomic region.
+    get_regions_one_hot(regions)
+        Get the one-hot encoded representation of the given regions.
+
+    """
+
     def __init__(self, ds_path, load=True):
         self.ds = xr.open_zarr(ds_path)
         self.one_hot = self.ds["X"].load()
@@ -922,9 +1155,40 @@ class GenomeOneHotZarr(GenomePositionZarr):
         )
 
     def __repr__(self):
+        """
+        Returns a string representation of the Zarr dataset.
+
+        Returns
+        -------
+        str
+            The string representation of the Zarr dataset.
+
+        """
         return self.ds.__repr__()
 
     def get_region_one_hot(self, *args):
+        """
+        Get the one-hot encoded representation of a genomic region.
+
+        Parameters
+        ----------
+        args : tuple
+            If a single argument is provided, it is assumed to be a region name
+            and will be parsed into chromosome, start, and end coordinates.
+            If three arguments are provided, they are assumed to be chromosome,
+            start, and end coordinates directly.
+
+        Returns
+        -------
+        region_one_hot : numpy.ndarray
+            The one-hot encoded representation of the genomic region.
+
+        Raises
+        ------
+        ValueError
+            If the number of arguments is not 1 or 3.
+
+        """
         if len(args) == 1:
             # assume it's a region name
             chrom, start, end = parse_region_name(args[0])
@@ -938,6 +1202,26 @@ class GenomeOneHotZarr(GenomePositionZarr):
         return region_one_hot
 
     def get_regions_one_hot(self, regions):
+        """
+        Get the one-hot encoded representation of the given regions.
+
+        Parameters
+        ----------
+        regions : pd.DataFrame or pr.PyRanges or str or list
+            The regions to be encoded. It can be provided as a pandas DataFrame,
+            a PyRanges object, a string representing a region name, or a list of region names.
+
+        Returns
+        -------
+        np.ndarray
+            The one-hot encoded representation of the regions.
+
+        Raises
+        ------
+        AssertionError
+            If the regions have different lengths.
+
+        """
         # get global coords
         if isinstance(regions, pd.DataFrame):
             regions = regions[["Chromosome", "Start", "End"]]
@@ -947,15 +1231,11 @@ class GenomeOneHotZarr(GenomePositionZarr):
             regions = parse_region_names([regions]).df[["Chromosome", "Start", "End"]]
         else:
             regions = parse_region_names(regions).df[["Chromosome", "Start", "End"]]
-        global_coords = _get_global_coords(
-            chrom_offsets=self.offsets, region_bed_df=regions
-        )
+        global_coords = _get_global_coords(chrom_offsets=self.offsets, region_bed_df=regions)
 
         # make sure regions are in the same length
         region_lengths = global_coords[:, 1] - global_coords[:, 0]
-        assert (
-            region_lengths == region_lengths[0]
-        ).all(), "All regions must have the same length."
+        assert (region_lengths == region_lengths[0]).all(), "All regions must have the same length."
 
         region_one_hot = self.get_regions_data(regions)
         return region_one_hot

@@ -11,7 +11,12 @@ def test_genome():
     assert genome.chrom_sizes_path.exists()
 
     test_bed = pd.DataFrame(
-        {"chrom": ["chrI", "chrII", "chrIII"], "start": [1, 1, 1], "end": [10, 10, 10], "id": ["a", "b", "c"]}
+        {
+            "chrom": ["chrI", "chrII", "chrIII"],
+            "start": [1, 1, 1],
+            "end": [10, 10, 10],
+            "id": ["a", "b", "c"],
+        }
     )
     test_bed_path = "test.bed"
     test_bed.to_csv(test_bed_path, sep="\t", header=False, index=False)

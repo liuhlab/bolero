@@ -1,6 +1,7 @@
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 
 def _norm_topics(x):
@@ -15,7 +16,7 @@ def _smooth_topics_f(topic_region):
     Smooth topic-region distributions.
 
     Parameters
-    ---------
+    ----------
     topic_region: `class::pd.DataFrame`
             A pandas dataframe with topic-region distributions (with topics as columns and regions as rows)
 
@@ -35,7 +36,7 @@ def _threshold_otsu(array, nbins=100):
     Apply Otsu threshold on topic-region distributions [Otsu, 1979].
 
     Parameters
-    ---------
+    ----------
     array: `class::np.array`
             Array containing the region values for the topic to be binarized.
     nbins: int
@@ -73,7 +74,7 @@ def _histogram(array, nbins=100):
     Draw histogram from distribution and identify centers.
 
     Parameters
-    ---------
+    ----------
     array: `class::np.array`
             Scores distribution
     nbins: int
@@ -98,7 +99,7 @@ def binarize_topics(
     Binarize topic distributions.
 
     Parameters
-    ---------
+    ----------
     nbins: int, optional
         Number of bins to use in the histogram used for otsu, yen and li thresholding. Default: 100
 
@@ -109,7 +110,7 @@ def binarize_topics(
         column.
 
     References
-    ---------
+    ----------
     Otsu, N., 1979. A threshold selection method from gray-level histograms. IEEE transactions on systems, man, and
     cybernetics, 9(1), pp.62-66.
     Yen, J.C., Chang, F.J. and Chang, S., 1995. A new criterion for automatic multilevel thresholding. IEEE Transactions on

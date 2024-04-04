@@ -1,1 +1,1 @@
-from .dataset import RegionDataset, GenomeDataset, ATACTrackDataset
+from .dataset import ATACTrackDataset, GenomeDataset, RegionDataset

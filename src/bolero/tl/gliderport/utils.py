@@ -1,8 +1,8 @@
 import pathlib
 import re
 import subprocess
-
 from functools import lru_cache
+
 
 @lru_cache
 def get_bucket_to_local_map():
@@ -34,8 +34,8 @@ def gcsfuse_friendly_copy(source_path, target_path, create_target_dir=True):
         Target path.
     """
     source_path = pathlib.Path(source_path).absolute().resolve()
-    suffix = '/*' if source_path.is_dir() else ''
-    source_path = str(source_path).rstrip('/') + suffix
+    suffix = "/*" if source_path.is_dir() else ""
+    source_path = str(source_path).rstrip("/") + suffix
     bucket_to_local = get_bucket_to_local_map()
     for bucket, local_path in bucket_to_local.items():
         gsutil = True
@@ -48,8 +48,8 @@ def gcsfuse_friendly_copy(source_path, target_path, create_target_dir=True):
     target_path = pathlib.Path(target_path).absolute().resolve()
     if not target_path.parent.exists():
         target_path.parent.mkdir(exist_ok=True, parents=True)
-    suffix = '/' if target_path.is_dir() else ''
-    target_path = str(target_path).rstrip('/') + suffix
+    suffix = "/" if target_path.is_dir() else ""
+    target_path = str(target_path).rstrip("/") + suffix
     for bucket, local_path in bucket_to_local.items():
         gsutil = True
         if target_path.startswith(local_path):
@@ -57,7 +57,7 @@ def gcsfuse_friendly_copy(source_path, target_path, create_target_dir=True):
             break
     else:
         gsutil = False
-        
+
     if gsutil:
         cp_cmd = f"gsutil -m cp -r {source_path} {target_path}"
         subprocess.check_call(

@@ -5,13 +5,14 @@ import tempfile
 import joblib
 import numpy as np
 import pandas as pd
-from Bio import motifs
 import pyBigWig
+from Bio import motifs
+
 # get pkg_data path from package root
 import bolero
+from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
 from bolero.utils import download_file, get_default_save_dir, get_file_size_gbs
 
-from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
 PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
 JASPAR_MTOFI_DBS = {
     "_".join(p.name.split("_")[:3]): p
@@ -46,7 +47,7 @@ def dump_jaspar_motif_pwm_dict(db, output_dir="."):
     """
     jaspar_url = JASPAR_URLS[db]
     db_name = jaspar_url.split("/")[-1].split(".")[0]
-    with tempfile.TemporaryDirectory(prefix='bolero_') as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="bolero_") as tmp_dir:
         db_name = jaspar_url.split("/")[-1].split(".")[0]
         subprocess.run(
             f"wget {jaspar_url} -P {tmp_dir}",
@@ -80,20 +81,60 @@ def _calc_row_entropy(row):
 
 
 class JASPARMotif:
+    """Initialize a JASPARMotif object."""
+
     def __init__(self, motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER):
+        """
+        Initialize a JASPARMotif object.
+
+        Parameters
+        ----------
+        - motif_id (str): The ID of the motif.
+        - motif_name (str): The name of the motif.
+        - pwm (pandas.DataFrame): The position weight matrix (PWM) of the motif.
+        - base_order (list): The order of bases in the PWM.
+
+        Returns
+        -------
+        - JASPARMotif: The initialized JASPARMotif object.
+        """
         self.motif_id = motif_id
         self.motif_name = motif_name
         self.pwm = pwm.loc[:, list(base_order)].copy()
 
     def __len__(self):
+        """
+        Get the length of the motif.
+
+        Returns
+        -------
+        - int: The length of the motif.
+        """
         return self.pwm.shape[0]
 
     def pwm_entropy(self):
+        """
+        Calculate the entropy of each position in the PWM.
+
+        Returns
+        -------
+        - pandas.Series: The entropy values for each position in the PWM.
+        """
         entropy = self.pwm.apply(_calc_row_entropy, axis=1)
         return entropy
 
     def clip_pwm_by_entropy(self, max_length=24):
-        """Clip the PWM by removing the end positions with the highest entropy."""
+        """
+        Clip the PWM by removing the end positions with the highest entropy.
+
+        Parameters
+        ----------
+        - max_length (int): The maximum length of the clipped PWM.
+
+        Returns
+        -------
+        - None
+        """
         cur_length = len(self)
         if cur_length <= max_length:
             return
@@ -116,9 +157,36 @@ class JASPARMotif:
 
 
 class JASPARMotifDatabase:
+    """
+    Represents a database of JASPAR motifs.
+
+    Parameters
+    ----------
+    - db (str): The JASPAR database to use. Defaults to "JASPAR2024_CORE_vertebrates".
+    - max_length (int): The maximum length of motifs. Defaults to 24.
+    - base_order (str): The order of bases in the motifs. Defaults to DEFAULT_ONE_HOT_ORDER.
+
+    Attributes
+    ----------
+    - db (str): The JASPAR database being used.
+    - motifs (list): A list of JASPARMotif objects representing the motifs in the database.
+
+    Methods
+    -------
+    - available_databases(): Returns a set of available JASPAR databases.
+
+    """
 
     @classmethod
     def available_databases(cls):
+        """
+        Returns a set of available JASPAR databases.
+
+        Returns
+        -------
+        - set: A set of available JASPAR databases.
+
+        """
         return set(JASPAR_MTOFI_DBS.keys())
 
     def __init__(
@@ -127,6 +195,20 @@ class JASPARMotifDatabase:
         max_length=24,
         base_order=DEFAULT_ONE_HOT_ORDER,
     ):
+        """
+        Initializes a JASPARMotifDatabase object.
+
+        Parameters
+        ----------
+        - db (str): The JASPAR database to use. Defaults to "JASPAR2024_CORE_vertebrates".
+        - max_length (int): The maximum length of motifs. Defaults to 24.
+        - base_order (str): The order of bases in the motifs. Defaults to DEFAULT_ONE_HOT_ORDER.
+
+        Raises
+        ------
+        - ValueError: If the specified JASPAR database is invalid.
+
+        """
         # check if db is valid using class method
         if db not in self.available_databases():
             raise ValueError(f"Invalid JASPAR database: {db}")
@@ -137,9 +219,7 @@ class JASPARMotifDatabase:
 
         self.motifs = []
         for (motif_id, motif_name), pwm in motif_pwms.items():
-            motif = JASPARMotif(
-                motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER
-            )
+            motif = JASPARMotif(motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER)
 
             motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
@@ -152,6 +232,42 @@ JASPAR_TFBS_GENOME_BIGBED_URL = (
 
 
 class JASPARMotifBigBed:
+    """
+    Class for working with JASPAR motif bigbed files.
+
+    Parameters
+    ----------
+    genome : str
+        Genome identifier.
+    bb_file : str or None, optional
+        Path to the bigbed file. If not provided, the file will be downloaded automatically.
+    save_dir : str or None, optional
+        Directory to save the bigbed file. If not provided, the default save directory will be used.
+
+    Attributes
+    ----------
+    genome : str
+        Genome identifier.
+    bb_file : str
+        Path to the bigbed file.
+    bb_handle : pyBigWig.BigWigFile
+        Handle to the bigbed file.
+
+    Methods
+    -------
+    __enter__()
+        Enter method for context management.
+    __exit__(*args)
+        Exit method for context management.
+    close()
+        Close the bigbed file.
+    get_motifs(*args, use_genes=None)
+        Get motifs for a genomic region from the bigbed file.
+    get_motif_track_plotter(*args, plot_order=None, plot_genes=None)
+        Get a MotifTrackPlotter instance for the motifs in the bigbed file.
+    download_motif_bigbed(genome, save_dir=None)
+        Download a genome fasta file from UCSC.
+    """
 
     def __init__(self, genome, bb_file=None, save_dir=None):
         self.genome = genome
@@ -167,18 +283,21 @@ class JASPARMotifBigBed:
                     f"please download it with JAASPARMotifBigBed.download_motif_bigbed method "
                     f"or provide the path to the file using the bb_file argument."
                 )
-        
+
         self.bb_handle = pyBigWig.open(str(self.bb_file))
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         return self.bb_handle.__exit__()
-    
+
     def close(self):
+        """
+        Close the bigbed file.
+        """
         self.bb_handle.close()
-        return    
+        return
 
     def get_motifs(self, *args, use_genes=None):
         """
@@ -194,17 +313,17 @@ class JASPARMotifBigBed:
         Returns
         -------
         motifs_df : pandas.DataFrame
-            DataFrame with the motifs in the genomic region. 
+            DataFrame with the motifs in the genomic region.
             Columns are "Chromosome", "Start", "End", "Motif", "Score", "Strand", "Gene".
         """
         if len(args) == 1:
-            chrom ,coords = args[0].split(":")
+            chrom, coords = args[0].split(":")
             start, end = coords.split("-")
             start = int(start)
             end = int(end)
         else:
             chrom, start, end = args
-        
+
         motifs_df = []
         for _start, _end, info in self.bb_handle.entries(chrom, start, end):
             motif, score, strand, gene = info.split("\t")
@@ -218,7 +337,7 @@ class JASPARMotifBigBed:
         if use_genes is not None:
             motifs_df = motifs_df[motifs_df["Gene"].isin(use_genes)].copy()
         return motifs_df
-    
+
     def get_motif_track_plotter(self, *args, plot_order=None, plot_genes=None):
         """
         Get a MotifTrackPlotter instance for the motifs in the bigbed file.
@@ -226,7 +345,7 @@ class JASPARMotifBigBed:
         Parameters
         ----------
         args : str or tuple or pd.DataFrame
-            Genomic region in the format "chr:start-end" or "chr", start, end as separate arguments 
+            Genomic region in the format "chr:start-end" or "chr", start, end as separate arguments
             or a DataFrame from the JAASPARMotifBigBed.get_motifs method.
         plot_order : list of str, optional
             Order of the genes to plot. Default is None, which uses the gene's average motif score to determine the order.
@@ -245,12 +364,27 @@ class JASPARMotifBigBed:
             motifs_df = args[0]
         else:
             motifs_df = self.get_motifs(*args, use_genes=plot_genes)
-        return MotifTrackPlotter(motifs_df, name_col="Gene", plot_order=plot_order, plot_genes=plot_genes)
+        return MotifTrackPlotter(
+            motifs_df, name_col="Gene", plot_order=plot_order, plot_genes=plot_genes
+        )
 
     @classmethod
     def download_motif_bigbed(cls, genome, save_dir=None):
-        """Download a genome fasta file from UCSC"""
+        """
+        Download a genome fasta file from UCSC.
 
+        Parameters
+        ----------
+        genome : str
+            Genome identifier.
+        save_dir : str or None, optional
+            Directory to save the bigbed file. If not provided, the default save directory will be used.
+
+        Returns
+        -------
+        bb_file : str
+            Path to the downloaded bigbed file.
+        """
         # create a data directory within the package if it doesn't exist
         save_dir = get_default_save_dir(save_dir)
         bb_url = JASPAR_TFBS_GENOME_BIGBED_URL.format(genome=genome)
@@ -265,10 +399,8 @@ class JASPARMotifBigBed:
                 f"\nJASPAR url: {bb_url}"
                 f"\nLocal path: {bb_file}"
                 f"\nFile size: {get_file_size_gbs(bb_url):.2f} GB"
-                "\nIf the download is too slow, you may maually download the file and "
+                "\nIf the download is too slow, you may manually download the file and "
                 "provide the path to the file using the bb_file argument."
             )
             download_file(bb_url, bb_file)
         return bb_file
-    
-

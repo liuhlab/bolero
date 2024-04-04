@@ -1,7 +1,9 @@
-import numpy as np
-from typing import Optional, List, Tuple
-import matplotlib.pyplot as plt
+from typing import List, Optional, Tuple
+
 import matplotlib.backends.backend_pdf
+import matplotlib.pyplot as plt
+import numpy as np
+
 from bolero.tl.topic import CistopicLDAModel
 
 
@@ -75,22 +77,17 @@ def evaluate_models(
     metrics_dict = {}
     fig = plt.figure(figsize=figsize)
     if "Minmo_2011" in metrics:
-        in_index = [
-            i for i in range(len(all_topics)) if all_topics[i] >= min_topics_coh
-        ]
+        in_index = [i for i in range(len(all_topics)) if all_topics[i] >= min_topics_coh]
     if "Arun_2010" in metrics:
         arun_2010 = [
-            models[index].metrics.loc["Metric", "Arun_2010"]
-            for index in range(0, len(all_topics))
+            models[index].metrics.loc["Metric", "Arun_2010"] for index in range(0, len(all_topics))
         ]
         arun_2010_negative = [-x for x in arun_2010]
         arun_2010_rescale = (arun_2010_negative - min(arun_2010_negative)) / (
             max(arun_2010_negative) - min(arun_2010_negative)
         )
         if "Minmo_2011" in metrics:
-            metrics_dict["Arun_2010"] = np.array(
-                _subset_list(arun_2010_rescale, in_index)
-            )
+            metrics_dict["Arun_2010"] = np.array(_subset_list(arun_2010_rescale, in_index))
         else:
             metrics_dict["Arun_2010"] = arun_2010_rescale
         plt.plot(
@@ -107,13 +104,11 @@ def evaluate_models(
             for index in range(0, len(all_topics))
         ]
         Cao_Juan_2009_negative = [-x for x in Cao_Juan_2009]
-        Cao_Juan_2009_rescale = (
-            Cao_Juan_2009_negative - min(Cao_Juan_2009_negative)
-        ) / (max(Cao_Juan_2009_negative) - min(Cao_Juan_2009_negative))
+        Cao_Juan_2009_rescale = (Cao_Juan_2009_negative - min(Cao_Juan_2009_negative)) / (
+            max(Cao_Juan_2009_negative) - min(Cao_Juan_2009_negative)
+        )
         if "Minmo_2011" in metrics:
-            metrics_dict["Cao_Juan_2009"] = np.array(
-                _subset_list(Cao_Juan_2009_rescale, in_index)
-            )
+            metrics_dict["Cao_Juan_2009"] = np.array(_subset_list(Cao_Juan_2009_rescale, in_index))
         else:
             metrics_dict["Cao_Juan_2009"] = Cao_Juan_2009_rescale
         plt.plot(
@@ -126,14 +121,11 @@ def evaluate_models(
 
     if "Minmo_2011" in metrics:
         Mimno_2011 = [
-            models[index].metrics.loc["Metric", "Mimno_2011"]
-            for index in range(0, len(all_topics))
+            models[index].metrics.loc["Metric", "Mimno_2011"] for index in range(0, len(all_topics))
         ]
         Mimno_2011 = _subset_list(Mimno_2011, in_index)
         Mimno_2011_all_topics = _subset_list(all_topics, in_index)
-        Mimno_2011_rescale = (Mimno_2011 - min(Mimno_2011)) / (
-            max(Mimno_2011) - min(Mimno_2011)
-        )
+        Mimno_2011_rescale = (Mimno_2011 - min(Mimno_2011)) / (max(Mimno_2011) - min(Mimno_2011))
         metrics_dict["Minmo_2011"] = np.array(Mimno_2011_rescale)
         plt.plot(
             Mimno_2011_all_topics,
@@ -152,9 +144,7 @@ def evaluate_models(
             max(loglikelihood) - min(loglikelihood)
         )
         if "Minmo_2011" in metrics:
-            metrics_dict["loglikelihood"] = np.array(
-                _subset_list(loglikelihood_rescale, in_index)
-            )
+            metrics_dict["loglikelihood"] = np.array(_subset_list(loglikelihood_rescale, in_index))
         else:
             metrics_dict["loglikelihood"] = loglikelihood_rescale
         plt.plot(
@@ -168,13 +158,9 @@ def evaluate_models(
     if select_model is None:
         combined_metric = sum(metrics_dict.values())
         if "Minmo_2011" in metrics:
-            best_model = Mimno_2011_all_topics[
-                combined_metric.tolist().index(max(combined_metric))
-            ]
+            best_model = Mimno_2011_all_topics[combined_metric.tolist().index(max(combined_metric))]
         else:
-            best_model = all_topics[
-                combined_metric.tolist().index(max(combined_metric))
-            ]
+            best_model = all_topics[combined_metric.tolist().index(max(combined_metric))]
     else:
         combined_metric = None
         best_model = select_model

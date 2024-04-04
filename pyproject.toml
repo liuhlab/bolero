@@ -103,10 +103,13 @@ ignore = [
     "D105",
     # first line should end with a period [Bug: doesn't work with single-line docstrings]    "D400",
     # First line should be in imperative mood; try rephrasing
+    "D400",
     "D401",
+    "D404",
     ## Disable one in each pair of mutually incompatible rules
     # We don’t want a blank line before a class docstring
     "D203",
+    "D205",
     # We want docstrings to start immediately after the opening triple quote
     "D213",
 ]

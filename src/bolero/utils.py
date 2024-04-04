@@ -1,14 +1,13 @@
-import pyranges as pr
-import pandas as pd
 import pathlib
-import numpy as np
-from typing import Union
-import bolero
 import shutil
 import subprocess
+from typing import Union
 
+import numpy as np
+import pandas as pd
+import pyranges as pr
 
-from bolero.utils import pathlib
+import bolero
 
 
 def try_gpu():
@@ -16,6 +15,7 @@ def try_gpu():
     Try to use GPU if available.
     """
     import torch
+
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
@@ -43,20 +43,49 @@ def understand_regions(regions, as_df=False, return_names=False):
 
 
 def parse_region_names(names, as_df=False):
+    """
+    Parse a list of region names into a PyRanges object or a DataFrame.
+
+    Parameters
+    ----------
+        names (list): A list of region names in the format "chromosome:start-end".
+        as_df (bool, optional): If True, return the result as a DataFrame. Default is False.
+
+    Returns
+    -------
+        PyRanges or DataFrame: A PyRanges object representing the parsed regions, or a DataFrame if `as_df` is True.
+    """
     bed_record = []
     for name in names:
         c, se = name.split(":")
         s, e = se.split("-")
         bed_record.append([c, s, e, name])
-    bed = pr.PyRanges(
-        pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
-    )
+    bed = pr.PyRanges(pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"]))
     if as_df:
         return bed.df
     return bed
 
 
 def parse_region_name(name):
+    """
+    Parse a region name in the format 'c:s-e' and return the components.
+
+    Parameters
+    ----------
+    name : str
+        The region name to parse.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the components of the region name:
+        - c : str
+            The first component of the region name.
+        - s : int
+            The start position of the region.
+        - e : int
+            The end position of the region.
+    """
     c, se = name.split(":")
     s, e = se.split("-")
     s = int(s)
@@ -65,14 +94,47 @@ def parse_region_name(name):
 
 
 def get_package_dir():
+    """
+    Get the directory path of the bolero package.
+
+    Returns
+    -------
+    package_dir : pathlib.Path
+        The directory path of the bolero package.
+    """
     package_dir = pathlib.Path(bolero.__file__).parent
     return package_dir
 
 
 def get_default_save_dir(save_dir):
-    """Get the default save directory for bolero."""
+    """
+    Get the default save directory for bolero.
+
+    Parameters
+    ----------
+    save_dir : str or pathlib.Path, optional
+        The save directory to use. If not provided, the function will attempt
+        to find a default save directory.
+
+    Returns
+    -------
+    pathlib.Path
+        The default save directory for bolero.
+
+    Notes
+    -----
+    If `save_dir` is not provided, the function will first check if the
+    directory "/ref/bolero" exists. If it does, that directory will be used
+    as the default save directory. If not, it will check if the directory
+    "{home_dir}/ref/bolero" exists, where `home_dir` is the user's home
+    directory. If that directory exists, it will be used as the default save
+    directory. If neither directory exists, the function will fall back to
+    `get_package_dir()` to determine the default save directory.
+
+    The returned save directory will be an absolute `pathlib.Path` object.
+
+    """
     if save_dir is None:
-        # check if "/ref/bolero" exists
         _my_default = pathlib.Path("/ref/bolero")
         home_dir = pathlib.Path.home()
         _my_default2 = pathlib.Path(f"{home_dir}/ref/bolero")

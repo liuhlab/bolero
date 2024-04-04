@@ -7,12 +7,10 @@ class DeepFlyBrain(nn.Module):
     """DeepFlyBrain model."""
 
     def __init__(self, out_dims, seq_shape=(500, 4), motif_db=None):
-        super(DeepFlyBrain, self).__init__()
+        super.__init__()
 
         # Define layers
-        self.conv1d = nn.Conv1d(
-            in_channels=seq_shape[1], out_channels=1024, kernel_size=24
-        )
+        self.conv1d = nn.Conv1d(in_channels=seq_shape[1], out_channels=1024, kernel_size=24)
         self.maxpool = nn.MaxPool1d(kernel_size=12, stride=12)
         self.dropout1 = nn.Dropout(0.5)
         self.dense1 = nn.Linear(1024, 128)
@@ -51,22 +49,35 @@ class DeepFlyBrain(nn.Module):
         return x
 
     def update_conv1d_weights(self):
+        """
+        Update the weights of the conv1d layer based on the motifs in the motif database.
+
+        Returns
+        -------
+            None
+
+        Raises
+        ------
+            None
+        """
         # Get the default initialized weights
         init_weights = self.conv1d.weight.data.clone()
         kernel_size = init_weights.shape[2]
-        
+
         for out_channel_idx, motif in enumerate(self.motif_db.motifs):
             pwm = motif.pwm
             # pwm.shape == (motif_length, base)
-            
-            pwm = torch.from_numpy(pwm.T.values).to(dtype=self.conv1d.weight.dtype, device=self.conv1d.weight.device)
+
+            pwm = torch.from_numpy(pwm.T.values).to(
+                dtype=self.conv1d.weight.dtype, device=self.conv1d.weight.device
+            )
             pwm_size = pwm.shape[1]
-            pad = int((kernel_size - pwm_size)/2)
-            init_weights[out_channel_idx, :, pad:pad+pwm_size] = pwm
+            pad = int((kernel_size - pwm_size) / 2)
+            init_weights[out_channel_idx, :, pad : pad + pwm_size] = pwm
 
         # Assign the modified weights back
         self.conv1d.weight.data = init_weights
-    
+
     def forward(self, x):
         """Forward pass."""
         # Forward input

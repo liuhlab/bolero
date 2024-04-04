@@ -1,14 +1,14 @@
 """
-This module is a modified version of the motif_plotter module from the motif_plotter package
+This module is a modified version of the motif_plotter module from the motif_plotter package.
+
 https://github.com/const-ae/motif_plotter/tree/master
 """
 
+import matplotlib.patches as patches
 import numpy as np
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
-import matplotlib.patches as patches
 from matplotlib.transforms import Affine2D
-import numpy as np
 
 
 def approximate_error(motif):
@@ -23,8 +23,6 @@ def approximate_error(motif):
 def exact_error(motif):
     """Calculate exact error, using multinomial(na,nc,ng,nt)"""
     ## Super Slow. O(n^3)
-    pwm = motif.pwm
-    bases = pwm.keys()
     na = sum(motif.counts["A"])
     n = na
     nc = 0
@@ -93,8 +91,7 @@ def calc_relative_information(motif, correction_type="approx"):
     else:
         info_matrix = calc_info_matrix(motif, "exact")
     relative_info = {
-        base: [prob * info for prob, info in zip(pwm[base], info_matrix)]
-        for base in bases
+        base: [prob * info for prob, info in zip(pwm[base], info_matrix)] for base in bases
     }
     return relative_info
 
@@ -109,6 +106,34 @@ def make_text_elements(
     edgecolor="black",
     font=FontProperties(family="monospace"),
 ):
+    """
+    Create text elements as patches for visualization.
+
+    Parameters
+    ----------
+    text : str
+        The text to be displayed.
+    x : float, optional
+        The x-coordinate of the text element's position. Default is 0.0.
+    y : float, optional
+        The y-coordinate of the text element's position. Default is 0.0.
+    width : float, optional
+        The width of the text element. Default is 1.0.
+    height : float, optional
+        The height of the text element. Default is 1.0.
+    color : str, optional
+        The color of the text element. Default is "blue".
+    edgecolor : str, optional
+        The edge color of the text element. Default is "black".
+    font : FontProperties, optional
+        The font properties of the text element. Default is FontProperties(family="monospace").
+
+    Returns
+    -------
+    patches.PathPatch
+        A PathPatch object representing the text element.
+
+    """
     tp = TextPath((0.0, 0.0), text, size=1, prop=font)
     bbox = tp.get_extents()
     bwidth = bbox.x1 - bbox.x0
@@ -163,9 +188,7 @@ def make_bar_plot(axes, texts, heights, width=0.8, colors=None):
         axes.add_patch(text_shape)
 
 
-def make_single_sequence_spectrum(
-    axis, row, row_scores, one_hot_decoding=None, colors=None
-):
+def make_single_sequence_spectrum(axis, row, row_scores, one_hot_decoding=None, colors=None):
     """
     Makes a bar plot of a single sequence where only the base with the highest score is plotted.
 
@@ -185,15 +208,11 @@ def make_single_sequence_spectrum(
         one_hot_decoding = ["A", "C", "G", "T"]
     if colors is None:
         colors = ["#008000", "#0000cc", "#ffb300", "#cc0000"]
-    sequence = [
-        np.array(one_hot_decoding)[x] for x in np.apply_along_axis(np.argmax, 1, row)
-    ]
+    sequence = [np.array(one_hot_decoding)[x] for x in np.apply_along_axis(np.argmax, 1, row)]
     score_sequence = np.apply_along_axis(
         lambda e: np.max(e) if abs(np.min(e)) < np.max(e) else np.min(e), 1, row_scores
     )
-    color_sequence = [
-        np.array(colors)[x] for x in np.apply_along_axis(np.argmax, 1, row)
-    ]
+    color_sequence = [np.array(colors)[x] for x in np.apply_along_axis(np.argmax, 1, row)]
     make_bar_plot(axis, sequence, score_sequence, colors=color_sequence)
 
 
@@ -255,6 +274,21 @@ def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
 
 
 class ConsensusMotifPlotter:
+    """
+    A class for plotting consensus motifs.
+
+    Parameters
+    ----------
+    - elements (list): A list of elements representing the nucleotides.
+    - weights (list): A list of weights representing the scores of the elements.
+    - colors (list, optional): A list of colors for the elements. Defaults to None.
+
+    Methods
+    -------
+    - from_scores(scores, base_order="ACGT"): Creates a ConsensusMotifPlotter object from scores.
+    - plot(axes): Adds the motif to an axes object.
+
+    """
 
     def __init__(self, elements, weights, colors=None):
         self.n_elem = len(elements)
@@ -263,24 +297,43 @@ class ConsensusMotifPlotter:
         self.weights = weights
 
     @classmethod
-    def from_scores(cls, scores, base_order='ACGT'):
+    def from_scores(cls, scores, base_order="ACGT"):
+        """
+        Creates a ConsensusMotifPlotter object from scores.
+
+        Parameters
+        ----------
+        - scores (list): A list of scores representing the motif scores.
+        - base_order (str, optional): The order of the nucleotide bases. Defaults to "ACGT".
+
+        Returns
+        -------
+        - ConsensusMotifPlotter: A ConsensusMotifPlotter object.
+
+        """
         nucleotides = [list(base_order)] * len(scores)
         colors = [["#008000", "#0000cc", "#cc0000", "#ffb300"]] * len(scores)
         sorted_nucleotides = np.array(nucleotides)
         sorted_scores = np.array(scores)
         sorted_colors = np.array(colors)
         order = np.absolute(scores).argsort()
-        for i, order in enumerate(order):
-            sorted_scores[i, :] = sorted_scores[i, order]
-            sorted_nucleotides[i, :] = sorted_nucleotides[i, order]
-            sorted_colors[i, :] = sorted_colors[i, order]
+        for i, _order in enumerate(order):
+            sorted_scores[i, :] = sorted_scores[i, _order]
+            sorted_nucleotides[i, :] = sorted_nucleotides[i, _order]
+            sorted_colors[i, :] = sorted_colors[i, _order]
         return cls(sorted_nucleotides, sorted_scores, sorted_colors)
 
     def plot(self, axes):
         """
-        Add the motif to an axes
-        :return: modifies the axes object with all the necessary characters
+        Adds the motif to an axes object.
+
+        Parameters
+        ----------
+        - axes: The axes object to which the motif will be added.
+
+        Returns
+        -------
+        - None
+
         """
-        make_stacked_bar_plot(
-            axes, self.elements, self.weights, width=1, colors=self.colors
-        )
+        make_stacked_bar_plot(axes, self.elements, self.weights, width=1, colors=self.colors)

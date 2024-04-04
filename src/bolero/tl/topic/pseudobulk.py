@@ -1,16 +1,13 @@
+from collections import OrderedDict
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pynndescent
-from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import squareform
-from scipy.stats import gamma
-from collections import OrderedDict
 import ray
-
-import matplotlib.pyplot as plt
 import seaborn as sns
-
 from geosketch import gs
+from scipy.stats import gamma
 
 
 def _trigger_jit():
@@ -69,9 +66,7 @@ def _two_step_pseudobulk(embedding, k, oversample, n_jobs, max_dist_q):
     # mini bulk cells
     cell_index = embedding.index
     n_mini_pseudobulk = np.ceil(embedding.shape[0] / k_sqrt * oversample).astype(int)
-    minibulk_cells = pd.Index(
-        np.random.choice(cell_index, n_mini_pseudobulk, replace=False)
-    )
+    minibulk_cells = pd.Index(np.random.choice(cell_index, n_mini_pseudobulk, replace=False))
     minibulk_embedding = embedding.loc[minibulk_cells]
 
     # print("Total cells:", embedding.shape[0])
@@ -113,22 +108,18 @@ def _two_step_pseudobulk(embedding, k, oversample, n_jobs, max_dist_q):
     # assign all remaining cells to its closest mini-bulk
     # print(f"Assigning remaining {len(remaining_cells)} cells to mini-bulk...")
     _remain_cells_embedding = embedding.loc[remaining_cells]
-    _remain_cells_to_minibulk_nn_idx, _ = minibulk_index.query(
-        _remain_cells_embedding.values, k=k
-    )
+    _remain_cells_to_minibulk_nn_idx, _ = minibulk_index.query(_remain_cells_embedding.values, k=k)
     for _cell, _nn_idx in zip(remaining_cells, _remain_cells_to_minibulk_nn_idx):
         minibulk_to_cells[minibulk_cells[_nn_idx[0]]].add(_cell)
 
     # assign all mini-bulks to pseudobulk, make sure each pseudobulk has at least k cells
     for pseudobulk_cell, _minibulk_idx in zip(minibulk_cells, pseudobulk_nn_idx):
         use_cells = set()
-        for pos, _minibulk in enumerate(_minibulk_idx):
+        for pos, _minibulk in enumerate(_minibulk_idx):  # noqa: B007
             use_cells.update(minibulk_to_cells[minibulk_cells[_minibulk]])
             if len(use_cells) >= k:
                 break
-        pseudobulk_to_minibulk[pseudobulk_cell] = set(
-            minibulk_cells[_minibulk_idx[: pos + 1]]
-        )
+        pseudobulk_to_minibulk[pseudobulk_cell] = set(minibulk_cells[_minibulk_idx[: pos + 1]])
 
     return pseudobulk_to_minibulk, minibulk_to_cells
 
@@ -215,9 +206,7 @@ def _merge_pseudobulk(
         n_jobs=n_jobs,
         max_dist_q=None,
     )
-    for _cell, _nn_idx in zip(
-        remaining_minibulks, _remain_minibulks_to_pseudobulk_nn_idx
-    ):
+    for _cell, _nn_idx in zip(remaining_minibulks, _remain_minibulks_to_pseudobulk_nn_idx):
         final_pseudobulk_to_minibulk[_pseudobulk_cells[_nn_idx[0]]].add(_cell)
 
     final_pseudobulk = {}
@@ -298,7 +287,7 @@ def get_pseudobulk(
         if isinstance(restrictions, str):
             restrictions = [restrictions]
         assert all(
-            [r in adata.obs.columns for r in restrictions]
+            r in adata.obs.columns for r in restrictions
         ), "Not all restrictions are in adata.obs.columns"
         for group, cells in adata.obs.groupby(restrictions):
             name = "-".join(group)
@@ -315,9 +304,7 @@ def get_pseudobulk(
             pseudo_bulk_size = min_cells
         pseudo_bulk_size = min(int(pseudo_bulk_size), int(min_cells * 3))
 
-        n_pseudobulk = np.round(
-            cell_embedding.shape[0] / pseudo_bulk_size * oversample
-        ).astype(int)
+        n_pseudobulk = np.round(cell_embedding.shape[0] / pseudo_bulk_size * oversample).astype(int)
         if n_pseudobulk <= 1:
             total_psuedobulk[f"{name}_pseudobulk0"] = set(cell_embedding.index)
         else:
@@ -336,10 +323,7 @@ def get_pseudobulk(
                 n_jobs=n_jobs,
             )
             total_psuedobulk.update(
-                {
-                    f"{name}_pseudobulk{i}": v
-                    for i, (_, v) in enumerate(_merged_pseudobulk.items())
-                }
+                {f"{name}_pseudobulk{i}": v for i, (_, v) in enumerate(_merged_pseudobulk.items())}
             )
             pseudobulk_to_minibulk.update(_pseudobulk_to_minibulk)
             minibulk_to_cells.update(_minibulk_to_cells)
@@ -353,7 +337,21 @@ def get_pseudobulk(
 
 
 def plot_pseudobulk_qc(adata, coord_base, restrictions=None):
+    """
+    Plot pseudobulk quality control (QC) metrics.
 
+    Parameters
+    ----------
+        adata (AnnData): Annotated data matrix.
+        coord_base (str): Key for the coordinates in `adata.obsm` to be plotted.
+        restrictions (str or list, optional): Key(s) for the categorical variable(s) in `adata.obs` to be used for restricting the plot. Defaults to None.
+
+    Returns
+    -------
+        fig (matplotlib.figure.Figure): The created figure.
+        axes (numpy.ndarray): Array of axes objects.
+
+    """
     pseudobulk_to_cells = adata.uns["pseudobulk"]
     pseudobulk_to_minibulk = adata.uns["pseudobulk_to_minibulk"]
     minibulk_to_cells = adata.uns["minibulk_to_cells"]
@@ -434,6 +432,28 @@ def plot_pseudobulk_qc(adata, coord_base, restrictions=None):
 
 
 def plot_pseudobulks(adata, coord_base, nrows=5, ncols=5):
+    """
+    Plot pseudobulks.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix.
+    coord_base : str
+        Key for the basis in `adata.obsm` to use for plotting.
+    nrows : int, optional
+        Number of rows in the subplot grid. Default is 5.
+    ncols : int, optional
+        Number of columns in the subplot grid. Default is 5.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created figure.
+    axes : numpy.ndarray
+        Array of Axes objects representing the subplots.
+
+    """
     pseudobulk_to_cells = adata.uns["pseudobulk"]
     adata.obs["x"] = adata.obsm[coord_base][:, 0]
     adata.obs["y"] = adata.obsm[coord_base][:, 1]
@@ -444,9 +464,7 @@ def plot_pseudobulks(adata, coord_base, nrows=5, ncols=5):
         replace=False,
     )
 
-    fig, axes = plt.subplots(
-        figsize=(ncols * 3, nrows * 3), dpi=200, ncols=ncols, nrows=nrows
-    )
+    fig, axes = plt.subplots(figsize=(ncols * 3, nrows * 3), dpi=200, ncols=ncols, nrows=nrows)
 
     for name, ax in zip(sel_pseudobulks, axes.ravel()):
         sns.scatterplot(
@@ -475,6 +493,19 @@ def plot_pseudobulks(adata, coord_base, nrows=5, ncols=5):
 
 
 def plot_pseudobulk_overlaps(adata):
+    """
+    Plot the pseudobulk overlaps as a clustermap.
+
+    Parameters
+    ----------
+    adata : AnnData object
+        Annotated data matrix.
+
+    Returns
+    -------
+    g : seaborn.ClusterGrid
+        The clustermap object representing the pseudobulk overlaps.
+    """
     pseudobulk_to_cells = adata.uns["pseudobulk"]
 
     n = len(pseudobulk_to_cells)
