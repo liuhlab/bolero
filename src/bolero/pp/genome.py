@@ -1051,7 +1051,7 @@ class GenomePositionZarr(GenomeWideDataset):
         else:
             self._remote_da = ray.put(self.da)
 
-    def get_region_data(self, chrom, start, end, numpy=True):
+    def get_region_data(self, chrom, start, end):
         """
         Get the region data for a specific chromosome and range.
 
@@ -1070,12 +1070,9 @@ class GenomePositionZarr(GenomeWideDataset):
         global_end = end + add_start
 
         region_data = self.da.isel(pos=slice(global_start, global_end)).values
-
-        if not numpy:
-            region_data = region_data.tolist()
         return region_data
 
-    def get_regions_data(self, regions, chunk_size=None, numpy=True):
+    def get_regions_data(self, regions, chunk_size=None):
         """
         Get the region data for multiple regions specified in a DataFrame.
 
@@ -1108,11 +1105,7 @@ class GenomePositionZarr(GenomeWideDataset):
             else:
                 shape_list.append(size)
 
-        if numpy:
-            regions_data = np.zeros(shape_list, dtype=self.da.dtype)
-        else:
-            regions_data = [None] * n_regions
-
+        regions_data = np.zeros(shape_list, dtype=self.da.dtype)
         if self.load:
             for i, (start, end) in enumerate(global_coords):
                 _data = self.da.isel(pos=slice(start, end)).values
@@ -1217,7 +1210,7 @@ class GenomeRegionZarr(GenomeWideDataset):
             region_data = self.da.sel(region=region).values
         return region_data
 
-    def get_regions_data(self, regions, chunk_size=None, numpy=True):
+    def get_regions_data(self, regions, chunk_size=None):
         """
         Get the data for multiple regions.
 
@@ -1250,8 +1243,6 @@ class GenomeRegionZarr(GenomeWideDataset):
                     regions.append(f"{chrom}:{start}-{end}")
 
         _data = self.get_region_data(regions)
-        if not numpy:
-            _data = list(_data)
         return _data
 
 
@@ -1388,27 +1379,26 @@ class GenomeOneHotZarr(GenomePositionZarr):
         return region_one_hot
 
 
-def _bw_values(bw, chrom, start, end, numpy):
-    _data = bw.values(chrom, start, end, numpy=numpy)
-    if numpy:
-        _data.astype("float32", copy=False)
-        np.nan_to_num(_data, copy=False)
+def _bw_values(bw, chrom, start, end):
+    # inside bw, always keep numpy true
+    _data = bw.values(chrom, start, end, numpy=True)
     return _data
 
 
-def _bw_values_chunk(bw, regions, numpy=True):
+def _bw_values_chunk(bw, regions):
     regions_data = []
     for _, (chrom, start, end, *_) in regions.iterrows():
-        regions_data.append(_bw_values(bw, chrom, start, end))
-    if numpy:
-        regions_data = np.array(regions_data)
+        regions_data.append(_bw_values(bw=bw, chrom=chrom, start=start, end=end))
+    regions_data = np.array(regions_data)
+    regions_data.astype("float32", copy=False)
+    np.nan_to_num(regions_data, copy=False)
     return regions_data
 
 
 @ray.remote
-def _remote_bw_values_chunk(bw_path, regions, numpy):
+def _remote_bw_values_chunk(bw_path, regions):
     with pyBigWig.open(bw_path) as bw:
-        return _bw_values_chunk(bw, regions, numpy)
+        return _bw_values_chunk(bw, regions)
 
 
 class GenomeBigWigDataset(GenomeWideDataset):
@@ -1488,7 +1478,10 @@ class GenomeBigWigDataset(GenomeWideDataset):
         self._close()
 
     def get_region_data(
-        self, chrom: str, start: int, end: int, numpy: bool = True
+        self,
+        chrom: str,
+        start: int,
+        end: int,
     ) -> Dict[str, np.ndarray]:
         """
         Get the data for a specific genomic region.
@@ -1501,8 +1494,6 @@ class GenomeBigWigDataset(GenomeWideDataset):
             The start position of the region.
         end : int
             The end position of the region.
-        numpy : bool, optional
-            Whether to return the data as numpy arrays or lists, by default True.
 
         Returns
         -------
@@ -1513,14 +1504,13 @@ class GenomeBigWigDataset(GenomeWideDataset):
         with self:
             region_data = {}
             for name, bw in self._opened_bigwigs.items():
-                region_data[name] = _bw_values(bw, chrom, start, end, numpy)
+                region_data[name] = _bw_values(bw, chrom, start, end)
         return region_data
 
     def get_regions_data(
         self,
         regions: Union[pr.PyRanges, pd.DataFrame],
         chunk_size: Optional[int] = None,
-        numpy: bool = True,
     ) -> Dict[str, Union[np.ndarray, List[float]]]:
         """
         Get the data for multiple genomic regions.
@@ -1531,8 +1521,6 @@ class GenomeBigWigDataset(GenomeWideDataset):
             The regions to retrieve data for.
         chunk_size : int, optional
             The number of regions to process in each chunk, by default None.
-        numpy : bool, optional
-            Whether to return the data as numpy arrays or lists, by default True.
 
         Returns
         -------
@@ -1562,20 +1550,13 @@ class GenomeBigWigDataset(GenomeWideDataset):
             for chunk_start in range(0, regions_df.shape[0], chunk_size):
                 chunk_slice = slice(chunk_start, chunk_start + chunk_size)
                 regions = regions_df.iloc[chunk_slice, :3].copy()
-                this_tasks.append(_remote_bw_values_chunk.remote(path, regions, numpy))
+                this_tasks.append(_remote_bw_values_chunk.remote(path, regions))
             tasks.append(this_tasks)
             names.append(name)
 
         regions_data = {}
         for name, task in zip(names, tasks):
-            if numpy:
-                regions_data[name] = np.concatenate(ray.get(task))
-            else:
-                # task is a list of ray tasks, flatten it to a single list
-                final_result = []
-                for _t in task:
-                    final_result.extend(ray.get(_t))
-                regions_data[name] = final_result
+            regions_data[name] = np.concatenate(ray.get(task))
         return regions_data
 
 
@@ -1803,9 +1784,7 @@ class GenomeEnsembleDataset:
 
         region_data = {}
         for name, dataset in self.datasets.items():
-            _data = dataset.get_region_data(
-                chrom=chrom, start=start, end=end, numpy=True
-            )
+            _data = dataset.get_region_data(chrom=chrom, start=start, end=end)
             if isinstance(_data, dict):
                 region_data.update(_data)
             else:
@@ -1831,7 +1810,7 @@ class GenomeEnsembleDataset:
             regions = self.regions[region_name]
             dataset = self.datasets[dataset_name]
             regions_data = dataset.get_regions_data(
-                regions=regions, chunk_size=query_chunk_size, numpy=False
+                regions=regions, chunk_size=query_chunk_size
             )
             if isinstance(regions_data, dict):
                 for _ds_name, _data in regions_data.items():
