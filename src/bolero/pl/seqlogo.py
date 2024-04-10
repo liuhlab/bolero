@@ -91,7 +91,8 @@ def calc_relative_information(motif, correction_type="approx"):
     else:
         info_matrix = calc_info_matrix(motif, "exact")
     relative_info = {
-        base: [prob * info for prob, info in zip(pwm[base], info_matrix)] for base in bases
+        base: [prob * info for prob, info in zip(pwm[base], info_matrix)]
+        for base in bases
     }
     return relative_info
 
@@ -188,7 +189,9 @@ def make_bar_plot(axes, texts, heights, width=0.8, colors=None):
         axes.add_patch(text_shape)
 
 
-def make_single_sequence_spectrum(axis, row, row_scores, one_hot_decoding=None, colors=None):
+def make_single_sequence_spectrum(
+    axis, row, row_scores, one_hot_decoding=None, colors=None
+):
     """
     Makes a bar plot of a single sequence where only the base with the highest score is plotted.
 
@@ -208,11 +211,15 @@ def make_single_sequence_spectrum(axis, row, row_scores, one_hot_decoding=None, 
         one_hot_decoding = ["A", "C", "G", "T"]
     if colors is None:
         colors = ["#008000", "#0000cc", "#ffb300", "#cc0000"]
-    sequence = [np.array(one_hot_decoding)[x] for x in np.apply_along_axis(np.argmax, 1, row)]
+    sequence = [
+        np.array(one_hot_decoding)[x] for x in np.apply_along_axis(np.argmax, 1, row)
+    ]
     score_sequence = np.apply_along_axis(
         lambda e: np.max(e) if abs(np.min(e)) < np.max(e) else np.min(e), 1, row_scores
     )
-    color_sequence = [np.array(colors)[x] for x in np.apply_along_axis(np.argmax, 1, row)]
+    color_sequence = [
+        np.array(colors)[x] for x in np.apply_along_axis(np.argmax, 1, row)
+    ]
     make_bar_plot(axis, sequence, score_sequence, colors=color_sequence)
 
 
@@ -336,4 +343,6 @@ class ConsensusMotifPlotter:
         - None
 
         """
-        make_stacked_bar_plot(axes, self.elements, self.weights, width=1, colors=self.colors)
+        make_stacked_bar_plot(
+            axes, self.elements, self.weights, width=1, colors=self.colors
+        )

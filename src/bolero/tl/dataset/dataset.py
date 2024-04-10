@@ -62,11 +62,15 @@ def split_genome_regions(
     n_valid_parts = max(1, n_valid_parts)
 
     partition_order = pd.Series(range(n_parts))
-    partition_order = partition_order.sample(n_parts, random_state=random_state).tolist()
+    partition_order = partition_order.sample(
+        n_parts, random_state=random_state
+    ).tolist()
 
     bed = bed.sort()
     n_regions_in_chunk = len(bed) // n_parts
-    partition_regions = dict(bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk))
+    partition_regions = dict(
+        bed.df.groupby(pd.Series(range(len(bed))) // n_regions_in_chunk)
+    )
 
     train_regions = pd.concat(
         [partition_regions[p] for p in sorted(partition_order[:n_train_parts])]
@@ -76,13 +80,18 @@ def split_genome_regions(
     valid_regions = pd.concat(
         [
             partition_regions[p]
-            for p in sorted(partition_order[n_train_parts : n_train_parts + n_valid_parts])
+            for p in sorted(
+                partition_order[n_train_parts : n_train_parts + n_valid_parts]
+            )
         ]
     )
     valid_regions = pr.PyRanges(valid_regions)
 
     test_regions = pd.concat(
-        [partition_regions[p] for p in sorted(partition_order[n_train_parts + n_valid_parts :])]
+        [
+            partition_regions[p]
+            for p in sorted(partition_order[n_train_parts + n_valid_parts :])
+        ]
     )
     test_regions = pr.PyRanges(test_regions)
 
@@ -375,7 +384,9 @@ class GenomeDataset(Dataset):
                 num_workers=0,  # DO NOT USE MULTIPROCESSING, it has issue with the genome object
                 collate_fn=lambda x: x,
             )
-            for region_sel, sh in zip([train_regions, valid_regions, test_regions], shuffle)
+            for region_sel, sh in zip(
+                [train_regions, valid_regions, test_regions], shuffle
+            )
         )
         return train, valid, test
 
@@ -510,7 +521,9 @@ class ATACTrackDataset(GenomeDataset):
             chrom_sizes=genome.chrom_sizes,
         )
 
-        obj = cls(genome=genome, regions=regions, save_dir=save_dir, conv_size=conv_size)
+        obj = cls(
+            genome=genome, regions=regions, save_dir=save_dir, conv_size=conv_size
+        )
         obj.input_datasets.append("genome_one_hot")
         return obj
 
@@ -577,8 +590,12 @@ class ATACTrackDataset(GenomeDataset):
         # For region dataset that uses region names as index, their data will not be impacted
         # For position dataset, the region will be loaded with a flanking size of conv_size
         regions = regions.extend(conv_size).df
-        not_length_judge = (regions["End"] - regions["Start"]) != int(region_length + 2 * conv_size)
-        pass_end_judge = regions["End"] > regions["Chromosome"].map(chrom_sizes).astype(int)
+        not_length_judge = (regions["End"] - regions["Start"]) != int(
+            region_length + 2 * conv_size
+        )
+        pass_end_judge = regions["End"] > regions["Chromosome"].map(chrom_sizes).astype(
+            int
+        )
         regions = regions.loc[~(not_length_judge | pass_end_judge).values]
         return pr.PyRanges(regions)
 

@@ -67,9 +67,26 @@ addopts = [
     "--import-mode=importlib", # allow using test files with same name
 ]
 
+[tool.black]
+line-length = 88
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
 [tool.ruff]
 src = ["src"]
-line-length = 100
+line-length = 88
 lint.select = [
     "F",      # Errors detected by Pyflakes
     "E",      # Error detected by Pycodestyle

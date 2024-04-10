@@ -10,7 +10,9 @@ class DeepFlyBrain(nn.Module):
         super.__init__()
 
         # Define layers
-        self.conv1d = nn.Conv1d(in_channels=seq_shape[1], out_channels=1024, kernel_size=24)
+        self.conv1d = nn.Conv1d(
+            in_channels=seq_shape[1], out_channels=1024, kernel_size=24
+        )
         self.maxpool = nn.MaxPool1d(kernel_size=12, stride=12)
         self.dropout1 = nn.Dropout(0.5)
         self.dense1 = nn.Linear(1024, 128)

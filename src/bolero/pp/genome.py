@@ -30,7 +30,9 @@ from bolero.utils import (
 zarr.storage.default_compressor = Zstd(level=3)
 
 
-UCSC_GENOME = "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
+UCSC_GENOME = (
+    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
+)
 UCSC_CHROM_SIZES = (
     "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
 )
@@ -134,7 +136,9 @@ def _process_cbust_bed(df):
     return df
 
 
-def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r):
+def _run_cbust_chunk(
+    output_dir, fasta_chunk_path, cbust_path, motif_path, min_cluster_score, b, r
+):
     fasta_chunk_path = pathlib.Path(fasta_chunk_path)
     fa_name = fasta_chunk_path.name
     output_path = f"{output_dir}/{fa_name}.csv.gz"
@@ -163,7 +167,9 @@ def _run_cbust_chunk(output_dir, fasta_chunk_path, cbust_path, motif_path, min_c
     return
 
 
-def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_motif_scan):
+def _combine_single_motif_scan_to_bigwig(
+    output_dir, genome, chrom_sizes, save_motif_scan
+):
     motif = pathlib.Path(output_dir).name
     all_chunk_paths = list(output_dir.glob("*.csv.gz"))
     total_results = []
@@ -193,7 +199,9 @@ def _combine_single_motif_scan_to_bigwig(output_dir, genome, chrom_sizes, save_m
 
 
 def _get_global_coords(chrom_offsets, region_bed_df):
-    add_start = region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    add_start = (
+        region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    )
     start = region_bed_df["Start"] + add_start
     end = region_bed_df["End"] + add_start
     global_coords = np.hstack([start.values[:, None], end.values[:, None]])
@@ -229,7 +237,9 @@ class Genome:
         self.all_chromosomes = self.all_chrom_sizes.index
 
         # load blacklist if it exists
-        blacklist_path = package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+        blacklist_path = (
+            package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
+        )
         if blacklist_path.exists():
             _df = pr.read_bed(str(blacklist_path), as_df=True)
             self.blacklist_bed = pr.PyRanges(_df.iloc[:, :3]).sort()
@@ -238,7 +248,9 @@ class Genome:
 
         # one hot
         self._one_hot_obj = None
-        self.genome_one_hot_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+        self.genome_one_hot_path = (
+            self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+        )
         return
 
     def __repr__(self):
@@ -446,7 +458,9 @@ class Genome:
         sequences : list of bolero.pp.seq.Sequence
             List of Sequence objects
         """
-        fasta_path = self.get_region_fasta(bed_path, output_path=None, compress=save_fasta)
+        fasta_path = self.get_region_fasta(
+            bed_path, output_path=None, compress=save_fasta
+        )
         sequences = list(_iter_fasta(fasta_path))
         if not save_fasta:
             fasta_path.unlink()
@@ -560,7 +574,9 @@ class Genome:
         elif isinstance(regions, (list, pd.Index)):
             regions_bed = parse_region_names(regions)
         else:
-            raise ValueError("regions must be a PyRanges, DataFrame, str, Path, list or Index")
+            raise ValueError(
+                "regions must be a PyRanges, DataFrame, str, Path, list or Index"
+            )
 
         # make sure all regions have the same size
         regions_center = (regions_bed.Start + regions_bed.End) // 2
@@ -648,7 +664,9 @@ class Genome:
             coords={"base": list(DEFAULT_ONE_HOT_ORDER)},
         )
         one_hot_ds = xr.Dataset({"X": one_hot_da, "offsets": self.chrom_offsets})
-        one_hot_ds.to_zarr(zarr_path, encoding={"X": {"chunks": (50000000, 4)}}, mode="w")
+        one_hot_ds.to_zarr(
+            zarr_path, encoding={"X": {"chunks": (50000000, 4)}}, mode="w"
+        )
         zarr_da = zarr.open_array(f"{zarr_path}/X")
         with pyfaidx.Fasta(self.fasta_path) as fa:
             cur_start = 0
@@ -678,7 +696,9 @@ class Genome:
         partition_dir.mkdir(exist_ok=True, parents=True)
         bed_df = pr.read_bed(str(bed_path), as_df=True)
         bed_df["Partition"] = (
-            bed_df.Chromosome.astype(str) + "-" + (bed_df.Start // partition_size).astype(str)
+            bed_df.Chromosome.astype(str)
+            + "-"
+            + (bed_df.Start // partition_size).astype(str)
         )
         if region_id is None:
             region_id = "Name"
@@ -694,7 +714,9 @@ class Genome:
         for chunk_name, chunk_bed in tqdm(bed_df.groupby("Partition")):
             chunk_bed_path = partition_dir / f"{chunk_name}.bed"
             chunk_zarr_path = partition_dir / f"{chunk_name}.zarr"
-            chunk_bed.iloc[:, :4].to_csv(chunk_bed_path, sep="\t", index=None, header=None)
+            chunk_bed.iloc[:, :4].to_csv(
+                chunk_bed_path, sep="\t", index=None, header=None
+            )
 
             self._scan_bw_table(
                 bw_table=bw_table,
@@ -1069,7 +1091,9 @@ class GenomePositionZarr(GenomeWideDataset):
         else:
             raise ValueError("regions must be a PyRanges or DataFrame")
 
-        global_coords = _get_global_coords(chrom_offsets=self.offsets, region_bed_df=regions_df)
+        global_coords = _get_global_coords(
+            chrom_offsets=self.offsets, region_bed_df=regions_df
+        )
 
         # init an empty array, assume all regions have the same length
         n_regions = len(global_coords)
@@ -1096,7 +1120,9 @@ class GenomePositionZarr(GenomeWideDataset):
             chunk_slices = []
             for chunk_start in range(0, regions_df.shape[0], chunk_size):
                 chunk_slice = slice(chunk_start, chunk_start + chunk_size)
-                _slice_list = [slice(start, end) for start, end in global_coords[chunk_slice]]
+                _slice_list = [
+                    slice(start, end) for start, end in global_coords[chunk_slice]
+                ]
                 task = _remote_isel.remote(self._remote_da, "pos", _slice_list)
                 futures.append(task)
                 chunk_slices.append(chunk_slice)
@@ -1344,11 +1370,15 @@ class GenomeOneHotZarr(GenomePositionZarr):
             regions = parse_region_names([regions]).df[["Chromosome", "Start", "End"]]
         else:
             regions = parse_region_names(regions).df[["Chromosome", "Start", "End"]]
-        global_coords = _get_global_coords(chrom_offsets=self.offsets, region_bed_df=regions)
+        global_coords = _get_global_coords(
+            chrom_offsets=self.offsets, region_bed_df=regions
+        )
 
         # make sure regions are in the same length
         region_lengths = global_coords[:, 1] - global_coords[:, 0]
-        assert (region_lengths == region_lengths[0]).all(), "All regions must have the same length."
+        assert (
+            region_lengths == region_lengths[0]
+        ).all(), "All regions must have the same length."
 
         region_one_hot = self.get_regions_data(regions)
         return region_one_hot
@@ -1414,7 +1444,9 @@ class GenomeBigWigDataset(GenomeWideDataset):
             else:
                 name = list(name)
 
-        assert len(name) == len(bigwig_path), "Number of names must match number of bigwig paths"
+        assert len(name) == len(
+            bigwig_path
+        ), "Number of names must match number of bigwig paths"
 
         for n, path in zip(name, bigwig_path):
             self.bigwig_path_dict[n] = str(path)
@@ -1449,7 +1481,9 @@ class GenomeBigWigDataset(GenomeWideDataset):
         """
         self._close()
 
-    def get_region_data(self, chrom: str, start: int, end: int) -> Dict[str, np.ndarray]:
+    def get_region_data(
+        self, chrom: str, start: int, end: int
+    ) -> Dict[str, np.ndarray]:
         """
         Get the data for a specific genomic region.
 
@@ -1556,6 +1590,7 @@ class GenomeEnsembleDataset:
             genome = Genome(genome)
         self.genome = genome
         self.datasets = {}
+        self.add_genome_one_hot()
 
     def add_dataset(self, name: str, dataset: GenomeWideDataset):
         """
@@ -1568,6 +1603,75 @@ class GenomeEnsembleDataset:
 
         """
         self.datasets[name] = dataset
+        return
+
+    def add_bigwig(
+        self, bigwig_path: Union[str, List[str], pathlib.Path], name: str = None
+    ):
+        """
+        Adds a BigWig dataset to the ensemble.
+
+        Parameters
+        ----------
+            name (str): The name of the dataset.
+            bigwig_path (str or List[str] or pathlib.Path): The path(s) to the BigWig file(s).
+
+        """
+        self.datasets[name] = GenomeBigWigDataset(bigwig_path)
+        return
+
+    def add_position_zarr(
+        self,
+        zarr_path: Union[str, pathlib.Path, xr.Dataset, xr.DataArray],
+        name: str = None,
+        da_name: str = None,
+        load: bool = False,
+    ):
+        """
+        Adds a position Zarr dataset to the ensemble.
+
+        Parameters
+        ----------
+            name (str): The name of the dataset.
+            zarr_path (str or pathlib.Path): The path to the Zarr dataset.
+            load (bool): Whether to load the dataset into memory.
+
+        """
+        if isinstance(zarr_path, (str, pathlib.Path)):
+            zarr = xr.open_zarr(zarr_path)
+
+        if isinstance(zarr, xr.Dataset):
+            if da_name is None:
+                _data_vars = list(zarr.data_vars)
+                if len(_data_vars) != 1:
+                    raise ValueError(
+                        "da_name must be specified if there is more than one data variable in the Zarr dataset. Available data variables: "
+                        + ", ".join(_data_vars)
+                    )
+                else:
+                    da_name = list(zarr.data_vars)[0]
+            zarr = zarr[da_name]
+
+        if isinstance(zarr, xr.DataArray):
+            self.datasets[name] = GenomePositionZarr(
+                da=zarr, offsets=self.genome.chrom_offsets, load=load
+            )
+        else:
+            raise ValueError(
+                "zarr must be a path to a Zarr dataset or an xarray Dataset or DataArray."
+            )
+        return
+
+    def add_genome_one_hot(self, name="dna_one_hot"):
+        """
+        Adds the genome one-hot encoding to the ensemble.
+
+        Parameters
+        ----------
+            name (str): The name of the dataset.
+
+        """
+        self.datasets[name] = self.genome.genome_one_hot
         return
 
     def get_region_data(self, *args) -> Dict[str, Any]:
@@ -1659,7 +1763,9 @@ class GenomeEnsembleDataset:
             ds.repartition(n_blocks)
         return ds
 
-    def prepare_ray_dataset(self, regions, output_path, dataset_size=1000000, block_size=3000):
+    def prepare_ray_dataset(
+        self, regions, output_path, dataset_size=1000000, block_size=3000
+    ):
         """
         Prepares a Ray dataset for the given regions.
 

@@ -51,7 +51,9 @@ def calculate_atac_norm_value(
         non_peak_regions = non_peak_regions.sample(sample_regions)
 
     ds = xr.open_zarr(cutsite_zarr_path)
-    dataset = GenomePositionZarr(da=ds["site_count"], offsets=genome.chrom_offsets, load=False)
+    dataset = GenomePositionZarr(
+        da=ds["site_count"], offsets=genome.chrom_offsets, load=False
+    )
 
     _data = dataset.get_regions_data(peak_regions.df)
     peak_value_per_sample = np.percentile(
@@ -112,6 +114,8 @@ def convolve_data(batch, conv_size=50):
     """
     # TODO, there will be boundary effect, DataLoader should load additional bases and trim the boundary or let convovle1d do the trimming
     _position_axis = 2
-    conv_data = np.apply_along_axis(_conv_signal, _position_axis, batch, conv_size=conv_size)
+    conv_data = np.apply_along_axis(
+        _conv_signal, _position_axis, batch, conv_size=conv_size
+    )
     conv_data /= conv_size
     return conv_data

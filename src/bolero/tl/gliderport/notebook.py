@@ -9,7 +9,9 @@ import pandas as pd
 import yaml
 
 
-def papermill_notebook(input_path, output_path, cwd, config_path, log_path, success_flag):
+def papermill_notebook(
+    input_path, output_path, cwd, config_path, log_path, success_flag
+):
     """Run papermill and ignore error if flag set."""
     import pathlib
     import subprocess
@@ -109,7 +111,9 @@ def _parse_workdir_notebooks(notebook_dir, default_cpu=1, default_mem_gb=1):
             match = nb_name_pattern.match(path.name).groupdict()
             nb_records[(int(match["num_step"]), match["sub_step"])] = {
                 "path": path.resolve().absolute(),
-                "parameters": _extract_nb_parameters(path, cpu=default_cpu, mem_gb=default_mem_gb),
+                "parameters": _extract_nb_parameters(
+                    path, cpu=default_cpu, mem_gb=default_mem_gb
+                ),
             }
         except AttributeError:
             # not match, ignore this notebook
@@ -117,7 +121,9 @@ def _parse_workdir_notebooks(notebook_dir, default_cpu=1, default_mem_gb=1):
 
     nb_records = pd.DataFrame(nb_records).T.reset_index()
     nb_records.columns = ["num_step", "sub_step"] + nb_records.columns[2:].tolist()
-    nb_records = nb_records.loc[:, ["num_step", "sub_step", "path", "parameters"]].copy()
+    nb_records = nb_records.loc[
+        :, ["num_step", "sub_step", "path", "parameters"]
+    ].copy()
     return nb_records
 
 

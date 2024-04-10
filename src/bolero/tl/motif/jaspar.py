@@ -219,7 +219,9 @@ class JASPARMotifDatabase:
 
         self.motifs = []
         for (motif_id, motif_name), pwm in motif_pwms.items():
-            motif = JASPARMotif(motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER)
+            motif = JASPARMotif(
+                motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER
+            )
 
             motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)

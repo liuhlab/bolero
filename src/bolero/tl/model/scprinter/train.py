@@ -62,9 +62,13 @@ def construct_model_from_config(config: Dict[str, Any]) -> Tuple[Any, int, int]:
     inception_layers_after = config["inception_layers_after"]
     # True, meaning use inception layers after the normal layers, this actually has no effect since all layers are inception layers
     if inception_layers_after:
-        inception_bool = [False] * (n_layers - n_inception_layers) + [True] * (n_inception_layers)
+        inception_bool = [False] * (n_layers - n_inception_layers) + [True] * (
+            n_inception_layers
+        )
     else:
-        inception_bool = [True] * n_inception_layers + [False] * (n_layers - n_inception_layers)
+        inception_bool = [True] * n_inception_layers + [False] * (
+            n_layers - n_inception_layers
+        )
 
     acc_dna_cnn = DNA_CNN(
         n_filters=n_filters,

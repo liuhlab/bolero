@@ -82,7 +82,9 @@ def _prepare_binary_matrix(data):
     elif sparse.issparse(binary_matrix):
         binary_matrix = binary_matrix.tocsc()
     else:
-        raise ValueError("binary_matrix has to be a numpy.ndarray or a sparse.csr_matrix")
+        raise ValueError(
+            "binary_matrix has to be a numpy.ndarray or a sparse.csr_matrix"
+        )
     return binary_matrix, cell_names, region_names
 
 
@@ -107,7 +109,9 @@ def loglikelihood(nzw, ndz, alpha, eta):
     vocab_size = nzw.shape[1]
 
     const_prior = (n_topics * math.lgamma(alpha) - math.lgamma(alpha * n_topics)) * D
-    const_ll = (vocab_size * math.lgamma(eta) - math.lgamma(eta * vocab_size)) * n_topics
+    const_ll = (
+        vocab_size * math.lgamma(eta) - math.lgamma(eta * vocab_size)
+    ) * n_topics
 
     # calculate log p(w|z)
     topic_ll = 0
@@ -133,7 +137,9 @@ def loglikelihood(nzw, ndz, alpha, eta):
     return ll
 
 
-def convert_input(data, output_prefix, train_mallet_file=None, train_id2word_file=None, mem_gb=4):
+def convert_input(
+    data, output_prefix, train_mallet_file=None, train_id2word_file=None, mem_gb=4
+):
     """
     Convert sparse.csc_matrix to Mallet format and save it to a binary file, also save the id2word dictionary.
 
@@ -198,7 +204,9 @@ def convert_input(data, output_prefix, train_mallet_file=None, train_id2word_fil
 
     with utils.open(txt_path, "wb") as fout:
         for docno, doc in enumerate(corpus):
-            tokens = chain.from_iterable([id2word[tokenid]] * int(cnt) for tokenid, cnt in doc)
+            tokens = chain.from_iterable(
+                [id2word[tokenid]] * int(cnt) for tokenid, cnt in doc
+            )
             fout.write(utils.to_utf8("{} 0 {}\n".format(docno, " ".join(tokens))))
 
     # save mallet binary file
@@ -409,12 +417,16 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             f"--random-seed {random_seed}"
         )
         try:
-            subprocess.check_output(args=shlex.split(cmd), shell=False, stderr=subprocess.STDOUT)
+            subprocess.check_output(
+                args=shlex.split(cmd), shell=False, stderr=subprocess.STDOUT
+            )
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"command '{e.cmd}' return with error (code {e.returncode}): {e.output}"
             ) from e
-        self.word_topics = self.load_word_topics(num_topics=num_topics, state_path=state_path)
+        self.word_topics = self.load_word_topics(
+            num_topics=num_topics, state_path=state_path
+        )
         self.output_prefix = output_prefix
         return
 
@@ -459,10 +471,14 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
         with tempfile.TemporaryDirectory(prefix="bolero_") as parent_temp_dir:
             model_dict = {}
             for model_dir in model_dirs:
-                model_temp_dir = tempfile.mkdtemp(dir=parent_temp_dir, prefix=model_dir.name)
+                model_temp_dir = tempfile.mkdtemp(
+                    dir=parent_temp_dir, prefix=model_dir.name
+                )
                 model_files = {
                     "inferencer": {},
-                    "train_mallet": pathlib.Path(f"{model_temp_dir}/train_corpus.mallet"),
+                    "train_mallet": pathlib.Path(
+                        f"{model_temp_dir}/train_corpus.mallet"
+                    ),
                     "train_id2word": model_dir / "train_corpus.id2word",
                 }
                 actual_train_mallet = model_dir / "train_corpus.mallet"
@@ -470,21 +486,25 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
                     actual_train_mallet.exists()
                 ), f"train_corpus.mallet file does not exist in {model_dir}"
                 # copy the mallet file to temp path and make it read only
-                subprocess.run(["cp", actual_train_mallet, model_files["train_mallet"]], check=True)
+                subprocess.run(
+                    ["cp", actual_train_mallet, model_files["train_mallet"]], check=True
+                )
                 model_files["train_mallet"].chmod(0o444)
 
                 assert model_files[
                     "train_id2word"
                 ].exists(), f"train_corpus.id2word file does not exist in {model_dir}"
 
-                inferencer_paths = list(pathlib.Path(model_dir).rglob("model*/*inferencer.mallet"))
+                inferencer_paths = list(
+                    pathlib.Path(model_dir).rglob("model*/*inferencer.mallet")
+                )
                 for inferencer_path in inferencer_paths:
                     topic_model_name = inferencer_path.parent.name
                     model_dir_name = model_dir.name
                     # inferencer name will be unique
-                    model_files["inferencer"][f"{model_dir_name}_{topic_model_name}"] = str(
-                        inferencer_path
-                    )
+                    model_files["inferencer"][
+                        f"{model_dir_name}_{topic_model_name}"
+                    ] = str(inferencer_path)
                 model_dict[model_temp_dir] = model_files
 
             data, cell_names, _ = _prepare_binary_matrix(data)
@@ -563,8 +583,12 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             inferencer_future_dict = {}
             for model_temp_dir, model_files in model_dict.items():
                 mallet_paths = mallet_paths_dict[model_temp_dir]
-                for inferencer_name, inferencer_path in model_files["inferencer"].items():
-                    temp_dir = tempfile.mkdtemp(dir=parent_temp_dir, prefix=inferencer_name)
+                for inferencer_name, inferencer_path in model_files[
+                    "inferencer"
+                ].items():
+                    temp_dir = tempfile.mkdtemp(
+                        dir=parent_temp_dir, prefix=inferencer_name
+                    )
                     futures = [
                         _remote_infer.remote(
                             mallet_path=mallet_path,
@@ -632,7 +656,9 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             f"--random-seed {random_seed} "
         )
         try:
-            subprocess.check_output(args=shlex.split(cmd), shell=False, stderr=subprocess.STDOUT)
+            subprocess.check_output(
+                args=shlex.split(cmd), shell=False, stderr=subprocess.STDOUT
+            )
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"command '{e.cmd}' return with error (code {e.returncode}): {e.output}"
@@ -659,7 +685,9 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
         with utils.open(state_path, "rb") as fin:
             _ = next(fin)  # header
             self.alpha = np.fromiter(next(fin).split()[2:], dtype=float)
-            assert len(self.alpha) == num_topics, "Mismatch between MALLET vs. requested topics"
+            assert (
+                len(self.alpha) == num_topics
+            ), "Mismatch between MALLET vs. requested topics"
             _ = next(fin)  # beta
             for _, line in enumerate(fin):
                 line = utils.to_unicode(line)
@@ -680,7 +708,9 @@ class LDAMallet(utils.SaveLoad, basemodel.BaseTopicModel):
             Topics X words matrix, shape `num_topics` x `vocabulary_size`.
         """
         doctopics_path = f"{self.output_prefix}_doctopics.txt"
-        doc_topic = pd.read_csv(doctopics_path, header=None, sep="\t").iloc[:, 2:].to_numpy()
+        doc_topic = (
+            pd.read_csv(doctopics_path, header=None, sep="\t").iloc[:, 2:].to_numpy()
+        )
         topic_word = self.word_topics
         norm_topic_word = topic_word / topic_word.sum(axis=1)[:, None]
         return doc_topic, norm_topic_word
@@ -863,7 +893,9 @@ def run_cgs_model_mallet(
 
     # Model evaluation
     cell_cov = np.asarray(binary_matrix.sum(axis=0)).astype(float)
-    arun_2010 = tmtoolkit.topicmod.evaluate.metric_arun_2010(topic_word, doc_topic, cell_cov)
+    arun_2010 = tmtoolkit.topicmod.evaluate.metric_arun_2010(
+        topic_word, doc_topic, cell_cov
+    )
     cao_juan_2009 = tmtoolkit.topicmod.evaluate.metric_cao_juan_2009(topic_word)
     mimno_2011 = tmtoolkit.topicmod.evaluate.metric_coherence_mimno_2011(
         topic_word,
@@ -889,7 +921,11 @@ def run_cgs_model_mallet(
             [
                 arun_2010,
                 cao_juan_2009,
-                np.mean(mimno_2011[np.argpartition(mimno_2011, -top_topics_coh)[-top_topics_coh:]]),
+                np.mean(
+                    mimno_2011[
+                        np.argpartition(mimno_2011, -top_topics_coh)[-top_topics_coh:]
+                    ]
+                ),
                 ll,
             ],
             index=["Arun_2010", "Cao_Juan_2009", "Mimno_2011", "loglikelihood"],

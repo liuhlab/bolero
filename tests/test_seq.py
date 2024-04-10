@@ -8,6 +8,13 @@ def test_seq():
     assert seq.reverse_complement() == "GCAAGT"
 
     oh = np.array(
-        [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]
+        [
+            [1, 0, 0, 0],
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 0, 1],
+            [0, 0, 1, 0],
+        ]
     )
     assert (seq.one_hot_encoding() != oh).sum() == 0

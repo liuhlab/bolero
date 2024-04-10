@@ -108,7 +108,9 @@ class FootPrintModel(_dispModel):
             The bias bigWig file handle.
         """
         if self.bias_bw_path is None:
-            raise ValueError("No bias bigWig file provided. Please set the bias_bw_path attribute.")
+            raise ValueError(
+                "No bias bigWig file provided. Please set the bias_bw_path attribute."
+            )
         if self._bias_handle is None:
             self._bias_handle = pyBigWig.open(self.bias_bw_path)
         return self._bias_handle
@@ -130,7 +132,9 @@ class FootPrintModel(_dispModel):
         """
         if name is None:
             name = pathlib.Path(str(atac_bw_path)).name
-        assert name not in self.atac_handles, f"ATAC bigWig file with name {name} already exists."
+        assert (
+            name not in self.atac_handles
+        ), f"ATAC bigWig file with name {name} already exists."
         self.atac_handles[name] = pyBigWig.open(atac_bw_path)
 
     def close(self):
@@ -300,7 +304,14 @@ class FootPrintModel(_dispModel):
             fp_dict[name] = _fp
         return fp_dict
 
-    def footprint_from_data(self, atac_data, bias_data, modes=None, clip_min=-10, clip_max=10):
+    def footprint_from_data(
+        self,
+        atac_data: torch.Tensor,
+        bias_data: torch.Tensor,
+        modes: List[str] = None,
+        clip_min: int = -10,
+        clip_max: int = 10,
+    ):
         """
         Compute the footprint from given ATAC-seq and bias data.
 

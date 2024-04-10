@@ -60,7 +60,9 @@ def parse_region_names(names, as_df=False):
         c, se = name.split(":")
         s, e = se.split("-")
         bed_record.append([c, s, e, name])
-    bed = pr.PyRanges(pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"]))
+    bed = pr.PyRanges(
+        pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
+    )
     if as_df:
         return bed.df
     return bed

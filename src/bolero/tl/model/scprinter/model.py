@@ -124,9 +124,13 @@ class scFootprintBPNet(_scFootprintBPNet):
 
             training_data_epoch_loader = training_data.resample()
             for data in training_data_epoch_loader:
-                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_amp):
+                with torch.autocast(
+                    device_type="cuda", dtype=torch.bfloat16, enabled=use_amp
+                ):
                     random_modes = np.random.permutation(modes)[:30]
-                    select_index = torch.as_tensor([index_all.index(mode) for mode in random_modes])
+                    select_index = torch.as_tensor(
+                        [index_all.index(mode) for mode in random_modes]
+                    )
                     if len(data) == 2:
                         X, y = data
                         cell = None
@@ -155,7 +159,9 @@ class scFootprintBPNet(_scFootprintBPNet):
                         coverage = y[:, 0].sum(dim=-1)
                         coverage = torch.log1p(coverage)
 
-                    pred_score, pred_coverage = self.forward(X, cell, modes=select_index)
+                    pred_score, pred_coverage = self.forward(
+                        X, cell, modes=select_index
+                    )
 
                     desc_str = f" - (Training) {epoch + 1}"
 
