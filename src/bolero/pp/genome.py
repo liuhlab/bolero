@@ -1507,7 +1507,8 @@ class GenomeBigWigDataset(GenomeWideDataset):
         Returns
         -------
         Dict[str, np.ndarray]
-            A dictionary containing the region data for each dataset, where the keys are the dataset names and the values are the data arrays.
+            A dictionary containing the region data for each dataset,
+            where the keys are the dataset names and the values are the data arrays.
         """
         with self:
             region_data = {}
@@ -1536,7 +1537,8 @@ class GenomeBigWigDataset(GenomeWideDataset):
         Returns
         -------
         Dict[str, Union[np.ndarray, List[float]]]
-            A dictionary containing the region data for each dataset, where the keys are the dataset names and the values are the data arrays or lists.
+            A dictionary containing the region data for each dataset,
+            where the keys are the dataset names and the values are the data arrays or lists.
 
         Raises
         ------
@@ -1746,8 +1748,8 @@ class GenomeEnsembleDataset:
                 _data_vars = list(zarr.data_vars)
                 if len(_data_vars) != 1:
                     raise ValueError(
-                        "da_name must be specified if there is more than one data variable in the Zarr dataset. Available data variables: "
-                        + ", ".join(_data_vars)
+                        "da_name must be specified if there is more than one data variable in the Zarr dataset. "
+                        "Available data variables: " + ", ".join(_data_vars)
                     )
                 else:
                     da_name = list(zarr.data_vars)[0]
@@ -1870,38 +1872,60 @@ class GenomeEnsembleDataset:
             ds.repartition(n_blocks)
         return ds
 
-    def prepare_ray_dataset(
-        self, regions, output_path, dataset_size=1000000, block_size=3000
-    ):
+    @classmethod
+    def subset_regions(cls, dataset, region_sel):
+        """
+        Subsets the regions in the ensemble.
+
+        Parameters
+        ----------
+            region_sel: The regions to select.
+
+        Returns
+        -------
+            ensemble: The ensemble with the selected regions.
+
+        """
+        ensemble = cls(dataset.genome)
+        ensemble.datasets = dataset.datasets
+        ensemble.regions = {
+            k: v.iloc[region_sel, :].copy() for k, v in dataset.regions.items()
+        }
+        ensemble.region_sizes = dataset.region_sizes.copy()
+        ensemble._n_regions = len(ensemble.regions)
+        ensemble._region_dataset_query_pairs = dataset._region_dataset_query_pairs
+        return ensemble
+
+    def prepare_ray_dataset(self, output_path, dataset_size=1000000, block_size=3000):
         """
         Prepares a Ray dataset for the given regions.
 
         Parameters
         ----------
-            regions: The regions for which to prepare the dataset.
             output_path (str): The path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
             block_size (int): The size of each block.
 
         """
-        regions = understand_regions(regions, as_df=True)
-        if regions.shape[0] <= dataset_size:
+        n_regions = self._n_regions
+
+        if n_regions <= dataset_size:
             from pyarrow.fs import FileSystem
 
-            ds = self._get_ray_dataset(regions, block_size=block_size)
+            ds = self._get_ray_dataset(block_size=block_size)
             path, fs = FileSystem.from_uri(output_path)
             ds.write_parquet(path, filesystem=fs, num_rows_per_file=block_size)
         else:
-            starts = list(range(0, regions.shape[0], dataset_size))
+            starts = list(range(0, n_regions, dataset_size))
             for chunk_start in tqdm(
                 starts, desc=f"Preparing dataset chunks of size {dataset_size} "
             ):
-                chunk_end = min(chunk_start + dataset_size, regions.shape[0])
+                chunk_end = min(chunk_start + dataset_size, n_regions)
                 chunk_slice = slice(chunk_start, chunk_end)
-                chunk_regions = regions.iloc[chunk_slice, :].copy()
+
+                _subset = self.subset_regions(dataset=self, region_sel=chunk_slice)
                 chunk_output_path = f"{output_path}/chunk_{chunk_start}_{chunk_end}"
-                self.prepare_ray_dataset(
-                    chunk_regions,
+                _subset.prepare_ray_dataset(
                     chunk_output_path,
                     dataset_size=dataset_size,
                     block_size=block_size,
