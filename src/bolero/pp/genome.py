@@ -1889,10 +1889,17 @@ class GenomeEnsembleDataset:
         n_regions = self._n_regions
 
         if n_regions <= dataset_size:
+            from pyarrow import ArrowInvalid
             from pyarrow.fs import FileSystem
 
             ds = self._get_ray_dataset(block_size=block_size)
-            path, fs = FileSystem.from_uri(output_path)
+            try:
+                path, fs = FileSystem.from_uri(output_path)
+            except ArrowInvalid:
+                # assume local filesystem
+                output_path = str(pathlib.Path(output_path).absolute().resolve())
+                path, fs = FileSystem.from_uri(output_path)
+
             ds.write_parquet(path, filesystem=fs, num_rows_per_file=block_size)
         else:
             starts = list(range(0, n_regions, dataset_size))
