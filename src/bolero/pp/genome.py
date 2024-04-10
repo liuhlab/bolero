@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -237,6 +238,7 @@ class Genome:
 
         # one hot
         self._one_hot_obj = None
+        self.genome_one_hot_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
         return
 
     def __repr__(self):
@@ -606,7 +608,7 @@ class Genome:
             GenomeOneHotZarr: The one-hot encoded representation of the genome.
         """
         if self._one_hot_obj is None:
-            zarr_path = self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
+            zarr_path = self.genome_one_hot_path
             success_flag_path = zarr_path / ".success"
             if not success_flag_path.exists():
                 self.generate_genome_one_hot(zarr_path=zarr_path)
@@ -913,17 +915,74 @@ class Genome:
 
 @ray.remote
 def _remote_isel(da, dim, sel):
-    da = da.copy()
-    return da.isel({dim: sel}).values
+    # try first sel to get shape
+    data_list = []
+    for slice_ in enumerate(sel):
+        data_list.append(da.isel({dim: slice_}).values)
+    return data_list
 
 
-@ray.remote
-def _remote_sel(da, dim, sel):
-    da = da.copy()
-    return da.sel({dim: sel}).values
+class GenomeWideDataset:
+    """
+    Represents a dataset containing genome-wide data.
+
+    Attributes
+    ----------
+        None
+
+    Methods
+    -------
+        get_region_data: Retrieves data for a specific genomic region.
+        get_regions_data: Retrieves data for multiple genomic regions.
+
+    """
+
+    def __init__(self):
+        return
+
+    def get_region_data(self, chrom: str, start: int, end: int) -> Any:
+        """
+        Retrieves data for a specific genomic region.
+
+        Args:
+            chrom (str): The chromosome of the genomic region.
+            start (int): The start position of the genomic region.
+            end (int): The end position of the genomic region.
+
+        Returns
+        -------
+            Any: The data for the specified genomic region.
+
+        Raises
+        ------
+            NotImplementedError: This method should be implemented by a subclass.
+
+        """
+        raise NotImplementedError
+
+    def get_regions_data(
+        self, regions: List[Tuple[str, int, int]], chunk_size: Optional[int] = None
+    ) -> Any:
+        """
+        Retrieves data for multiple genomic regions.
+
+        Args:
+            regions (List[Tuple[str, int, int]]): A list of genomic regions specified as tuples of (chromosome, start, end).
+            chunk_size (Optional[int]): The size of each chunk of data to retrieve.
+
+        Returns
+        -------
+            Any: The data for the specified genomic regions.
+
+        Raises
+        ------
+            NotImplementedError: This method should be implemented by a subclass.
+
+        """
+        raise NotImplementedError
 
 
-class GenomePositionZarr:
+class GenomePositionZarr(GenomeWideDataset):
     """
     Represents a genomic position in a Zarr dataset.
 
@@ -950,6 +1009,7 @@ class GenomePositionZarr:
     """
 
     def __init__(self, da, offsets, load=False, pos_dim="pos"):
+        super().__init__()
         self.da = da
         self.load = load
         if load:
@@ -990,7 +1050,7 @@ class GenomePositionZarr:
         region_data = self.da.isel(pos=slice(global_start, global_end)).values
         return region_data
 
-    def get_regions_data(self, regions_df):
+    def get_regions_data(self, regions, chunk_size=None, numpy=True):
         """
         Get the region data for multiple regions specified in a DataFrame.
 
@@ -1002,6 +1062,13 @@ class GenomePositionZarr:
         -------
         - regions_data (numpy.ndarray): The region data as a NumPy array.
         """
+        if isinstance(regions, pr.PyRanges):
+            regions_df = regions.df
+        elif isinstance(regions, pd.DataFrame):
+            regions_df = regions
+        else:
+            raise ValueError("regions must be a PyRanges or DataFrame")
+
         global_coords = _get_global_coords(chrom_offsets=self.offsets, region_bed_df=regions_df)
 
         # init an empty array, assume all regions have the same length
@@ -1013,22 +1080,34 @@ class GenomePositionZarr:
                 shape_list.append(region_size)
             else:
                 shape_list.append(size)
-        regions_data = np.zeros(shape_list, dtype=self.da.dtype)
+
+        if numpy:
+            regions_data = np.zeros(shape_list, dtype=self.da.dtype)
+        else:
+            regions_data = [None] * n_regions
+
         if self.load:
             for i, (start, end) in enumerate(global_coords):
                 _data = self.da.isel(pos=slice(start, end)).values
                 regions_data[i] = _data
         else:
-            futures = [
-                _remote_isel.remote(self._remote_da, "pos", slice(start, end))
-                for start, end in global_coords
-            ]
-            for i, future in enumerate(futures):
-                regions_data[i] = ray.get(future)
+            chunk_size = regions_df.shape[0] if chunk_size is None else chunk_size
+            futures = []
+            chunk_slices = []
+            for chunk_start in range(0, regions_df.shape[0], chunk_size):
+                chunk_slice = slice(chunk_start, chunk_start + chunk_size)
+                _slice_list = [slice(start, end) for start, end in global_coords[chunk_slice]]
+                task = _remote_isel.remote(self._remote_da, "pos", _slice_list)
+                futures.append(task)
+                chunk_slices.append(chunk_slice)
+
+            data_list = ray.get(futures)
+            for chunk_slice, data in zip(chunk_slices, data_list):
+                regions_data[chunk_slice] = data
         return regions_data
 
 
-class GenomeRegionZarr:
+class GenomeRegionZarr(GenomeWideDataset):
     """
     Represents a genomic region in Zarr format.
 
@@ -1062,6 +1141,7 @@ class GenomeRegionZarr:
     """
 
     def __init__(self, da, load=False, region_dim="region"):
+        super().__init__()
         self.da = da
         self.load = load
         if load:
@@ -1076,7 +1156,7 @@ class GenomeRegionZarr:
         else:
             self._remote_da = ray.put(self.da)
 
-    def get_region_data(self, region):
+    def get_region_data(self, *args, **kwargs):
         """
         Get the data for a specific region.
 
@@ -1091,13 +1171,24 @@ class GenomeRegionZarr:
             The data for the specified region.
 
         """
+        if "chrom" in kwargs and "start" in kwargs and "end" in kwargs:
+            chrom = kwargs["chrom"]
+            start = kwargs["start"]
+            end = kwargs["end"]
+            region = f"{chrom}:{start}-{end}"
+        else:
+            if len(args) == 1:
+                region = args[0]
+            else:
+                region = pd.Index(args)
+
         if isinstance(region, (int, slice)):
             region_data = self.da.isel(region=region).values
         else:
             region_data = self.da.sel(region=region).values
         return region_data
 
-    def get_regions_data(self, *regions):
+    def get_regions_data(self, regions, chunk_size=None, numpy=True):
         """
         Get the data for multiple regions.
 
@@ -1112,7 +1203,27 @@ class GenomeRegionZarr:
             The data for the specified regions.
 
         """
-        return self.get_region_data(*regions)
+        # chunk size is not really used here, just be consistent with other data classes
+        _ = len(regions) if chunk_size is None else chunk_size
+
+        if isinstance(regions, pr.PyRanges):
+            regions_df = regions.df
+        elif isinstance(regions, pd.DataFrame):
+            regions_df = regions
+        else:
+            regions_df = None
+        if regions_df is not None:
+            if "Name" in regions_df.columns:
+                regions = regions_df["Name"]
+            else:
+                regions = []
+                for _, (chrom, start, end, *_) in regions_df.iterrows():
+                    regions.append(f"{chrom}:{start}-{end}")
+
+        _data = self.get_region_data(regions)
+        if not numpy:
+            _data = list(_data)
+        return _data
 
 
 class GenomeOneHotZarr(GenomePositionZarr):
@@ -1146,7 +1257,9 @@ class GenomeOneHotZarr(GenomePositionZarr):
 
     def __init__(self, ds_path, load=True):
         self.ds = xr.open_zarr(ds_path)
-        self.one_hot = self.ds["X"].load()
+        self.one_hot = self.ds["X"]
+        if load:
+            self.one_hot.load()
         super().__init__(
             da=self.one_hot,
             offsets=self.ds["offsets"].to_pandas(),
@@ -1239,3 +1352,345 @@ class GenomeOneHotZarr(GenomePositionZarr):
 
         region_one_hot = self.get_regions_data(regions)
         return region_one_hot
+
+
+def _bw_values(bw, chrom, start, end):
+    _data = bw.values(chrom, start, end, numpy=True).astype("float32")
+    np.nan_to_num(_data, copy=False)
+    return _data
+
+
+def _bw_values_chunk(bw, regions, numpy=True):
+    regions_data = []
+    for _, (chrom, start, end, *_) in regions.iterrows():
+        regions_data.append(_bw_values(bw, chrom, start, end))
+    if numpy:
+        regions_data = np.array(regions_data)
+    return regions_data
+
+
+@ray.remote
+def _remote_bw_values_chunk(bw_path, regions, numpy):
+    with pyBigWig.open(bw_path) as bw:
+        return _bw_values_chunk(bw, regions, numpy)
+
+
+class GenomeBigWigDataset(GenomeWideDataset):
+    """Represents a genomic dataset stored in BigWig format."""
+
+    def __init__(
+        self,
+        bigwig_path: Union[str, List[str], pathlib.Path],
+        name: Optional[Union[str, List[str]]] = None,
+    ):
+        """
+        Represents a genomic dataset stored in BigWig format.
+
+        Parameters
+        ----------
+        bigwig_path : str or List[str] or pathlib.Path
+            The path(s) to the BigWig file(s).
+        name : str or List[str], optional
+            The name(s) of the dataset(s), by default None.
+
+        Raises
+        ------
+        AssertionError
+            If the number of names does not match the number of BigWig paths.
+        """
+        super().__init__()
+        self.bigwig_path_dict = {}
+
+        if isinstance(bigwig_path, (str, pathlib.Path)):
+            bigwig_path = [pathlib.Path(bigwig_path)]
+        else:
+            bigwig_path = [pathlib.Path(path) for path in bigwig_path]
+
+        if name is None:
+            name = [p.name for p in bigwig_path]
+        else:
+            if isinstance(name, str):
+                name = [name]
+            else:
+                name = list(name)
+
+        assert len(name) == len(bigwig_path), "Number of names must match number of bigwig paths"
+
+        for n, path in zip(name, bigwig_path):
+            self.bigwig_path_dict[n] = str(path)
+
+        self._opened_bigwigs = {}
+
+    def _open(self):
+        """
+        Open the BigWig files.
+        """
+        for name, path in self.bigwig_path_dict.items():
+            self._opened_bigwigs[name] = pyBigWig.open(path)
+
+    def _close(self):
+        """
+        Close the opened BigWig files.
+        """
+        for bw in self._opened_bigwigs.values():
+            bw.close()
+        self._opened_bigwigs = {}
+
+    def __enter__(self):
+        """
+        Enter the context manager and open the BigWig files.
+        """
+        self._open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Exit the context manager and close the opened BigWig files.
+        """
+        self._close()
+
+    def get_region_data(self, chrom: str, start: int, end: int) -> Dict[str, np.ndarray]:
+        """
+        Get the data for a specific genomic region.
+
+        Parameters
+        ----------
+        chrom : str
+            The chromosome name.
+        start : int
+            The start position of the region.
+        end : int
+            The end position of the region.
+
+        Returns
+        -------
+        Dict[str, np.ndarray]
+            A dictionary containing the region data for each dataset, where the keys are the dataset names and the values are the data arrays.
+
+        """
+        region_data = {}
+        for name, bw in self._opened_bigwigs.items():
+            region_data[name] = _bw_values(bw, chrom, start, end)
+        return region_data
+
+    def get_regions_data(
+        self,
+        regions: Union[pr.PyRanges, pd.DataFrame],
+        chunk_size: Optional[int] = None,
+        numpy: bool = True,
+    ) -> Dict[str, Union[np.ndarray, List[float]]]:
+        """
+        Get the data for multiple genomic regions.
+
+        Parameters
+        ----------
+        regions : pr.PyRanges or pd.DataFrame
+            The regions to retrieve data for.
+        chunk_size : int, optional
+            The number of regions to process in each chunk, by default None.
+        numpy : bool, optional
+            Whether to return the data as numpy arrays or lists, by default True.
+
+        Returns
+        -------
+        Dict[str, Union[np.ndarray, List[float]]]
+            A dictionary containing the region data for each dataset, where the keys are the dataset names and the values are the data arrays or lists.
+
+        Raises
+        ------
+        ValueError
+            If the regions parameter is not a PyRanges or DataFrame.
+
+        """
+        if isinstance(regions, pr.PyRanges):
+            regions_df = regions.df
+        elif isinstance(regions, pd.DataFrame):
+            regions_df = regions
+        else:
+            raise ValueError("regions must be a PyRanges or DataFrame")
+
+        if chunk_size is None:
+            chunk_size = regions_df.shape[0]
+
+        names = []
+        tasks = []
+        for name, path in self.bigwig_path_dict.items():
+            this_tasks = []
+            for chunk_start in range(0, regions_df.shape[0], chunk_size):
+                chunk_slice = slice(chunk_start, chunk_start + chunk_size)
+                regions = regions_df.iloc[chunk_slice, :3].copy()
+                this_tasks.append(_remote_bw_values_chunk.remote(path, regions, numpy))
+            tasks.append(this_tasks)
+            names.append(name)
+
+        regions_data = {}
+        for name, task in zip(names, tasks):
+            if numpy:
+                regions_data[name] = np.concatenate(ray.get(task))
+            else:
+                # task is a list of ray tasks, flatten it to a single list
+                final_result = []
+                for _t in task:
+                    final_result.extend(ray.get(_t))
+                regions_data[name] = final_result
+        return regions_data
+
+
+class GenomeEnsembleDataset:
+    """
+    Represents an ensemble dataset for genomic data.
+
+    Parameters
+    ----------
+        genome (str or Genome): The genome associated with the dataset.
+
+    Attributes
+    ----------
+        genome (Genome): The genome associated with the dataset.
+        datasets (dict): A dictionary of dataset names and corresponding GenomeWideDataset objects.
+
+    """
+
+    def __init__(self, genome: Union[str, Genome]):
+        if isinstance(genome, str):
+            genome = Genome(genome)
+        self.genome = genome
+        self.datasets = {}
+
+    def add_dataset(self, name: str, dataset: GenomeWideDataset):
+        """
+        Adds a dataset to the ensemble.
+
+        Parameters
+        ----------
+            name (str): The name of the dataset.
+            dataset (GenomeWideDataset): The dataset to be added.
+
+        """
+        self.datasets[name] = dataset
+        return
+
+    def get_region_data(self, *args) -> Dict[str, Any]:
+        """
+        Retrieves the data for a specific region.
+
+        Parameters
+        ----------
+            *args: Either a region name or chrom, start, end values.
+
+        Returns
+        -------
+            region_data (dict): A dictionary containing the data for each dataset.
+
+        Raises
+        ------
+            ValueError: If args is not a region name or chrom, start, end values.
+
+        """
+        if len(args) == 1:
+            chrom, start, end = parse_region_name(args[0])
+        elif len(args) == 3:
+            chrom, start, end = args
+        else:
+            raise ValueError("args must be a region name or chrom, start, end")
+
+        region_data = {}
+        for name, dataset in self.datasets.items():
+            region_data[name] = dataset.get_region_data(
+                chrom=chrom, start=start, end=end, numpy=False
+            )
+        return region_data
+
+    def get_regions_data(self, regions, chunk_size=None) -> Dict[str, Any]:
+        """
+        Retrieves the data for multiple regions.
+
+        Parameters
+        ----------
+            regions: The regions for which to retrieve the data.
+            chunk_size (int): The size of each chunk of regions.
+
+        Returns
+        -------
+            regions_data (dict): A dictionary containing the data for each dataset.
+
+        """
+        regions_data = {}
+        for name, dataset in self.datasets.items():
+            regions_data[name] = dataset.get_regions_data(
+                regions=regions, chunk_size=chunk_size, numpy=False
+            )
+        return regions_data
+
+    def _get_ray_dataset(self, regions, block_size=3000):
+        """
+        Internal method to get a Ray dataset.
+
+        Parameters
+        ----------
+            regions: The regions for which to retrieve the data.
+            block_size (int): The size of each block.
+
+        Returns
+        -------
+            ds: The Ray dataset.
+
+        """
+        regions = understand_regions(regions, as_df=True)
+        region_ids = []
+        for _, (chrom, start, end, *_) in regions.iterrows():
+            region_ids.append(f"{chrom}:{start}-{end}")
+        n_regions = len(region_ids)
+
+        data_dict = {}
+        for name, dataset in self.datasets.items():
+            data_dict[name] = dataset.get_regions_data(regions)
+
+        item_dicts = []
+        for idx, region in enumerate(region_ids):
+            item_dict = {"region_id": region}
+            for name, regions_data in data_dict.items():
+                item_dict[name] = regions_data[idx]
+            item_dicts.append(item_dict)
+
+        ds = ray.data.from_items(item_dicts)
+        if block_size is not None:
+            n_blocks = n_regions // block_size
+            ds.repartition(n_blocks)
+        return ds
+
+    def prepare_ray_dataset(self, regions, output_path, dataset_size=1000000, block_size=3000):
+        """
+        Prepares a Ray dataset for the given regions.
+
+        Parameters
+        ----------
+            regions: The regions for which to prepare the dataset.
+            output_path (str): The path to save the dataset.
+            dataset_size (int): The maximum size of each dataset.
+            block_size (int): The size of each block.
+
+        """
+        regions = understand_regions(regions, as_df=True)
+        if regions.shape[0] <= dataset_size:
+            from pyarrow.fs import FileSystem
+
+            ds = self._get_ray_dataset(regions, block_size=block_size)
+            path, fs = FileSystem.from_uri(output_path)
+            ds.write_parquet(path, filesystem=fs, num_rows_per_file=block_size)
+        else:
+            starts = list(range(0, regions.shape[0], dataset_size))
+            for chunk_start in tqdm(
+                starts, desc=f"Preparing dataset chunks of size {dataset_size} "
+            ):
+                chunk_end = min(chunk_start + dataset_size, regions.shape[0])
+                chunk_slice = slice(chunk_start, chunk_end)
+                chunk_regions = regions.iloc[chunk_slice, :].copy()
+                chunk_output_path = f"{output_path}/chunk_{chunk_start}_{chunk_end}"
+                self.prepare_ray_dataset(
+                    chunk_regions,
+                    chunk_output_path,
+                    dataset_size=dataset_size,
+                    block_size=block_size,
+                )
+        return
