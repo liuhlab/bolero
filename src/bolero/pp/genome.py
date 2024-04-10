@@ -1421,10 +1421,7 @@ class GenomeBigWigDataset(GenomeWideDataset):
         """
         super().__init__()
         self.bigwig_path_dict = {}
-        for key, value in kwargs.items():
-            self.add_bigwig(path=value, name=key)
-        for arg in args:
-            self.add_bigwig(path=arg)
+        self.add_bigwig(*args, **kwargs)
 
         self._opened_bigwigs = {}
 
@@ -1434,7 +1431,7 @@ class GenomeBigWigDataset(GenomeWideDataset):
             repr_str += f"{name}: {path}\n"
         return repr_str
 
-    def add_bigwig(self, path: Union[str, pathlib.Path], name: str = None):
+    def add_bigwig(self, *args, **kwargs):
         """
         Add a BigWig file to the dataset.
 
@@ -1445,9 +1442,11 @@ class GenomeBigWigDataset(GenomeWideDataset):
         name : str, optional
             The name of the dataset, by default None.
         """
-        if name is None:
-            name = pathlib.Path(path).name
-        self.bigwig_path_dict[name] = str(path)
+        for key, value in kwargs.items():
+            self.bigwig_path_dict[key] = str(value)
+        for arg in args:
+            name = pathlib.Path(arg).name
+            self.bigwig_path_dict[name] = str(arg)
 
     def _open(self) -> None:
         """
