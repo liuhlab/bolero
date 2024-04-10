@@ -1051,7 +1051,7 @@ class GenomePositionZarr(GenomeWideDataset):
         else:
             self._remote_da = ray.put(self.da)
 
-    def get_region_data(self, chrom, start, end):
+    def get_region_data(self, chrom, start, end, numpy=True):
         """
         Get the region data for a specific chromosome and range.
 
@@ -1070,6 +1070,9 @@ class GenomePositionZarr(GenomeWideDataset):
         global_end = end + add_start
 
         region_data = self.da.isel(pos=slice(global_start, global_end)).values
+
+        if not numpy:
+            region_data = region_data.tolist()
         return region_data
 
     def get_regions_data(self, regions, chunk_size=None, numpy=True):
@@ -1285,6 +1288,7 @@ class GenomeOneHotZarr(GenomePositionZarr):
         self.ds = xr.open_zarr(ds_path)
         self.one_hot = self.ds["X"]
         if load:
+            print("Loading genome DNA one-hot encoding...")
             self.one_hot.load()
         super().__init__(
             da=self.one_hot,
@@ -1384,9 +1388,11 @@ class GenomeOneHotZarr(GenomePositionZarr):
         return region_one_hot
 
 
-def _bw_values(bw, chrom, start, end):
-    _data = bw.values(chrom, start, end, numpy=True).astype("float32")
-    np.nan_to_num(_data, copy=False)
+def _bw_values(bw, chrom, start, end, numpy):
+    _data = bw.values(chrom, start, end, numpy=numpy)
+    if numpy:
+        _data.astype("float32", copy=False)
+        np.nan_to_num(_data, copy=False)
     return _data
 
 
@@ -1410,57 +1416,57 @@ class GenomeBigWigDataset(GenomeWideDataset):
 
     def __init__(
         self,
-        bigwig_path: Union[str, List[str], pathlib.Path],
-        name: Optional[Union[str, List[str]]] = None,
+        *args,
+        **kwargs,
     ):
         """
         Represents a genomic dataset stored in BigWig format.
 
         Parameters
         ----------
-        bigwig_path : str or List[str] or pathlib.Path
-            The path(s) to the BigWig file(s).
-        name : str or List[str], optional
-            The name(s) of the dataset(s), by default None.
-
-        Raises
-        ------
-        AssertionError
-            If the number of names does not match the number of BigWig paths.
+        *args : str
+            The paths to the BigWig files. The dataset names will be inferred from the file names.
+        **kwargs : str
+            The paths to the BigWig files, with the dataset names as the keys.
         """
         super().__init__()
         self.bigwig_path_dict = {}
-
-        if isinstance(bigwig_path, (str, pathlib.Path)):
-            bigwig_path = [pathlib.Path(bigwig_path)]
-        else:
-            bigwig_path = [pathlib.Path(path) for path in bigwig_path]
-
-        if name is None:
-            name = [p.name for p in bigwig_path]
-        else:
-            if isinstance(name, str):
-                name = [name]
-            else:
-                name = list(name)
-
-        assert len(name) == len(
-            bigwig_path
-        ), "Number of names must match number of bigwig paths"
-
-        for n, path in zip(name, bigwig_path):
-            self.bigwig_path_dict[n] = str(path)
+        for key, value in kwargs.items():
+            self.add_bigwig(path=value, name=key)
+        for arg in args:
+            self.add_bigwig(path=arg)
 
         self._opened_bigwigs = {}
 
-    def _open(self):
+    def __repr__(self):
+        repr_str = f"GenomeBigWigDataset ({len(self.bigwig_path_dict)} bigwig)\n"
+        for name, path in self.bigwig_path_dict.items():
+            repr_str += f"{name}: {path}\n"
+        return repr_str
+
+    def add_bigwig(self, path: Union[str, pathlib.Path], name: str = None):
+        """
+        Add a BigWig file to the dataset.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The path to the BigWig file.
+        name : str, optional
+            The name of the dataset, by default None.
+        """
+        if name is None:
+            name = pathlib.Path(path).name
+        self.bigwig_path_dict[name] = str(path)
+
+    def _open(self) -> None:
         """
         Open the BigWig files.
         """
         for name, path in self.bigwig_path_dict.items():
             self._opened_bigwigs[name] = pyBigWig.open(path)
 
-    def _close(self):
+    def _close(self) -> None:
         """
         Close the opened BigWig files.
         """
@@ -1468,21 +1474,21 @@ class GenomeBigWigDataset(GenomeWideDataset):
             bw.close()
         self._opened_bigwigs = {}
 
-    def __enter__(self):
+    def __enter__(self) -> "GenomeBigWigDataset":
         """
         Enter the context manager and open the BigWig files.
         """
         self._open()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
         """
         Exit the context manager and close the opened BigWig files.
         """
         self._close()
 
     def get_region_data(
-        self, chrom: str, start: int, end: int
+        self, chrom: str, start: int, end: int, numpy: bool = True
     ) -> Dict[str, np.ndarray]:
         """
         Get the data for a specific genomic region.
@@ -1495,16 +1501,18 @@ class GenomeBigWigDataset(GenomeWideDataset):
             The start position of the region.
         end : int
             The end position of the region.
+        numpy : bool, optional
+            Whether to return the data as numpy arrays or lists, by default True.
 
         Returns
         -------
         Dict[str, np.ndarray]
             A dictionary containing the region data for each dataset, where the keys are the dataset names and the values are the data arrays.
-
         """
-        region_data = {}
-        for name, bw in self._opened_bigwigs.items():
-            region_data[name] = _bw_values(bw, chrom, start, end)
+        with self:
+            region_data = {}
+            for name, bw in self._opened_bigwigs.items():
+                region_data[name] = _bw_values(bw, chrom, start, end, numpy)
         return region_data
 
     def get_regions_data(
@@ -1534,7 +1542,6 @@ class GenomeBigWigDataset(GenomeWideDataset):
         ------
         ValueError
             If the regions parameter is not a PyRanges or DataFrame.
-
         """
         if isinstance(regions, pr.PyRanges):
             regions_df = regions.df
@@ -1589,24 +1596,107 @@ class GenomeEnsembleDataset:
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
-        self.datasets = {}
-        self.add_genome_one_hot()
 
-    def add_dataset(self, name: str, dataset: GenomeWideDataset):
+        self.datasets = {}
+        # special slots
+        self.add_genome_one_hot()
+        self._bigwig_dataset = None
+
+        self.regions = {}
+        self.region_sizes = {}
+        self._n_regions = None
+        self._region_dataset_query_pairs = set()
+
+    def __repr__(self):
+        repr_str = f"GenomeEnsembleDataset(genome={self.genome.name})\n"
+
+        _s = f"\nDatasets ({len(self.datasets)}):\n"
+        repr_str += "\n" + "=" * (len(_s) - 1) + _s + "=" * (len(_s) - 1)
+
+        for name, dataset in self.datasets.items():
+            # also collect information about which regions will be queried in this dataset
+            regions = []
+            for region_name, dataset_name in self._region_dataset_query_pairs:
+                if dataset_name == name:
+                    regions.append(region_name)
+            regions_str = "Query by regions: " + ", ".join(regions)
+            dataset_str = dataset.__repr__().strip("\n")
+            repr_str += (
+                f"\n{name}: {type(dataset).__name__}\n{dataset_str}\n{regions_str}\n"
+            )
+
+        _s = f"\nRegions ({len(self.regions)}):\n"
+        repr_str += "\n" + "=" * (len(_s) - 1) + _s + "=" * (len(_s) - 1) + "\n"
+
+        for name, regions in self.regions.items():
+            length = self.region_sizes[name]
+            repr_str += f"{name}: {len(regions)} regions, region length {length} bp.\n"
+        return repr_str
+
+    def __getitem__(self, key):
+        return self.datasets[key]
+
+    def __setitem__(self, key, value):
+        if key in self.datasets:
+            raise ValueError(f"Dataset {key} already exists.")
+        self.datasets[key] = value
+        return
+
+    def __delitem__(self, key):
+        del self.datasets[key]
+        return
+
+    def add_regions(self, name, regions, query_datasets="all", check_length=True):
         """
-        Adds a dataset to the ensemble.
+        Adds regions to the ensemble.
+
+        The regions will be used to retrieve region-level data from the genome datasets.
 
         Parameters
         ----------
-            name (str): The name of the dataset.
-            dataset (GenomeWideDataset): The dataset to be added.
+            name (str): The name of the regions.
+            regions (str, pathlib.Path, PyRanges or pd.DataFrame): The regions bed table to add.
+            query_datasets (str or List[str]): The datasets to query when retrieving region data.
+                Default is 'all', which queries all datasets in self.datasets.
 
         """
-        self.datasets[name] = dataset
+        regions = understand_regions(regions, as_df=True)
+
+        # make sure all regions are in the same length
+        region_size = regions.iloc[0, 2] - regions.iloc[0, 1]
+        if check_length:
+            region_lengths = regions["End"] - regions["Start"]
+            assert (
+                region_lengths == region_size
+            ).all(), "All regions must have the same length."
+
+        self.regions[name] = regions
+        self.region_sizes[name] = region_size
+
+        if self._n_regions is None:
+            self._n_regions = len(regions)
+        else:
+            assert (
+                len(regions) == self._n_regions
+            ), "All region beds must have the same number of regions."
+
+        if query_datasets == "all":
+            query_datasets = list(self.datasets.keys())
+        elif isinstance(query_datasets, str):
+            query_datasets = [query_datasets]
+        else:
+            query_datasets = list(query_datasets)
+
+        for dataset_name in query_datasets:
+            assert dataset_name in self.datasets, f"Dataset {dataset_name} not found."
+            self._region_dataset_query_pairs.add((name, dataset_name))
         return
 
     def add_bigwig(
-        self, bigwig_path: Union[str, List[str], pathlib.Path], name: str = None
+        self,
+        name="bigwig",
+        *args,
+        **kwargs,
     ):
         """
         Adds a BigWig dataset to the ensemble.
@@ -1617,7 +1707,18 @@ class GenomeEnsembleDataset:
             bigwig_path (str or List[str] or pathlib.Path): The path(s) to the BigWig file(s).
 
         """
-        self.datasets[name] = GenomeBigWigDataset(bigwig_path)
+        bigwig_dict = {}
+        for key, value in kwargs.items():
+            bigwig_dict[key] = value
+        for arg in args:
+            _path = pathlib.Path(arg)
+            bigwig_dict[_path.name] = str(_path)
+
+        if self._bigwig_dataset is None:
+            self._bigwig_dataset = GenomeBigWigDataset(**bigwig_dict)
+            self.datasets[name] = self._bigwig_dataset
+        else:
+            self._bigwig_dataset.add_bigwig(**bigwig_dict)
         return
 
     def add_position_zarr(
@@ -1700,33 +1801,46 @@ class GenomeEnsembleDataset:
 
         region_data = {}
         for name, dataset in self.datasets.items():
-            region_data[name] = dataset.get_region_data(
-                chrom=chrom, start=start, end=end, numpy=False
+            _data = dataset.get_region_data(
+                chrom=chrom, start=start, end=end, numpy=True
             )
+            if isinstance(_data, dict):
+                region_data.update(_data)
+            else:
+                region_data[name] = _data
         return region_data
 
-    def get_regions_data(self, regions, chunk_size=None) -> Dict[str, Any]:
+    def get_regions_data(self, query_chunk_size=5000) -> Dict[str, Any]:
         """
         Retrieves the data for multiple regions.
 
         Parameters
         ----------
-            regions: The regions for which to retrieve the data.
-            chunk_size (int): The size of each chunk of regions.
+            chunk_size (int): The size of each chunk of regions during parallel retrieval. Default is 5000.
+
 
         Returns
         -------
             regions_data (dict): A dictionary containing the data for each dataset.
 
         """
-        regions_data = {}
-        for name, dataset in self.datasets.items():
-            regions_data[name] = dataset.get_regions_data(
-                regions=regions, chunk_size=chunk_size, numpy=False
+        data_collections = {}
+        for region_name, dataset_name in self._region_dataset_query_pairs:
+            regions = self.regions[region_name]
+            dataset = self.datasets[dataset_name]
+            regions_data = dataset.get_regions_data(
+                regions=regions, chunk_size=query_chunk_size, numpy=False
             )
-        return regions_data
+            if isinstance(regions_data, dict):
+                for _ds_name, _data in regions_data.items():
+                    _final_name = f"{region_name}|{_ds_name}"
+                    data_collections[_final_name] = _data
+            else:
+                _final_name = f"{region_name}|{dataset_name}"
+                data_collections[_final_name] = regions_data
+        return data_collections
 
-    def _get_ray_dataset(self, regions, block_size=3000):
+    def _get_ray_dataset(self, block_size=3000):
         """
         Internal method to get a Ray dataset.
 
@@ -1740,26 +1854,19 @@ class GenomeEnsembleDataset:
             ds: The Ray dataset.
 
         """
-        regions = understand_regions(regions, as_df=True)
-        region_ids = []
-        for _, (chrom, start, end, *_) in regions.iterrows():
-            region_ids.append(f"{chrom}:{start}-{end}")
-        n_regions = len(region_ids)
-
-        data_dict = {}
-        for name, dataset in self.datasets.items():
-            data_dict[name] = dataset.get_regions_data(regions)
+        data_collections = self.get_regions_data()
+        n_regions = self._n_regions
 
         item_dicts = []
-        for idx, region in enumerate(region_ids):
-            item_dict = {"region_id": region}
-            for name, regions_data in data_dict.items():
+        for idx in range(n_regions):
+            item_dict = {"region_idx": idx}
+            for name, regions_data in data_collections.items():
                 item_dict[name] = regions_data[idx]
             item_dicts.append(item_dict)
 
         ds = ray.data.from_items(item_dicts)
         if block_size is not None:
-            n_blocks = n_regions // block_size
+            n_blocks = self._n_regions // block_size
             ds.repartition(n_blocks)
         return ds
 
