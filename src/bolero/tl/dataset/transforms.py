@@ -50,7 +50,8 @@ class BatchCropRegions:
         -------
             dict: The cropped data batch.
         """
-        _batch_size, _length = data[self.key].shape[:2]
+        # batch size should be the same for all keys
+        _batch_size = data[self.key[0]].shape[0]
 
         if self.max_jitter > 0:
             _max = self.max_jitter * 2
@@ -130,6 +131,7 @@ class BatchFootprint(FootPrintModel):
         modes: np.ndarray = None,
         clip_min: float = -10,
         clip_max: float = 10,
+        device=None,
     ):
         """
         Apply footprint transformation to the given data dictionary.
@@ -145,7 +147,11 @@ class BatchFootprint(FootPrintModel):
             modes = np.arange(2, 101, 1)
         else:
             modes = np.array(modes)
-        super().__init__(bias_bw_path=None, dispmodels=None, modes=modes, device=None)
+        super().__init__(bias_bw_path=None, dispmodels=None, modes=modes, device=device)
+
+        # get the device from the parameters
+        self.device = next(self.parameters()).device
+
         if isinstance(atac_key, str):
             atac_key = [atac_key]
         self.atac_key = atac_key
@@ -174,6 +180,48 @@ class BatchFootprint(FootPrintModel):
                 clip_max=self.clip_max,
             )
             data[f"{atac}_footprint"] = fp
+        return data.detach().cpu().numpy()
+
+
+class BatchToFloat:
+    """
+    Convert the specified key(s) in the data dictionary to float type.
+
+    Parameters
+    ----------
+    key : Union[str, list[str]]
+        The key(s) of the data to be converted to float type.
+
+    Returns
+    -------
+    dict
+        The modified data dictionary with the specified key(s) converted to float type.
+    """
+
+    def __init__(self, key: Union[str, list[str]]):
+        if isinstance(key, str):
+            key = [key]
+        self.key = key
+
+    def __call__(self, data: dict) -> dict:
+        """
+        Convert the specified key(s) in the data dictionary to float type.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the specified key(s) converted to float type.
+        """
+        for k in self.key:
+            if isinstance(data[k], np.ndarray):
+                data[k] = data[k].astype(np.float32)
+            else:
+                data[k] = data[k].float()
         return data
 
 

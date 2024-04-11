@@ -53,7 +53,7 @@ class FootPrintModel(_dispModel):
         None
         """
         # rename the original footprint function
-        self._original_footprint = super().footprint
+        self.forward = super().footprint
 
         if dispmodels is None:
             model_path = scp.datasets.pretrained_dispersion_model
@@ -64,6 +64,7 @@ class FootPrintModel(_dispModel):
         if device is None:
             device = try_gpu()
             self.to(device)
+        self.device = next(self.parameters()).device
 
         self.bias_bw_path = bias_bw_path
         self._bias_handle = None
@@ -81,9 +82,9 @@ class FootPrintModel(_dispModel):
 
         Parameters
         ----------
-        atac : torch.Tensor
+        atac : torch.Tensor, np.ndarray
             A tensor containing the ATAC-seq data.
-        bias : torch.Tensor
+        bias : torch.Tensor, np.ndarray
             A tensor containing the bias values.
         *args : tuple
             Additional positional arguments.
@@ -95,12 +96,25 @@ class FootPrintModel(_dispModel):
         torch.Tensor
             A tensor containing the computed footprint.
         """
+        if isinstance(atac, torch.Tensor):
+            atac = atac.float().to(self.device)
+        else:
+            atac = torch.as_tensor(atac, dtype=torch.float32, device=self.device)
+
+        if isinstance(bias, torch.Tensor):
+            bias = bias.float().to(self.device)
+        else:
+            bias = torch.as_tensor(bias, dtype=torch.float32, device=self.device)
+
         # add batch dimension if necessary
         if len(atac.shape) == 1:
             atac = atac.unsqueeze(0)
         if len(bias.shape) == 1:
             bias = bias.unsqueeze(0)
-        return self._original_footprint(atac, bias, *args, **kwargs)
+
+        with torch.inference_mode():
+            _fp = self.forward(atac, bias, *args, **kwargs)
+        return _fp
 
     @property
     def bias_handle(self):
@@ -175,7 +189,7 @@ class FootPrintModel(_dispModel):
         start, end = int(start), int(end)
         values = self.bias_handle.values(chrom, start, end, numpy=True)
         np.nan_to_num(values, copy=False)
-        return torch.tensor(values).float()
+        return values
 
     def fetch_atac(self, chrom: str, start: int, end: int, name: str) -> torch.Tensor:
         """
@@ -200,7 +214,7 @@ class FootPrintModel(_dispModel):
         start, end = int(start), int(end)
         values = self.atac_handles[name].values(chrom, start, end, numpy=True)
         np.nan_to_num(values, copy=False)
-        return torch.tensor(values).float()
+        return values
 
     def footprint(
         self,
@@ -322,9 +336,9 @@ class FootPrintModel(_dispModel):
 
         Parameters
         ----------
-        atac_data : torch.Tensor
+        atac_data : torch.Tensor, np.ndarray
             A tensor containing the ATAC-seq data.
-        bias_data : torch.Tensor
+        bias_data : torch.Tensor, np.ndarray
             A tensor containing the bias values.
         modes : List[str], optional
             A list of modes. If not provided, the default modes will be used.
@@ -342,9 +356,6 @@ class FootPrintModel(_dispModel):
             modes = self.modes
         else:
             modes = np.array(modes)
-
-        atac_data = atac_data.float()
-        bias_data = bias_data.float()
 
         _fp = self._calculate_footprint(
             atac=atac_data,
