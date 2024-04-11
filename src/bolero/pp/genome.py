@@ -1691,6 +1691,9 @@ class GenomeEnsembleDataset:
                 remove_blacklist=remove_blacklist,
                 as_df=True,
             )
+            if remove_blacklist:
+                # region length may change after removing blacklisted regions
+                regions = regions[(regions["End"] - regions["Start"]) == length].copy()
             region_size = length
         else:
             region_size = regions.iloc[0, 2] - regions.iloc[0, 1]
