@@ -28,7 +28,7 @@ class BatchCropRegions:
         Crop regions from the input data batch.
 
         Args:
-            key (Union[str, List[str]]): The key(s) of the data to be cropped.
+            key (Union[str, list[str]]): The key(s) of the data to be cropped.
             final_length (int): The desired length of the cropped regions.
             max_jitter (int, optional): The maximum amount of jitter to apply to the cropping position.
                 Defaults to 0.
