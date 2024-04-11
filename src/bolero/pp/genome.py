@@ -347,10 +347,14 @@ class Genome:
 
         return output_path
 
-    def _remove_blacklist(self, bed):
+    def _remove_blacklist(self, bed, slop_black=0):
         """Remove blacklist regions from a bed file"""
         if self.blacklist_bed is not None:
-            bed = bed.subtract(self.blacklist_bed)
+            if slop_black > 0:
+                _blacklist_bed = self.blacklist_bed.extend(slop_black)
+            else:
+                _blacklist_bed = self.blacklist_bed
+            bed = bed.subtract(_blacklist_bed)
         return bed
 
     def prepare_window_bed(
@@ -629,7 +633,7 @@ class Genome:
         regions_bed = pr.PyRanges(use_regions[["Chromosome", "Start", "End", "Name"]])
 
         if remove_blacklist and self.blacklist_bed is not None:
-            regions_bed = self._remove_blacklist(regions_bed)
+            regions_bed = self._remove_blacklist(regions_bed, slop_black=length)
 
         if as_df:
             return regions_bed.df
