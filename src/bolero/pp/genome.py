@@ -1660,7 +1660,7 @@ class GenomeEnsembleDataset:
         length=2500,
         query_datasets="all",
         remove_blacklist=True,
-        boarder_stratagy="drop",
+        boarder_strategy="drop",
     ):
         """
         Adds regions to the ensemble.
@@ -1679,7 +1679,7 @@ class GenomeEnsembleDataset:
                 Default is 'all', which queries all datasets in self.datasets.
             check_length (bool): Whether to check if all regions have the same length. Default is False.
             remove_blacklist (bool): Whether to remove regions that overlap with blacklisted regions. Default is True.
-            boarder_stratagy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'.
+            boarder_strategy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'.
 
         """
         regions = understand_regions(regions, as_df=True)
@@ -1687,7 +1687,7 @@ class GenomeEnsembleDataset:
             regions = self.genome.standard_region_length(
                 regions=regions,
                 length=length,
-                boarder_stratagy=boarder_stratagy,
+                boarder_strategy=boarder_strategy,
                 remove_blacklist=remove_blacklist,
                 as_df=True,
             )
