@@ -534,7 +534,14 @@ class Genome:
         da.to_zarr(zarr_path, mode="w")
         return
 
-    def standard_region_length(self, regions, length, remove_blacklist=False):
+    def standard_region_length(
+        self,
+        regions,
+        length,
+        remove_blacklist=False,
+        boarder_strategy="shift",
+        as_df=False,
+    ):
         """
         Adjusts the length of regions to a standard length.
 
@@ -546,6 +553,13 @@ class Genome:
             The desired length of the regions.
         remove_blacklist : bool, optional
             Whether to remove regions that overlap with the blacklist. Default is False.
+        boarder_strategy : str, optional
+            For regions that overlap with the chromosome boarder, the strategy to adjust the boarder.
+            If 'shift', the region will be shifted to the left or right to fit into the chromosome.
+            If 'drop', the region overlapping with the boarder will be dropped. The number of output regions may be less than the input regions.
+            Default is 'shift'.
+        as_df : bool, optional
+            Whether to return the adjusted regions as a DataFrame. Default is False.
 
         Returns
         -------
@@ -588,12 +602,19 @@ class Genome:
         use_regions = []
         for chrom, chrom_df in regions_bed.df.groupby("Chromosome"):
             chrom_size = chrom_sizes[chrom]
-            chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
-                chrom_df.Start < 0, "Start"
-            ].values[:, None]
-            chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
-                chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
-            ).values[:, None]
+            if boarder_strategy == "shift":
+                chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
+                    chrom_df.Start < 0, "Start"
+                ].values[:, None]
+                chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
+                    chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
+                ).values[:, None]
+            elif boarder_strategy == "drop":
+                chrom_df = chrom_df[
+                    (chrom_df.Start >= 0) & (chrom_df.End <= chrom_size)
+                ]
+            else:
+                raise ValueError("boarder_strategy must be 'shift' or 'drop'")
             use_regions.append(chrom_df)
         use_regions = pd.concat(use_regions)
 
@@ -609,6 +630,10 @@ class Genome:
 
         if remove_blacklist and self.blacklist_bed is not None:
             regions_bed = self._remove_blacklist(regions_bed)
+
+        if as_df:
+            return regions_bed.df
+
         return regions_bed
 
     @property
@@ -1628,7 +1653,15 @@ class GenomeEnsembleDataset:
         del self.datasets[key]
         return
 
-    def add_regions(self, name, regions, query_datasets="all", check_length=True):
+    def add_regions(
+        self,
+        name,
+        regions,
+        length=2500,
+        query_datasets="all",
+        remove_blacklist=True,
+        boarder_stratagy="drop",
+    ):
         """
         Adds regions to the ensemble.
 
@@ -1638,15 +1671,29 @@ class GenomeEnsembleDataset:
         ----------
             name (str): The name of the regions.
             regions (str, pathlib.Path, PyRanges or pd.DataFrame): The regions bed table to add.
+            length (int): The length of the regions to standardize to.
+                If None, the regions will not be standardized and
+                user must ensure all regions have the same length
+                and do not exceed the genome boarder. Default is 2500.
             query_datasets (str or List[str]): The datasets to query when retrieving region data.
                 Default is 'all', which queries all datasets in self.datasets.
+            check_length (bool): Whether to check if all regions have the same length. Default is False.
+            remove_blacklist (bool): Whether to remove regions that overlap with blacklisted regions. Default is True.
+            boarder_stratagy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'.
 
         """
         regions = understand_regions(regions, as_df=True)
-
-        # make sure all regions are in the same length
-        region_size = regions.iloc[0, 2] - regions.iloc[0, 1]
-        if check_length:
+        if length is not None:
+            regions = self.genome.standard_region_length(
+                regions=regions,
+                length=length,
+                boarder_stratagy=boarder_stratagy,
+                remove_blacklist=remove_blacklist,
+                as_df=True,
+            )
+            region_size = length
+        else:
+            region_size = regions.iloc[0, 2] - regions.iloc[0, 1]
             region_lengths = regions["End"] - regions["Start"]
             assert (
                 region_lengths == region_size

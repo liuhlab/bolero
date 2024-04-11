@@ -7,7 +7,7 @@ from scprinter.seq.Models import scFootprintBPNet as _scFootprintBPNet
 from scprinter.seq.Models import validation_step_footprint
 from tqdm import trange
 
-from bolero.tl.model.scprinter.footprint import get_dispmodel
+from bolero.tl.footprint.footprint import get_dispmodel
 from bolero.utils import try_gpu
 
 
