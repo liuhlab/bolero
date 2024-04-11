@@ -4,9 +4,14 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pyBigWig
-import scprinter as scp
 import torch
-from scprinter.seq.minimum_footprint import dispModel as _dispModel
+
+try:
+    # TODO: scprinter is not publicly available currently, remove this try-except block when it is available
+    import scprinter as scp
+    from scprinter.seq.minimum_footprint import dispModel as _dispModel
+except ImportError:
+    pass
 
 from bolero.utils import try_gpu
 
