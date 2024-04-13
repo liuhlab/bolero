@@ -1860,6 +1860,9 @@ class GenomeEnsembleDataset:
         """
         data_collections = {}
         for region_name, dataset_name in self._region_dataset_query_pairs:
+            region_name = region_name.replace("|", "_")
+            dataset_name = dataset_name.replace("|", "_")
+
             regions = self.regions[region_name]
             dataset = self.datasets[dataset_name]
             regions_data = dataset.get_regions_data(
@@ -1872,9 +1875,16 @@ class GenomeEnsembleDataset:
             else:
                 _final_name = f"{region_name}|{dataset_name}"
                 data_collections[_final_name] = regions_data
+            data_collections["region_ids"] = (
+                regions["Chromosome"].astype(str)
+                + ":"
+                + regions["Start"].astype(str)
+                + "-"
+                + regions["End"].astype(str)
+            )
         return data_collections
 
-    def _get_ray_dataset(self, block_size=3000):
+    def _get_ray_dataset(self, block_size=3000, collate_fn_dict=None):
         """
         Internal method to get a Ray dataset.
 
@@ -1891,9 +1901,26 @@ class GenomeEnsembleDataset:
         data_collections = self.get_regions_data()
         n_regions = self._n_regions
 
+        # calculate summary stats
+        summary_stats_collections = {}
+        if collate_fn_dict:
+            for _final_name, _data in data_collections.items():
+                _region_name, _ds_name = _final_name.split("|")
+                if _final_name in collate_fn_dict:
+                    _funcs = collate_fn_dict[_final_name]
+                elif _ds_name in collate_fn_dict:
+                    _funcs = collate_fn_dict[_ds_name]
+                elif _region_name in collate_fn_dict:
+                    _funcs = collate_fn_dict[_region_name]
+                else:
+                    _funcs = None
+                if _funcs:
+                    summary_stats_collections[_final_name] = _funcs(_data)
+
+        # reorganize data into items
         item_dicts = []
         for idx in range(n_regions):
-            item_dict = {"region_idx": idx}
+            item_dict = {}
             for name, regions_data in data_collections.items():
                 item_dict[name] = regions_data[idx]
             item_dicts.append(item_dict)
@@ -1902,7 +1929,7 @@ class GenomeEnsembleDataset:
         if block_size is not None:
             n_blocks = self._n_regions // block_size
             ds.repartition(n_blocks)
-        return ds
+        return ds, summary_stats_collections
 
     @classmethod
     def subset_regions(cls, dataset, region_sel):
@@ -1928,32 +1955,43 @@ class GenomeEnsembleDataset:
         ensemble._region_dataset_query_pairs = dataset._region_dataset_query_pairs
         return ensemble
 
-    def prepare_ray_dataset(self, output_path, dataset_size=1000000, block_size=3000):
+    def prepare_ray_dataset(self, output_dir, dataset_size=1000000, block_size=3000):
         """
         Prepares a Ray dataset for the given regions.
 
         Parameters
         ----------
-            output_path (str): The path to save the dataset.
+            output_dir (str): The directory path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
             block_size (int): The size of each block.
 
         """
         n_regions = self._n_regions
 
+        dataset_path = f"{output_dir}/dataset/"
+        stats_path = f"{output_dir}/stats/"
+
+        # save the dataset
         if n_regions <= dataset_size:
             from pyarrow import ArrowInvalid
             from pyarrow.fs import FileSystem
 
-            ds = self._get_ray_dataset(block_size=block_size)
+            ds, summary_stats_collections = self._get_ray_dataset(block_size=block_size)
             try:
-                fs, path = FileSystem.from_uri(output_path)
+                fs, path = FileSystem.from_uri(dataset_path)
             except ArrowInvalid:
                 # assume local filesystem
-                output_path = str(pathlib.Path(output_path).absolute().resolve())
-                fs, path = FileSystem.from_uri(output_path)
+                dataset_path = str(pathlib.Path(dataset_path).absolute().resolve())
+                fs, path = FileSystem.from_uri(dataset_path)
 
             ds.write_parquet(path, filesystem=fs, num_rows_per_file=block_size)
+
+            # save summary stats
+            summary_stats_path = f"{stats_path}/summary_stats.npz"
+            with fs.open_output_stream(summary_stats_path) as f:
+                np.savez(f, **summary_stats_collections)
+
+        # split regions into chunks and save each chunk as a separate dataset
         else:
             starts = list(range(0, n_regions, dataset_size))
             for chunk_start in tqdm(
@@ -1963,7 +2001,7 @@ class GenomeEnsembleDataset:
                 chunk_slice = slice(chunk_start, chunk_end)
 
                 _subset = self.subset_regions(dataset=self, region_sel=chunk_slice)
-                chunk_output_path = f"{output_path}/chunk_{chunk_start}_{chunk_end}"
+                chunk_output_path = f"{output_dir}/chunk_{chunk_start}_{chunk_end}"
                 _subset.prepare_ray_dataset(
                     chunk_output_path,
                     dataset_size=dataset_size,

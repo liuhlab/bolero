@@ -37,6 +37,9 @@ def zscore2pval_torch(footprint):
     -------
     - pval_log (torch.Tensor): A tensor containing the corresponding p-values in logarithmic scale.
     """
+    # fill nan with 0
+    footprint[torch.isnan(footprint)] = 0
+
     # Calculate the CDF of the normal distribution for the given footprint
     pval = torch.distributions.Normal(0, 1).cdf(footprint)
 
@@ -230,7 +233,9 @@ class FootPrintModel(_dispModel):
                         _fp = torch.as_tensor(_fp, device=_device)
 
         if numpy:
-            return _fp.cpu().numpy()
+            if isinstance(_fp, torch.Tensor):
+                _fp = _fp.cpu().numpy()
+            return _fp
         else:
             return _fp
 
@@ -412,7 +417,6 @@ class FootPrintModel(_dispModel):
         _fp = self._calculate_footprint(
             atac=atac,
             bias=bias,
-            modes=modes,
             clip_min=clip_min,
             clip_max=clip_max,
             return_pval=return_pval,
@@ -481,7 +485,6 @@ class FootPrintModel(_dispModel):
             _fp = self._calculate_footprint(
                 atac=atac,
                 bias=bias,
-                modes=modes,
                 clip_min=clip_min,
                 clip_max=clip_max,
                 return_pval=return_pval,
@@ -537,7 +540,6 @@ class FootPrintModel(_dispModel):
         _fp = self._calculate_footprint(
             atac=atac_data,
             bias=bias_data,
-            modes=modes,
             clip_min=clip_min,
             clip_max=clip_max,
             return_pval=return_pval,

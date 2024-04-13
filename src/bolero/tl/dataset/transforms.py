@@ -131,6 +131,9 @@ class RowFootprint(FootPrintModel):
         modes: np.ndarray = None,
         clip_min: float = -10,
         clip_max: float = 10,
+        return_pval: bool = False,
+        smooth_radius: int = None,
+        numpy=False,
         device=None,
     ):
         """
@@ -142,6 +145,9 @@ class RowFootprint(FootPrintModel):
             modes (np.ndarray): Modes for the footprint transformation.
             clip_min (float, optional): Minimum value for clipping. Defaults to -10.
             clip_max (float, optional): Maximum value for clipping. Defaults to 10.
+            return_pval (bool, optional): Whether to return p-values. Defaults to False.
+            smooth_radius (int, optional): Radius for smoothing. Defaults to None.
+            numpy (bool, optional): Whether to use numpy. Defaults to False.
         """
         if modes is None:
             modes = np.arange(2, 101, 1)
@@ -158,6 +164,9 @@ class RowFootprint(FootPrintModel):
         self.bias_key = bias_key
         self.clip_min = clip_min
         self.clip_max = clip_max
+        self.return_pval = return_pval
+        self.smooth_radius = smooth_radius
+        self.numpy = numpy
 
     def __call__(self, data: dict) -> dict:
         """
@@ -178,8 +187,11 @@ class RowFootprint(FootPrintModel):
                 bias_data=bias_data,
                 clip_min=self.clip_min,
                 clip_max=self.clip_max,
+                return_pval=self.return_pval,
+                smooth_radius=self.smooth_radius,
+                numpy=self.numpy,
             )
-            data[f"{atac}_footprint"] = fp.detach().cpu().numpy()
+            data[f"{atac}_footprint"] = fp
         return data
 
 

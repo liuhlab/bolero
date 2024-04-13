@@ -8,7 +8,7 @@ from pyarrow.fs import FileSystem
 class RayGenomeDataset:
     """RayDataset class for working with ray.data.Dataset objects."""
 
-    def __init__(self, dataset: ray.data.Dataset) -> None:
+    def __init__(self, dataset) -> None:
         """
         Initialize a RayDataset object.
 
@@ -20,6 +20,8 @@ class RayGenomeDataset:
         -------
             None
         """
+        if isinstance(dataset, (str, pathlib.Path)):
+            dataset = ray.data.read_parquet(dataset)
         self.dataset = dataset
 
     @classmethod
@@ -46,3 +48,22 @@ class RayGenomeDataset:
         fs, _ = FileSystem.from_uri(paths[0])
         _ds = ray.data.read_parquet(path, filesystem=fs, **kwargs)
         return cls(_ds)
+
+
+class scPrinterDataset(RayGenomeDataset):
+    """RayDataset class for working with scPrinter model."""
+
+    def __init__(self, dataset: ray.data.Dataset) -> None:
+        """
+        Initialize a scPrinterDataset object.
+
+        Parameters
+        ----------
+            dataset (ray.data.Dataset): The Ray dataset.
+            device (str): The device to use for the dataset.
+
+        Returns
+        -------
+            None
+        """
+        super().__init__(dataset)
