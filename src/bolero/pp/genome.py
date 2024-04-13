@@ -1844,7 +1844,9 @@ class GenomeEnsembleDataset:
                 region_data[name] = _data
         return region_data
 
-    def get_regions_data(self, query_chunk_size=5000) -> Dict[str, Any]:
+    def get_regions_data(
+        self, query_chunk_size=5000, region_slice=None
+    ) -> Dict[str, Any]:
         """
         Retrieves the data for multiple regions.
 
@@ -1864,6 +1866,9 @@ class GenomeEnsembleDataset:
             dataset_name = dataset_name.replace("|", "_")
 
             regions = self.regions[region_name]
+            if region_slice is not None:
+                regions = regions.iloc[region_slice, :].copy()
+
             dataset = self.datasets[dataset_name]
             regions_data = dataset.get_regions_data(
                 regions=regions, chunk_size=query_chunk_size
@@ -1884,14 +1889,15 @@ class GenomeEnsembleDataset:
             ).values
         return data_collections
 
-    def _get_ray_dataset(self, block_size=3000, collate_fn_dict=None):
+    def _get_ray_dataset(
+        self, n_regions, collate_fn_dict=None, region_slice=None
+    ):
         """
         Internal method to get a Ray dataset.
 
         Parameters
         ----------
             regions: The regions for which to retrieve the data.
-            block_size (int): The size of each block.
             collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination.
             Each collate function should take a numpy array as input and return a summary statistic.
 
@@ -1900,8 +1906,9 @@ class GenomeEnsembleDataset:
             ds: The Ray dataset.
 
         """
-        data_collections = self.get_regions_data()
-        n_regions = self._n_regions
+        data_collections = self.get_regions_data(
+            query_chunk_size=5000, region_slice=region_slice
+        )
 
         # calculate summary stats
         summary_stats_collections = {}
@@ -1931,9 +1938,6 @@ class GenomeEnsembleDataset:
             item_dicts.append(item_dict)
 
         ds = ray.data.from_items(item_dicts)
-        if block_size is not None:
-            n_blocks = self._n_regions // block_size
-            ds.repartition(n_blocks)
         return ds, summary_stats_collections
 
     @classmethod
@@ -1961,8 +1965,12 @@ class GenomeEnsembleDataset:
         return ensemble
 
     def prepare_ray_dataset(
-        self, output_dir, dataset_size=1000000, block_size=3000, collate_fn_dict=None
-    ):
+        self,
+        output_dir: str,
+        dataset_size: int = 500000,
+        collate_fn_dict: dict = None,
+        region_slice: slice = None,
+    ) -> None:
         """
         Prepares a Ray dataset for the given regions.
 
@@ -1970,24 +1978,24 @@ class GenomeEnsembleDataset:
         ----------
             output_dir (str): The directory path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
-            block_size (int): The size of each block.
-            collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination.
-            Each collate function should take a numpy array as input and return a summary statistic.
+            collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination. Each collate function should take a numpy array as input and return a summary statistic.
+            region_slice (slice): The slice of regions to prepare the dataset for.
 
         """
-        n_regions = self._n_regions
+        if region_slice is None:
+            n_regions = self._n_regions
+        else:
+            n_regions = region_slice.stop - region_slice.start
 
         dataset_path = f"{output_dir}/dataset/"
         stats_path = f"{output_dir}/stats/"
+        success_flag_path = f"{output_dir}/success.flag"
 
         # save the dataset
         if n_regions <= dataset_size:
             from pyarrow import ArrowInvalid
             from pyarrow.fs import FileSystem, LocalFileSystem
 
-            ds, summary_stats_collections = self._get_ray_dataset(
-                block_size=block_size, collate_fn_dict=collate_fn_dict
-            )
             try:
                 fs, path = FileSystem.from_uri(dataset_path)
             except ArrowInvalid:
@@ -1995,7 +2003,25 @@ class GenomeEnsembleDataset:
                 dataset_path = str(pathlib.Path(dataset_path).absolute().resolve())
                 fs, path = FileSystem.from_uri(dataset_path)
 
-            ds.write_parquet(path, filesystem=fs, num_rows_per_file=block_size)
+            # check if success flag exists
+            success = False
+            if isinstance(fs, LocalFileSystem):
+                if pathlib.Path(success_flag_path).exists():
+                    success = True
+            else:
+                file_type = fs.get_file_info(success_flag_path).type
+                if file_type:
+                    success = True
+            if success:
+                print(f"Dataset already exists at {dataset_path}.")
+                return
+
+            ds, summary_stats_collections = self._get_ray_dataset(
+                n_regions=n_regions,
+                collate_fn_dict=collate_fn_dict,
+                region_slice=region_slice,
+            )
+            ds.write_parquet(path, filesystem=fs)
 
             # save summary stats
             summary_stats_path = f"{stats_path}/summary_stats.npz"
@@ -2008,6 +2034,15 @@ class GenomeEnsembleDataset:
                 with fs.open_output_stream(summary_stats_path) as f:
                     np.savez(f, **summary_stats_collections)
 
+            # create success flag
+            if isinstance(fs, LocalFileSystem):
+                with open(success_flag_path, "w") as f:
+                    f.write("Success")
+            else:
+                with fs.open_output_stream(success_flag_path) as f:
+                    f.write("Success")
+            return
+
         # split regions into chunks and save each chunk as a separate dataset
         else:
             starts = list(range(0, n_regions, dataset_size))
@@ -2017,11 +2052,11 @@ class GenomeEnsembleDataset:
                 chunk_end = min(chunk_start + dataset_size, n_regions)
                 chunk_slice = slice(chunk_start, chunk_end)
 
-                _subset = self.subset_regions(dataset=self, region_sel=chunk_slice)
                 chunk_output_path = f"{output_dir}/chunk_{chunk_start}_{chunk_end}"
-                _subset.prepare_ray_dataset(
-                    chunk_output_path,
+                self.prepare_ray_dataset(
+                    output_dir=chunk_output_path,
                     dataset_size=dataset_size,
-                    block_size=block_size,
+                    collate_fn_dict=collate_fn_dict,
+                    region_slice=chunk_slice,
                 )
         return
