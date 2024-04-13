@@ -1,5 +1,8 @@
 import pathlib
+import numpy as np
+from collections import defaultdict
 from typing import List, Union
+import pyarrow
 
 import ray
 from pyarrow.fs import FileSystem
@@ -20,34 +23,71 @@ class RayGenomeDataset:
         -------
             None
         """
-        if isinstance(dataset, (str, pathlib.Path)):
-            dataset = ray.data.read_parquet(dataset)
+        if isinstance(dataset, (str, pathlib.Path, list)):
+            dataset = ray.data.read_parquet(dataset, file_extensions=["parquet"])
+        self.input_files = dataset.input_files()
+        self.file_system = self._get_filesystem()
+        self.stats_files = self._get_stats_files()
+        self._summary_stats = None
         self.dataset = dataset
 
-    @classmethod
-    def read_parquet(
-        cls, path: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]], **kwargs
-    ) -> "RayGenomeDataset":
+    def _get_filesystem(self) -> FileSystem:
         """
-        Read a Parquet file into a RayDataset object.
-
-        Parameters
-        ----------
-            path (Union[str, pathlib.Path, List[Union[str, pathlib.Path]]]): The path(s) to the Parquet file(s).
-            **kwargs: Additional keyword arguments to pass to the `ray.data.read_parquet` function.
+        Get the filesystem associated with the dataset.
 
         Returns
         -------
-            RayDataset: The RayDataset object containing the data from the Parquet file(s).
+            FileSystem: The filesystem object.
         """
-        if isinstance(path, (str, pathlib.Path)):
-            paths = [str(path)]
-        else:
-            paths = [str(p) for p in path]
+        _path = self.input_files[0]
+        try:
+            fs, _ = FileSystem.from_uri(_path)
+        except pyarrow.ArrowInvalid:
+            fs = pyarrow.fs.LocalFileSystem()
+        return fs
 
-        fs, _ = FileSystem.from_uri(paths[0])
-        _ds = ray.data.read_parquet(path, filesystem=fs, **kwargs)
-        return cls(_ds)
+    def _get_stats_files(self) -> List[str]:
+        """
+        Get the statistics files associated with the dataset.
+
+        Returns
+        -------
+            List[str]: The list of statistics files.
+        """
+        stats_dirs = set()
+        for file in self.input_files:
+            stats_dir = "/".join(file.split("/")[:-2]) + "/stats"
+            stats_dirs.add(stats_dir)
+        stats_files = []
+        for stats_dir in stats_dirs:
+            stats_files.append(f"{stats_dir}/summary_stats.npz")
+        return stats_files
+
+    @property
+    def summary_stats(self):
+        """
+        Get the summary statistics for the dataset.
+
+        Returns
+        -------
+            dict: The summary statistics.
+        """
+        if self._summary_stats is None:
+            if len(self.stats_files) == 0:
+                return None
+            elif len(self.stats_files) == 1:
+                with self.file_system.open_input_file(self.stats_files[0]) as f:
+                    self._summary_stats = dict(np.load(f))
+            else:
+                summary_stats = defaultdict(list)
+                for stats_file in self.stats_files:
+                    stats = np.load(stats_file)
+                    for key, val in stats.items():
+                        summary_stats[key].append(val)
+                self._summary_stats = {
+                    key: np.concatenate(val) for key, val in summary_stats.items()
+                }
+        return self._summary_stats
 
 
 class scPrinterDataset(RayGenomeDataset):

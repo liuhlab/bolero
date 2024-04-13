@@ -1907,7 +1907,10 @@ class GenomeEnsembleDataset:
         summary_stats_collections = {}
         if collate_fn_dict:
             for _final_name, _data in data_collections.items():
-                _region_name, _ds_name = _final_name.split("|")
+                try:
+                    _region_name, _ds_name = _final_name.split("|")
+                except ValueError:
+                    _region_name, _ds_name = "", ""
                 if _final_name in collate_fn_dict:
                     _funcs = collate_fn_dict[_final_name]
                 elif _ds_name in collate_fn_dict:
@@ -1980,7 +1983,7 @@ class GenomeEnsembleDataset:
         # save the dataset
         if n_regions <= dataset_size:
             from pyarrow import ArrowInvalid
-            from pyarrow.fs import FileSystem
+            from pyarrow.fs import FileSystem, LocalFileSystem
 
             ds, summary_stats_collections = self._get_ray_dataset(
                 block_size=block_size, collate_fn_dict=collate_fn_dict
@@ -1996,8 +1999,14 @@ class GenomeEnsembleDataset:
 
             # save summary stats
             summary_stats_path = f"{stats_path}/summary_stats.npz"
-            with fs.open_output_stream(summary_stats_path) as f:
-                np.savez(f, **summary_stats_collections)
+            # determine if fs is local filesystem
+            if isinstance(fs, LocalFileSystem):
+                stats_path = pathlib.Path(stats_path)
+                stats_path.mkdir(parents=True, exist_ok=True)
+                np.savez(summary_stats_path, **summary_stats_collections)
+            else:
+                with fs.open_output_stream(summary_stats_path) as f:
+                    np.savez(f, **summary_stats_collections)
 
         # split regions into chunks and save each chunk as a separate dataset
         else:
