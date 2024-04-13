@@ -1881,7 +1881,7 @@ class GenomeEnsembleDataset:
                 + regions["Start"].astype(str)
                 + "-"
                 + regions["End"].astype(str)
-            )
+            ).values
         return data_collections
 
     def _get_ray_dataset(self, block_size=3000, collate_fn_dict=None):
@@ -1892,6 +1892,8 @@ class GenomeEnsembleDataset:
         ----------
             regions: The regions for which to retrieve the data.
             block_size (int): The size of each block.
+            collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination.
+            Each collate function should take a numpy array as input and return a summary statistic.
 
         Returns
         -------
@@ -1955,7 +1957,9 @@ class GenomeEnsembleDataset:
         ensemble._region_dataset_query_pairs = dataset._region_dataset_query_pairs
         return ensemble
 
-    def prepare_ray_dataset(self, output_dir, dataset_size=1000000, block_size=3000):
+    def prepare_ray_dataset(
+        self, output_dir, dataset_size=1000000, block_size=3000, collate_fn_dict=None
+    ):
         """
         Prepares a Ray dataset for the given regions.
 
@@ -1964,6 +1968,8 @@ class GenomeEnsembleDataset:
             output_dir (str): The directory path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
             block_size (int): The size of each block.
+            collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination.
+            Each collate function should take a numpy array as input and return a summary statistic.
 
         """
         n_regions = self._n_regions
@@ -1976,7 +1982,9 @@ class GenomeEnsembleDataset:
             from pyarrow import ArrowInvalid
             from pyarrow.fs import FileSystem
 
-            ds, summary_stats_collections = self._get_ray_dataset(block_size=block_size)
+            ds, summary_stats_collections = self._get_ray_dataset(
+                block_size=block_size, collate_fn_dict=collate_fn_dict
+            )
             try:
                 fs, path = FileSystem.from_uri(dataset_path)
             except ArrowInvalid:
