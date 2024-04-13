@@ -3,8 +3,8 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-from typing import Any, Dict, List, Optional, Tuple, Union
-
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable
+from collections import defaultdict
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -16,6 +16,7 @@ import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
 from tqdm import tqdm
+import joblib
 
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
 from bolero.utils import (
@@ -1845,7 +1846,7 @@ class GenomeEnsembleDataset:
         return region_data
 
     def get_regions_data(
-        self, query_chunk_size=5000, region_slice=None
+        self, query_chunk_size: int = 5000, region_index: pd.Index = None
     ) -> Dict[str, Any]:
         """
         Retrieves the data for multiple regions.
@@ -1853,6 +1854,7 @@ class GenomeEnsembleDataset:
         Parameters
         ----------
             chunk_size (int): The size of each chunk of regions during parallel retrieval. Default is 5000.
+            region_index (pd.Index): The index of regions to retrieve data for. Default is None.
 
 
         Returns
@@ -1866,8 +1868,8 @@ class GenomeEnsembleDataset:
             dataset_name = dataset_name.replace("|", "_")
 
             regions = self.regions[region_name]
-            if region_slice is not None:
-                regions = regions.iloc[region_slice, :].copy()
+            if region_index is not None:
+                regions = regions.iloc[region_index, :].copy()
 
             dataset = self.datasets[dataset_name]
             regions_data = dataset.get_regions_data(
@@ -1889,9 +1891,7 @@ class GenomeEnsembleDataset:
             ).values
         return data_collections
 
-    def _get_ray_dataset(
-        self, n_regions, collate_fn_dict=None, region_slice=None
-    ):
+    def _get_ray_dataset(self, n_regions, collate_fn_dict=None, region_index=None):
         """
         Internal method to get a Ray dataset.
 
@@ -1900,6 +1900,7 @@ class GenomeEnsembleDataset:
             regions: The regions for which to retrieve the data.
             collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination.
             Each collate function should take a numpy array as input and return a summary statistic.
+            region_index (pd.Index): The index of regions to retrieve data for.
 
         Returns
         -------
@@ -1907,7 +1908,7 @@ class GenomeEnsembleDataset:
 
         """
         data_collections = self.get_regions_data(
-            query_chunk_size=5000, region_slice=region_slice
+            query_chunk_size=5000, region_index=region_index
         )
 
         # calculate summary stats
@@ -1969,7 +1970,7 @@ class GenomeEnsembleDataset:
         output_dir: str,
         dataset_size: int = 500000,
         collate_fn_dict: dict = None,
-        region_slice: slice = None,
+        region_index: pd.Index = None,
     ) -> None:
         """
         Prepares a Ray dataset for the given regions.
@@ -1978,14 +1979,17 @@ class GenomeEnsembleDataset:
         ----------
             output_dir (str): The directory path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
-            collate_fn_dict (dict): A dictionary of collate functions for each dataset. The keys can be the dataset name or the region name or their combination. Each collate function should take a numpy array as input and return a summary statistic.
-            region_slice (slice): The slice of regions to prepare the dataset for.
+            collate_fn_dict (dict): A dictionary of collate functions for each dataset. 
+                The keys can be the dataset name or the region name or their combination. 
+                Each collate function should take a numpy array as input and return a summary statistic.
+                Data will be saved by joblib.dump.
+            region_index (pd.Index): The index of regions to retrieve data for.
 
         """
-        if region_slice is None:
+        if region_index is None:
             n_regions = self._n_regions
         else:
-            n_regions = region_slice.stop - region_slice.start
+            n_regions = region_index.size
 
         dataset_path = f"{output_dir}/dataset/"
         stats_path = f"{output_dir}/stats/"
@@ -2019,7 +2023,7 @@ class GenomeEnsembleDataset:
             ds, summary_stats_collections = self._get_ray_dataset(
                 n_regions=n_regions,
                 collate_fn_dict=collate_fn_dict,
-                region_slice=region_slice,
+                region_index=region_index,
             )
             ds.write_parquet(path, filesystem=fs)
 
@@ -2029,10 +2033,10 @@ class GenomeEnsembleDataset:
             if isinstance(fs, LocalFileSystem):
                 stats_path = pathlib.Path(stats_path)
                 stats_path.mkdir(parents=True, exist_ok=True)
-                np.savez(summary_stats_path, **summary_stats_collections)
+                joblib.dump(summary_stats_collections, summary_stats_path)
             else:
                 with fs.open_output_stream(summary_stats_path) as f:
-                    np.savez(f, **summary_stats_collections)
+                    joblib.dump(summary_stats_collections, f)
 
             # create success flag
             if isinstance(fs, LocalFileSystem):
@@ -2051,12 +2055,123 @@ class GenomeEnsembleDataset:
             ):
                 chunk_end = min(chunk_start + dataset_size, n_regions)
                 chunk_slice = slice(chunk_start, chunk_end)
+                if region_index is None:
+                    chunk_region_index = pd.Index(range(n_regions))[chunk_slice].copy()
+                else:
+                    chunk_region_index = region_index[chunk_slice].copy()
 
                 chunk_output_path = f"{output_dir}/chunk_{chunk_start}_{chunk_end}"
                 self.prepare_ray_dataset(
                     output_dir=chunk_output_path,
                     dataset_size=dataset_size,
                     collate_fn_dict=collate_fn_dict,
-                    region_slice=chunk_slice,
+                    region_index=chunk_region_index,
                 )
         return
+
+
+def prepare_chromosome_dataset(
+    genome: str,
+    output_dir: str,
+    regions_config: Union[str, Dict[str, str], List[str]],
+    bigwig_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
+    zarr_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
+    collate_fn_dict: Optional[Dict[str, Callable]] = None,
+) -> None:
+    """
+    Prepare chromosome datasets for a given genome.
+
+    Parameters
+    ----------
+    genome : str
+        The genome associated with the dataset.
+    output_dir : str
+        The directory to save the prepared datasets.
+    regions_config : Union[str, Dict[str, str], List[str]]
+        The configuration for the regions. It can be a single path string, a dictionary
+        mapping region names to paths, or a list of paths.
+    bigwig_config : Optional[Union[str, Dict[str, str], List[str]]], optional
+        The configuration for the BigWig files, by default None. It can be a single path
+        string, a dictionary mapping dataset names to paths, or a list of paths.
+    zarr_config : Optional[Union[str, Dict[str, str], List[str]]], optional
+        The configuration for the Zarr files, by default None. It can be a single path
+        string, a dictionary mapping dataset names to paths, or a list of paths.
+    collate_fn_dict : Optional[Dict[str, Callable]], optional
+        A dictionary of collate functions for each dataset. The keys can be the dataset name
+        or the region name or their combination. Each collate function should take a numpy
+        array as input and return a summary statistic. Data will be saved by joblib.dump.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    ValueError
+        If an invalid path type is provided.
+
+    Example
+    -------
+    >>> genome = "mm10"
+    >>> output_dir = "/mnt/datasets/chromosomes"
+    >>> regions_config = {
+    ...     "enhancers": "/mnt/data/regions/enhancers.bed",
+    ...     "promoters": "/mnt/data/regions/promoters.bed",
+    ... }
+    >>> bigwig_config = {
+    ...     "sample1": "/mnt/data/bigwig/sample1.bw",
+    ...     "sample2": "/mnt/data/bigwig/sample2.bw",
+    ... }
+    >>> zarr_config = {
+    ...     "methylation": "/mnt/data/zarr/methylation.zarr",
+    ...     "histone_modifications": "/mnt/data/zarr/histone_modifications.zarr",
+    ... }
+    >>> prepare_chromosome_dataset(genome, output_dir, regions_config, bigwig_config, zarr_config)
+    """
+    def _str_path_to_dict(p: Union[str, Dict[str, str], List[str]]) -> Dict[str, str]:
+        if isinstance(p, dict):
+            p = {k: str(pathlib.Path(v).absolute().resolve()) for k, v in p.items()}
+            return p
+        elif isinstance(p, (str, pathlib.Path)):
+            ps = [pathlib.Path(p).absolute().resolve()]
+        elif isinstance(p, list):
+            ps = [pathlib.Path(pp).absolute().resolve() for pp in p]
+        else:
+            raise ValueError("Invalid path type.")
+        p_dict = {pp.name: str(pp) for pp in ps}
+        return p_dict
+
+    # standardize paths
+    regions_config = _str_path_to_dict(regions_config)
+    bigwig_config = _str_path_to_dict(bigwig_config)
+    zarr_config = _str_path_to_dict(zarr_config)
+
+    # group each region by chrom and prepare the region configs
+    chrom_region_configs = defaultdict(dict)
+    for region_name, region_path in regions_config.items():
+        region_bed = pr.read_bed(region_path, as_df=True)
+        for chrom, chrom_region_bed in region_bed.df.groupby("Chromosome"):
+            chrom_region_configs[chrom][region_name] = chrom_region_bed
+
+    # prepare the dataset for each chromosome
+    bar = tqdm(
+        chrom_region_configs.items(),
+        desc="Preparing chromosome datasets",
+        total=len(chrom_region_configs),
+    )
+    for chrom, chrom_region_config in bar:
+        ensemble = GenomeEnsembleDataset(genome)
+
+        if bigwig_config:
+            ensemble.add_bigwig(**bigwig_config)
+
+        if zarr_config:
+            for name, zarr_path in zarr_config.items():
+                ensemble.add_position_zarr(zarr_path=zarr_path, name=name)
+
+        for n, p in chrom_region_config.items():
+            ensemble.add_regions(name=n, regions=p, query_datasets="all")
+
+        output_path = f"{output_dir}/{chrom}"
+        ensemble.prepare_ray_dataset(output_dir=output_path, dataset_size=500000, collate_fn_dict=collate_fn_dict)
+    return
