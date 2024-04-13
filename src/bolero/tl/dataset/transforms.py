@@ -121,7 +121,7 @@ class BatchReverseComplement:
         return data
 
 
-class BatchFootprint(FootPrintModel):
+class RowFootprint(FootPrintModel):
     """Apply footprint transformation to the given data batch."""
 
     def __init__(
@@ -179,8 +179,8 @@ class BatchFootprint(FootPrintModel):
                 clip_min=self.clip_min,
                 clip_max=self.clip_max,
             )
-            data[f"{atac}_footprint"] = fp
-        return data.detach().cpu().numpy()
+            data[f"{atac}_footprint"] = fp.detach().cpu().numpy()
+        return data
 
 
 class BatchToFloat:

@@ -1,10 +1,11 @@
 import pathlib
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import Optional, Union
 
 import numpy as np
 import pyBigWig
 import torch
+from scipy.ndimage import maximum_filter
 
 try:
     # TODO: scprinter is not publicly available currently, remove this try-except block when it is available
@@ -16,12 +17,96 @@ except ImportError:
 from bolero.utils import try_gpu
 
 
-def get_dispmodel(device):
+def get_dispmodel(device) -> torch.nn.Module:
     """Get the dispersion model."""
     model_path = scp.datasets.pretrained_dispersion_model
     disp_model = scp.utils.loadDispModel(model_path)
     disp_model = _dispModel(deepcopy(disp_model)).to(device)
     return disp_model
+
+
+def zscore2pval_torch(footprint):
+    """
+    Convert z-scores to p-values using the torch library.
+
+    Parameters
+    ----------
+    - footprint (torch.Tensor): A tensor containing z-scores.
+
+    Returns
+    -------
+    - pval_log (torch.Tensor): A tensor containing the corresponding p-values in logarithmic scale.
+    """
+    # Calculate the CDF of the normal distribution for the given footprint
+    pval = torch.distributions.Normal(0, 1).cdf(footprint)
+
+    # Clamp pval to prevent log(0) which leads to -inf. Use a very small value as the lower bound.
+    eps = torch.finfo(pval.dtype).eps
+    pval_clamped = torch.clamp(pval, min=eps)
+
+    # Compute the negative log10, using the clamped values to avoid -inf
+    pval_log = -torch.log10(pval_clamped)
+
+    # Optionally, to handle values very close to 1 (which would result in a negative pval_log),
+    # you can clamp the output to be non-negative. This is a design choice depending on your requirements.
+    pval_log = torch.clamp(pval_log, min=0, max=10)
+
+    return pval_log
+
+
+def rz_conv(a: np.ndarray, n: int = 2) -> np.ndarray:
+    """
+    Apply convolution to the input array on the last dimension.
+
+    Parameters
+    ----------
+    - a (np.ndarray): The input array.
+    - n (int): The number of elements to convolve on.
+
+    Returns
+    -------
+    - np.ndarray: The convolved array.
+    """
+    if n == 0:
+        return a
+    # a can be shape of (batch, sample,...,  x) and x will be the dim to be conv on
+    # pad first:
+    shapes = np.array(a.shape)
+    shapes[-1] = n
+    a = np.concatenate([np.zeros(shapes), a, np.zeros(shapes)], axis=-1)
+    ret = np.cumsum(a, axis=-1)
+    # ret[..., n * 2:] = ret[..., n * 2:] - ret[..., :-n * 2]
+    # ret = ret[..., n * 2:]
+    ret = ret[..., n * 2 :] - ret[..., : -n * 2]
+    return ret
+
+
+def smooth_footprint(pval_log: np.ndarray, smooth_radius: int = 5) -> np.ndarray:
+    """
+    Smooths the given pval_log array using a maximum filter and a convolution operation.
+
+    Parameters
+    ----------
+    - pval_log (ndarray): The input array to be smoothed.
+    - smooth_radius (int): The radius of the smoothing operation. Default is 5.
+
+    Returns
+    -------
+    - smoothed_array (ndarray): The smoothed array.
+
+    """
+    pval_log[np.isnan(pval_log)] = 0
+    pval_log[np.isinf(pval_log)] = 20
+
+    maximum_filter_size = [0] * len(pval_log.shape)
+    maximum_filter_size[-1] = 2 * smooth_radius
+    pval_log = maximum_filter(pval_log, tuple(maximum_filter_size), origin=-1)
+    # Changed to smoothRadius.
+    pval_log = rz_conv(pval_log, smooth_radius) / (2 * smooth_radius)
+
+    pval_log[np.isnan(pval_log)] = 0
+    pval_log[np.isinf(pval_log)] = 20
+    return pval_log
 
 
 class FootPrintModel(_dispModel):
@@ -30,8 +115,8 @@ class FootPrintModel(_dispModel):
     def __init__(
         self,
         bias_bw_path: str = None,
-        dispmodels: Optional[List] = None,
-        modes: List[str] = None,
+        dispmodels: Optional[list] = None,
+        modes: list[str] = None,
         device=None,
     ):
         """
@@ -76,7 +161,16 @@ class FootPrintModel(_dispModel):
 
         self.atac_handles = {}
 
-    def _calculate_footprint(self, atac, bias, *args, **kwargs):
+    def _calculate_footprint(
+        self,
+        atac,
+        bias,
+        clip_min: int = -10,
+        clip_max: int = 10,
+        return_pval: bool = False,
+        smooth_radius: int = None,
+        numpy=False,
+    ):
         """
         Calculate the footprint.
 
@@ -86,15 +180,21 @@ class FootPrintModel(_dispModel):
             A tensor containing the ATAC-seq data.
         bias : torch.Tensor, np.ndarray
             A tensor containing the bias values.
-        *args : tuple
-            Additional positional arguments.
-        **kwargs : dict
-            Additional keyword arguments.
+        clip_min : int, optional
+            The minimum value to clip the computed footprint, by default -10.
+        clip_max : int, optional
+            The maximum value to clip the computed footprint, by default 10.
+        return_pval : bool, optional
+            Whether to return the p-value transformed footprint, the default value is zscore, by default False.
+        smooth_radius : int, optional
+            The radius for smoothing the footprint, by default None.
+        numpy : bool, optional
+            Whether to return the footprint as a numpy array, by default False.
 
         Returns
         -------
-        torch.Tensor
-            A tensor containing the computed footprint.
+        torch.Tensor or np.ndarray
+            A tensor or numpy array containing the computed footprint.
         """
         if isinstance(atac, torch.Tensor):
             atac = atac.float().to(self.device)
@@ -113,8 +213,26 @@ class FootPrintModel(_dispModel):
             bias = bias.unsqueeze(0)
 
         with torch.inference_mode():
-            _fp = self.forward(atac, bias, *args, **kwargs)
-        return _fp
+            _fp = self.forward(
+                atac=atac,
+                bias=bias,
+                modes=self.modes,
+                clip_min=clip_min,
+                clip_max=clip_max,
+            )
+            if return_pval:
+                _fp = zscore2pval_torch(_fp)
+                if smooth_radius is not None:
+                    _device = _fp.device
+                    _fp = _fp.cpu().numpy()
+                    _fp = smooth_footprint(_fp, smooth_radius)
+                    if not numpy:
+                        _fp = torch.as_tensor(_fp, device=_device)
+
+        if numpy:
+            return _fp.cpu().numpy()
+        else:
+            return _fp
 
     @property
     def bias_handle(self):
@@ -222,9 +340,12 @@ class FootPrintModel(_dispModel):
         start: int,
         end: int,
         name: str = None,
-        modes: Optional[List[str]] = None,
+        modes: Optional[list[str]] = None,
         clip_min: int = -10,
         clip_max: int = 10,
+        return_pval: bool = False,
+        smooth_radius: int = None,
+        numpy=False,
     ) -> torch.Tensor:
         """
         Compute the footprint.
@@ -245,11 +366,35 @@ class FootPrintModel(_dispModel):
             The minimum value to clip the output to.
         clip_max : int, optional
             The maximum value to clip the output to.
+        return_pval : bool, optional
+            Whether to return p-values along with the computed footprint.
+        smooth_radius : int, optional
+            The radius for smoothing the footprint.
+        numpy : bool, optional
+            Whether to return the output as a NumPy array instead of a torch.Tensor.
 
         Returns
         -------
-        torch.Tensor
-            A tensor containing the computed footprint.
+        torch.Tensor or numpy.ndarray
+            A tensor or array containing the computed footprint.
+
+        Notes
+        -----
+        This method computes the footprint for a given region on a specific chromosome. It uses the ATAC bigWig file
+        and bias information to calculate the footprint. The footprint represents the signal intensity at each position
+        within the region.
+
+        If the `name` parameter is not provided, the method will use the first ATAC bigWig file available. If the `modes`
+        parameter is not provided, the method will use the default modes.
+
+        The `clip_min` and `clip_max` parameters can be used to clip the output values to a specific range.
+
+        If `return_pval` is set to True, the method will also return p-values along with the computed footprint.
+
+        If `smooth_radius` is provided, the method will apply smoothing to the footprint using a rolling window of the
+        specified radius.
+
+        If `numpy` is set to True, the output will be returned as a NumPy array instead of a torch.Tensor.
         """
         if modes is None:
             modes = self.modes
@@ -265,7 +410,14 @@ class FootPrintModel(_dispModel):
         atac = self.fetch_atac(chrom, start, end, name)
         bias = self.fetch_bias(chrom, start, end)
         _fp = self._calculate_footprint(
-            atac=atac, bias=bias, modes=modes, clip_min=clip_min, clip_max=clip_max
+            atac=atac,
+            bias=bias,
+            modes=modes,
+            clip_min=clip_min,
+            clip_max=clip_max,
+            return_pval=return_pval,
+            smooth_radius=smooth_radius,
+            numpy=numpy,
         )
         return _fp
 
@@ -274,11 +426,14 @@ class FootPrintModel(_dispModel):
         chrom: str,
         start: int,
         end: int,
-        atac_names: Optional[List[str]] = None,
-        modes: Optional[List[str]] = None,
+        atac_names: Optional[list[str]] = None,
+        modes: Optional[list[str]] = None,
         clip_min: int = -10,
         clip_max: int = 10,
-    ) -> Dict[str, torch.Tensor]:
+        return_pval: bool = False,
+        smooth_radius: int = None,
+        numpy=False,
+    ) -> dict[str, torch.Tensor]:
         """
         Compute the footprint for all ATAC bigWig files.
 
@@ -298,6 +453,12 @@ class FootPrintModel(_dispModel):
             The minimum value to clip the output to.
         clip_max : int, optional
             The maximum value to clip the output to.
+        return_pval : bool, optional
+            Whether to return p-values along with the footprints.
+        smooth_radius : int, optional
+            The radius for smoothing the footprints.
+        numpy : bool, optional
+            Whether to return the footprints as numpy arrays instead of torch tensors.
 
         Returns
         -------
@@ -318,7 +479,14 @@ class FootPrintModel(_dispModel):
         for name in atac_names:
             atac = self.fetch_atac(chrom, start, end, name)
             _fp = self._calculate_footprint(
-                atac=atac, bias=bias, modes=modes, clip_min=clip_min, clip_max=clip_max
+                atac=atac,
+                bias=bias,
+                modes=modes,
+                clip_min=clip_min,
+                clip_max=clip_max,
+                return_pval=return_pval,
+                smooth_radius=smooth_radius,
+                numpy=numpy,
             )
             fp_dict[name] = _fp
         return fp_dict
@@ -327,10 +495,13 @@ class FootPrintModel(_dispModel):
         self,
         atac_data: torch.Tensor,
         bias_data: torch.Tensor,
-        modes: List[str] = None,
+        modes: list[str] = None,
         clip_min: int = -10,
         clip_max: int = 10,
-    ):
+        return_pval: bool = False,
+        smooth_radius: int = None,
+        numpy: bool = False,
+    ) -> Union[torch.Tensor, np.ndarray]:
         """
         Compute the footprint from given ATAC-seq and bias data.
 
@@ -346,14 +517,20 @@ class FootPrintModel(_dispModel):
             The minimum value to clip the output to.
         clip_max : int, optional
             The maximum value to clip the output to.
+        return_pval : bool, optional
+            Whether to return p-values along with the computed footprint.
+        smooth_radius : int, optional
+            The radius for smoothing the footprint.
+        numpy : bool, optional
+            Whether to return the result as a NumPy array.
 
         Returns
         -------
-        torch.Tensor
-            A tensor containing the computed footprint.
+        torch.Tensor or np.ndarray
+            A tensor or array containing the computed footprint.
         """
         if modes is None:
-            modes = self.modes
+            modes = self.modesmodes = self.modes
         else:
             modes = np.array(modes)
 
@@ -363,5 +540,8 @@ class FootPrintModel(_dispModel):
             modes=modes,
             clip_min=clip_min,
             clip_max=clip_max,
+            return_pval=return_pval,
+            smooth_radius=smooth_radius,
+            numpy=numpy,
         )
         return _fp
