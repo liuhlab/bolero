@@ -1,16 +1,19 @@
 import pathlib
-import numpy as np
 from collections import defaultdict
-from typing import List, Union, Optional
-import pyarrow
-import joblib
+from typing import List, Union
 
+import joblib
+import numpy as np
+import pyarrow
 import ray
 from pyarrow.fs import FileSystem
+from ray.data.dataset import Dataset
 
 from .filters import RowSumFilter
-from .transforms import BatchCropRegions, BatchReverseComplement, BatchToFloat, RowFootprint
-
+from .transforms import (
+    BatchCropRegions,
+    BatchToFloat,
+)
 
 DNA_NAME = "dna_one_hot"
 REGION_IDS_NAME = "region_ids"
@@ -19,7 +22,9 @@ REGION_IDS_NAME = "region_ids"
 class RayGenomeDataset:
     """RayDataset class for working with ray.data.Dataset objects."""
 
-    def __init__(self, dataset) -> None:
+    def __init__(
+        self, dataset: Union[ray.data.Dataset, str, pathlib.Path, List[str]]
+    ) -> None:
         """
         Initialize a RayDataset object.
 
@@ -40,14 +45,15 @@ class RayGenomeDataset:
         self.file_system: FileSystem = self._get_filesystem()
         self.stats_files: List[str] = self._get_stats_files()
         self._summary_stats: Union[None, dict] = None
-        self.dataset: ray.data.Dataset = dataset
+        self.dataset: Dataset = dataset
 
         _schema = dataset.schema()
-        self.schema: dict = {k: v for k, v in zip(_schema.names, _schema.types)}
-        self.dna_name = DNA_NAME
-        self.region_ids_name = REGION_IDS_NAME
-        self.regions, self.samples = self._parse_regions_and_samples()
-        self.columns = list(self.schema.keys())
+        self.schema: dict = dict(zip(_schema.names, _schema.types))
+        self.dna_name: str = DNA_NAME
+        self.region_ids_name: str = REGION_IDS_NAME
+        self.regions: List[str] = self._parse_regions_and_samples()[0]
+        self.samples: List[str] = self._parse_regions_and_samples()[1]
+        self.columns: List[str] = list(self.schema.keys())
 
     def __len__(self) -> int:
         return self.dataset.count()
@@ -135,17 +141,63 @@ class RayGenomeDataset:
 
 
 class scPrinterDataset(RayGenomeDataset):
-    """RayDataset class for working with scPrinter model."""
+    """
+    RayDataset class for working with scPrinter model.
+
+    Parameters
+    ----------
+    dataset : ray.data.Dataset
+        The Ray dataset.
+    bias_name : str, optional
+        The name of the bias.
+    dna_window : int, optional
+        The size of the DNA window.
+    signal_window : int, optional
+        The size of the signal window.
+    max_jitter : int, optional
+        The maximum jitter value.
+    reverse_complement : bool, optional
+        Whether to use reverse complement.
+
+    Attributes
+    ----------
+    _working_dataset : ray.data.Dataset
+        The working dataset used for filter and map operations.
+    dna_name : str
+        The name of the DNA.
+    region_ids_name : str
+        The name of the region IDs.
+    dna_flank : int
+        The size of the DNA flank.
+    signal_flank : int
+        The size of the signal flank.
+    min_counts : int
+        The minimum counts value.
+    max_counts : int
+        The maximum counts value.
+
+    Methods
+    -------
+    set_min_max_counts_cutoff(column: str, min_q=0.0001, max_q=0.9999) -> None:
+        Set the minimum and maximum counts cutoff based on the given column.
+    filter_by_coverage(column) -> None:
+        Filter the working dataset based on the coverage of the given column.
+    dna_to_float() -> None:
+        Convert the DNA data to float.
+    crop_regions() -> None:
+        Crop the regions in the working dataset.
+    reverse_complement() -> None:
+        Reverse complement the DNA sequences.
+
+    """
 
     def __init__(
         self,
-        dataset: ray.data.Dataset,
+        dataset: Dataset,
         bias_name: str = None,
         dna_window: int = 1840,
         signal_window: int = 1000,
         max_jitter: int = 128,
-        min_counts: int = 10,
-        max_counts: Optional[int] = None,
         reverse_complement: bool = True,
     ) -> None:
         """
@@ -163,10 +215,6 @@ class scPrinterDataset(RayGenomeDataset):
             The size of the signal window.
         max_jitter : int, optional
             The maximum jitter value.
-        min_counts : int, optional
-            The minimum counts value.
-        max_counts : int, optional
-            The maximum counts value.
         reverse_complement : bool, optional
             Whether to use reverse complement.
 
@@ -175,6 +223,8 @@ class scPrinterDataset(RayGenomeDataset):
         None
         """
         super().__init__(dataset)
+        # all filter and map operations will be done on this working dataset
+        self._working_dataset = self.dataset
 
         if bias_name is None:
             # guess the bias name
@@ -191,19 +241,93 @@ class scPrinterDataset(RayGenomeDataset):
 
         # region properties
         self.dna_window = dna_window
+        self.dna_flank = dna_window // 2
         self.signal_window = signal_window
+        self.signal_flank = signal_window // 2
         self.max_jitter = max_jitter
-        self.min_counts = min_counts
-        self.max_counts = 1e16 if max_counts is None else max_counts
+        self.min_counts = 10
+        self.max_counts = 1e16
         self.reverse_complement = reverse_complement
 
-    def set_min_max_counts_cutoff(self, column: str):
+    def set_min_max_counts_cutoff(
+        self, column: str, min_q=0.0001, max_q=0.9999
+    ) -> None:
+        """
+        Set the minimum and maximum counts cutoff based on the given column.
+
+        Parameters
+        ----------
+        column : str
+            The column name.
+        min_q : float, optional
+            The minimum quantile value (default is 0.0001).
+        max_q : float, optional
+            The maximum quantile value (default is 0.9999).
+
+        Returns
+        -------
+        None
+        """
         _stats = self.summary_stats[column]
-        min_, max_ = np.quantile(_stats, 0.0001), np.quantile(_stats, 0.9999)
+        min_, max_ = np.quantile(_stats, min_q), np.quantile(_stats, max_q)
         self.min_counts = max(self.min_counts, min_)
         self.max_counts = min(self.max_counts, max_)
         return
 
-    def filter_by_coverage(self, column):
+    def filter_by_coverage(self, column: str) -> None:
+        """
+        Filter the working dataset based on the coverage of the given column.
+
+        Parameters
+        ----------
+        column : str
+            The column name.
+
+        Returns
+        -------
+        None
+        """
         self.set_min_max_counts_cutoff(column)
-        
+        _filter = RowSumFilter(column, self.min_counts, self.max_counts)
+        self._working_dataset = self._working_dataset.filter(_filter)
+        return
+
+    def dna_to_float(self) -> None:
+        """
+        Convert the DNA data to float.
+
+        Returns
+        -------
+        None
+        """
+        _map = BatchToFloat(self.dna_name)
+        self._working_dataset = self._working_dataset.map_batches(_map)
+        return
+
+    def crop_regions(self) -> None:
+        """
+        Crop the regions in the working dataset.
+
+        Returns
+        -------
+        None
+        """
+        _map = BatchCropRegions(
+            self.dna_name,
+            self.region_ids_name,
+            self.dna_flank,
+            self.signal_flank,
+            self.max_jitter,
+        )
+        self._working_dataset = self._working_dataset.map_batches(_map)
+        return
+
+    def reverse_complement(self) -> None:
+        """
+        Reverse complement the DNA sequences.
+
+        Returns
+        -------
+        None
+        """
+        return

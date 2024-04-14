@@ -1,10 +1,12 @@
 import pathlib
 import shutil
 import subprocess
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-from typing import Any, Dict, List, Optional, Tuple, Union, Callable
-from collections import defaultdict
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+import joblib
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -16,7 +18,6 @@ import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
 from tqdm import tqdm
-import joblib
 
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
 from bolero.utils import (
@@ -1684,7 +1685,7 @@ class GenomeEnsembleDataset:
                 Default is 'all', which queries all datasets in self.datasets.
             check_length (bool): Whether to check if all regions have the same length. Default is False.
             remove_blacklist (bool): Whether to remove regions that overlap with blacklisted regions. Default is True.
-            boarder_strategy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'.
+            boarder_strategy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'. See `Genome.standard_region_length` for more details.
 
         """
         regions = understand_regions(regions, as_df=True)
@@ -1979,8 +1980,8 @@ class GenomeEnsembleDataset:
         ----------
             output_dir (str): The directory path to save the dataset.
             dataset_size (int): The maximum size of each dataset.
-            collate_fn_dict (dict): A dictionary of collate functions for each dataset. 
-                The keys can be the dataset name or the region name or their combination. 
+            collate_fn_dict (dict): A dictionary of collate functions for each dataset.
+                The keys can be the dataset name or the region name or their combination.
                 Each collate function should take a numpy array as input and return a summary statistic.
                 Data will be saved by joblib.dump.
             region_index (pd.Index): The index of regions to retrieve data for.
@@ -2126,8 +2127,11 @@ def prepare_chromosome_dataset(
     ...     "methylation": "/mnt/data/zarr/methylation.zarr",
     ...     "histone_modifications": "/mnt/data/zarr/histone_modifications.zarr",
     ... }
-    >>> prepare_chromosome_dataset(genome, output_dir, regions_config, bigwig_config, zarr_config)
+    >>> prepare_chromosome_dataset(
+    ...     genome, output_dir, regions_config, bigwig_config, zarr_config
+    ... )
     """
+
     def _str_path_to_dict(p: Union[str, Dict[str, str], List[str]]) -> Dict[str, str]:
         if isinstance(p, dict):
             p = {k: str(pathlib.Path(v).absolute().resolve()) for k, v in p.items()}
@@ -2173,5 +2177,7 @@ def prepare_chromosome_dataset(
             ensemble.add_regions(name=n, regions=p, query_datasets="all")
 
         output_path = f"{output_dir}/{chrom}"
-        ensemble.prepare_ray_dataset(output_dir=output_path, dataset_size=500000, collate_fn_dict=collate_fn_dict)
+        ensemble.prepare_ray_dataset(
+            output_dir=output_path, dataset_size=500000, collate_fn_dict=collate_fn_dict
+        )
     return
