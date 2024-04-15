@@ -18,11 +18,15 @@ import numpy as np
 from bolero.tl.footprint.footprint import FootPrintModel
 
 
-class BatchCropRegions:
+class CropRegionsWithJitter:
     """Crop regions from the input data batch."""
 
     def __init__(
-        self, key: Union[str, list[str]], final_length: int, max_jitter: int = 0
+        self,
+        key: Union[str, list[str]],
+        final_length: int,
+        max_jitter: int = 0,
+        input_type="row",
     ):
         """
         Crop regions from the input data batch.
@@ -36,8 +40,21 @@ class BatchCropRegions:
         if isinstance(key, str):
             key = [key]
         self.key = key
+        if isinstance(final_length, int):
+            final_length = [final_length] * len(key)
+        else:
+            assert len(final_length) == len(
+                key
+            ), "final_length must have the same length as key"
         self.final_length = final_length
         self.max_jitter = max_jitter
+
+        if input_type == "batch":
+            self.crop_axis = 1
+        elif input_type == "row":
+            self.crop_axis = 0
+        else:
+            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
 
     def __call__(self, data: dict) -> dict:
         """
@@ -50,38 +67,37 @@ class BatchCropRegions:
         -------
             dict: The cropped data batch.
         """
-        # batch size should be the same for all keys
-        _batch_size = data[self.key[0]].shape[0]
-
         if self.max_jitter > 0:
-            _max = self.max_jitter * 2
-            jitter = np.array(
-                [np.random.default_rng().integers(_max) for _ in range(_batch_size)]
-            )
+            jitter = np.random.default_rng().integers(self.max_jitter * 2) - self.max_jitter
         else:
-            jitter = np.zeros(_batch_size)
+            jitter = 0
 
-        for k in self.key:
-            _cropped = data[k]
-            # second dim is region base pair
-            _length = _cropped.shape[1]
-            max_range = self.final_length + self.max_jitter * 2
-            max_radius = max_range // 2
-            left = _length // 2 - max_radius + jitter
-            right = left + self.final_length
+        for k, length in zip(self.key, self.final_length):
+            _input = data[k]
 
-            assert left >= 0, f"left={left} must be >= 0"
-            assert right <= _length, f"right={right} must be <= {_length}"
+            _input_length = _input.shape[self.crop_axis]
+            _input_center = _input_length // 2
+            _output_radius = length // 2
+            _start = _input_center - _output_radius + jitter
+            _end = _start + length
 
-            _cropped = _cropped[:, left:right].copy()
-            data[k] = _cropped
+            if self.crop_axis == 0:
+                data[k] = _input[_start:_end]
+            else:
+                data[k] = _input[:, _start:_end]
         return data
 
 
-class BatchReverseComplement:
+class ReverseComplement:
     """Reverse complements DNA sequences and signals in a batch."""
 
-    def __init__(self, dna_key: str, signal_key: Union[str, list[str]]):
+    def __init__(
+        self,
+        dna_key: Union[str, list[str]],
+        signal_key: Union[str, list[str]],
+        input_type="row",
+        prob=0.5,
+    ):
         """
         Reverses and complements DNA sequences and signals in a batch.
 
@@ -89,13 +105,28 @@ class BatchReverseComplement:
             dna_key (str): The key to access the DNA sequence in the data dictionary.
             signal_key (str or List[str]): The key(s) to access the signal(s) in the data dictionary.
                 If a single string is provided, it will be converted to a list.
-
+            input_type (str, optional): The input type of the data, choose from 'row' or 'batch'. Defaults to 'row'.
+            prob (float, optional): The probability of applying the transformation. Defaults to 0.5.
         """
+        if isinstance(dna_key, str):
+            dna_key = [dna_key]
         self.dna_key = dna_key
 
         if isinstance(signal_key, str):
             signal_key = [signal_key]
         self.signal_key = signal_key
+
+        self.prob = prob
+
+        if input_type == "batch":
+            self.flip_dna_axis = (1, 2)
+            self.flip_signal_axis = 1
+        elif input_type == "row":
+            self.flip_dna_axis = (0, 1)
+            self.flip_signal_axis = 0
+        else:
+            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
+        return
 
     def __call__(self, data: dict) -> dict:
         """
@@ -109,19 +140,19 @@ class BatchReverseComplement:
             dict: The modified data dictionary with the DNA sequence and signal(s) reversed and complemented.
 
         """
-        if np.random.default_rng().random() > 0.5:
+
+        if np.random.default_rng().random() > self.prob:
             # reverse complement DNA
-            # second dim is region base pair, third dim is one hot encoding
-            data[self.dna_key] = data[self.dna_key].flip(dims=(1, 2))
+            for k in self.dna_key:
+                data[k] = np.flip(data[k], axis=self.flip_dna_axis)
 
             # reverse signal
-            # second dim is region base pair
             for k in self.signal_key:
-                data[k] = np.flip(data[k], axis=1)
+                data[k] = np.flip(data[k], axis=self.flip_signal_axis)
         return data
 
 
-class RowFootprint(FootPrintModel):
+class BatchFootPrint(FootPrintModel):
     """Apply footprint transformation to the given data batch."""
 
     def __init__(
@@ -133,7 +164,7 @@ class RowFootprint(FootPrintModel):
         clip_max: float = 10,
         return_pval: bool = False,
         smooth_radius: int = None,
-        numpy=False,
+        numpy=True,
         device=None,
     ):
         """
@@ -147,7 +178,7 @@ class RowFootprint(FootPrintModel):
             clip_max (float, optional): Maximum value for clipping. Defaults to 10.
             return_pval (bool, optional): Whether to return p-values. Defaults to False.
             smooth_radius (int, optional): Radius for smoothing. Defaults to None.
-            numpy (bool, optional): Whether to use numpy. Defaults to False.
+            numpy (bool, optional): Whether to use numpy. Defaults to True.
         """
         if modes is None:
             modes = np.arange(2, 101, 1)

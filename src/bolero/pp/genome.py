@@ -2034,10 +2034,10 @@ class GenomeEnsembleDataset:
             if isinstance(fs, LocalFileSystem):
                 stats_path = pathlib.Path(stats_path)
                 stats_path.mkdir(parents=True, exist_ok=True)
-                joblib.dump(summary_stats_collections, summary_stats_path)
+                np.savez_compressed(summary_stats_path, **summary_stats_collections)
             else:
                 with fs.open_output_stream(summary_stats_path) as f:
-                    joblib.dump(summary_stats_collections, f)
+                    np.savez_compressed(f, **summary_stats_collections)
 
             # create success flag
             if isinstance(fs, LocalFileSystem):

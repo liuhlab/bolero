@@ -1,29 +1,38 @@
 import pathlib
 from collections import defaultdict
-from typing import List, Union
-
+from typing import List, Union, Tuple, Optional
 import joblib
 import numpy as np
 import pyarrow
 import ray
 from pyarrow.fs import FileSystem
 from ray.data.dataset import Dataset
+import os
 
 from .filters import RowSumFilter
 from .transforms import (
-    BatchCropRegions,
+    CropRegionsWithJitter,
+    ReverseComplement,
     BatchToFloat,
+    BatchFootPrint,
 )
 
 DNA_NAME = "dna_one_hot"
 REGION_IDS_NAME = "region_ids"
+
+# set environment variable to ignore unhandled errors
+RAY_IGNORE_UNHANDLED_ERRORS = 1
+os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = str(RAY_IGNORE_UNHANDLED_ERRORS)
 
 
 class RayGenomeDataset:
     """RayDataset class for working with ray.data.Dataset objects."""
 
     def __init__(
-        self, dataset: Union[ray.data.Dataset, str, pathlib.Path, List[str]]
+        self,
+        dataset: Union[ray.data.Dataset, str, pathlib.Path, List[str]],
+        columns: Optional[List[str]] = None,
+        **kwargs,
     ) -> None:
         """
         Initialize a RayDataset object.
@@ -34,13 +43,17 @@ class RayGenomeDataset:
             The input dataset. It can be a ray.data.Dataset object, a string or
             pathlib.Path representing the path to a parquet file, or a list of
             parquet file paths.
+        columns : list, optional
+            The list of columns to select, if None, all columns are selected (default is None).
 
         Returns
         -------
         None
         """
         if isinstance(dataset, (str, pathlib.Path, list)):
-            dataset = ray.data.read_parquet(dataset, file_extensions=["parquet"])
+            dataset = ray.data.read_parquet(
+                dataset, file_extensions=["parquet"], columns=columns, **kwargs
+            )
         self.input_files: List[str] = dataset.input_files()
         self.file_system: FileSystem = self._get_filesystem()
         self.stats_files: List[str] = self._get_stats_files()
@@ -107,12 +120,12 @@ class RayGenomeDataset:
                 return None
             elif len(self.stats_files) == 1:
                 with self.file_system.open_input_file(self.stats_files[0]) as f:
-                    self._summary_stats = joblib.load(f)
+                    self._summary_stats = dict(np.load(f))
             else:
                 summary_stats = defaultdict(list)
                 for stats_file in self.stats_files:
                     with self.file_system.open_input_file(stats_file) as f:
-                        stats = joblib.load(f)
+                        stats = dict(np.load(f))
                         for key, val in stats.items():
                             summary_stats[key].append(val)
                 self._summary_stats = {
@@ -167,10 +180,6 @@ class scPrinterDataset(RayGenomeDataset):
         The name of the DNA.
     region_ids_name : str
         The name of the region IDs.
-    dna_flank : int
-        The size of the DNA flank.
-    signal_flank : int
-        The size of the signal flank.
     min_counts : int
         The minimum counts value.
     max_counts : int
@@ -180,7 +189,7 @@ class scPrinterDataset(RayGenomeDataset):
     -------
     set_min_max_counts_cutoff(column: str, min_q=0.0001, max_q=0.9999) -> None:
         Set the minimum and maximum counts cutoff based on the given column.
-    filter_by_coverage(column) -> None:
+    _filter_by_coverage(column) -> None:
         Filter the working dataset based on the coverage of the given column.
     dna_to_float() -> None:
         Convert the DNA data to float.
@@ -194,11 +203,16 @@ class scPrinterDataset(RayGenomeDataset):
     def __init__(
         self,
         dataset: Dataset,
+        columns: Optional[List[str]] = None,
         bias_name: str = None,
+        batch_size=64,
         dna_window: int = 1840,
         signal_window: int = 1000,
         max_jitter: int = 128,
         reverse_complement: bool = True,
+        modes=None,
+        clip_min=-10,
+        clip_max=10,
     ) -> None:
         """
         Initialize a scPrinterDataset object.
@@ -207,6 +221,8 @@ class scPrinterDataset(RayGenomeDataset):
         ----------
         dataset : ray.data.Dataset
             The Ray dataset.
+        columns : list, optional
+            The list of columns to select, if None, all columns are selected (default is None).
         bias_name : str, optional
             The name of the bias.
         dna_window : int, optional
@@ -217,14 +233,22 @@ class scPrinterDataset(RayGenomeDataset):
             The maximum jitter value.
         reverse_complement : bool, optional
             Whether to use reverse complement.
+        modes : np.ndarray, optional
+            Modes for the footprint transformation.
+        clip_min : float, optional
+            Minimum value for clipping footprint zscores (default is -10).
+        clip_max : float, optional
+            Maximum value for clipping footprint zscores (default is 10).
+        purpose : str, optional
+            The purpose of the dataset, either "train" or "eval" (default is "train").
+            In the eval model, random jitter, reverse complement are disabled.
 
         Returns
         -------
         None
         """
-        super().__init__(dataset)
+        super().__init__(dataset, columns=columns)
         # all filter and map operations will be done on this working dataset
-        self._working_dataset = self.dataset
 
         if bias_name is None:
             # guess the bias name
@@ -235,19 +259,89 @@ class scPrinterDataset(RayGenomeDataset):
                 raise ValueError(
                     "Bias name not provided and could not be guessed, please provide the bias name."
                 )
-        self.bias_name = bias_name
+        else:
+            self.bias_name = bias_name
         # remove bias name from samples
         self.samples = [s for s in self.samples if s != self.bias_name]
 
+        self.batch_size = batch_size
+
         # region properties
         self.dna_window = dna_window
-        self.dna_flank = dna_window // 2
         self.signal_window = signal_window
-        self.signal_flank = signal_window // 2
         self.max_jitter = max_jitter
         self.min_counts = 10
         self.max_counts = 1e16
         self.reverse_complement = reverse_complement
+
+        # footprint properties
+        self.modes = modes if modes is not None else np.arange(2, 101, 1)
+        self.clip_min = clip_min
+        self.clip_max = clip_max
+
+        self._dataset_mode = None
+        self._working_dataset = None
+        self.add_footprint = self._get_footprint_func()
+        return
+
+    def train(self):
+        self._dataset_mode = "train"
+        return
+
+    def eval(self):
+        self._dataset_mode = "eval"
+        return
+
+    def _dataset_preprocess(self, column) -> None:
+        """
+        Preprocess the dataset.
+
+        Returns
+        -------
+        None
+        """
+
+        # row operations
+        self._filter_by_coverage(column)
+        if self.reverse_complement and self._dataset_mode == "train":
+            self._reverse_complement_region()
+        self._crop_regions()
+        # batch operations
+        self._dna_to_float()
+        return
+
+    def get_dataloader(self, sample=None, region=None):
+        if self._dataset_mode is None:
+            raise ValueError(
+                "Set .train() or .eval() first before calling .get_dataloader()"
+            )
+
+        if sample is None:
+            if len(self.samples) == 1:
+                sample = self.samples[0]
+            else:
+                raise ValueError(
+                    "Sample name not provided and could not be guessed, please provide the sample name."
+                )
+
+        if region is None:
+            if len(self.regions) == 1:
+                region = self.regions[0]
+            else:
+                raise ValueError(
+                    "Region name not provided and could not be guessed, please provide the region name."
+                )
+
+        filter_column = f"{region}|{sample}"
+
+        self._working_dataset = self.dataset
+        self._dataset_preprocess(filter_column)
+
+        for batch in self._working_dataset.iter_torch_batches(
+            batch_size=self.batch_size
+        ):
+            batch = self.add_footprint(batch)
+            yield batch
 
     def set_min_max_counts_cutoff(
         self, column: str, min_q=0.0001, max_q=0.9999
@@ -274,7 +368,43 @@ class scPrinterDataset(RayGenomeDataset):
         self.max_counts = min(self.max_counts, max_)
         return
 
-    def filter_by_coverage(self, column: str) -> None:
+    def get_dna_and_signal_columns(
+        self, separate_bias: bool = False
+    ) -> Tuple[List[str], List[str]]:
+        """
+        Get the DNA and signal columns from the dataset.
+
+        Parameters
+        ----------
+        separate_bias : bool, optional
+            Whether to separate the bias columns (default is False).
+
+        Returns
+        -------
+        Tuple[List[str], List[str]]
+            A tuple containing the DNA columns and signal columns.
+        """
+        dna_columns = []
+        signal_columns = []
+        bias_columns = []
+        for column in self.columns:
+            try:
+                _, sample = column.split("|")
+            except ValueError:
+                continue
+            if sample == self.dna_name:
+                dna_columns.append(column)
+            elif sample == self.bias_name:
+                bias_columns.append(column)
+            else:
+                signal_columns.append(column)
+        if separate_bias:
+            return dna_columns, bias_columns, signal_columns
+        else:
+            signal_columns = signal_columns + bias_columns
+            return dna_columns, signal_columns
+
+    def _filter_by_coverage(self, column: str) -> None:
         """
         Filter the working dataset based on the coverage of the given column.
 
@@ -292,7 +422,7 @@ class scPrinterDataset(RayGenomeDataset):
         self._working_dataset = self._working_dataset.filter(_filter)
         return
 
-    def dna_to_float(self) -> None:
+    def _dna_to_float(self) -> None:
         """
         Convert the DNA data to float.
 
@@ -300,11 +430,27 @@ class scPrinterDataset(RayGenomeDataset):
         -------
         None
         """
-        _map = BatchToFloat(self.dna_name)
+        dna_columns, _ = self.get_dna_and_signal_columns()
+        _map = BatchToFloat(dna_columns)
         self._working_dataset = self._working_dataset.map_batches(_map)
         return
 
-    def crop_regions(self) -> None:
+    def _reverse_complement_region(self, *args, **kwargs) -> None:
+        """
+        Reverse complement the DNA sequences by 50% probability.
+
+        Returns
+        -------
+        None
+        """
+        dna_columns, signal_columns = self.get_dna_and_signal_columns()
+        _rc = ReverseComplement(
+            dna_key=dna_columns, signal_key=signal_columns, input_type="row"
+        )
+        self._working_dataset = self._working_dataset.map(_rc, *args, **kwargs)
+        return
+
+    def _crop_regions(self, *args, **kwargs) -> None:
         """
         Crop the regions in the working dataset.
 
@@ -312,22 +458,45 @@ class scPrinterDataset(RayGenomeDataset):
         -------
         None
         """
-        _map = BatchCropRegions(
-            self.dna_name,
-            self.region_ids_name,
-            self.dna_flank,
-            self.signal_flank,
-            self.max_jitter,
+        if self._dataset_mode != "train":
+            max_jitter = 0
+        else:
+            max_jitter = self.max_jitter
+
+        dna_columns, signal_columns = self.get_dna_and_signal_columns()
+        key_list = dna_columns + signal_columns
+        length_list = [self.dna_window] * len(dna_columns) + [self.signal_window] * len(
+            signal_columns
         )
-        self._working_dataset = self._working_dataset.map_batches(_map)
+
+        _cropper = CropRegionsWithJitter(
+            key=key_list,
+            final_length=length_list,
+            max_jitter=max_jitter,
+            input_type="row",
+        )
+        self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
 
-    def reverse_complement(self) -> None:
+    def _get_footprint_func(self) -> None:
         """
-        Reverse complement the DNA sequences.
+        Compute the footprint.
 
         Returns
         -------
         None
         """
-        return
+        _, bias_columns, signal_columns = self.get_dna_and_signal_columns(
+            separate_bias=True
+        )
+        assert len(bias_columns) == 1, f"Bias columns must be one, got {bias_columns}"
+
+        _footprint = BatchFootPrint(
+            atac_key=signal_columns,
+            bias_key=bias_columns[0],
+            modes=self.modes,
+            clip_min=self.clip_min,
+            clip_max=self.clip_max,
+            numpy=False,
+        )
+        return _footprint

@@ -234,7 +234,7 @@ class FootPrintModel(_dispModel):
 
         if numpy:
             if isinstance(_fp, torch.Tensor):
-                _fp = _fp.cpu().numpy()
+                _fp = _fp.detach().cpu().numpy()
             return _fp
         else:
             return _fp
