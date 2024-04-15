@@ -2133,6 +2133,8 @@ def prepare_chromosome_dataset(
     """
 
     def _str_path_to_dict(p: Union[str, Dict[str, str], List[str]]) -> Dict[str, str]:
+        if p is None:
+            return {}
         if isinstance(p, dict):
             p = {k: str(pathlib.Path(v).absolute().resolve()) for k, v in p.items()}
             return p
@@ -2154,7 +2156,7 @@ def prepare_chromosome_dataset(
     chrom_region_configs = defaultdict(dict)
     for region_name, region_path in regions_config.items():
         region_bed = pr.read_bed(region_path, as_df=True)
-        for chrom, chrom_region_bed in region_bed.df.groupby("Chromosome"):
+        for chrom, chrom_region_bed in region_bed.groupby("Chromosome"):
             chrom_region_configs[chrom][region_name] = chrom_region_bed
 
     # prepare the dataset for each chromosome
@@ -2163,6 +2165,8 @@ def prepare_chromosome_dataset(
         desc="Preparing chromosome datasets",
         total=len(chrom_region_configs),
     )
+    if isinstance(genome, str):
+        genome = Genome(genome)
     for chrom, chrom_region_config in bar:
         ensemble = GenomeEnsembleDataset(genome)
 
