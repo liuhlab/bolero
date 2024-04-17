@@ -1,14 +1,13 @@
+import os
 import pathlib
 from collections import defaultdict
-from typing import List, Union, Optional
-import joblib
+from typing import List, Optional, Union
+
 import numpy as np
 import pyarrow
 import ray
 from pyarrow.fs import FileSystem
 from ray.data.dataset import Dataset
-import os
-
 
 DNA_NAME = "dna_one_hot"
 REGION_IDS_NAME = "region_ids"
@@ -62,6 +61,33 @@ class RayGenomeDataset:
         self.regions: List[str] = self._parse_regions_and_samples()[0]
         self.samples: List[str] = self._parse_regions_and_samples()[1]
         self.columns: List[str] = list(self.schema.keys())
+
+        # working dataset for producing data loaders
+        self._dataset_mode = None
+        self._working_dataset = None
+        return
+
+    def train(self) -> None:
+        """
+        Set the dataset mode to "train".
+
+        Returns
+        -------
+        None
+        """
+        self._dataset_mode = "train"
+        return
+
+    def eval(self) -> None:
+        """
+        Set the dataset mode to "eval".
+
+        Returns
+        -------
+        None
+        """
+        self._dataset_mode = "eval"
+        return
 
     def __len__(self) -> int:
         return self.dataset.count()

@@ -15,8 +15,6 @@ from typing import Union
 
 import numpy as np
 
-from bolero.tl.footprint.footprint import FootPrintModel
-
 
 class CropRegionsWithJitter:
     """Crop regions from the input data batch."""
@@ -68,7 +66,9 @@ class CropRegionsWithJitter:
             dict: The cropped data batch.
         """
         if self.max_jitter > 0:
-            jitter = np.random.default_rng().integers(self.max_jitter * 2) - self.max_jitter
+            jitter = (
+                np.random.default_rng().integers(self.max_jitter * 2) - self.max_jitter
+            )
         else:
             jitter = 0
 
@@ -140,7 +140,6 @@ class ReverseComplement:
             dict: The modified data dictionary with the DNA sequence and signal(s) reversed and complemented.
 
         """
-
         if np.random.default_rng().random() > self.prob:
             # reverse complement DNA
             for k in self.dna_key:

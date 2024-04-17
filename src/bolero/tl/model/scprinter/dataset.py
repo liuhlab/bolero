@@ -8,9 +8,9 @@ from bolero.tl.dataset.ray_dataset import RayGenomeDataset
 from bolero.tl.dataset.transforms import (
     BatchToFloat,
     CropRegionsWithJitter,
-    FootPrintModel,
     ReverseComplement,
 )
+from bolero.tl.footprint import FootPrintModel
 
 
 class BatchFootPrint(FootPrintModel):
@@ -221,31 +221,6 @@ class scPrinterDataset(RayGenomeDataset):
         self.reverse_complement = reverse_complement
         self.clip_min = clip_min
         self.clip_max = clip_max
-
-        self._dataset_mode = None
-        self._working_dataset = None
-        return
-
-    def train(self) -> None:
-        """
-        Set the dataset mode to "train".
-
-        Returns
-        -------
-        None
-        """
-        self._dataset_mode = "train"
-        return
-
-    def eval(self) -> None:
-        """
-        Set the dataset mode to "eval".
-
-        Returns
-        -------
-        None
-        """
-        self._dataset_mode = "eval"
         return
 
     def _dataset_preprocess(self, column) -> None:
