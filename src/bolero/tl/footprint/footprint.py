@@ -187,6 +187,7 @@ class FootPrintModel(_dispModel):
         self,
         atac,
         bias,
+        modes=None,
         clip_min: int = -10,
         clip_max: int = 10,
         return_pval: bool = False,
@@ -228,6 +229,9 @@ class FootPrintModel(_dispModel):
         else:
             bias = torch.as_tensor(bias, dtype=torch.float32, device=self.device)
 
+        if modes is None:
+            modes = self.modes
+
         # add batch dimension if necessary
         if len(atac.shape) == 1:
             atac = atac.unsqueeze(0)
@@ -238,7 +242,7 @@ class FootPrintModel(_dispModel):
             _fp = self.forward(
                 atac=atac,
                 bias=bias,
-                modes=self.modes,
+                modes=modes,
                 clip_min=clip_min,
                 clip_max=clip_max,
             )
@@ -551,11 +555,6 @@ class FootPrintModel(_dispModel):
         torch.Tensor or np.ndarray
             A tensor or array containing the computed footprint.
         """
-        if modes is None:
-            modes = self.modesmodes = self.modes
-        else:
-            modes = np.array(modes)
-
         _fp = self._calculate_footprint(
             atac=atac_data,
             bias=bias_data,
@@ -564,6 +563,7 @@ class FootPrintModel(_dispModel):
             return_pval=return_pval,
             smooth_radius=smooth_radius,
             numpy=numpy,
+            modes=modes,
         )
         return _fp
 

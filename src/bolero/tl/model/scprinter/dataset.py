@@ -223,6 +223,17 @@ class scPrinterDataset(RayGenomeDataset):
         self.clip_max = clip_max
         return
 
+    def __repr__(self) -> str:
+        _super_str = super().__repr__()
+        _str = (
+            f"scPrinterDataset for {len(self)} regions.\n"
+            f"DNA window: {self.dna_window}, Signal window: {self.signal_window},\n"
+            f"Max jitter: {self.max_jitter}, Batch size: {self.batch_size},\n"
+            f"DNA name: {self.dna_name}, Bias name: {self.bias_name}\n"
+            f"Regions: {self.regions},\nSamples: {self.samples}\n" + _super_str
+        )
+        return _str
+
     def _dataset_preprocess(self, column) -> None:
         """
         Preprocess the dataset.

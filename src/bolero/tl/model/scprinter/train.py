@@ -1,4 +1,5 @@
 import gc
+import json
 import math
 import pathlib
 
@@ -58,11 +59,9 @@ def _pearson_correlation(x, y, mean_x, mean_y, bs=1e6):
 class scFootprintTrainer:
     """scFootprintBPNet model for training on pseudobulk ATAC data."""
 
-    defalut_config = {
-        "data_dir": "data",
-        "model_dir": "model",
-        "temp_dir": "temp",
-        "savename": "model",
+    default_config = {
+        "output_dir": "./scprinter",
+        "savename": "WANDB_RUN_NAME",
         "n_layers": 8,
         "n_filters": 1024,
         "kernel_size": 3,
@@ -94,8 +93,8 @@ class scFootprintTrainer:
         "max_jitter": 128,
         "cov_min_q": 0.0001,
         "cov_max_q": 0.9999,
-        "clip_min": 10,
-        "clip_max": 1e9,
+        "clip_min": -10,
+        "clip_max": 10,
         "reverse_complement": True,
         "local_shuffle_buffer_size": 10000,
         "randomize_block_order": False,
@@ -114,6 +113,29 @@ class scFootprintTrainer:
         """
         return cls.default_config
 
+    @classmethod
+    def make_config(cls, **kwargs) -> dict:
+        """
+        Make a configuration dictionary.
+
+        Args:
+            **kwargs: Additional keyword arguments to update the configuration.
+
+        Returns
+        -------
+            dict: Configuration dictionary.
+        """
+        config = cls.default_config.copy()
+        config.update(kwargs)
+        # check if all required fields are present
+        missing_keys = []
+        for key, value in config.items():
+            if value == "REQUIRED":
+                missing_keys.append(key)
+        if missing_keys:
+            raise ValueError(f"Missing required fields: {missing_keys}")
+        return config
+
     def __init__(self, config: dict):
         """
         Initialize the scFootprintTrainer class.
@@ -123,7 +145,7 @@ class scFootprintTrainer:
         """
         self.config = config
 
-    def _setup_wandb(self, config: dict):
+    def _setup_wandb(self):
         """
         Set up Weights and Biases for logging.
 
@@ -134,6 +156,8 @@ class scFootprintTrainer:
         -------
             Weights and Biases run context.
         """
+        self._setup_config()
+        config = self.config
         wandb_context = wandb.init(config=config)
         self.run_name = wandb.run.name
         self.config = wandb.config
@@ -165,7 +189,7 @@ class scFootprintTrainer:
             return True
         return False
 
-    def _setup_env(self, config):
+    def _setup_env(self):
         config = self.config
 
         # setup torch environment
@@ -174,13 +198,19 @@ class scFootprintTrainer:
         self.device = try_gpu()
 
         # setup directory
-        self.data_dir = config["data_dir"]
-        self.model_dir = config["model_dir"]
-        self.temp_dir = config["temp_dir"]
-        # save model
-        self.savename = config["savename"]
+        self.output_dir = config["output_dir"]
+        self.output_dir = pathlib.Path(self.output_dir).absolute().resolve()
 
-        # TODO check if checkpoint exists
+        # save model
+        savename = config["savename"]
+        if savename == "WANDB_RUN_NAME":
+            savename = wandb.run.name
+        self.savename = str(self.output_dir / savename)
+
+        # save config to output_dir
+        with open(f"{self.savename}_config.json", "w") as f:
+            json.dump(dict(self.config), f, indent=4)
+
         self.checkpoint = self._find_last_checkpoint()
         return
 
@@ -262,11 +292,12 @@ class scFootprintTrainer:
     def _setup_model_from_checkpoint(self):
         self._cleanup_env()
 
+        config = self.config
         checkpoint = torch.load(self.savename)
 
         # adjust epochs
         epoch = checkpoint["epoch"]
-        self.max_epochs = max(0, self.max_epochs - epoch)
+        self.max_epochs = max(0, config["max_epochs"] - epoch)
         self.early_stopping_counter = checkpoint["early_stopping_counter"]
 
         # load state dict
@@ -282,6 +313,11 @@ class scFootprintTrainer:
         torch.cuda.empty_cache()
         return
 
+    def _set_total_params(self):
+        self.total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print("Total model parameters", self.total_params)
+        return
+
     def _setup_model(self):
         if self.checkpoint:
             model, dna_len, output_len = self._setup_model_from_checkpoint()
@@ -294,6 +330,8 @@ class scFootprintTrainer:
         self.forward = self.scp_model.forward
         self.dna_len = dna_len
         self.output_len = output_len
+
+        self._set_total_params()
         return
 
     def _setup_dataset(self):
@@ -330,6 +368,10 @@ class scFootprintTrainer:
         self.train_downsample = config["train_downsample"]
         self.valid_downsample = config["valid_downsample"]
 
+        # The footprint function will trim 100bp from both ends of the signal to account for border effects
+        # Therefore the signal window should be 200bp longer than the output length of the model
+        signal_window = output_len + 200
+
         # setup dataset
         datasets = (
             scPrinterDataset(
@@ -338,7 +380,7 @@ class scFootprintTrainer:
                 bias_name=bias_name,
                 batch_size=batch_size,
                 dna_window=dna_len,
-                signal_window=output_len,
+                signal_window=signal_window,
                 max_jitter=max_jitter,
                 cov_min_q=cov_min_q,
                 cov_max_q=cov_max_q,
@@ -350,6 +392,9 @@ class scFootprintTrainer:
             for _chroms in [train_chroms, valid_chroms, test_chroms]
         )
         self.train_dataset, self.valid_dataset, self.test_dataset = datasets
+        self.train_dataset.train()
+        self.valid_dataset.eval()
+        self.test_dataset.eval()
         return
 
     def _get_ema(self):
@@ -388,7 +433,6 @@ class scFootprintTrainer:
         self.patience = config["patience"]
         self.early_stopping_counter = 0
         self.best_val_loss = float("inf")
-        self.best_epoch = 0
         self.accumulate_grad = 1
 
         # scaler
@@ -407,7 +451,7 @@ class scFootprintTrainer:
             self.scheduler = None
 
         # EMA model
-        self.use_ema = config.get("use_ema", False)
+        self.use_ema = config["use_ema"]
         if self.use_ema:
             self.ema = self._get_ema()
         else:
@@ -422,19 +466,21 @@ class scFootprintTrainer:
     def _model_validation_step(
         self, model, val_dataset, val_downsample, sample, region
     ):
-        validation_size = len(val_dataset // val_dataset.batch_size)
         val_data_loader = val_dataset.get_dataloader(
             sample=sample,
             region=region,
             local_shuffle_buffer_size=0,
             randomize_block_order=False,
-            downsample=val_downsample,
+            downsample_rate=val_downsample,
         )
         atac_key = f"{region}|{sample}"
         dna_key = f"{region}|{val_dataset.dna_name}"
         footprint_key = f"{region}|{sample}_footprint"
         footprinter = val_dataset.get_footprinter()
 
+        validation_size = (
+            int(len(val_dataset) * val_downsample) // val_dataset.batch_size
+        )
         bar = trange(
             validation_size, desc=" - (Validation)", leave=False, dynamic_ncols=True
         )
@@ -456,8 +502,7 @@ class scFootprintTrainer:
             # ==========
             # y_footprint, y_coverage
             # ==========
-            random_modes = np.random.permutation(self.modes)[: self.select_n_modes]
-            batch = footprinter(data=batch, modes=random_modes)
+            batch = footprinter(data=batch)
             y_footprint = batch[footprint_key]
             mask = ~torch.isnan(
                 y_footprint
@@ -656,7 +701,8 @@ class scFootprintTrainer:
 
         for epoch in range(self.max_epochs):
             bar = trange(
-                len(training_dataset) // training_dataset.batch_size,
+                int(len(training_dataset) * train_downsample)
+                // training_dataset.batch_size,
                 desc=f" - (Training) {epoch + 1}",
                 leave=False,
                 dynamic_ncols=True,
@@ -667,7 +713,7 @@ class scFootprintTrainer:
                 region=region,
                 local_shuffle_buffer_size=local_shuffle_buffer_size,
                 randomize_block_order=randomize_block_order,
-                downsample=train_downsample,
+                downsample_rate=train_downsample,
             )
 
             moving_avg_loss = 0
@@ -676,7 +722,9 @@ class scFootprintTrainer:
             self.val_loss = None
             for batch in train_data_loader:
                 with torch.autocast(
-                    device_type=self.device, dtype=torch.bfloat16, enabled=self.use_amp
+                    device_type=str(self.device),
+                    dtype=torch.bfloat16,
+                    enabled=self.use_amp,
                 ):
                     # ==========
                     # X
@@ -715,10 +763,8 @@ class scFootprintTrainer:
 
                     if np.isnan(loss.item()):
                         nan_loss = True
-                        raise NotImplementedError
-                        ema, optimizer, scaler = self.load_train_state_dict(
-                            ema, optimizer, scaler, self.savename
-                        )
+                        print("Training loss has NaN, skipping epoch.")
+                        self._setup_model_from_checkpoint()
                         break
 
                 # ==========
@@ -763,10 +809,8 @@ class scFootprintTrainer:
             )
 
             if np.isnan(self.val_loss):
-                raise NotImplementedError
-                ema, optimizer, scaler = self.load_train_state_dict(
-                    ema, optimizer, scaler, self.savename
-                )
+                print("Validation loss is NaN, skipping epoch.")
+                self._setup_model_from_checkpoint()
                 continue
 
             stop_flag = self._log_save_and_check_stop(epoch=epoch)
@@ -820,21 +864,12 @@ class scFootprintTrainer:
             None
         """
         with self._setup_wandb():
-            self.setup_config()
-
             self._setup_env()
-
             self._setup_model()
-
             self._setup_dataset()
-
             self._setup_fit()
-
             self._fit(sample=sample, region=region)
-
             self._test(sample=sample, region=region)
-
             self._cleanup_env()
-
             wandb.finish()
         return

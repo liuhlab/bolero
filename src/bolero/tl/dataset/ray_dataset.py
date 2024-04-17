@@ -67,6 +67,9 @@ class RayGenomeDataset:
         self._working_dataset = None
         return
 
+    def __repr__(self) -> str:
+        return self.dataset.__repr__()
+
     def train(self) -> None:
         """
         Set the dataset mode to "train".

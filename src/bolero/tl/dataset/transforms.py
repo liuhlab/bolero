@@ -159,6 +159,11 @@ class BatchToFloat:
     ----------
     key : Union[str, list[str]]
         The key(s) of the data to be converted to float type.
+    swapaxes : bool, optional
+        For torch conv1d, the input shape should be (batch, channel, length).
+        The genome one-hot encoding has shape (batch, length, channel).
+        Set swapaxes to true to move the channel axis to the second position.
+        Defaults to True.
 
     Returns
     -------
@@ -166,10 +171,11 @@ class BatchToFloat:
         The modified data dictionary with the specified key(s) converted to float type.
     """
 
-    def __init__(self, key: Union[str, list[str]]):
+    def __init__(self, key: Union[str, list[str]], swapaxes=True):
         if isinstance(key, str):
             key = [key]
         self.key = key
+        self.swapaxes = swapaxes
 
     def __call__(self, data: dict) -> dict:
         """
@@ -187,9 +193,12 @@ class BatchToFloat:
         """
         for k in self.key:
             if isinstance(data[k], np.ndarray):
-                data[k] = data[k].astype(np.float32)
+                _data = data[k].astype(np.float32)
             else:
-                data[k] = data[k].float()
+                _data = data[k].float()
+            if self.swapaxes:
+                _data = _data.swapaxes(-1, -2)
+            data[k] = _data
         return data
 
 
