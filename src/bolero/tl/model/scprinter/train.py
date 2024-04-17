@@ -648,7 +648,7 @@ class scFootprintTrainer:
         randomize_block_order = self.randomize_block_order
 
         # backpropagation related
-        footprinter = training_dataset.get_footprinter()
+        footprinter = training_dataset.get_footprinter(region=region)
         scaler = self.scaler
         optimizer = self.optimizer
         scheduler = self.scheduler

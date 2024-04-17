@@ -241,7 +241,10 @@ class scPrinterDataset(RayGenomeDataset):
         return
 
     def get_footprinter(
-        self, region: Optional[str] = None, sample: Optional[str] = None
+        self,
+        region: Optional[str] = None,
+        sample: Optional[str] = None,
+        visualizer=False,
     ) -> BatchFootPrint:
         """
         Get the footprint for a specific region and sample.
@@ -252,6 +255,9 @@ class scPrinterDataset(RayGenomeDataset):
             The region name (default is None).
         sample : str, optional
             The sample name (default is None).
+        visualizer : bool, optional
+            Whether to return p-values and smooth the data for better visualization (default is False).
+            For ML model, we used the raw z-scores to perform training and prediction, so this should be False.
 
         Returns
         -------
@@ -265,16 +271,31 @@ class scPrinterDataset(RayGenomeDataset):
                 raise ValueError(
                     "Region name not provided and could not be guessed, please provide the region name."
                 )
+        if sample is None:
+            samples = self.samples
+        else:
+            samples = sample
+            if isinstance(samples, str):
+                samples = [samples]
 
-        atac_keys = [f"{region}|{sample}" for sample in self.samples]
+        if visualizer:
+            return_pval = True
+            smooth_radius = 5
+            numpy = True
+        else:
+            return_pval = False
+            smooth_radius = None
+            numpy = False
+
+        atac_keys = [f"{region}|{sample}" for sample in samples]
         footprint = BatchFootPrint(
             atac_key=atac_keys,
             bias_key=f"{region}|{self.bias_name}",
             clip_min=self.clip_min,
             clip_max=self.clip_max,
-            return_pval=False,
-            smooth_radius=None,
-            numpy=False,
+            return_pval=return_pval,
+            smooth_radius=smooth_radius,
+            numpy=numpy,
             device=None,
         )
         return footprint
@@ -286,6 +307,7 @@ class scPrinterDataset(RayGenomeDataset):
         downsample_rate: float = 1,
         local_shuffle_buffer_size: int = 10000,
         randomize_block_order: bool = False,
+        torch=True,
         **kwargs,
     ) -> Iterable:
         """
@@ -303,6 +325,8 @@ class scPrinterDataset(RayGenomeDataset):
             The size of the local shuffle buffer (default is 10000).
         randomize_block_order : bool, optional
             Whether to randomize the block order (default is False).
+        torch : bool, optional
+            Whether to return a iterator with batches data in torch tensor format (default is True).
         **kwargs
             Additional keyword arguments passed to the DataLoader.
 
@@ -315,6 +339,7 @@ class scPrinterDataset(RayGenomeDataset):
             raise ValueError(
                 "Set .train() or .eval() first before calling .get_dataloader()"
             )
+        self._working_dataset = self.dataset
 
         if sample is None:
             if len(self.samples) == 1:
@@ -323,7 +348,6 @@ class scPrinterDataset(RayGenomeDataset):
                 raise ValueError(
                     "Sample name not provided and could not be guessed, please provide the sample name."
                 )
-
         if region is None:
             if len(self.regions) == 1:
                 region = self.regions[0]
@@ -331,13 +355,26 @@ class scPrinterDataset(RayGenomeDataset):
                 raise ValueError(
                     "Region name not provided and could not be guessed, please provide the region name."
                 )
-
         filter_column = f"{region}|{sample}"
+
+        if torch:
+            # the torch iterator can only handle float, int, and bool columns to torch tensors
+            use_columns = []
+            possible_dtypes = ("float", "int", "bool")
+            for column in self.columns:
+                column_schema = self.schema[column]
+                try:
+                    dtype = str(column_schema.scalar_type)
+                except AttributeError:
+                    dtype = str(column_schema)
+                for possible_dtype in possible_dtypes:
+                    if possible_dtype in dtype:
+                        use_columns.append(column)
+                        break
+            self._working_dataset = self._working_dataset.select_columns(use_columns)
 
         if randomize_block_order:
             self._working_dataset = self._working_dataset.randomize_block_order()
-
-        self._working_dataset = self.dataset
 
         if downsample_rate < 1:
             self._working_dataset = self._working_dataset.random_sample(
@@ -348,11 +385,18 @@ class scPrinterDataset(RayGenomeDataset):
 
         if "drop_last" not in kwargs:
             kwargs["drop_last"] = True if self._dataset_mode == "train" else False
-        loader = self._working_dataset.iter_torch_batches(
-            batch_size=self.batch_size,
-            local_shuffle_buffer_size=local_shuffle_buffer_size,
-            **kwargs,
-        )
+        if torch:
+            loader = self._working_dataset.iter_torch_batches(
+                batch_size=self.batch_size,
+                local_shuffle_buffer_size=local_shuffle_buffer_size,
+                **kwargs,
+            )
+        else:
+            loader = self._working_dataset.iter_batches(
+                batch_size=self.batch_size,
+                local_shuffle_buffer_size=local_shuffle_buffer_size,
+                **kwargs,
+            )
         return loader
 
     def set_min_max_counts_cutoff(self, column: str) -> None:

@@ -4,6 +4,7 @@ from typing import Optional, Union
 
 import numpy as np
 import pyBigWig
+import scipy
 import torch
 from scipy.ndimage import maximum_filter
 
@@ -55,6 +56,24 @@ def zscore2pval_torch(footprint):
     pval_log = torch.clamp(pval_log, min=0, max=10)
 
     return pval_log
+
+
+def zscore2pval(footprint: np.ndarray) -> np.ndarray:
+    """
+    Convert z-scores to p-values using the scipy library.
+
+    Parameters
+    ----------
+    - footprint (np.ndarray): An array containing z-scores.
+
+    Returns
+    -------
+    - pval (np.ndarray): An array containing the corresponding p-values in logarithmic scale.
+    """
+    pval = scipy.stats.norm.cdf(footprint, 0, 1)
+    pval = -np.log10(pval)
+    pval[np.isnan(pval)] = 0
+    return pval
 
 
 def rz_conv(a: np.ndarray, n: int = 2) -> np.ndarray:
@@ -547,3 +566,40 @@ class FootPrintModel(_dispModel):
             numpy=numpy,
         )
         return _fp
+
+    @staticmethod
+    def postprocess_footprint(
+        footprint: Union[torch.Tensor, np.ndarray], smooth_radius: int = 5
+    ) -> np.ndarray:
+        """
+        Postprocess the computed footprint.
+
+        Parameters
+        ----------
+        footprint : torch.Tensor or np.ndarray
+            The computed footprint.
+        smooth_radius : int, optional
+            The radius for smoothing the footprint.
+
+        Returns
+        -------
+        np.ndarray
+            The postprocessed footprint.
+
+        Notes
+        -----
+        This method takes the computed footprint and performs postprocessing steps on it. If the footprint is a torch.Tensor,
+        it is converted to a numpy array and then postprocessed. The postprocessing steps include converting the z-scores to p-values,
+        smoothing the footprint using a rolling window of the specified radius.
+
+        The smoothed footprint is returned as a numpy array.
+        """
+        if isinstance(footprint, torch.Tensor):
+            footprint = footprint.clone()
+            footprint = zscore2pval_torch(footprint)
+            footprint = footprint.cpu().numpy()
+        else:
+            footprint = zscore2pval(footprint)
+
+        footprint = smooth_footprint(footprint, smooth_radius)
+        return footprint

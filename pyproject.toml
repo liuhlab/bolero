@@ -19,6 +19,7 @@ urls.Source = "https://github.com/lhqing/bolero"
 urls.Home-page = "https://github.com/lhqing/bolero"
 dependencies = [
     "anndata",
+    "beartype",
     "biopython",
     "bolero_process",
     "deeptools",
