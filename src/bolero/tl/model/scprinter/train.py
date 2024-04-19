@@ -2,6 +2,7 @@ import gc
 import json
 import math
 import pathlib
+from typing import Union
 
 import numpy as np
 import torch
@@ -14,6 +15,122 @@ from tqdm import trange
 
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.utils import try_gpu
+
+
+class CumulativeCounter:
+    """Cumulative counter for calculating mean and sum of values."""
+
+    def __init__(self):
+        self.total = 0
+        self.count = 0
+
+    def update(self, value: Union[np.ndarray, torch.Tensor]) -> None:
+        """
+        Update the cumulative counter with a new value.
+
+        Parameters
+        ----------
+            value (np.ndarray or torch.Tensor): The value to be added to the counter.
+        """
+        try:
+            self.total += float(np.nansum(value))
+        except TypeError:
+            # torch
+            self.total += float(torch.nansum(value).detach().cpu().item())
+        # both numpy and torch will work
+        self.count += np.prod(value.shape)
+
+    def mean(self) -> float:
+        """
+        Calculate the mean of the values in the counter.
+
+        Returns
+        -------
+            float: The mean value.
+        """
+        if self.count == 0:
+            return 0
+        return self.total / self.count
+
+    def sum(self) -> float:
+        """
+        Calculate the sum of the values in the counter.
+
+        Returns
+        -------
+            float: The sum value.
+        """
+        return self.total
+
+
+class CumulativePearson:
+    """Cumulative pearson counter for calculating the pearson correlation coefficient."""
+
+    def __init__(self):
+        self.count = 0
+        self.x_counter = CumulativeCounter()
+        self.y_counter = CumulativeCounter()
+        self.xy_counter = CumulativeCounter()
+        self.x2_counter = CumulativeCounter()
+        self.y2_counter = CumulativeCounter()
+
+    def update(
+        self, x: Union[np.ndarray, torch.Tensor], y: Union[np.ndarray, torch.Tensor]
+    ) -> None:
+        """
+        Update the cumulative pearson counter with new values.
+
+        Parameters
+        ----------
+            x (np.ndarray or torch.Tensor): The x values to be added to the counter.
+            y (np.ndarray or torch.Tensor): The y values to be added to the counter.
+        """
+        self.x_counter.update(x)
+        self.y_counter.update(y)
+        self.xy_counter.update(x * y)
+        self.x2_counter.update(x**2)
+        self.y2_counter.update(y**2)
+
+    def corr(self) -> float:
+        """
+        Calculate the pearson correlation coefficient.
+
+        Returns
+        -------
+            float: The pearson correlation coefficient.
+        """
+        nx = self.x_counter.count
+        ny = self.y_counter.count
+        assert nx == ny, "Length mismatch between x and y"
+        count = nx
+
+        if nx == 0:
+            return 0
+
+        sum_x = self.x_counter.sum()
+        mean_x = self.x_counter.mean()
+        sum_y = self.y_counter.sum()
+        mean_y = self.y_counter.mean()
+        sum_xy = self.xy_counter.sum()
+        sum_x2 = self.x2_counter.sum()
+        sum_y2 = self.y2_counter.sum()
+
+        covariance = sum_xy - mean_x * sum_y - mean_y * sum_x + count * mean_x * mean_y
+        variance_x = sum_x2 - 2 * mean_x * sum_x + count * mean_x**2
+        variance_y = sum_y2 - 2 * mean_y * sum_y + count * mean_y**2
+
+        # Pearson correlation
+        correlation = covariance / (
+            math.sqrt(variance_x * variance_y) + 1e-8
+        )  # Adding small value for numerical stability
+        return correlation
+
+
+def _safe_save(obj, path):
+    temp_path = f"{path}.temp"
+    torch.save(obj, temp_path)
+    pathlib.Path(temp_path).rename(path)
+    return
 
 
 def _batch_pearson_correlation(x, y):
@@ -100,6 +217,7 @@ class scFootprintTrainer:
         "randomize_block_order": False,
         "train_downsample": 1,
         "valid_downsample": 0.5,
+        "plot_example_per_epoch": 3,
     }
 
     @classmethod
@@ -290,14 +408,17 @@ class scFootprintTrainer:
         return acc_model, dna_len, output_len
 
     def _setup_model_from_checkpoint(self):
-        self._cleanup_env()
+        # load model if not exists
+        model = torch.load(self.savename + ".model.pt")
+        return model, model.dna_len, model.output_len
 
-        config = self.config
+    def _update_state_dict(self):
+        self._cleanup_env()
         checkpoint = torch.load(self.savename)
 
         # adjust epochs
         epoch = checkpoint["epoch"]
-        self.max_epochs = max(0, config["max_epochs"] - epoch)
+        self.max_epochs = max(0, self.config["max_epochs"] - epoch)
         self.early_stopping_counter = checkpoint["early_stopping_counter"]
 
         # load state dict
@@ -319,6 +440,7 @@ class scFootprintTrainer:
         return
 
     def _setup_model(self):
+        self.scp_model = None
         if self.checkpoint:
             model, dna_len, output_len = self._setup_model_from_checkpoint()
         else:
@@ -432,8 +554,10 @@ class scFootprintTrainer:
         self.max_epochs = config["max_epochs"]
         self.patience = config["patience"]
         self.early_stopping_counter = 0
+        self.early_stoped = False
         self.best_val_loss = float("inf")
         self.accumulate_grad = 1
+        self.cur_epoch = 0
 
         # scaler
         self.use_amp = config["use_amp"]
@@ -461,6 +585,17 @@ class scFootprintTrainer:
         self.modes = np.arange(2, 101, 1)
         self.modes_index = list(self.modes)
         self.select_n_modes = 30
+        self.plot_example_per_epoch = config["plot_example_per_epoch"]
+        if not self.plot_example_per_epoch:
+            self.plot_example_per_epoch = 0
+
+        # update state dict if checkpoint exists
+        if self.checkpoint:
+            self._update_state_dict()
+        else:
+            # save the very first checkpoint to allow init even first epoch fails
+            self._save_checkpint(epoch=0)
+        return
 
     @torch.no_grad()
     def _model_validation_step(
@@ -475,6 +610,7 @@ class scFootprintTrainer:
         )
         atac_key = f"{region}|{sample}"
         dna_key = f"{region}|{val_dataset.dna_name}"
+        bias_key = f"{region}|{val_dataset.bias_name}"
         footprint_key = f"{region}|{sample}_footprint"
         footprinter = val_dataset.get_footprinter()
 
@@ -484,14 +620,19 @@ class scFootprintTrainer:
         bar = trange(
             validation_size, desc=" - (Validation)", leave=False, dynamic_ncols=True
         )
-        total_len = 0
+
         size = 0
-        profile_pearson = []
-        across_batch_pearson = [[], []]
-        across_batch_pearson_coverage = [[], []]
         val_loss = [0]
-        mean_pred_score, mean_y, mean_pred_coverage, mean_coverage = 0, 0, 0, 0
-        for batch in val_data_loader:
+        profile_pearson_counter = CumulativeCounter()
+        across_batch_pearson_fp = CumulativePearson()
+        across_batch_pearson_cov = CumulativePearson()
+
+        example_batch_ids = {
+            np.random.randint(validation_size)
+            for _ in range(self.plot_example_per_epoch)
+        }
+        example_batches = []  # collect example batches for making images
+        for batch_id, batch in enumerate(val_data_loader):
             # ==========
             # X
             # ==========
@@ -515,6 +656,7 @@ class scFootprintTrainer:
             # Forward and Loss
             # ==========
             pred_score, pred_coverage = model(X, cells=cell)
+            pred_score_img = pred_score.clone().detach().cpu().numpy()
             y_footprint = torch.nan_to_num(y_footprint, nan=0)
             loss_ = F.mse_loss(pred_score[mask], y_footprint[mask])
             pred_score = pred_score.reshape((len(pred_score), -1))
@@ -530,25 +672,24 @@ class scFootprintTrainer:
                 .detach()
                 .cpu()[:, None]
             )
-            profile_pearson.append(corr)
+            profile_pearson_counter.update(corr)
             # save for across batch pearson
-            mean_pred_score += pred_score.mean() * len(pred_score)
-            mean_y += y_footprint.mean() * len(y_footprint)
-            mean_pred_coverage += pred_coverage.mean() * len(pred_coverage)
-            mean_coverage += y_coverage.mean() * len(y_coverage)
-            total_len += len(pred_score)
-            across_batch_pearson[0].append(pred_score.detach().cpu().reshape(-1))
-            across_batch_pearson[1].append(y_footprint.detach().cpu().reshape(-1))
-            across_batch_pearson_coverage[0].append(
-                y_coverage.detach().cpu().reshape(-1)
-            )
-            across_batch_pearson_coverage[1].append(
-                pred_coverage.detach().cpu().reshape(-1)
-            )
-            size += 1
+            across_batch_pearson_fp.update(pred_score, y_footprint)
+            across_batch_pearson_cov.update(pred_coverage, y_coverage)
 
+            size += 1
             bar.update(1)
+
+            if batch_id in example_batch_ids:
+                batch["pred_score"] = pred_score_img
+                example_batches.append(batch)
+
         bar.close()
+        del val_data_loader
+        self._cleanup_env()
+        wandb_images = self._plot_example_footprints(
+            example_batches, footprinter, atac_key, bias_key, footprint_key
+        )
 
         # ==========
         # Loss
@@ -559,40 +700,53 @@ class scFootprintTrainer:
         # ==========
         # Within batch pearson
         # ==========
-        if len(profile_pearson) > 0:
-            profile_pearson = (
-                torch.cat(profile_pearson, dim=0).mean(dim=0).detach().cpu().numpy()
-            )
-        else:
-            profile_pearson = np.array([0])
+        profile_pearson = np.array([profile_pearson_counter.mean()])
 
         # ==========
         # Across batch pearson
         # ==========
-        pred_score, y_footprint = (
-            torch.cat(across_batch_pearson[0], dim=0),
-            torch.cat(across_batch_pearson[1], dim=0),
-        )
-        pred_coverage, y_coverage = (
-            torch.cat(across_batch_pearson_coverage[1], dim=0),
-            torch.cat(across_batch_pearson_coverage[0], dim=0),
-        )
-        mean_pred_score /= total_len
-        mean_y /= total_len
-        mean_pred_coverage /= total_len
-        mean_coverage /= total_len
         across_corr = [
-            _pearson_correlation(pred_score, y_footprint, mean_pred_score, mean_y),
-            _pearson_correlation(
-                pred_coverage, y_coverage, mean_pred_coverage, mean_coverage
-            ),
+            across_batch_pearson_fp.corr(),
+            across_batch_pearson_cov.corr(),
         ]
-        return val_loss, profile_pearson, across_corr
+        return val_loss, profile_pearson, across_corr, wandb_images
+
+    def _plot_example_footprints(
+        self, example_batches, footprinter, atac_key, bias_key, footprint_key
+    ):
+        import matplotlib.pyplot as plt
+
+        from .plot import FootPrintExamplePlotter, figure_to_array
+
+        epoch = self.cur_epoch + 1
+        wandb_images = []
+        for idx, batch in enumerate(example_batches):
+            plotter = FootPrintExamplePlotter(
+                signal=batch[atac_key],
+                bias=batch[bias_key],
+                target=batch[footprint_key],
+                predict=batch["pred_score"],
+                footprinter=footprinter,
+            )
+            fig, _ = plotter.plot()
+            fig_array = figure_to_array(fig)
+            plt.close(fig)
+
+            wandb_images.append(
+                wandb.Image(
+                    fig_array,
+                    mode="RGB",
+                    caption=f"Epoch {epoch} Example {idx}",
+                    grouping=epoch,
+                    file_type="jpg",  # reduce file size
+                )
+            )
+        return wandb_images
 
     def _validation_step(self, sample, region, testing=False):
         if testing:
             _dataset = self.test_dataset
-            _downsample = 1
+            _downsample = self.valid_downsample
         else:
             _dataset = self.valid_dataset
             _downsample = self.valid_downsample
@@ -600,30 +754,34 @@ class scFootprintTrainer:
         if self.use_ema:
             self.ema.eval()
             self.ema.ema_model.eval()
-            val_loss, profile_pearson, across_pearson = self._model_validation_step(
-                model=self.ema.ema_model,
-                val_dataset=_dataset,
-                val_downsample=_downsample,
-                sample=sample,
-                region=region,
+            val_loss, profile_pearson, across_pearson, wandb_images = (
+                self._model_validation_step(
+                    model=self.ema.ema_model,
+                    val_dataset=_dataset,
+                    val_downsample=_downsample,
+                    sample=sample,
+                    region=region,
+                )
             )
             self.ema.train()
             self.ema.ema_model.train()
         else:
             self.eval()
-            val_loss, profile_pearson, across_pearson = self._model_validation_step(
-                model=self,
-                val_dataset=_dataset,
-                val_downsample=_downsample,
-                sample=sample,
-                region=region,
+            val_loss, profile_pearson, across_pearson, wandb_images = (
+                self._model_validation_step(
+                    model=self,
+                    val_dataset=_dataset,
+                    val_downsample=_downsample,
+                    sample=sample,
+                    region=region,
+                )
             )
             self.train()
-        return val_loss, profile_pearson, across_pearson
+        return val_loss, profile_pearson, across_pearson, wandb_images
 
     def _save_checkpint(self, epoch):
         checkpoint = {
-            "epoch": epoch,
+            "epoch": epoch + 1,
             "early_stopping_counter": self.early_stopping_counter,
             "state_dict": self.scp_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
@@ -631,14 +789,14 @@ class scFootprintTrainer:
             "scheduler": self.scheduler.state_dict() if self.scheduler else None,
             "ema": self.ema.state_dict() if self.use_ema else None,
         }
-        torch.save(checkpoint, self.savename)
-        torch.save(self.scp_model, self.savename + ".model.pt")
+        _safe_save(checkpoint, self.savename)
+        _safe_save(self.scp_model, self.savename + ".model.pt")
         if self.use_ema:
-            torch.save(self.ema, self.savename + ".ema.pt")
-            torch.save(self.ema.ema_model, self.savename + ".ema_model.pt")
+            _safe_save(self.ema, self.savename + ".ema.pt")
+            _safe_save(self.ema.ema_model, self.savename + ".ema_model.pt")
         return
 
-    def _log_save_and_check_stop(self, epoch):
+    def _log_save_and_check_stop(self, epoch, example_images):
         train_loss = self.train_loss
         learning_rate = self.cur_lr
         val_loss = self.val_loss
@@ -673,7 +831,7 @@ class scFootprintTrainer:
                 "val/profile_pearson": profile_pearson[0],
                 "val/across_pearson_footprint": across_pearson[0],
                 "val/across_pearson_coverage": across_pearson[1],
-                "epoch": epoch,
+                "val_example/example_footprints": example_images,
             }
         )
 
@@ -698,8 +856,10 @@ class scFootprintTrainer:
         optimizer = self.optimizer
         scheduler = self.scheduler
         ema = self.ema
+        self.val_loss = None
 
         for epoch in range(self.max_epochs):
+            self.cur_epoch = epoch
             bar = trange(
                 int(len(training_dataset) * train_downsample)
                 // training_dataset.batch_size,
@@ -719,13 +879,22 @@ class scFootprintTrainer:
             moving_avg_loss = 0
             iteration = 0
             nan_loss = False
-            self.val_loss = None
             for batch in train_data_loader:
-                with torch.autocast(
-                    device_type=str(self.device),
-                    dtype=torch.bfloat16,
-                    enabled=self.use_amp,
-                ):
+                try:
+                    auto_cast_context = torch.autocast(
+                        device_type=str(self.device),
+                        dtype=torch.bfloat16,
+                        enabled=self.use_amp,
+                    )
+                except RuntimeError:
+                    # some GPU, such as L4 does not support bfloat16
+                    auto_cast_context = torch.autocast(
+                        device_type=str(self.device),
+                        dtype=torch.float16,
+                        enabled=self.use_amp,
+                    )
+
+                with auto_cast_context:
                     # ==========
                     # X
                     # ==========
@@ -764,7 +933,7 @@ class scFootprintTrainer:
                     if np.isnan(loss.item()):
                         nan_loss = True
                         print("Training loss has NaN, skipping epoch.")
-                        self._setup_model_from_checkpoint()
+                        self._update_state_dict()
                         break
 
                 # ==========
@@ -798,39 +967,52 @@ class scFootprintTrainer:
             if nan_loss:
                 # epoch break due to nan loss, skip validation
                 continue
-
             bar.close()
+            del train_data_loader
+            self._cleanup_env()
 
             self.train_loss = moving_avg_loss / iteration
             self.cur_lr = optimizer.param_groups[0]["lr"]
 
-            self.val_loss, self.val_profile_pearson, self.val_across_pearson = (
-                self._validation_step(sample=sample, region=region)
-            )
+            (
+                self.val_loss,
+                self.val_profile_pearson,
+                self.val_across_pearson,
+                wandb_images,
+            ) = self._validation_step(sample=sample, region=region)
 
             if np.isnan(self.val_loss):
                 print("Validation loss is NaN, skipping epoch.")
-                self._setup_model_from_checkpoint()
+                self._update_state_dict()
                 continue
 
-            stop_flag = self._log_save_and_check_stop(epoch=epoch)
+            stop_flag = self._log_save_and_check_stop(
+                epoch=epoch, example_images=wandb_images
+            )
             if stop_flag:
                 print(f"Early stopping at epoch {epoch+1}")
+                self.early_stoped = True
                 break
         return
 
     def _test(self, sample, region):
         if self.val_loss is None:
-            self.val_loss, self.val_profile_pearson, self.val_across_pearson = (
-                self._validation_step(sample=sample, region=region)
-            )
+            (
+                self.val_loss,
+                self.val_profile_pearson,
+                self.val_across_pearson,
+                _,
+            ) = self._validation_step(sample=sample, region=region)
         valid_across_pearson_footprint, valid_across_pearson_coverage = (
             self.val_across_pearson
         )
 
-        self.test_loos, self.test_profile_pearson, self.test_across_pearson = (
-            self._validation_step(sample=sample, region=region, testing=True)
-        )
+        (
+            self.test_loss,
+            self.test_profile_pearson,
+            self.test_across_pearson,
+            wandb_images,
+        ) = self._validation_step(sample=sample, region=region, testing=True)
         test_across_pearson_footprint, test_across_pearson_coverage = (
             self.test_across_pearson
         )
@@ -843,6 +1025,8 @@ class scFootprintTrainer:
         wandb.summary["final_test_within"] = self.test_profile_pearson[0]
         wandb.summary["final_test_across"] = test_across_pearson_footprint
         wandb.summary["final_test_cov"] = test_across_pearson_coverage
+        wandb.summary["final_image"] = wandb_images
+
         return
 
     def _cleanup_env(self):

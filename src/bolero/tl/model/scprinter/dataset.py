@@ -396,6 +396,8 @@ class scPrinterDataset(RayGenomeDataset):
 
         if "drop_last" not in kwargs:
             kwargs["drop_last"] = True if self._dataset_mode == "train" else False
+        if local_shuffle_buffer_size < self.batch_size:
+            local_shuffle_buffer_size = None
         if torch:
             loader = self._working_dataset.iter_torch_batches(
                 batch_size=self.batch_size,
