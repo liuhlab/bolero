@@ -14,7 +14,7 @@ from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
 from tqdm import trange
 
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
-from bolero.utils import try_gpu
+from bolero.utils import check_wandb_success, compare_configs, try_gpu
 
 
 class CumulativeCounter:
@@ -218,6 +218,9 @@ class scFootprintTrainer:
         "train_downsample": 1,
         "valid_downsample": 0.5,
         "plot_example_per_epoch": 3,
+        "wandb_project": "scprinter",
+        "wandb_job_type": "train",
+        "wandb_group": None,
     }
 
     @classmethod
@@ -276,12 +279,76 @@ class scFootprintTrainer:
         """
         self._setup_config()
         config = self.config
-        wandb_context = wandb.init(config=config)
-        self.run_name = wandb.run.name
-        self.config = wandb.config
 
-        print("Run name:", self.run_name)
-        return wandb_context
+        # setup directory
+        self.output_dir = config["output_dir"]
+        self.output_dir = pathlib.Path(self.output_dir).absolute().resolve()
+
+        wandb_run_info_path = self.output_dir / "wandb_run_info.json"
+
+        # load wandb run info file if exists
+        if wandb_run_info_path.exists():
+            with open(wandb_run_info_path) as f:
+                wandb_run_info = json.load(f)
+
+            # check if the previous run has finished successfully on W & B API
+            success = check_wandb_success(wandb_run_info["path"])
+            same_config = compare_configs(wandb_run_info["config"], config)
+            if same_config:
+                if success:
+                    print(
+                        f"W & B run {wandb_run_info['name']} was successful. Skipping."
+                    )
+                    return None
+                else:
+                    print(
+                        f"Resuming W & B run with name: {wandb_run_info['name']} and id: {wandb_run_info['id']}."
+                    )
+                    wandb_run = wandb.init(
+                        id=wandb_run_info["id"],
+                        project=config["wandb_project"],
+                        job_type=config["wandb_job_type"],
+                        entity=wandb_run_info["entity"],
+                        name=wandb_run_info["name"],
+                        group=wandb_run_info["group"],
+                        resume="allow",
+                    )
+            else:
+                print("W & B run exists with different config. Starting a new run.")
+                wandb_run = wandb.init(
+                    config=config,
+                    project=config["wandb_project"],
+                    job_type=config["wandb_job_type"],
+                    group=config["wandb_group"],
+                    save_code=True,
+                )
+        else:
+            wandb_run = wandb.init(
+                config=config,
+                project=config["wandb_project"],
+                job_type=config["wandb_job_type"],
+                group=config["wandb_group"],
+                save_code=True,
+            )
+
+        # save wandb
+        wandb_run_info = {
+            "id": wandb_run.id,
+            "name": wandb_run.name,
+            "project": wandb_run.project,
+            "entity": wandb_run.entity,
+            "job_type": wandb_run.job_type,
+            "url": wandb_run.url,
+            "path": wandb_run.path,
+            "group": wandb_run.group,
+            "config": dict(wandb_run.config),
+        }
+        with open(wandb_run_info_path, "w") as f:
+            json.dump(wandb_run_info, f, indent=4)
+
+        self.run_name = wandb.run.name
+        self.config = wandb.run.config
+        return wandb_run
 
     def _setup_config(self):
         # validate and split config for later steps
@@ -314,10 +381,6 @@ class scFootprintTrainer:
         torch.set_num_threads(4)
         torch.backends.cudnn.benchmark = True
         self.device = try_gpu()
-
-        # setup directory
-        self.output_dir = config["output_dir"]
-        self.output_dir = pathlib.Path(self.output_dir).absolute().resolve()
 
         # save model
         savename = config["savename"]
@@ -1027,6 +1090,8 @@ class scFootprintTrainer:
         wandb.summary["final_test_cov"] = test_across_pearson_coverage
         wandb.summary["final_image"] = wandb_images
 
+        # final wandb flag to indicate the run is successfully finished
+        wandb.summary["success"] = True
         return
 
     def _cleanup_env(self):
@@ -1047,7 +1112,11 @@ class scFootprintTrainer:
         -------
             None
         """
-        with self._setup_wandb():
+        wandb_run = self._setup_wandb()
+        if wandb_run is None:
+            return
+
+        with wandb_run:
             self._setup_env()
             self._setup_model()
             self._setup_dataset()

@@ -150,7 +150,7 @@ def get_default_save_dir(save_dir):
     return save_dir
 
 
-def get_file_size_gbs(self, url):
+def get_file_size_gbs(url):
     """Get the file size from a URL."""
     cmd = f"curl -sI {url} | grep -i Content-Length | awk '{{print $2}}'"
     size = subprocess.check_output(cmd, shell=True).decode().strip()
@@ -185,3 +185,54 @@ def download_file(url, local_path):
     # rename temp file to final file
     temp_path.rename(local_path)
     return
+
+
+def check_wandb_success(wandb_path):
+    """
+    Check if the wandb run was successful by checking the run state in the API.
+    """
+    import wandb
+
+    api = wandb.Api()
+
+    # run = api.run("your_entity/your_project_name/your_run_id")
+    run = api.run(wandb_path)
+    run_success = run.state == "finished" and run.summary.get("success", False)
+    return run_success
+
+
+def compare_configs(config1, config2):
+    """
+    Compare two dictionaries to see if they are identical, considering only
+    supported data types (numbers, strings, lists of numbers and strings, bools, and None).
+    Other data types are ignored in the comparison.
+    """
+
+    def _is_valid_value(value):
+        """Check if the value is of a supported type."""
+        if isinstance(value, (int, float, str, bool, type(None))):
+            return True
+        if isinstance(value, list):
+            return all(isinstance(item, (int, float, str)) for item in value)
+        return False
+
+    # Extract keys from both dictionaries considering only supported value types
+    keys1 = {key for key, value in config1.items() if _is_valid_value(value)}
+    keys2 = {key for key, value in config2.items() if _is_valid_value(value)}
+
+    # Check for identical sets of keys
+    if keys1 != keys2:
+        return False
+
+    # Compare values for each key
+    for key in keys1:
+        value1 = config1[key]
+        value2 = config2[key]
+
+        # Check for list to handle potential unordered elements
+        if isinstance(value1, list) and isinstance(value2, list):
+            if value1 != value2:
+                return False
+        elif value1 != value2:
+            return False
+    return True
