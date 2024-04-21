@@ -127,7 +127,7 @@ class FootPrintExamplePlotter:
         # calculate hue norm
         target_hue_norm = (0, 2)
         target_hue_min_quantile = (target < target_hue_norm[0]).sum() / target.size
-        target_hue_max_quantile = (target > target_hue_norm[1]).sum() / target.size
+        target_hue_max_quantile = (target < target_hue_norm[1]).sum() / target.size
         predict_hue_norm = (
             np.quantile(predict, target_hue_min_quantile),
             np.quantile(predict, target_hue_max_quantile),
