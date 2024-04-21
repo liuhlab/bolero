@@ -4,6 +4,7 @@ import math
 import pathlib
 from typing import Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -13,6 +14,7 @@ from scprinter.seq.Models import scFootprintBPNet
 from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
 from tqdm import trange
 
+from bolero.pl.footprint import FootPrintExamplePlotter, figure_to_array
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.utils import check_wandb_success, compare_configs, try_gpu
 
@@ -533,7 +535,7 @@ class scFootprintTrainer:
         test_chroms = chrom_split["test"]
 
         # dataset location and schema
-        dataset_dir = config["dataset_path"]
+        dataset_dir = config["dataset_path"].rstrip("/")
         columns = config["dataset_columns"]
         read_parquet_kwargs = config["read_parquet_kwargs"]
 
@@ -777,10 +779,6 @@ class scFootprintTrainer:
     def _plot_example_footprints(
         self, example_batches, footprinter, atac_key, bias_key, footprint_key
     ):
-        import matplotlib.pyplot as plt
-
-        from .plot import FootPrintExamplePlotter, figure_to_array
-
         epoch = self.cur_epoch + 1
         wandb_images = []
         for idx, batch in enumerate(example_batches):

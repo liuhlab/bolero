@@ -123,8 +123,22 @@ class FootPrintExamplePlotter:
         signal, bias, target, predict = self._take(idx)
         self._plot_fill_between(ax=axes[0], data=signal, title="Signal")
         self._plot_fill_between(ax=axes[1], data=bias, title="Bias")
-        self._plot_image(ax=axes[2], image=target, title="Target")
-        self._plot_image(ax=axes[3], image=predict, title="Predict")
+
+        # calculate hue norm
+        target_hue_norm = (0, 2)
+        target_hue_min_quantile = (target < target_hue_norm[0]).sum() / target.size
+        target_hue_max_quantile = (target > target_hue_norm[1]).sum() / target.size
+        predict_hue_norm = (
+            np.quantile(predict, target_hue_min_quantile),
+            np.quantile(predict, target_hue_max_quantile),
+        )
+
+        self._plot_image(
+            ax=axes[2], image=target, title="Target", hue_norm=target_hue_norm
+        )
+        self._plot_image(
+            ax=axes[3], image=predict, title="Predict", hue_norm=predict_hue_norm
+        )
         return fig, axes
 
     def _common_axes_setup(self, ax: plt.Axes) -> None:
@@ -159,7 +173,11 @@ class FootPrintExamplePlotter:
         self._common_axes_setup(ax)
 
     def _plot_image(
-        self, ax: plt.Axes, image: Union[np.ndarray, torch.Tensor], title: str
+        self,
+        ax: plt.Axes,
+        image: Union[np.ndarray, torch.Tensor],
+        title: str,
+        hue_norm: tuple[float, float],
     ) -> None:
         """Plot image.
 
@@ -167,14 +185,13 @@ class FootPrintExamplePlotter:
             ax (plt.Axes): The axes object.
             image (Union[np.ndarray, torch.Tensor]): The image data to plot.
             title (str): The title of the plot.
+            hue_norm (Tuple[float, float]): The hue norm.
 
         """
         if hasattr(image, "numpy"):
             image = image.detach().cpu().numpy()
-        if title == "Target":
-            vmax = 2
-        else:
-            vmax = np.quantile(image, 0.9)
-        ax.imshow(image[::-1], cmap="Blues", aspect="auto", vmin=0, vmax=vmax)
+
+        vmin, vmax = hue_norm
+        ax.imshow(image[::-1], cmap="Blues", aspect="auto", vmin=vmin, vmax=vmax)
         ax.set_title(title, fontsize=8)
         self._common_axes_setup(ax)

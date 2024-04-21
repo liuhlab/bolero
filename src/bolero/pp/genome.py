@@ -1,4 +1,5 @@
 import pathlib
+import re
 import shutil
 import subprocess
 from collections import defaultdict
@@ -1992,8 +1993,8 @@ class GenomeEnsembleDataset:
             n_regions = region_index.size
 
         dataset_path = f"{output_dir}/dataset/"
-        stats_path = f"{output_dir}/stats/"
-        success_flag_path = f"{output_dir}/success.flag"
+        stats_path = re.sub(r"^gs://", "", f"{output_dir}/stats")
+        success_flag_path = re.sub(r"^gs://", "", f"{output_dir}/success.flag")
 
         # save the dataset
         if n_regions <= dataset_size:
@@ -2044,7 +2045,7 @@ class GenomeEnsembleDataset:
                     f.write("Success")
             else:
                 with fs.open_output_stream(success_flag_path) as f:
-                    f.write("Success")
+                    f.write(b"Success")
             return
 
         # split regions into chunks and save each chunk as a separate dataset
@@ -2077,6 +2078,8 @@ def prepare_chromosome_dataset(
     bigwig_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
     zarr_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
     collate_fn_dict: Optional[Dict[str, Callable]] = None,
+    dataset_size=100000,
+    max_bigwig=50,
 ) -> None:
     """
     Prepare chromosome datasets for a given genome.
@@ -2100,6 +2103,8 @@ def prepare_chromosome_dataset(
         A dictionary of collate functions for each dataset. The keys can be the dataset name
         or the region name or their combination. Each collate function should take a numpy
         array as input and return a summary statistic. Data will be saved by joblib.dump.
+    dataset_size : int, optional
+        The maximum size of rows in each dataset, by default 500000.
 
     Returns
     -------
@@ -2158,29 +2163,42 @@ def prepare_chromosome_dataset(
         for chrom, chrom_region_bed in region_bed.groupby("Chromosome"):
             chrom_region_configs[chrom][region_name] = chrom_region_bed
 
-    # prepare the dataset for each chromosome
-    bar = tqdm(
-        chrom_region_configs.items(),
-        desc="Preparing chromosome datasets",
-        total=len(chrom_region_configs),
-    )
-    if isinstance(genome, str):
-        genome = Genome(genome)
-    for chrom, chrom_region_config in bar:
-        ensemble = GenomeEnsembleDataset(genome)
+    # split bigwig config if there is too many bigwigs
+    bigwig_config_list = []
+    bigwigs = list(bigwig_config.items())
+    for i in range(0, len(bigwig_config), max_bigwig):
+        bigwig_config_list.append(dict(bigwigs[i : i + max_bigwig]))
 
-        if bigwig_config:
-            ensemble.add_bigwig(**bigwig_config)
-
-        if zarr_config:
-            for name, zarr_path in zarr_config.items():
-                ensemble.add_position_zarr(zarr_path=zarr_path, name=name)
-
-        for n, p in chrom_region_config.items():
-            ensemble.add_regions(name=n, regions=p, query_datasets="all")
-
-        output_path = f"{output_dir}/{chrom}"
-        ensemble.prepare_ray_dataset(
-            output_dir=output_path, dataset_size=500000, collate_fn_dict=collate_fn_dict
+    for part_idx, bigwig_config_part in enumerate(bigwig_config_list):
+        if len(bigwig_config_list) > 1:
+            print(
+                f"Preparing part {part_idx+1}/{len(bigwig_config_list)} of {len(bigwig_config_part)} bigwig files..."
+            )
+        # prepare the dataset for each chromosome
+        bar = tqdm(
+            chrom_region_configs.items(),
+            desc="Preparing chromosome datasets",
+            total=len(chrom_region_configs),
         )
+        if isinstance(genome, str):
+            genome = Genome(genome)
+        for chrom, chrom_region_config in bar:
+            ensemble = GenomeEnsembleDataset(genome)
+
+            if bigwig_config_part:
+                ensemble.add_bigwig(**bigwig_config_part)
+
+            if zarr_config:
+                for name, zarr_path in zarr_config.items():
+                    ensemble.add_position_zarr(zarr_path=zarr_path, name=name)
+
+            for n, p in chrom_region_config.items():
+                ensemble.add_regions(name=n, regions=p, query_datasets="all")
+
+            output_path = f"{output_dir}/{chrom}_part{part_idx}"
+            ensemble.prepare_ray_dataset(
+                output_dir=output_path,
+                dataset_size=dataset_size,
+                collate_fn_dict=collate_fn_dict,
+            )
     return
