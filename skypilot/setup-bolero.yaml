@@ -34,7 +34,7 @@ setup: |
   conda config --add channels conda-forge
 
   # optional tools
-  mamba install -y npm nvtop
+  mamba install -y nodejs nvtop
   sudo npm install -g vtop
 
   # filestore
