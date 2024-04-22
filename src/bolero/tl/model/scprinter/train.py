@@ -155,26 +155,6 @@ def _batch_pearson_correlation(x, y):
     return correlation
 
 
-def _pearson_correlation(x, y, mean_x, mean_y, bs=1e6):
-    bs = int(bs)
-    covariance, variance_x, variance_y = 0, 0, 0
-    for i in range(0, x.shape[0], bs):
-        diff_x, diff_y = (
-            x[i : i + bs].to(mean_x.device) - mean_x,
-            y[i : i + bs].to(mean_x.device) - mean_y,
-        )
-        # Compute covariance and variance
-        covariance += torch.sum(diff_x * diff_y).detach().cpu().item()
-        variance_x += torch.sum((diff_x) ** 2).detach().cpu().item()
-        variance_y += torch.sum((diff_y) ** 2).detach().cpu().item()
-
-    # Pearson correlation
-    correlation = covariance / (
-        math.sqrt(variance_x * variance_y) + 1e-8
-    )  # Adding small value for numerical stability
-    return correlation
-
-
 class scFootprintTrainer:
     """scFootprintBPNet model for training on pseudobulk ATAC data."""
 
