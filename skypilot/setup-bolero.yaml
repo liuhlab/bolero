@@ -1,0 +1,77 @@
+# This is a template for setting up a GCP VM with PyTorch and Ray for bolero and scPrinter projects.
+# Once the VM is created, you can create a image from the VM's disk and use it to create a custom image for GCP VMs.
+
+resources:
+  cloud: gcp
+  cpus: 16+
+  memory: 96+
+  region: us-central1
+  disk_size: 128
+  accelerators: { "T4:1", "L4:1" }
+
+file_mounts:
+  ~/.netrc: ~/.netrc  # for wandb, but do not include in setup for security
+  /data:
+    source: gs://hms-hanqing-analysis
+    mode: MOUNT
+  /ref:
+    source: gs://hms-hanqing-reference
+    mode: MOUNT
+  /wmb:
+    source: gs://hms-hanqing-wmb
+    mode: MOUNT
+  /tempdata:
+    source: gs://hms-hanqing-temp
+    mode: MOUNT
+
+setup: |
+  # install mamba
+  conda install -y -n base --override-channels -c conda-forge mamba 'python_abi=*=*cp*'
+  which mamba
+  conda config --add channels defaults
+  conda config --add channels bioconda
+  conda config --add channels pytorch
+  conda config --add channels conda-forge
+
+  # optional tools
+  mamba install -y npm nvtop
+  sudo npm install -g vtop
+
+  # filestore
+  sudo apt-get install -y nfs-common
+  sudo mkdir -p /mnt/filestore
+  sudo chmod 777 /mnt/filestore
+  sudo mount 192.168.179.186:/filestore /mnt/filestore
+
+  # ray
+  conda create -n ray python=3.10 -y
+  conda activate ray
+  pip install "ray[train]"
+  pip install tqdm
+
+  # torch
+  mamba install -y pytorch torchvision torchaudio -c pytorch -c nvidia
+  mamba install -y cupy macs2 macs3 gh pandas dask jupyterlab mallet tqdm ipywidgets transformers black gcsfs isort
+  pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit 
+
+  # inhouse packages
+  pip install git+https://github.com/lhqing/scmallet.git
+  pip install -e /mnt/filestore/pkg/bolero-process
+  pip install -e /mnt/filestore/pkg/bolero
+  pip install -e /mnt/filestore/pkg/scPrinter
+
+  # clean
+  conda clean -a -y
+  mamba clean -a -y
+  pip cache purge
+
+  echo 'export SCPRINTER_DATA=/mnt/filestore/scprinter' >> ~/.bashrc
+  ln -s /mnt/filestore /home/gcpuser/sky_workdir/
+run: |
+  conda activate ray
+  nohup jupyter-lab --LabApp.token='' --no-browser --port 9990 > ~/jupyter.log 2>&1 &
+  nvcc --version
+  python -c "import torch; print('torch version', torch.__version__)"
+  python -c "import torch; print('torch CUDA availability', torch.cuda.is_available())"
+  python -c "import ray; print('ray version', ray.__version__)"
+  python -c "import ray; print('test ray init'); ray.init()"

@@ -1,0 +1,33 @@
+resources:
+  cloud: gcp
+  cpus: 16+
+  memory: 96+
+  region: us-central1
+  disk_size: 256
+  accelerators: { "T4:1", "L4:1" }
+  image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240422
+
+file_mounts:
+  ~/.netrc: ~/.netrc  # for wandb
+
+setup: |
+  conda activate ray
+  sudo mount 192.168.179.186:/filestore /mnt/filestore
+  echo 'export SCPRINTER_DATA=/mnt/filestore/scprinter' >> ~/.bashrc
+  ln -s /mnt/filestore /home/gcpuser/sky_workdir/
+
+  if [ -f $HOME/.SKIPSETUP ]
+  then
+    echo "Skip setup"
+  else
+    pip install git+https://github.com/lhqing/scmallet.git
+    pip install -e /mnt/filestore/pkg/bolero-process
+    pip install -e /mnt/filestore/pkg/bolero
+    pip install -e /mnt/filestore/pkg/scPrinter
+    touch $HOME/.SKIPSETUP
+  fi
+
+run: |
+  conda activate ray
+  nohup jupyter-lab --LabApp.token='' --no-browser --port 3456 > ~/jupyter.log 2>&1 &
+  jupyter nbconvert --to html --execute /mnt/filestore/240315-scPrinter/ray_pipeline/02.train_bulk_model.ipynb
