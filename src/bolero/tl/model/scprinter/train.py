@@ -265,6 +265,7 @@ class scFootprintTrainer:
         # setup directory
         self.output_dir = config["output_dir"]
         self.output_dir = pathlib.Path(self.output_dir).absolute().resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         wandb_run_info_path = self.output_dir / "wandb_run_info.json"
 
@@ -455,6 +456,7 @@ class scFootprintTrainer:
     def _setup_model_from_checkpoint(self):
         # load model if not exists
         model = torch.load(self.savename + ".model.pt")
+        # TODO load EMA from checkpoint
         return model, model.dna_len, model.output_len
 
     def _update_state_dict(self):

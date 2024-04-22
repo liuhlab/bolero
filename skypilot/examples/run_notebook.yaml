@@ -9,6 +9,7 @@ resources:
 
 file_mounts:
   ~/.netrc: ~/.netrc  # for wandb
+  ~/.config/gh: ~/.config/gh  # for github cli
 
 setup: |
   conda activate ray

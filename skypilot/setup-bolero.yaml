@@ -1,5 +1,6 @@
 # This is a template for setting up a GCP VM with PyTorch and Ray for bolero and scPrinter projects.
 # Once the VM is created, you can create a image from the VM's disk and use it to create a custom image for GCP VMs.
+# sky launch -c bolero_setup -r -y setup-bolero.yaml; sky autostop -y bolero_setup -i 60
 
 resources:
   cloud: gcp
@@ -10,7 +11,7 @@ resources:
   accelerators: { "T4:1", "L4:1" }
 
 file_mounts:
-  ~/.netrc: ~/.netrc  # for wandb, but do not include in setup for security
+  # ~/.netrc: ~/.netrc  # for wandb, but do not include in setup for security
   /data:
     source: gs://hms-hanqing-analysis
     mode: MOUNT
@@ -35,7 +36,7 @@ setup: |
 
   # optional tools
   mamba install -y nodejs nvtop
-  sudo npm install -g vtop
+  npm install -g vtop
 
   # filestore
   sudo apt-get install -y nfs-common
@@ -64,9 +65,6 @@ setup: |
   conda clean -a -y
   mamba clean -a -y
   pip cache purge
-
-  echo 'export SCPRINTER_DATA=/mnt/filestore/scprinter' >> ~/.bashrc
-  ln -s /mnt/filestore /home/gcpuser/sky_workdir/
 run: |
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 9990 > ~/jupyter.log 2>&1 &

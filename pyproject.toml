@@ -33,6 +33,7 @@ dependencies = [
     "session-info",
     "tmtoolkit",
     "tqdm",
+    "transformers",
     "wandb",
     "xarray",
     # "ray", # do not add ray as a dependency, install it separately otherwise skypilot will have issue
