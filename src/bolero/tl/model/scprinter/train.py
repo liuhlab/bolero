@@ -280,7 +280,7 @@ class scFootprintTrainer:
             if same_config:
                 if success:
                     print(
-                        f"W & B run {wandb_run_info['name']} was successful. Skipping."
+                        f"W & B run {wandb_run_info['name']} {wandb_run_info['id']} was successful. Skipping."
                     )
                     return None
                 else:
