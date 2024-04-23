@@ -456,7 +456,6 @@ class scFootprintTrainer:
     def _setup_model_from_checkpoint(self):
         # load model if not exists
         model = torch.load(self.savename + ".model.pt")
-        # TODO load EMA from checkpoint
         return model, model.dna_len, model.output_len
 
     def _update_state_dict(self):
@@ -467,6 +466,7 @@ class scFootprintTrainer:
         epoch = checkpoint["epoch"]
         self.max_epochs = max(0, self.config["max_epochs"] - epoch)
         self.early_stopping_counter = checkpoint["early_stopping_counter"]
+        self.best_val_loss = checkpoint["best_val_loss"]
 
         # load state dict
         self.scp_model.load_state_dict(checkpoint["state_dict"])
@@ -567,13 +567,18 @@ class scFootprintTrainer:
         return
 
     def _get_ema(self):
-        update_after_step = 100
-        ema = EMA(
-            self.scp_model,
-            beta=0.9999,  # exponential moving average factor
-            update_after_step=update_after_step,  # only after this number of .update() calls will it start updating
-            update_every=10,
-        )  # how often to actually update, to save on compute (updates every 10th .update() call)
+        if self.checkpoint:
+            ema = torch.load(self.savename + ".ema.pt")
+            ema_model = torch.load(self.savename + ".ema_model.pt")
+            ema.ema_model = ema_model
+        else:
+            update_after_step = 100
+            ema = EMA(
+                self.scp_model,
+                beta=0.9999,  # exponential moving average factor
+                update_after_step=update_after_step,  # only after this number of .update() calls will it start updating
+                update_every=10,
+            )  # how often to actually update, to save on compute (updates every 10th .update() call)
         return ema
 
     def _get_scaler(self):
@@ -822,7 +827,7 @@ class scFootprintTrainer:
             self.train()
         return val_loss, profile_pearson, across_pearson, wandb_images
 
-    def _save_checkpint(self, epoch):
+    def _save_checkpint(self, epoch, best=False):
         checkpoint = {
             "epoch": epoch + 1,
             "early_stopping_counter": self.early_stopping_counter,
@@ -831,12 +836,17 @@ class scFootprintTrainer:
             "scaler": self.scaler.state_dict(),
             "scheduler": self.scheduler.state_dict() if self.scheduler else None,
             "ema": self.ema.state_dict() if self.use_ema else None,
+            "best_val_loss": self.best_val_loss,
         }
         _safe_save(checkpoint, self.savename)
         _safe_save(self.scp_model, self.savename + ".model.pt")
         if self.use_ema:
             _safe_save(self.ema, self.savename + ".ema.pt")
-            _safe_save(self.ema.ema_model, self.savename + ".ema_model.pt")
+        if best:
+            _safe_save(checkpoint, self.savename + ".best.pt")
+            _safe_save(self.scp_model, self.savename + ".best.model.pt")
+            if self.use_ema:
+                _safe_save(self.ema, self.savename + ".best.ema.pt")
         return
 
     def _log_save_and_check_stop(self, epoch, example_images):
@@ -859,12 +869,13 @@ class scFootprintTrainer:
                 f"Best loss at epoch {epoch+1}: {self.best_val_loss:.5f}, Saving model."
             )
             self.early_stopping_counter = 0
-            self._save_checkpint(epoch)
+            self._save_checkpint(epoch, best=True)
         else:
             self.early_stopping_counter += 1
             print(
                 f"Best loss at epoch {epoch+1}: {self.best_val_loss:.5f}, Early stopping counter: {self.early_stopping_counter}"
             )
+            self._save_checkpint(epoch)
 
         wandb.log(
             {

@@ -26,6 +26,8 @@ file_mounts:
     mode: MOUNT
 
 setup: |
+  set -e  # Exit if any command failed.
+  
   # install mamba
   conda install -y -n base --override-channels -c conda-forge mamba 'python_abi=*=*cp*'
   which mamba
@@ -66,6 +68,7 @@ setup: |
   mamba clean -a -y
   pip cache purge
 run: |
+  set -e  # Exit if any command failed.
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 9990 > ~/jupyter.log 2>&1 &
   nvcc --version
