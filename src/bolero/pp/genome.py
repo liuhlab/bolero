@@ -2195,7 +2195,7 @@ def prepare_chromosome_dataset(
             for n, p in chrom_region_config.items():
                 ensemble.add_regions(name=n, regions=p, query_datasets="all")
 
-            output_path = f"{output_dir}/{chrom}_part{part_idx}"
+            output_path = f"{output_dir}/{chrom}/part{part_idx}"
             ensemble.prepare_ray_dataset(
                 output_dir=output_path,
                 dataset_size=dataset_size,

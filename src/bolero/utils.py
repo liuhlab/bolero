@@ -1,13 +1,11 @@
 import pathlib
 import shutil
 import subprocess
-import tempfile
 from typing import Union
 
 import numpy as np
 import pandas as pd
 import pyranges as pr
-import ray
 
 import bolero
 
@@ -238,19 +236,3 @@ def compare_configs(config1, config2):
         elif value1 != value2:
             return False
     return True
-
-
-def test_ray_load():
-    """
-    Test loading a dataset with Ray.
-    This is due to a bug in ray 2.9, first ray load dosen't recognize nparray in parquet,
-    but load it as list, second and later try will work.
-    """
-    with tempfile.TemporaryDirectory() as temp_dir:
-        ds = ray.data.from_items([np.ones(10), np.ones(10)])
-        ds.write_parquet(temp_dir)
-        ray.data.read_parquet(temp_dir)
-        ray.data.read_parquet(temp_dir)
-
-
-test_ray_load()
