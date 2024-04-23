@@ -1847,7 +1847,7 @@ class GenomeEnsembleDataset:
         return region_data
 
     def get_regions_data(
-        self, query_chunk_size: int = 5000, region_index: pd.Index = None
+        self, query_chunk_size: int = 5000, region_index: pd.Index = None, ignore_datasets: set[str] = None, add_region_ids: bool = True
     ) -> Dict[str, Any]:
         """
         Retrieves the data for multiple regions.
@@ -1865,6 +1865,10 @@ class GenomeEnsembleDataset:
         """
         data_collections = {}
         for region_name, dataset_name in self._region_dataset_query_pairs:
+            
+            if ignore_datasets is not None and dataset_name in ignore_datasets:
+                continue
+
             region_name = region_name.replace("|", "_")
             dataset_name = dataset_name.replace("|", "_")
 
@@ -1883,16 +1887,18 @@ class GenomeEnsembleDataset:
             else:
                 _final_name = f"{region_name}|{dataset_name}"
                 data_collections[_final_name] = regions_data
-            data_collections["region_ids"] = (
-                regions["Chromosome"].astype(str)
-                + ":"
-                + regions["Start"].astype(str)
-                + "-"
-                + regions["End"].astype(str)
-            ).values
+            
+            if add_region_ids:
+                data_collections["region_ids"] = (
+                    regions["Chromosome"].astype(str)
+                    + ":"
+                    + regions["Start"].astype(str)
+                    + "-"
+                    + regions["End"].astype(str)
+                ).values
         return data_collections
 
-    def _get_ray_dataset(self, n_regions, collate_fn_dict=None, region_index=None):
+    def _get_ray_dataset(self, n_regions, collate_fn_dict=None, region_index=None, _ignore_dna_and_region_id=False):
         """
         Internal method to get a Ray dataset.
 
@@ -1908,8 +1914,14 @@ class GenomeEnsembleDataset:
             ds: The Ray dataset.
 
         """
+        if _ignore_dna_and_region_id:
+            ignore_datasets = {"dna_one_hot"}
+            add_region_ids = False
+        else:
+            ignore_datasets = None
+            add_region_ids = True
         data_collections = self.get_regions_data(
-            query_chunk_size=5000, region_index=region_index
+            query_chunk_size=5000, region_index=region_index, ignore_datasets=ignore_datasets, add_region_ids=add_region_ids
         )
 
         # calculate summary stats
@@ -1972,6 +1984,7 @@ class GenomeEnsembleDataset:
         dataset_size: int = 500000,
         collate_fn_dict: dict = None,
         region_index: pd.Index = None,
+        _ignore_dna_and_region_id: bool = False,
     ) -> None:
         """
         Prepares a Ray dataset for the given regions.
@@ -2025,6 +2038,7 @@ class GenomeEnsembleDataset:
                 n_regions=n_regions,
                 collate_fn_dict=collate_fn_dict,
                 region_index=region_index,
+                _ignore_dna_and_region_id=_ignore_dna_and_region_id,
             )
             ds.write_parquet(path, filesystem=fs)
 
@@ -2067,6 +2081,7 @@ class GenomeEnsembleDataset:
                     dataset_size=dataset_size,
                     collate_fn_dict=collate_fn_dict,
                     region_index=chunk_region_index,
+                    _ignore_dna_and_region_id=_ignore_dna_and_region_id,
                 )
         return
 
@@ -2174,6 +2189,11 @@ def prepare_chromosome_dataset(
             print(
                 f"Preparing part {part_idx+1}/{len(bigwig_config_list)} of {len(bigwig_config_part)} bigwig files..."
             )
+        if part_idx == len(bigwig_config_list) - 1:
+            ignore_dna_and_region_id = False
+        else:
+            ignore_dna_and_region_id = True
+            
         # prepare the dataset for each chromosome
         bar = tqdm(
             chrom_region_configs.items(),
@@ -2200,5 +2220,6 @@ def prepare_chromosome_dataset(
                 output_dir=output_path,
                 dataset_size=dataset_size,
                 collate_fn_dict=collate_fn_dict,
+                _ignore_dna_and_region_id=ignore_dna_and_region_id,
             )
     return

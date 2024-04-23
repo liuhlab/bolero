@@ -1,0 +1,15 @@
+resources:
+  cloud: gcp
+  cpus: 16+
+  memory: 96+
+  region: us-central1
+  disk_size: 128
+
+file_mounts:
+  ~/.netrc: ~/.netrc  # for wandb, but do not include in setup for security
+
+setup: |
+  pwd
+  
+run: |
+  pwd
