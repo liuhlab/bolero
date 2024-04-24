@@ -284,7 +284,7 @@ class scFootprintTrainer:
             if same_config:
                 if success:
                     print(
-                        f"W & B run {wandb_run_info['name']} was successful. Skipping."
+                        f"W & B run {wandb_run_info['name']} {wandb_run_info['id']} was successful. Skipping."
                     )
                     return None
                 else:
@@ -928,6 +928,12 @@ class scFootprintTrainer:
         self.val_loss = None
 
         for epoch in range(self.max_epochs):
+            if self.early_stopping_counter >= self.patience:
+                # early stopping counter could be loaded from the checkpoint
+                # check before starting the for loop
+                print(f"Early stopping at epoch {epoch+1}")
+                self.early_stoped = True
+                break
             self.cur_epoch = epoch
             bar = trange(
                 int(len(training_dataset) * train_downsample)

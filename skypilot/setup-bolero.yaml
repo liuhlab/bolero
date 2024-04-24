@@ -55,7 +55,7 @@ setup: |
   # torch
   mamba install -y pytorch torchvision torchaudio -c pytorch -c nvidia
   mamba install -y cupy macs2 macs3 gh pandas dask jupyterlab mallet tqdm ipywidgets transformers black gcsfs isort
-  pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit 
+  pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit scipy=1.12
 
   # inhouse packages
   pip install git+https://github.com/lhqing/scmallet.git

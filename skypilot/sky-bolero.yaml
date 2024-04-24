@@ -48,9 +48,6 @@ setup: |
     pip install -e /mnt/filestore/pkg/bolero
     pip install -e /mnt/filestore/pkg/scPrinter
 
-    # temporary fix for the missing dependency
-    pip install "scipy<1.13" --force-reinstall  # gensim 4.3.2 requires scipy<1.13
-
     touch $HOME/.SKIPSETUP
   fi
   
