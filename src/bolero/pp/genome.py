@@ -1,5 +1,4 @@
 import pathlib
-import re
 import shutil
 import subprocess
 from collections import defaultdict
@@ -16,6 +15,7 @@ import ray
 import xarray as xr
 import zarr
 from numcodecs import Zstd
+from pyarrow.fs import LocalFileSystem
 from pyfaidx import Fasta
 from tqdm import tqdm
 
@@ -23,6 +23,7 @@ from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
 from bolero.utils import (
     download_file,
     get_default_save_dir,
+    get_fs_and_path,
     get_package_dir,
     parse_region_name,
     parse_region_names,
@@ -1847,7 +1848,11 @@ class GenomeEnsembleDataset:
         return region_data
 
     def get_regions_data(
-        self, query_chunk_size: int = 5000, region_index: pd.Index = None, ignore_datasets: set[str] = None, add_region_ids: bool = True
+        self,
+        query_chunk_size: int = 5000,
+        region_index: pd.Index = None,
+        ignore_datasets: set[str] = None,
+        add_region_ids: bool = True,
     ) -> Dict[str, Any]:
         """
         Retrieves the data for multiple regions.
@@ -1865,7 +1870,6 @@ class GenomeEnsembleDataset:
         """
         data_collections = {}
         for region_name, dataset_name in self._region_dataset_query_pairs:
-            
             if ignore_datasets is not None and dataset_name in ignore_datasets:
                 continue
 
@@ -1887,7 +1891,7 @@ class GenomeEnsembleDataset:
             else:
                 _final_name = f"{region_name}|{dataset_name}"
                 data_collections[_final_name] = regions_data
-            
+
             if add_region_ids:
                 data_collections["region_ids"] = (
                     regions["Chromosome"].astype(str)
@@ -1898,7 +1902,13 @@ class GenomeEnsembleDataset:
                 ).values
         return data_collections
 
-    def _get_ray_dataset(self, n_regions, collate_fn_dict=None, region_index=None, _ignore_dna_and_region_id=False):
+    def _get_ray_dataset(
+        self,
+        n_regions,
+        collate_fn_dict=None,
+        region_index=None,
+        _ignore_dna_and_region_id=False,
+    ):
         """
         Internal method to get a Ray dataset.
 
@@ -1921,7 +1931,10 @@ class GenomeEnsembleDataset:
             ignore_datasets = None
             add_region_ids = True
         data_collections = self.get_regions_data(
-            query_chunk_size=5000, region_index=region_index, ignore_datasets=ignore_datasets, add_region_ids=add_region_ids
+            query_chunk_size=5000,
+            region_index=region_index,
+            ignore_datasets=ignore_datasets,
+            add_region_ids=add_region_ids,
         )
 
         # calculate summary stats
@@ -2005,22 +2018,13 @@ class GenomeEnsembleDataset:
         else:
             n_regions = region_index.size
 
+        fs, output_dir = get_fs_and_path(output_dir)
         dataset_path = f"{output_dir}/dataset/"
-        stats_path = re.sub(r"^gs://", "", f"{output_dir}/stats")
-        success_flag_path = re.sub(r"^gs://", "", f"{output_dir}/success.flag")
+        stats_path = f"{output_dir}/stats"
+        success_flag_path = f"{output_dir}/success.flag"
 
         # save the dataset
         if n_regions <= dataset_size:
-            from pyarrow import ArrowInvalid
-            from pyarrow.fs import FileSystem, LocalFileSystem
-
-            try:
-                fs, path = FileSystem.from_uri(dataset_path)
-            except ArrowInvalid:
-                # assume local filesystem
-                dataset_path = str(pathlib.Path(dataset_path).absolute().resolve())
-                fs, path = FileSystem.from_uri(dataset_path)
-
             # check if success flag exists
             success = False
             if isinstance(fs, LocalFileSystem):
@@ -2040,7 +2044,7 @@ class GenomeEnsembleDataset:
                 region_index=region_index,
                 _ignore_dna_and_region_id=_ignore_dna_and_region_id,
             )
-            ds.write_parquet(path, filesystem=fs)
+            ds.write_parquet(dataset_path, filesystem=fs)
 
             # save summary stats
             summary_stats_path = f"{stats_path}/summary_stats.npz"
@@ -2193,7 +2197,7 @@ def prepare_chromosome_dataset(
             ignore_dna_and_region_id = False
         else:
             ignore_dna_and_region_id = True
-            
+
         # prepare the dataset for each chromosome
         bar = tqdm(
             chrom_region_configs.items(),

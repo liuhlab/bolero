@@ -1,13 +1,49 @@
 import pathlib
 import shutil
 import subprocess
-from typing import Union
+from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
 import pyranges as pr
+from pyarrow import ArrowInvalid
+from pyarrow.fs import FileSystem, LocalFileSystem
 
 import bolero
+
+
+def get_fs_and_path(path: Union[str, pathlib.Path]) -> Tuple[FileSystem, str]:
+    """
+    Get the file system and path from a given URI or local path.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        The URI or local path.
+
+    Returns
+    -------
+    Tuple[FileSystem, str]
+        A tuple containing the file system and the resolved path.
+
+    Raises
+    ------
+    ArrowInvalid
+        If the given path is not a valid URI.
+
+    Notes
+    -----
+    If the given path is a valid URI, the function will use `FileSystem.from_uri()`
+    to get the file system and resolved path. If the given path is not a valid URI,
+    the function will use `LocalFileSystem()` and `pathlib.Path()` to get the file system
+    and resolved path respectively.
+    """
+    try:
+        fs, path = FileSystem.from_uri(path)
+    except ArrowInvalid:
+        fs = LocalFileSystem()
+        path = str(pathlib.Path(path).absolute().resolve())
+    return fs, path
 
 
 def try_gpu():

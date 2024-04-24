@@ -16,7 +16,7 @@ from tqdm import trange
 
 from bolero.pl.footprint import FootPrintExamplePlotter, figure_to_array
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
-from bolero.utils import check_wandb_success, compare_configs, try_gpu
+from bolero.utils import check_wandb_success, compare_configs, get_fs_and_path, try_gpu
 
 
 class CumulativeCounter:
@@ -266,8 +266,12 @@ class scFootprintTrainer:
         self.output_dir = config["output_dir"]
         self.output_dir = pathlib.Path(self.output_dir).absolute().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        savename = config["savename"]
+        if savename == "WANDB_RUN_NAME":
+            savename = wandb.run.name
+        self.savename = str(self.output_dir / savename)
 
-        wandb_run_info_path = self.output_dir / "wandb_run_info.json"
+        wandb_run_info_path = self.output_dir / f"{self.savename}.wandb_run_info.json"
 
         # load wandb run info file if exists
         if wandb_run_info_path.exists():
@@ -353,26 +357,18 @@ class scFootprintTrainer:
         return
 
     def _find_last_checkpoint(self):
-        if pathlib.Path(self.savename).exists():
+        if pathlib.Path(f"{self.savename}.checkpoint.pt").exists():
             return True
         return False
 
     def _setup_env(self):
-        config = self.config
-
         # setup torch environment
         torch.set_num_threads(4)
         torch.backends.cudnn.benchmark = True
         self.device = try_gpu()
 
-        # save model
-        savename = config["savename"]
-        if savename == "WANDB_RUN_NAME":
-            savename = wandb.run.name
-        self.savename = str(self.output_dir / savename)
-
         # save config to output_dir
-        with open(f"{self.savename}_config.json", "w") as f:
+        with open(f"{self.savename}.config.json", "w") as f:
             json.dump(dict(self.config), f, indent=4)
 
         self.checkpoint = self._find_last_checkpoint()
@@ -460,13 +456,18 @@ class scFootprintTrainer:
 
     def _update_state_dict(self):
         self._cleanup_env()
-        checkpoint = torch.load(self.savename)
+        checkpoint = torch.load(self.savename + ".checkpoint.pt")
 
         # adjust epochs
         epoch = checkpoint["epoch"]
-        self.max_epochs = max(0, self.config["max_epochs"] - epoch)
+        self.max_epochs = max(0, self.config["max_epochs"] - epoch - 1)
         self.early_stopping_counter = checkpoint["early_stopping_counter"]
         self.best_val_loss = checkpoint["best_val_loss"]
+        print(
+            f"Resuming from epoch {epoch+1} with {self.max_epochs} epochs left. "
+            f"Best val loss: {self.best_val_loss:.5f}, "
+            f"early stopping counter: {self.early_stopping_counter}."
+        )
 
         # load state dict
         self.scp_model.load_state_dict(checkpoint["state_dict"])
@@ -517,7 +518,8 @@ class scFootprintTrainer:
         test_chroms = chrom_split["test"]
 
         # dataset location and schema
-        dataset_dir = config["dataset_path"].rstrip("/")
+        fs, path = get_fs_and_path(config["dataset_path"].rstrip("/"))
+        dataset_dir = path
         columns = config["dataset_columns"]
         read_parquet_kwargs = config["read_parquet_kwargs"]
 
@@ -541,10 +543,21 @@ class scFootprintTrainer:
         # Therefore the signal window should be 200bp longer than the output length of the model
         signal_window = output_len + 200
 
+        # dataset paths
+        def __get_dataset_paths(_chroms):
+            # check if the file exists in gcs bucket
+            dataset_paths = []
+            for chrom in _chroms:
+                path = f"{dataset_dir}/{chrom}"
+                if fs.get_file_info(path).type:
+                    # type is True only if the file exists
+                    dataset_paths.append(path)
+            return dataset_paths
+
         # setup dataset
         datasets = (
             scPrinterDataset(
-                dataset=[f"{dataset_dir}/{chrom}" for chrom in _chroms],
+                dataset=__get_dataset_paths(_chroms),
                 columns=columns,
                 bias_name=bias_name,
                 batch_size=batch_size,
@@ -569,8 +582,6 @@ class scFootprintTrainer:
     def _get_ema(self):
         if self.checkpoint:
             ema = torch.load(self.savename + ".ema.pt")
-            ema_model = torch.load(self.savename + ".ema_model.pt")
-            ema.ema_model = ema_model
         else:
             update_after_step = 100
             ema = EMA(
@@ -646,7 +657,7 @@ class scFootprintTrainer:
             self._update_state_dict()
         else:
             # save the very first checkpoint to allow init even first epoch fails
-            self._save_checkpint(epoch=0)
+            self._save_checkpint(update_best=True)
         return
 
     @torch.no_grad()
@@ -827,26 +838,28 @@ class scFootprintTrainer:
             self.train()
         return val_loss, profile_pearson, across_pearson, wandb_images
 
-    def _save_checkpint(self, epoch, best=False):
+    def _save_checkpint(self, update_best):
         checkpoint = {
-            "epoch": epoch + 1,
+            "epoch": self.cur_epoch,
             "early_stopping_counter": self.early_stopping_counter,
+            "best_val_loss": self.best_val_loss,
             "state_dict": self.scp_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "scaler": self.scaler.state_dict(),
             "scheduler": self.scheduler.state_dict() if self.scheduler else None,
             "ema": self.ema.state_dict() if self.use_ema else None,
-            "best_val_loss": self.best_val_loss,
         }
-        _safe_save(checkpoint, self.savename)
+        _safe_save(checkpoint, self.savename + ".checkpoint.pt")
         _safe_save(self.scp_model, self.savename + ".model.pt")
         if self.use_ema:
             _safe_save(self.ema, self.savename + ".ema.pt")
-        if best:
-            _safe_save(checkpoint, self.savename + ".best.pt")
-            _safe_save(self.scp_model, self.savename + ".best.model.pt")
+
+        if update_best:
+            _safe_save(checkpoint, f"{self.savename}.best_checkpoint.pt")
             if self.use_ema:
-                _safe_save(self.ema, self.savename + ".best.ema.pt")
+                _safe_save(self.ema.model, f"{self.savename}.best_model.pt")
+            else:
+                _safe_save(self.scp_model, f"{self.savename}.best_model.pt")
         return
 
     def _log_save_and_check_stop(self, epoch, example_images):
@@ -869,13 +882,15 @@ class scFootprintTrainer:
                 f"Best loss at epoch {epoch+1}: {self.best_val_loss:.5f}, Saving model."
             )
             self.early_stopping_counter = 0
-            self._save_checkpint(epoch, best=True)
+            self._save_checkpint(update_best=True)
         else:
             self.early_stopping_counter += 1
             print(
-                f"Best loss at epoch {epoch+1}: {self.best_val_loss:.5f}, Early stopping counter: {self.early_stopping_counter}"
+                f"Best loss at epoch {epoch+1}: {self.best_val_loss:.5f}, "
+                f"which is better than current loss {val_loss:.5f}; "
+                f"Early stopping counter: {self.early_stopping_counter}"
             )
-            self._save_checkpint(epoch)
+            self._save_checkpint(update_best=False)
 
         wandb.log(
             {

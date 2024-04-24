@@ -45,11 +45,21 @@ class RayGenomeDataset:
         None
         """
         if isinstance(dataset, (str, pathlib.Path, list)):
+            if isinstance(dataset, list):
+                _path = dataset[0]
+            else:
+                _path = dataset
+            self.file_system: FileSystem = self._get_filesystem(_path)
+            kwargs["filesystem"] = self.file_system
+
             dataset = ray.data.read_parquet(
                 dataset, file_extensions=["parquet"], columns=columns, **kwargs
             )
-        self.input_files: List[str] = dataset.input_files()
-        self.file_system: FileSystem = self._get_filesystem()
+            self.input_files: List[str] = dataset.input_files()
+        else:
+            self.input_files: List[str] = dataset.input_files()
+            self.file_system: FileSystem = self._get_filesystem(self.input_files[0])
+
         self.stats_files: List[str] = self._get_stats_files()
         self._summary_stats: Union[None, dict] = None
         self.dataset: Dataset = dataset
@@ -95,7 +105,8 @@ class RayGenomeDataset:
     def __len__(self) -> int:
         return self.dataset.count()
 
-    def _get_filesystem(self) -> FileSystem:
+    @staticmethod
+    def _get_filesystem(path) -> FileSystem:
         """
         Get the filesystem associated with the dataset.
 
@@ -104,9 +115,8 @@ class RayGenomeDataset:
         FileSystem
             The filesystem object.
         """
-        _path = self.input_files[0]
         try:
-            fs, _ = FileSystem.from_uri(_path)
+            fs, _ = FileSystem.from_uri(path)
         except pyarrow.ArrowInvalid:
             fs = pyarrow.fs.LocalFileSystem()
         return fs
