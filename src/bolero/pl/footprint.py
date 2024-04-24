@@ -100,6 +100,7 @@ class FootPrintExamplePlotter:
         axes: Optional[list[plt.Axes]] = None,
         figsize: tuple[int, int] = (8, 3),
         dpi: int = 150,
+        barplot: bool = False,
     ) -> tuple[plt.Figure, list[plt.Axes]]:
         """Plot the footprints.
 
@@ -109,6 +110,7 @@ class FootPrintExamplePlotter:
             axes (Optional[List[plt.Axes]], optional): The axes objects to use for plotting. Defaults to None.
             figsize (Tuple[int, int], optional): The figure size. Defaults to (8, 3).
             dpi (int, optional): The figure DPI. Defaults to 150.
+            barplot (bool, optional): Use barplot instead of fill_between. Defaults to False because fill_between is much faster.
 
         Returns
         -------
@@ -121,8 +123,9 @@ class FootPrintExamplePlotter:
             axes = [fig.add_subplot(gs[i]) for i in range(4)]
 
         signal, bias, target, predict = self._take(idx)
-        self._plot_fill_between(ax=axes[0], data=signal, title="Signal")
-        self._plot_fill_between(ax=axes[1], data=bias, title="Bias")
+        _plot_func = self._plot_bar if barplot else self._plot_fill_between
+        _plot_func(ax=axes[0], data=signal, title="Signal")
+        _plot_func(ax=axes[1], data=bias, title="Bias")
 
         # calculate hue norm
         target_hue_norm = (0, 2)
@@ -171,6 +174,26 @@ class FootPrintExamplePlotter:
         ax.fill_between(range(len(data)), data, linewidth=0)
         ax.set_title(title, fontsize=8)
         self._common_axes_setup(ax)
+    
+    def _plot_bar(
+        self, ax: plt.Axes, data: Union[np.ndarray, torch.Tensor], title: str
+    ) -> None:
+        """Plot bar.
+
+        Barplot is much slower than fill_between.
+
+        Args:
+            ax (plt.Axes): The axes object.
+            data (Union[np.ndarray, torch.Tensor]): The data to plot.
+            title (str): The title of the plot.
+
+        """
+        if hasattr(data, "numpy"):
+            data = data.detach().cpu().numpy()
+        ax.bar(range(len(data)), data, linewidth=0)
+        ax.set_title(title, fontsize=8)
+        self._common_axes_setup(ax
+    )
 
     def _plot_image(
         self,

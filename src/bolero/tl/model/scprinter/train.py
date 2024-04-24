@@ -203,6 +203,8 @@ class scFootprintTrainer:
         "wandb_project": "scprinter",
         "wandb_job_type": "train",
         "wandb_group": None,
+        "sample": "REQUIRED",
+        "region": "REQUIRED",
     }
 
     @classmethod
@@ -1096,7 +1098,7 @@ class scFootprintTrainer:
         torch.cuda.empty_cache()
         return
 
-    def train(self, sample: str, region: str) -> None:
+    def train(self) -> None:
         """
         Train the scFootprintTrainer model on a specific sample and region.
 
@@ -1109,6 +1111,9 @@ class scFootprintTrainer:
         -------
             None
         """
+        sample = self.config["sample"]
+        region = self.config["region"]
+        
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return

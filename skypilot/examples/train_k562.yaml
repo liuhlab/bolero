@@ -33,4 +33,4 @@ run: |
   set -e  # Exit if any command failed.
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 3456 > ~/jupyter.log 2>&1 &
-  jupyter nbconvert --to html --execute /mnt/filestore/240315-scPrinter/ray_pipeline/02.train_bulk_model.ipynb
+  jupyter nbconvert --to html --execute /mnt/filestore/240315-scPrinter/k562_benchmark/02.train_bulk_model.ipynb
