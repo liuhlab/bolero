@@ -27,7 +27,7 @@ file_mounts:
 
 setup: |
   set -e  # Exit if any command failed.
-  
+
   # install mamba
   conda install -y -n base --override-channels -c conda-forge mamba 'python_abi=*=*cp*'
   which mamba

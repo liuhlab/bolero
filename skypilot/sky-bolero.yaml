@@ -29,11 +29,11 @@ file_mounts:
 setup: |
   set -e  # Exit if any command failed.
 
-  # for git on remote 
+  # for git on remote
   pip install pre-commit
   git config --global user.email "hanqingliu@fas.harvard.edu"
   git config --global user.name "Hanqing Liu"
-  
+
   conda activate ray
   sudo mount 192.168.179.186:/filestore /mnt/filestore
   echo 'export SCPRINTER_DATA=/mnt/filestore/scprinter' >> ~/.bashrc
@@ -50,7 +50,7 @@ setup: |
 
     touch $HOME/.SKIPSETUP
   fi
-  
+
 
 run: |
   set -e  # Exit if any command failed.

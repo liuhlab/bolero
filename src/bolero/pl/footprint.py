@@ -174,7 +174,7 @@ class FootPrintExamplePlotter:
         ax.fill_between(range(len(data)), data, linewidth=0)
         ax.set_title(title, fontsize=8)
         self._common_axes_setup(ax)
-    
+
     def _plot_bar(
         self, ax: plt.Axes, data: Union[np.ndarray, torch.Tensor], title: str
     ) -> None:
@@ -192,8 +192,7 @@ class FootPrintExamplePlotter:
             data = data.detach().cpu().numpy()
         ax.bar(range(len(data)), data, linewidth=0)
         ax.set_title(title, fontsize=8)
-        self._common_axes_setup(ax
-    )
+        self._common_axes_setup(ax)
 
     def _plot_image(
         self,

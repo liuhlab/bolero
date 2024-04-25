@@ -1128,7 +1128,7 @@ class scFootprintTrainer:
         """
         sample = self.config["sample"]
         region = self.config["region"]
-        
+
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return

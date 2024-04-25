@@ -4,10 +4,16 @@ from collections import defaultdict
 from typing import List, Optional, Union
 
 import numpy as np
+import pandas as pd
 import pyarrow
+import pyranges as pr
 import ray
 from pyarrow.fs import FileSystem
 from ray.data.dataset import Dataset
+
+from bolero.pp.genome import Genome
+
+from .transforms import FetchRegionOneHot
 
 DNA_NAME = "dna_one_hot"
 REGION_IDS_NAME = "region_ids"
@@ -185,3 +191,89 @@ class RayGenomeDataset:
                 if sample != self.dna_name:
                     samples.add(sample)
         return list(regions), list(samples)
+
+
+class RayRegionDataset(RayGenomeDataset):
+    """
+    A dataset class for working with genomic regions using Ray.
+
+    Args:
+        bed (pd.DataFrame or pr.PyRanges or str): The genomic regions in BED format.
+        genome (Genome or str): The genome reference or its name.
+        standard_length (int): The standard length of the regions.
+        **kwargs: Additional keyword arguments.
+
+    Attributes
+    ----------
+        bed (pd.DataFrame): The standardized genomic regions.
+        genome (Genome): The genome reference.
+        dataset (ray.data.Dataset): The Ray dataset containing the genomic regions.
+        _working_dataset (ray.data.Dataset): The working dataset for preprocessing.
+
+    Methods
+    -------
+        get_dataloader: Get a data loader for iterating over batches of the dataset.
+
+    """
+
+    def __init__(self, bed, genome, standard_length, **kwargs):
+        if isinstance(bed, pd.DataFrame):
+            bed = pr.PyRanges(bed)
+        elif isinstance(bed, pr.PyRanges):
+            pass
+        else:
+            bed = pr.read_bed(bed)
+
+        standard_bed = genome.standard_region_length(
+            bed,
+            length=standard_length,
+            boarder_strategy="drop",
+            remove_blacklist=True,
+            as_df=True,
+            keep_original=True,
+        )
+        # ray data don't understand categorical dtype in pandas
+        standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
+        self.bed = standard_bed
+
+        if isinstance(genome, str):
+            genome = Genome(genome)
+        self.genome = genome
+        _ = self.genome.genome_one_hot
+
+        self.dataset = ray.data.from_pandas(self.bed)
+        self._working_dataset = None
+
+    def _fetch_dna_one_hot(self):
+        self._working_dataset = self._working_dataset.map_batches(
+            FetchRegionOneHot(self.genome, region_key="Name", output_key="dna_one_hot")
+        )
+        return
+
+    def _select_one_hot_and_region_name(self):
+        keep_cols = ["Name", "Original_Name", "dna_one_hot"]
+        self._working_dataset = self._working_dataset.select_columns(keep_cols)
+        return
+
+    def _dataset_preprocess(self):
+        self._fetch_dna_one_hot()
+        self._select_one_hot_and_region_name()
+        return
+
+    def get_dataloader(self, batch_size: int = 64, **kwargs):
+        """
+        Get a data loader for iterating over batches of the dataset.
+
+        Args:
+            batch_size (int): The batch size.
+            **kwargs: Additional keyword arguments.
+
+        Returns
+        -------
+            DataLoader: The data loader.
+
+        """
+        self._working_dataset = self.dataset
+        self._dataset_preprocess()
+        loader = self._working_dataset.iter_batches(batch_size=batch_size, **kwargs)
+        return loader

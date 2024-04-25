@@ -548,6 +548,7 @@ class Genome:
         remove_blacklist=False,
         boarder_strategy="shift",
         as_df=False,
+        keep_original=False,
     ):
         """
         Adjusts the length of regions to a standard length.
@@ -599,6 +600,20 @@ class Genome:
                 "regions must be a PyRanges, DataFrame, str, Path, list or Index"
             )
 
+        if keep_original:
+            regions_bed_df = regions_bed.df
+            if "Name" in regions_bed_df:
+                regions_bed_df["Original_Name"] = regions_bed_df["Name"]
+            else:
+                regions_bed_df["Name"] = (
+                    regions_bed_df["Chromosome"].astype(str)
+                    + ":"
+                    + regions_bed_df["Start"].astype(str)
+                    + "-"
+                    + regions_bed_df["End"].astype(str)
+                )
+            regions_bed = pr.PyRanges(regions_bed_df)
+
         # make sure all regions have the same size
         regions_center = (regions_bed.Start + regions_bed.End) // 2
         regions_bed.Start = regions_center - length // 2
@@ -633,7 +648,10 @@ class Genome:
             + "-"
             + use_regions["End"].astype(str)
         )
-        regions_bed = pr.PyRanges(use_regions[["Chromosome", "Start", "End", "Name"]])
+        use_cols = ["Chromosome", "Start", "End", "Name"]
+        if keep_original:
+            use_cols.append("Original_Name")
+        regions_bed = pr.PyRanges(use_regions[use_cols])
 
         if remove_blacklist and self.blacklist_bed is not None:
             regions_bed = self._remove_blacklist(regions_bed)

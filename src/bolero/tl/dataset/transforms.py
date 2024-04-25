@@ -202,9 +202,51 @@ class BatchToFloat:
         return data
 
 
-# class FlatRowMutagenesis:
-#     def __init__():
-#         pass
+class FetchRegionOneHot:
+    """Fetch the one-hot encoded DNA sequence from the genome."""
 
-#     def __call__(self, data):
-#         pass
+    def __init__(
+        self,
+        genome: str,
+        region_key: str = "Name",
+        output_key: str = "dna_one_hot",
+        dtype: str = "float32",
+    ) -> None:
+        """
+        Initialize the FetchRegionOneHot transform.
+
+        Parameters
+        ----------
+        genome : Genome
+            The genome object used for one-hot encoding.
+        region_key : str, optional
+            The key to access the region name in the data dictionary. Defaults to "Name".
+        output_key : str, optional
+            The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
+        dtype : str, optional
+            The data type of the one-hot encoded DNA. Defaults to "float32".
+        """
+        self.genome = genome
+        self.region_key = region_key
+        self.output_key = output_key
+        self.dtype = dtype
+
+    def __call__(self, data: dict) -> dict:
+        """
+        Apply the FetchRegionOneHot transform to the input data.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the one-hot encoded DNA.
+        """
+        one_hot = self.genome.get_regions_one_hot(data[self.region_key])
+        data[self.output_key] = one_hot.swapaxes(-1, -2).astype(
+            self.dtype
+        )  # (batch, channel, length)
+        return data
