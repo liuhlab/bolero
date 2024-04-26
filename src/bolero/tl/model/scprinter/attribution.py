@@ -21,6 +21,7 @@ class BatchAttribution:
         model: torch.nn.Module,
         wrapper: str,
         method: str,
+        prefix: str,
         modes: range = range(0, 30),
         decay: float = 0.85,
     ):
@@ -31,6 +32,7 @@ class BatchAttribution:
             model (torch.nn.Module): The model to be used for attribution.
             wrapper (str): The type of wrapper to be used.
             method (str): The attribution method to be used.
+            prefix (str): The prefix to be used for the output key.
             modes (range, optional): The range of modes to be considered. Defaults to range(0, 30).
             decay (float, optional): The decay factor. Defaults to 0.85.
         """
@@ -40,6 +42,7 @@ class BatchAttribution:
             model=model, wrapper=wrapper, modes=modes, decay=decay
         )
         self.method = method
+        self.prefix = prefix
 
         self.attributor = partial(
             calculate_attributions,
@@ -118,10 +121,10 @@ class BatchAttribution:
 
         if isinstance(_one_hot, np.ndarray):
             _one_hot = torch.from_numpy(_one_hot).float()
+        _one_hot = _one_hot.cpu()
         attrs = self.attributor(X=_one_hot)
-        data["attributions"] = attrs.cpu().numpy()
+        data[f"{self.prefix}_attributions"] = attrs.cpu().numpy()
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
-        data["attributions_1d"] = attrs_1d
-
+        data[f"{self.prefix}_attributions_1d"] = attrs_1d
         return data

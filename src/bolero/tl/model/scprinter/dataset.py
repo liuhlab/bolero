@@ -4,15 +4,13 @@ import numpy as np
 from ray.data.dataset import Dataset
 
 from bolero.tl.dataset.filters import RowSumFilter
-from bolero.tl.dataset.ray_dataset import RayGenomeDataset, RayRegionDataset
+from bolero.tl.dataset.ray_dataset import RayGenomeDataset
 from bolero.tl.dataset.transforms import (
     BatchToFloat,
     CropRegionsWithJitter,
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.tl.model.scprinter.attribution import BatchAttribution
-from bolero.tl.model.scprinter.infer import BatchInference
 
 
 class BatchFootPrint(FootPrintModel):
@@ -545,83 +543,3 @@ class scPrinterDataset(RayGenomeDataset):
         )
         self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
-
-
-class scPrinterInferenceDataset(RayRegionDataset):
-    """Class for getting the inference or attribution dataset for scPrinter model."""
-
-    def __init__(
-        self,
-        model: object,
-        bed: object,
-        genome: object,
-        standard_length: int = 1840,
-        **kwargs,
-    ) -> None:
-        """
-        Initialize the scPrinterInferenceDataset.
-
-        Parameters
-        ----------
-        bed : str
-            The bed file.
-        genome : str
-            The genome file.
-        standard_length : int, optional
-            The standard length (default is 1840).
-        **kwargs
-            Additional keyword arguments.
-
-        Returns
-        -------
-        None
-        """
-        super().__init__(bed, genome, standard_length=standard_length, **kwargs)
-        self.model = model
-
-    def get_footprint_attributor(
-        self,
-        wrapper: str = "just_sum",
-        method: str = "shap_hypo",
-        modes: range = range(0, 30),
-        decay: float = 0.85,
-    ) -> Dataset:
-        """
-        Get the attributor for analyzing the footprint.
-
-        Parameters
-        ----------
-        wrapper : str, optional
-            The wrapper type (default is "just_sum").
-        method : str, optional
-            The attribution method (default is "shap_hypo").
-        modes : range, optional
-            The range of modes (default is range(0, 30)).
-        decay : float, optional
-            The decay value (default is 0.85).
-
-        Returns
-        -------
-        Dataset
-            The attributions dataset.
-        """
-        attributor = BatchAttribution(
-            model=self.model, wrapper=wrapper, method=method, modes=modes, decay=decay
-        )
-        return attributor
-
-    def get_coverage_attributor(
-        self,
-        wrapper: str = "count",
-        method: str = "shap_hypo",
-    ):
-        """
-        Get the attributor for analyzing the coverage.
-        """
-        attributor = BatchAttribution(model=self.model, wrapper=wrapper, method=method)
-        return attributor
-
-    def get_inferencer(self):
-        """Get the inferencer for the model."""
-        inferencer = BatchInference(model=self.model, postprocess=True)
-        return inferencer
