@@ -201,7 +201,7 @@ class RayRegionDataset(RayGenomeDataset):
         bed (pd.DataFrame or pr.PyRanges or str): The genomic regions in BED format.
         genome (Genome or str): The genome reference or its name.
         standard_length (int): The standard length of the regions.
-        **kwargs: Additional keyword arguments.
+        **kwargs: Additional keyword arguments for ray.data.from_pandas.
 
     Attributes
     ----------
@@ -241,7 +241,7 @@ class RayRegionDataset(RayGenomeDataset):
         self.genome = genome
         _ = self.genome.genome_one_hot
 
-        self.dataset = ray.data.from_pandas(self.bed)
+        self.dataset = ray.data.from_pandas(self.bed, **kwargs)
         self._working_dataset = None
 
     def _fetch_dna_one_hot(self):

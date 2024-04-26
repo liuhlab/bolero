@@ -24,7 +24,6 @@ class BatchAttribution:
         modes: range = range(0, 30),
         decay: float = 0.85,
         verbose: bool = False,
-        project: bool = True,
     ):
         """
         Initialize the BatchAttribution class.
@@ -122,9 +121,8 @@ class BatchAttribution:
         if isinstance(_one_hot, np.ndarray):
             _one_hot = torch.from_numpy(_one_hot).float()
         attrs = self.attributor(X=_one_hot)
+        data["attributions"] = attrs.cpu().numpy()
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
-
-        data["attributions"] = attrs.cpu().numpy()
         data["attributions_1d"] = attrs_1d
         return data
