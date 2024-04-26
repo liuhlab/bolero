@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-
+import pyranges as pr
+import joblib
+import tempfile
+from tqdm import tqdm
 from bolero.pp.genome import Genome
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.footprint.footprint import postprocess_footprint
@@ -63,7 +66,6 @@ class scPrinterInferencer:
         self,
         model: object,
         genome: object,
-        **kwargs,
     ) -> None:
         """
         Initialize the scPrinterInferencer.
@@ -76,8 +78,6 @@ class scPrinterInferencer:
             The genome file.
         standard_length : int, optional
             The standard length (default is 1840).
-        **kwargs
-            Additional keyword arguments.
 
         Returns
         -------
@@ -246,3 +246,37 @@ class scPrinterInferencer:
         if regions is not None:
             ds.coords["region"] = regions
         return ds
+
+    def offline_transform(self, bed_path, output_path, chunk_size=20):
+        """Perform offline transformation."""
+        bed = pr.read_bed(bed_path, as_df=True)
+        output_path = pathlib.Path(output_path)
+        success_flag = output_path / ".success"
+        if success_flag.exists():
+            print(f"Output path {output_path} already exists with a success flag. Skipping...")
+            return
+
+        temp_dir = tempfile.mkdtemp(prefix="scprinter_infer_")
+        temp_dir = pathlib.Path(temp_dir)
+
+        chunk_starts = list(range(0, len(bed), chunk_size))
+        for chunk_start in tqdm(chunk_starts, desc="Transforming regions"):
+            chunk_bed = bed.iloc[chunk_start : chunk_start + chunk_size]
+            chunk_out_path = temp_dir / f"chunk_{chunk_start}.joblib"
+
+            if pathlib.Path(chunk_out_path).exists():
+                continue
+            chunk_ds = self.transform(chunk_bed, batch_size=2)
+            joblib.dump(chunk_ds, f'{chunk_out_path}.temp', compress=1)
+            pathlib.Path(f'{chunk_out_path}.temp').rename(chunk_out_path)
+        
+        for chunk_start in tqdm(chunk_starts, desc="Merging chunks"):
+            chunk_out_path = temp_dir / f"chunk_{chunk_start}.joblib"
+            chunk_ds = joblib.load(chunk_out_path)
+            chunk_ds = chunk_ds.chunk({'region': 250, 'base': 4, 'pos': self.output_len, 'mode': 99})
+            if chunk_start == 0:
+                chunk_ds.to_zarr(output_path, mode='w')
+            else:
+                chunk_ds.to_zarr(output_path, append_dim='region')
+        success_flag.touch()
+        temp_dir.rmdir()
