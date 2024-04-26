@@ -131,6 +131,43 @@ def smooth_footprint(pval_log: np.ndarray, smooth_radius: int = 5) -> np.ndarray
     return pval_log
 
 
+def postprocess_footprint(
+    footprint: Union[torch.Tensor, np.ndarray], smooth_radius: int = 5
+) -> np.ndarray:
+    """
+    Postprocess the computed footprint.
+
+    Parameters
+    ----------
+    footprint : torch.Tensor or np.ndarray
+        The computed footprint.
+    smooth_radius : int, optional
+        The radius for smoothing the footprint.
+
+    Returns
+    -------
+    np.ndarray
+        The postprocessed footprint.
+
+    Notes
+    -----
+    This method takes the computed footprint and performs postprocessing steps on it. If the footprint is a torch.Tensor,
+    it is converted to a numpy array and then postprocessed. The postprocessing steps include converting the z-scores to p-values,
+    smoothing the footprint using a rolling window of the specified radius.
+
+    The smoothed footprint is returned as a numpy array.
+    """
+    if isinstance(footprint, torch.Tensor):
+        footprint = footprint.clone()
+        footprint = zscore2pval_torch(footprint)
+        footprint = footprint.cpu().numpy()
+    else:
+        footprint = zscore2pval(footprint)
+
+    footprint = smooth_footprint(footprint, smooth_radius)
+    return footprint
+
+
 class FootPrintModel(_dispModel):
     """Footprint model convering the ATAC-seq data to the footprint."""
 
@@ -571,35 +608,5 @@ class FootPrintModel(_dispModel):
     def postprocess_footprint(
         footprint: Union[torch.Tensor, np.ndarray], smooth_radius: int = 5
     ) -> np.ndarray:
-        """
-        Postprocess the computed footprint.
-
-        Parameters
-        ----------
-        footprint : torch.Tensor or np.ndarray
-            The computed footprint.
-        smooth_radius : int, optional
-            The radius for smoothing the footprint.
-
-        Returns
-        -------
-        np.ndarray
-            The postprocessed footprint.
-
-        Notes
-        -----
-        This method takes the computed footprint and performs postprocessing steps on it. If the footprint is a torch.Tensor,
-        it is converted to a numpy array and then postprocessed. The postprocessing steps include converting the z-scores to p-values,
-        smoothing the footprint using a rolling window of the specified radius.
-
-        The smoothed footprint is returned as a numpy array.
-        """
-        if isinstance(footprint, torch.Tensor):
-            footprint = footprint.clone()
-            footprint = zscore2pval_torch(footprint)
-            footprint = footprint.cpu().numpy()
-        else:
-            footprint = zscore2pval(footprint)
-
-        footprint = smooth_footprint(footprint, smooth_radius)
-        return footprint
+        """Run postprocessing on the computed footprint."""
+        return postprocess_footprint(footprint, smooth_radius)

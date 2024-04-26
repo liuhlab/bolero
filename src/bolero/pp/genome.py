@@ -587,18 +587,7 @@ class Genome:
         - The method updates the 'Name' column of the regions to reflect the adjusted positions.
 
         """
-        if isinstance(regions, pr.PyRanges):
-            regions_bed = regions
-        elif isinstance(regions, pd.DataFrame):
-            regions_bed = pr.PyRanges(regions)
-        elif isinstance(regions, (str, pathlib.Path)):
-            regions_bed = pr.read_bed(regions)
-        elif isinstance(regions, (list, pd.Index)):
-            regions_bed = parse_region_names(regions)
-        else:
-            raise ValueError(
-                "regions must be a PyRanges, DataFrame, str, Path, list or Index"
-            )
+        regions_bed = understand_regions(regions)
 
         if keep_original:
             regions_bed_df = regions_bed.df

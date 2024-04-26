@@ -4,9 +4,7 @@ from collections import defaultdict
 from typing import List, Optional, Union
 
 import numpy as np
-import pandas as pd
 import pyarrow
-import pyranges as pr
 import ray
 from pyarrow.fs import FileSystem
 from ray.data.dataset import Dataset
@@ -217,12 +215,8 @@ class RayRegionDataset(RayGenomeDataset):
     """
 
     def __init__(self, bed, genome, standard_length, **kwargs):
-        if isinstance(bed, pd.DataFrame):
-            bed = pr.PyRanges(bed)
-        elif isinstance(bed, pr.PyRanges):
-            pass
-        else:
-            bed = pr.read_bed(bed)
+        if isinstance(genome, str):
+            genome = Genome(genome)
 
         standard_bed = genome.standard_region_length(
             bed,
@@ -239,6 +233,7 @@ class RayRegionDataset(RayGenomeDataset):
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
+        # trigger loading of genome one hot
         _ = self.genome.genome_one_hot
 
         self.dataset = ray.data.from_pandas(self.bed, **kwargs)

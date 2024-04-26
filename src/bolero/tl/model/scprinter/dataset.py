@@ -12,6 +12,7 @@ from bolero.tl.dataset.transforms import (
 )
 from bolero.tl.footprint import FootPrintModel
 from bolero.tl.model.scprinter.attribution import BatchAttribution
+from bolero.tl.model.scprinter.infer import BatchInference
 
 
 class BatchFootPrint(FootPrintModel):
@@ -550,7 +551,12 @@ class scPrinterInferenceDataset(RayRegionDataset):
     """Class for getting the inference or attribution dataset for scPrinter model."""
 
     def __init__(
-        self, bed: str, genome: str, standard_length: int = 1840, **kwargs
+        self,
+        model: object,
+        bed: object,
+        genome: object,
+        standard_length: int = 1840,
+        **kwargs,
     ) -> None:
         """
         Initialize the scPrinterInferenceDataset.
@@ -571,22 +577,20 @@ class scPrinterInferenceDataset(RayRegionDataset):
         None
         """
         super().__init__(bed, genome, standard_length=standard_length, **kwargs)
+        self.model = model
 
-    def get_attributions(
+    def get_footprint_attributor(
         self,
-        model,
         wrapper: str = "just_sum",
         method: str = "shap_hypo",
         modes: range = range(0, 30),
         decay: float = 0.85,
     ) -> Dataset:
         """
-        Get the attributions dataset.
+        Get the attributor for analyzing the footprint.
 
         Parameters
         ----------
-        model : object
-            The model object.
         wrapper : str, optional
             The wrapper type (default is "just_sum").
         method : str, optional
@@ -602,34 +606,22 @@ class scPrinterInferenceDataset(RayRegionDataset):
             The attributions dataset.
         """
         attributor = BatchAttribution(
-            model=model,
-            wrapper=wrapper,
-            method=method,
-            modes=modes,
-            decay=decay,
-            verbose=False,
+            model=self.model, wrapper=wrapper, method=method, modes=modes, decay=decay
         )
-        dataset = self._attribution_dataset_process(attributor)
-        dataset.materialize()
-        return dataset
+        return attributor
 
-    def _attribution_dataset_process(self, attributor) -> Dataset:
+    def get_coverage_attributor(
+        self,
+        wrapper: str = "count",
+        method: str = "shap_hypo",
+    ):
         """
-        Process the attribution dataset.
-
-        Parameters
-        ----------
-        attributor : object
-            The attributor object.
-
-        Returns
-        -------
-        Dataset
-            The processed attribution dataset.
+        Get the attributor for analyzing the coverage.
         """
-        self._working_dataset = self.dataset
-        self._dataset_preprocess()
-        self._working_dataset = self._working_dataset.map_batches(
-            attributor, num_gpus=1, batch_size=32
-        )
-        return self._working_dataset
+        attributor = BatchAttribution(model=self.model, wrapper=wrapper, method=method)
+        return attributor
+
+    def get_inferencer(self):
+        """Get the inferencer for the model."""
+        inferencer = BatchInference(model=self.model, postprocess=True)
+        return inferencer

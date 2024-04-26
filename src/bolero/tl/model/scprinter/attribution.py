@@ -115,6 +115,7 @@ class BatchAttribution:
             dict: The data with attributions added.
         """
         _one_hot = data["dna_one_hot"]
+
         if isinstance(_one_hot, np.ndarray):
             _one_hot = torch.from_numpy(_one_hot).float()
         attrs = self.attributor(X=_one_hot)
@@ -122,4 +123,5 @@ class BatchAttribution:
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
         data["attributions_1d"] = attrs_1d
+
         return data
