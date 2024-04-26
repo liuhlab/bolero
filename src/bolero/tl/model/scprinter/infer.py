@@ -6,7 +6,7 @@ import torch
 import xarray as xr
 import pyranges as pr
 import joblib
-import tempfile
+import shutil
 from tqdm import tqdm
 from bolero.pp.genome import Genome
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
@@ -251,14 +251,14 @@ class scPrinterInferencer:
         """Perform offline transformation."""
         bed = pr.read_bed(bed_path, as_df=True)
         output_path = pathlib.Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
         success_flag = output_path / ".success"
         if success_flag.exists():
             print(f"Output path {output_path} already exists with a success flag. Skipping...")
             return
 
-        temp_dir = tempfile.mkdtemp(prefix="scprinter_infer_")
-        temp_dir = pathlib.Path(temp_dir)
-
+        temp_dir = output_path / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
         chunk_starts = list(range(0, len(bed), chunk_size))
         for chunk_start in tqdm(chunk_starts, desc="Transforming regions"):
             chunk_bed = bed.iloc[chunk_start : chunk_start + chunk_size]
@@ -279,4 +279,5 @@ class scPrinterInferencer:
             else:
                 chunk_ds.to_zarr(output_path, append_dim='region')
         success_flag.touch()
-        temp_dir.rmdir()
+        shutil.rmtree(temp_dir)
+        return
