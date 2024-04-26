@@ -23,7 +23,6 @@ class BatchAttribution:
         method: str,
         modes: range = range(0, 30),
         decay: float = 0.85,
-        verbose: bool = False,
     ):
         """
         Initialize the BatchAttribution class.
@@ -34,8 +33,6 @@ class BatchAttribution:
             method (str): The attribution method to be used.
             modes (range, optional): The range of modes to be considered. Defaults to range(0, 30).
             decay (float, optional): The decay factor. Defaults to 0.85.
-            verbose (bool, optional): Whether to print verbose output. Defaults to False.
-            project (bool, optional): Whether to project attributions. Defaults to True.
         """
         self.device = str(try_gpu())
         self.use_cuda = self.device != "cpu"
@@ -48,7 +45,7 @@ class BatchAttribution:
             calculate_attributions,
             n_shuffles=20,
             method=self.method,
-            verbose=verbose,
+            verbose=False,
             model=self.model,
         )
         # project channel-by-sequence 2D attributions to sequence 1D attributions

@@ -5,10 +5,10 @@
 resources:
   cloud: gcp
   cpus: 16+
-  memory: 96+
+  memory: 64+
   region: us-central1
-  disk_size: 128
-  accelerators: { "T4:1", "L4:1" }
+  disk_size: 256
+  accelerators: { "L4:1", "T4:1" }
 
 file_mounts:
   # ~/.netrc: ~/.netrc  # for wandb, but do not include in setup for security
