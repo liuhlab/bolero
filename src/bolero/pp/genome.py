@@ -29,7 +29,6 @@ from bolero.utils import (
     parse_region_names,
     understand_regions,
 )
-from scipy.sparse import csr_matrix, vstack
 
 zarr.storage.default_compressor = Zstd(level=3)
 
@@ -941,7 +940,7 @@ class Genome:
             )
         return self.genome_one_hot.get_regions_one_hot(regions)
 
-    def get_global_coords(self, region_bed):
+    def get_global_coords(self, region_bed, chrom_offsets=None):
         """
         Convert the coordinates in the given region bed file to global coordinates.
 
@@ -949,6 +948,8 @@ class Genome:
         ----------
         region_bed : str
             The path to the region bed file.
+        chrom_offsets : pd.DataFrame, optional
+            A DataFrame containing the global start offsets for each chromosome. Default is None.
 
         Returns
         -------
@@ -970,7 +971,9 @@ class Genome:
         [100 200 300 1100 1200 1300]
         """
         return _get_global_coords(
-            chrom_offsets=self.chrom_offsets,
+            chrom_offsets=self.chrom_offsets
+            if chrom_offsets is None
+            else chrom_offsets,
             region_bed_df=understand_regions(region_bed, as_df=True),
         )
 
@@ -1592,7 +1595,9 @@ class GenomeBigWigDataset(GenomeWideDataset):
             for chunk_start in range(0, regions_df.shape[0], chunk_size):
                 chunk_slice = slice(chunk_start, chunk_start + chunk_size)
                 regions = regions_df.iloc[chunk_slice, :3].copy()
-                this_tasks.append(_remote_bw_values_chunk.remote(path, regions, sparse=False))
+                this_tasks.append(
+                    _remote_bw_values_chunk.remote(path, regions, sparse=False)
+                )
             tasks.append(this_tasks)
             names.append(name)
 
@@ -2211,7 +2216,9 @@ def prepare_chromosome_dataset(
         if isinstance(genome, str):
             genome = Genome(genome)
         for chrom, chrom_region_config in bar:
-            ensemble = GenomeEnsembleDataset(genome, include_genome_one_hot=include_genome_one_hot)
+            ensemble = GenomeEnsembleDataset(
+                genome, include_genome_one_hot=include_genome_one_hot
+            )
 
             if bigwig_config_part:
                 ensemble.add_bigwig(**bigwig_config_part)

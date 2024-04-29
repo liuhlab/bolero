@@ -36,7 +36,7 @@ setup: |
   conda config --add channels pytorch
   conda config --add channels conda-forge
 
-  # optional tools
+  # optional tools in base environments
   mamba install -y nodejs nvtop
   npm install -g vtop
   pip install pre-commit
