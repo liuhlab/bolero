@@ -53,15 +53,14 @@ setup: |
 
   # ray
   conda create -n ray python=3.10 -y
+  mamba install -y -n ray nodejs nvtop  
   conda activate ray
-  pip install "ray[train]"
-  # install again in both environments
-  mamba install -y nodejs nvtop
   npm install -g vtop
+  pip install "ray[train]"
 
   # torch
-  mamba install -y pytorch torchvision torchaudio -c pytorch -c nvidia
-  mamba install -y cupy macs2 macs3 gh pandas dask jupyterlab mallet tqdm ipywidgets transformers black gcsfs isort
+  mamba install -y -n ray pytorch torchvision torchaudio -c pytorch -c nvidia
+  mamba install -y -n ray cupy macs2 macs3 gh pandas dask jupyterlab mallet tqdm ipywidgets transformers black gcsfs isort
   pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit scipy==1.12 captum shap
 
   # inhouse packages
