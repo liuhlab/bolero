@@ -3,7 +3,7 @@ import pandas as pd
 import pyranges as pr
 import xarray as xr
 
-from .genome import GenomePositionZarr
+from .genome_dataset import GenomePositionZarr
 
 
 def calculate_atac_norm_value(

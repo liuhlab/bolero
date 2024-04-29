@@ -7,8 +7,9 @@ import pyranges as pr
 import xarray as xr
 from torch.utils.data import DataLoader, Dataset
 
-from bolero.pp import Genome, GenomePositionZarr, GenomeRegionZarr
+from bolero.pp import Genome
 from bolero.pp.normalize import convolve_data, normalize_atac_batch
+from bolero.pp.genome_dataset import GenomePositionZarr, GenomeRegionZarr
 from bolero.utils import try_gpu, understand_regions
 
 DEFAULT_DEVICE = try_gpu()
