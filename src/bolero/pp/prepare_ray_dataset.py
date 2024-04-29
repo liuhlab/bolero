@@ -1,20 +1,24 @@
-import pyranges as pr
+import pathlib
+import shutil
 from collections import defaultdict
-from bolero.pp.genome import Genome
-from bolero.pp.genome_dataset import GenomeBigWigDataset, GenomePositionZarr
-from bolero.utils import get_fs_and_path, parse_region_name, understand_regions
-from typing import Union, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
+import joblib
 import numpy as np
 import pandas as pd
+import pyranges as pr
 import ray
 import xarray as xr
 from pyarrow.fs import LocalFileSystem
 from tqdm import tqdm
 
-
-import pathlib
-from typing import Any, Callable, Dict, List
+from bolero.pp.genome import Genome
+from bolero.pp.genome_dataset import (
+    GenomeBigWigDataset,
+    GenomePositionZarr,
+    GenomeSingleCellCutsiteDataset,
+)
+from bolero.utils import get_fs_and_path, parse_region_name, understand_regions
 
 
 class GenomeEnsembleDataset:
@@ -626,7 +630,9 @@ def prepare_chromosome_dataset(
         if isinstance(genome, str):
             genome = Genome(genome)
         for chrom, chrom_region_config in bar:
-            ensemble = GenomeEnsembleDataset(genome, include_genome_one_hot=include_genome_one_hot)
+            ensemble = GenomeEnsembleDataset(
+                genome, include_genome_one_hot=include_genome_one_hot
+            )
 
             if bigwig_config_part:
                 ensemble.add_bigwig(**bigwig_config_part)
@@ -646,3 +652,180 @@ def prepare_chromosome_dataset(
                 add_region_ids=add_region_ids,
             )
     return
+
+
+class SingleCellGenomeEnsembleDataset:
+    """
+    Represents a single-cell genome ensemble dataset.
+
+    Parameters
+    ----------
+    bed : pd.DataFrame
+        The bed file containing the regions.
+    genome : Union[str, Genome]
+        The genome associated with the dataset.
+    zarr_dict : Dict[str, str]
+        A dictionary mapping dataset names to Zarr file paths.
+    length : int, optional
+        The length of the regions, by default 2500.
+
+    Attributes
+    ----------
+    genome : Genome
+        The genome associated with the dataset.
+    bed : pd.DataFrame
+        The bed file containing the regions.
+    zarr_dict : Dict[str, str]
+        A dictionary mapping dataset names to Zarr file paths.
+
+    """
+
+    def __init__(
+        self,
+        bed: pd.DataFrame,
+        genome: Union[str, Genome],
+        zarr_dict: Dict[str, str],
+        length: int = 2500,
+    ) -> None:
+        if isinstance(genome, str):
+            genome = Genome(genome)
+        self.genome = genome
+
+        bed = genome.standard_region_length(
+            bed,
+            length=length,
+            remove_blacklist=True,
+            boarder_strategy="drop",
+            as_df=True,
+        )
+        self.bed = bed
+
+        self.zarr_dict = zarr_dict
+
+    def _process_single_zarr(self, output_dir: str) -> None:
+        """
+        Process each Zarr file and save the data for each chromosome.
+
+        Parameters
+        ----------
+        output_dir : str
+            The output directory to save the processed data.
+
+        Returns
+        -------
+        None
+
+        """
+        for name, zarr_path in tqdm(
+            self.zarr_dict.items(), desc="Preparing single zarr datasets"
+        ):
+            this_output_dir = output_dir / "single_zarr" / name
+            this_output_dir.mkdir(exist_ok=True, parents=True)
+            flag_path = this_output_dir / "success.flag"
+            if flag_path.exists():
+                continue
+
+            ds = GenomeSingleCellCutsiteDataset(
+                name=name,
+                bed=self.bed,
+                zarr_path=zarr_path,
+            )
+            data_list = ds.get_meta_region_data()
+            chrom_data_list = defaultdict(list)
+            for data in data_list:
+                chrom = data[f"{name}:meta_region"].split(":")[0]
+                chrom_data_list[chrom].append(data)
+            for chrom, data_list in chrom_data_list.items():
+                chrom_path = this_output_dir / chrom
+                joblib.dump(data_list, chrom_path)
+            flag_path.touch()
+        return
+
+    def _prepare_single_chrom(
+        self, output_dir: str, chrom: str, num_rows_per_file: int
+    ) -> None:
+        """
+        Prepare the dataset for a single chromosome.
+
+        Parameters
+        ----------
+        output_dir : str
+            The output directory to save the prepared dataset.
+        chrom : str
+            The chromosome to prepare the dataset for.
+        num_rows_per_file : int
+            The number of rows per file in the dataset.
+
+        Returns
+        -------
+        None
+
+        """
+        chrom_dir = output_dir / chrom
+        chrom_dir.mkdir(exist_ok=True, parents=True)
+        flag_path = chrom_dir / "success.flag"
+        if flag_path.exists():
+            return
+
+        for idx, name in enumerate(self.zarr_dict.keys()):
+            chrom_data = f"{output_dir}/single_zarr/{name}/{chrom}"
+            data_list = joblib.load(chrom_data)
+            if idx == 0:
+                list_of_dict = data_list
+            else:
+                for idx, d in enumerate(data_list):
+                    list_of_dict[idx].update(d)
+
+        # create ray dataset
+        ray_dataset = ray.data.from_items(list_of_dict)
+        ray_dataset.write_parquet(chrom_dir, num_rows_per_file=num_rows_per_file)
+
+        # create success flag
+        flag_path.touch()
+        return
+
+    def prepare_ray_dataset(
+        self, output_dir: str, num_rows_per_file: int = 200
+    ) -> None:
+        """
+        Prepare the ray dataset.
+
+        Parameters
+        ----------
+        output_dir : str
+            The output directory to save the prepared dataset.
+        num_rows_per_file : int, optional
+            The number of rows per file in the dataset, by default 200.
+
+        Returns
+        -------
+        None
+
+        """
+        output_dir = pathlib.Path(output_dir)
+        output_dir.mkdir(exist_ok=True, parents=True)
+        success_flag_path = output_dir / "success.flag"
+        if success_flag_path.exists():
+            return
+
+        self._process_single_zarr(output_dir)
+
+        for chrom in self.bed["Chromosome"].unique():
+            self._prepare_single_chrom(output_dir, chrom, num_rows_per_file)
+
+        # save barcodes
+        barcodes_dict = {
+            name: xr.open_zarr(zarr_path).coords["barcode"].values
+            for name, zarr_path in self.zarr_dict.items()
+        }
+        np.savez_compressed(f"{output_dir}/barcodes.npz", **barcodes_dict)
+
+        # cleanup
+        shutil.rmtree(output_dir / "single_zarr")
+        for chrom in self.bed["Chromosome"].unique():
+            chrom_dir = output_dir / chrom
+            pathlib.Path(f"{chrom_dir}/success.flag").unlink()
+
+        # save success flag
+        pathlib.Path(f"{output_dir}/success.flag").touch()
+        return

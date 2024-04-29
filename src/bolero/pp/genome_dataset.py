@@ -1,17 +1,18 @@
-
-from typing import Any, Tuple, Optional, Union
-
-import xarray as xr
+import pathlib
+from typing import Any, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import pyranges as pr
 import pyBigWig
-import pathlib
-
-from bolero.utils import parse_region_name, parse_region_names
-from bolero.pp.utils import get_global_coords
+import pyranges as pr
 import ray
+import xarray as xr
+from bolero_process.atac.sc.zarr_io import CutSitesZarr
+from scipy.sparse import csr_matrix, vstack
+
+from bolero.pp.utils import get_global_coords
+from bolero.utils import parse_region_name, parse_region_names
+
 
 @ray.remote
 def _remote_isel(da, dim, sel):
@@ -630,7 +631,9 @@ class GenomeBigWigDataset(GenomeWideDataset):
             for chunk_start in range(0, regions_df.shape[0], chunk_size):
                 chunk_slice = slice(chunk_start, chunk_start + chunk_size)
                 regions = regions_df.iloc[chunk_slice, :3].copy()
-                this_tasks.append(_remote_bw_values_chunk.remote(path, regions, sparse=False))
+                this_tasks.append(
+                    _remote_bw_values_chunk.remote(path, regions, sparse=False)
+                )
             tasks.append(this_tasks)
             names.append(name)
 
@@ -638,3 +641,205 @@ class GenomeBigWigDataset(GenomeWideDataset):
         for name, task in zip(names, tasks):
             regions_data[name] = np.concatenate(ray.get(task))
         return regions_data
+
+
+@ray.remote
+def process_meta_region(smat: csr_matrix, region_df: pd.DataFrame) -> csr_matrix:
+    """
+    Process the meta region data.
+
+    Parameters
+    ----------
+    smat : csr_matrix
+        The sparse matrix containing the raw data.
+    region_df : pd.DataFrame
+        The DataFrame containing the region information.
+
+    Returns
+    -------
+    csr_matrix
+        The processed meta region data.
+
+    """
+    # meta region
+    region_df = region_df.sort_values(["Start"])
+    meta_region_start = region_df["global_start"].min()
+    meta_region_end = region_df["global_end"].max()
+    # meta region raw data
+    meta_region_smat = smat[:, meta_region_start:meta_region_end].copy()
+
+    # relatvie coords within meta region
+    relative_region_merged = (
+        pr.PyRanges(region_df).merge().df[["Start", "End"]].copy()
+        - region_df["Start"].min()
+    )
+
+    # select only relavent regions to further reduce data size
+    rows = []
+    cols = []
+    for rstart, rend in relative_region_merged.values:
+        region_coo = meta_region_smat[:, rstart:rend].tocoo()
+        rows.append(region_coo.row)
+        cols.append(region_coo.col + rstart)
+    rows = np.concatenate(rows)
+    cols = np.concatenate(cols)
+    # reconstruct meta region with relavent data only
+    final_data = csr_matrix(
+        (np.ones_like(rows, dtype=meta_region_smat.dtype), (rows, cols)),
+        shape=meta_region_smat.shape,
+    )
+    return final_data
+
+
+class GenomeSingleCellCutsiteDataset(GenomeWideDataset):
+    """
+    Dataset class for single-cell cutsite data.
+
+    Parameters
+    ----------
+        name (str): The name of the dataset.
+        zarr_path (str): The path to the Zarr file.
+        bed (str or pathlib.Path): The path to the BED file.
+        meta_region_size (int, optional): The size of the meta region. Defaults to 100000.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        zarr_path: str,
+        bed: Union[str, pathlib.Path],
+        meta_region_size: int = 100000,
+    ):
+        super().__init__()
+        self.dataset = CutSitesZarr(zarr_path)
+        self.region_df = self._process_region_bed(
+            bed=bed, meta_region_size=meta_region_size
+        )
+        self.name = name
+
+    @staticmethod
+    def _process_region_bed(
+        bed: Union[str, pathlib.Path], meta_region_size: int
+    ) -> pd.DataFrame:
+        """
+        Process the region BED file.
+
+        Parameters
+        ----------
+            bed (str or pathlib.Path): The path to the BED file.
+            meta_region_size (int): The size of the meta region.
+
+        Returns
+        -------
+            pd.DataFrame: The processed region BED data.
+        """
+        if isinstance(bed, (str, pathlib.Path)):
+            bed = pr.read_bed(bed, as_df=True)
+
+        start_bin = bed["Start"] // meta_region_size
+        end_bin = bed["End"] // meta_region_size
+        start_mode = bed["Start"] % meta_region_size
+        end_mode = bed["End"] % meta_region_size
+        use_bin = np.where(start_mode > end_mode, start_bin, end_bin)
+        bed["ChromBin"] = bed["Chromosome"].astype(str) + "-" + use_bin.astype(str)
+        return bed
+
+    @staticmethod
+    def _prepare_meta_region_worker(ds, region_df, prefix, genome_total_length):
+        """
+        Prepare the meta region worker.
+
+        Parameters
+        ----------
+            ds: The dataset.
+            region_df: The region DataFrame contains individual regions, who will be grouped into meta_region based on "ChromBin".
+            prefix: The prefix.
+            genome_total_length: The total length of the genome.
+
+        Returns
+        -------
+            List[Dict]: The meta region data.
+        """
+        barcode_batch_size = 100000
+        barcode_batches = ds.barcode_to_idx // barcode_batch_size
+
+        total_csrs = []
+        for _, _batch_barcodes in ds.barcode_to_idx.groupby(barcode_batches):
+            site_sel = (
+                ds["cutsite"].sel(value="barcode").isin(_batch_barcodes.values).values
+            )
+            sites_data = ds["cutsite"].sel(site=site_sel).to_pandas()
+            # csr is very efficient even doing genome position selection
+            smat = csr_matrix(
+                (
+                    np.ones(sites_data.shape[0], dtype=bool),
+                    (sites_data["barcode"].values, sites_data["global_pos"].values),
+                ),
+                shape=(sites_data["barcode"].max() + 1, genome_total_length),
+            )
+            smat_remote = ray.put(smat)
+            batch_csrs = []
+            for _, sub_df in region_df.groupby("ChromBin"):
+                task = process_meta_region.remote(smat=smat_remote, region_df=sub_df)
+                batch_csrs.append(task)
+            batch_csrs = ray.get(batch_csrs)
+            total_csrs.append(batch_csrs)
+
+        # vstack batches and add meta region info
+        meta_region_dicts = []
+        for (chrom_bin, sub_df), batch_csrs in zip(
+            region_df.groupby("ChromBin"), zip(*total_csrs)
+        ):
+            chrom = chrom_bin.split("-")[0]
+            meta_region_start = sub_df["Start"].min()
+            meta_region_end = sub_df["End"].max()
+            final_data = vstack(batch_csrs)
+            relative_region = sub_df[["Start", "End"]] - meta_region_start
+            # return a dict
+            # csr_matrix indices, indptr, data are all variable size, ray data has issue support variable size
+            # when writing to parquet, we need to convert to bytes and reconstruct csr_matrix during getting data
+            # https://github.com/ray-project/ray/issues/41924
+            final_data_dict = {
+                f"{prefix}:indices+uint32": final_data.indices.astype(
+                    np.uint32
+                ).tobytes(),
+                f"{prefix}:indptr+uint32": final_data.indptr.astype(
+                    np.uint32
+                ).tobytes(),
+                f"{prefix}:data+float32": final_data.data.astype(np.float32).tobytes(),
+                f"{prefix}:shape+uint32": np.array(final_data.shape)
+                .astype(np.uint32)
+                .tobytes(),
+                f"{prefix}:relative_coords+uint32": relative_region.values.astype(
+                    np.uint32
+                ).tobytes(),
+                f"{prefix}:meta_region": f"{chrom}:{meta_region_start}-{meta_region_end}",
+            }
+            meta_region_dicts.append(final_data_dict)
+        return meta_region_dicts
+
+    def get_meta_region_data(self):
+        """
+        Get the meta region data for prepare ray data.
+
+        Returns
+        -------
+            List[Dict]: The meta region data.
+        """
+        region_df = self.region_df
+        ds = self.dataset
+
+        chrom_offset = ds["chrom_offset"].to_pandas()
+        global_coords = get_global_coords(
+            chrom_offsets=chrom_offset, region_bed_df=region_df
+        )
+        region_df["global_start"] = global_coords[:, 0]
+        region_df["global_end"] = global_coords[:, 1]
+        genome_total_length = chrom_offset["global_end"].max()
+        meta_region_dicts = self._prepare_meta_region_worker(
+            ds=ds,
+            region_df=region_df,
+            prefix=self.name,
+            genome_total_length=genome_total_length,
+        )
+        return meta_region_dicts

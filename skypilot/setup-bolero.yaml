@@ -89,5 +89,5 @@ run: |
 
   python -c "import scmallet; print('scmallet version', scmallet.__version__)"
   python -c "import bolero; print('bolero version', bolero.__version__)"
-  python -c "import scPrinter; print('scPrinter version', scPrinter.__version__)"
+  python -c "import scprinter"
   python -c "import bolero_process; print('bolero_process version', bolero_process.__version__)"
