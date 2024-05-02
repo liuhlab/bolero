@@ -243,7 +243,8 @@ class scPrinterDataset(RayGenomeDataset):
         None
         """
         # row operations
-        self._filter_by_coverage(column)
+        if column is not None:
+            self._filter_by_coverage(column)
         if self.reverse_complement and self._dataset_mode == "train":
             self._reverse_complement_region()
         self._crop_regions()
@@ -319,6 +320,7 @@ class scPrinterDataset(RayGenomeDataset):
         local_shuffle_buffer_size: int = 10000,
         randomize_block_order: bool = False,
         torch=True,
+        batch_collate_fn=None,
         **kwargs,
     ) -> Iterable:
         """
@@ -338,6 +340,9 @@ class scPrinterDataset(RayGenomeDataset):
             Whether to randomize the block order (default is False).
         torch : bool, optional
             Whether to return a iterator with batches data in torch tensor format (default is True).
+        batch_collate_fn : list, optional
+            A list of functions to apply to the batch data AFTER all the default preprocessing steps (default is None).
+            These functions will be added through the self._working_dataset.map_batches() function.
         **kwargs
             Additional keyword arguments passed to the DataLoader.
 
@@ -355,18 +360,13 @@ class scPrinterDataset(RayGenomeDataset):
         if sample is None:
             if len(self.samples) == 1:
                 sample = self.samples[0]
-            else:
-                raise ValueError(
-                    "Sample name not provided and could not be guessed, please provide the sample name."
-                )
         if region is None:
             if len(self.regions) == 1:
                 region = self.regions[0]
-            else:
-                raise ValueError(
-                    "Region name not provided and could not be guessed, please provide the region name."
-                )
-        filter_column = f"{region}|{sample}"
+        if sample is None or region is None:
+            filter_column = None
+        else:
+            filter_column = f"{region}|{sample}"
 
         if torch:
             # the torch iterator can only handle float, int, and bool columns to torch tensors
@@ -393,6 +393,12 @@ class scPrinterDataset(RayGenomeDataset):
             )
 
         self._dataset_preprocess(filter_column)
+
+        if batch_collate_fn is not None:
+            if not isinstance(batch_collate_fn, list):
+                batch_collate_fn = [batch_collate_fn]
+            for func in batch_collate_fn:
+                self._working_dataset = self._working_dataset.map_batches(func)
 
         if "drop_last" not in kwargs:
             kwargs["drop_last"] = True if self._dataset_mode == "train" else False

@@ -122,16 +122,25 @@ class GenomeEnsembleDataset:
         """
         regions = understand_regions(regions, as_df=True)
         if length is not None:
-            regions = self.genome.standard_region_length(
-                regions=regions,
-                length=length,
-                boarder_strategy=boarder_strategy,
-                remove_blacklist=remove_blacklist,
-                as_df=True,
-            )
+            try:
+                regions = self.genome.standard_region_length(
+                    regions=regions,
+                    length=length,
+                    boarder_strategy=boarder_strategy,
+                    remove_blacklist=remove_blacklist,
+                    as_df=True,
+                )
+            except pd.errors.EmptyDataError:
+                print(f"No regions left after standardizing {name}.")
+                return
             if remove_blacklist:
                 # region length may change after removing blacklisted regions
                 regions = regions[(regions["End"] - regions["Start"]) == length].copy()
+                if regions.empty:
+                    print(
+                        f"No regions left after removing blacklisted regions in {name}."
+                    )
+                    return
             region_size = length
         else:
             region_size = regions.iloc[0, 2] - regions.iloc[0, 1]
@@ -418,6 +427,7 @@ class GenomeEnsembleDataset:
         collate_fn_dict: dict = None,
         region_index: pd.Index = None,
         add_region_ids: bool = True,
+        num_rows_per_file: int = 2000,
     ) -> None:
         """
         Prepares a Ray dataset for the given regions.
@@ -437,6 +447,9 @@ class GenomeEnsembleDataset:
             n_regions = self._n_regions
         else:
             n_regions = region_index.size
+        if n_regions is None or n_regions == 0:
+            print("No regions to prepare dataset for.")
+            return
 
         fs, output_dir = get_fs_and_path(output_dir)
         dataset_path = f"{output_dir}/dataset/"
@@ -464,7 +477,9 @@ class GenomeEnsembleDataset:
                 region_index=region_index,
                 add_region_ids=add_region_ids,
             )
-            ds.write_parquet(dataset_path, filesystem=fs)
+            ds.write_parquet(
+                dataset_path, filesystem=fs, num_rows_per_file=num_rows_per_file
+            )
 
             # save summary stats
             summary_stats_path = f"{stats_path}/summary_stats.npz"
@@ -506,6 +521,7 @@ class GenomeEnsembleDataset:
                     collate_fn_dict=collate_fn_dict,
                     region_index=chunk_region_index,
                     add_region_ids=add_region_ids,
+                    num_rows_per_file=num_rows_per_file,
                 )
         return
 
@@ -517,9 +533,10 @@ def prepare_chromosome_dataset(
     bigwig_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
     zarr_config: Optional[Union[str, Dict[str, str], List[str]]] = None,
     collate_fn_dict: Optional[Dict[str, Callable]] = None,
-    dataset_size=100000,
-    max_bigwig=50,
-    include_genome_one_hot=True,
+    dataset_size: int = 100000,
+    max_bigwig: int = 50,
+    add_genome_one_hot: bool = True,
+    num_rows_per_file: int = 2000,
 ) -> None:
     """
     Prepare chromosome datasets for a given genome.
@@ -545,6 +562,12 @@ def prepare_chromosome_dataset(
         array as input and return a summary statistic. Data will be saved by joblib.dump.
     dataset_size : int, optional
         The maximum size of rows in each dataset, by default 500000.
+    max_bigwig : int, optional
+        The maximum number of BigWig files to process at once, by default 50.
+    add_genome_one_hot : bool, optional
+        Whether to add the genome one-hot encoding to the dataset, by default True.
+    num_rows_per_file : int, optional
+        The number of rows per file in the dataset, by default 2000.
 
     Returns
     -------
@@ -616,10 +639,10 @@ def prepare_chromosome_dataset(
             )
         if part_idx == len(bigwig_config_list) - 1:
             add_region_ids = True
-            include_genome_one_hot = include_genome_one_hot
+            add_genome_one_hot = add_genome_one_hot
         else:
             add_region_ids = False
-            include_genome_one_hot = False
+            add_genome_one_hot = False
 
         # prepare the dataset for each chromosome
         bar = tqdm(
@@ -631,7 +654,7 @@ def prepare_chromosome_dataset(
             genome = Genome(genome)
         for chrom, chrom_region_config in bar:
             ensemble = GenomeEnsembleDataset(
-                genome, include_genome_one_hot=include_genome_one_hot
+                genome, add_genome_one_hot=add_genome_one_hot
             )
 
             if bigwig_config_part:
@@ -650,6 +673,7 @@ def prepare_chromosome_dataset(
                 dataset_size=dataset_size,
                 collate_fn_dict=collate_fn_dict,
                 add_region_ids=add_region_ids,
+                num_rows_per_file=num_rows_per_file,
             )
     return
 
