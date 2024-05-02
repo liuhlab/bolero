@@ -3,6 +3,7 @@ from copy import deepcopy
 from typing import Optional, Union
 
 import numpy as np
+import pandas as pd
 import pyBigWig
 import scipy
 import torch
@@ -24,6 +25,19 @@ def get_dispmodel(device) -> torch.nn.Module:
     disp_model = scp.utils.loadDispModel(model_path)
     disp_model = _dispModel(deepcopy(disp_model)).to(device)
     return disp_model
+
+
+TFBS_MODEL_PATH = "/mnt/filestore/pkg/scPrinter/Footprint_TFBS_model_py_conv2.pt"
+
+
+def get_footprint_to_tfbs_model(device) -> torch.nn.Module:
+    """Get the footprint to TFBS model."""
+    model_path = TFBS_MODEL_PATH
+    model = torch.jit.load(model_path)
+    model = model.to(device)
+
+    tfbs_modes = np.array(model.scales)
+    return model, tfbs_modes
 
 
 def zscore2pval_torch(footprint):
@@ -220,6 +234,9 @@ class FootPrintModel(_dispModel):
 
         self.atac_handles = {}
 
+        self.tfbs_model, self.tfbs_modes = get_footprint_to_tfbs_model(self.device)
+        self.tfbs_modes_idx = np.where(pd.Index(self.modes).isin(self.tfbs_modes))[0]
+
     def _calculate_footprint(
         self,
         atac,
@@ -229,7 +246,8 @@ class FootPrintModel(_dispModel):
         clip_max: int = 10,
         return_pval: bool = False,
         smooth_radius: int = None,
-        numpy=False,
+        numpy: bool = False,
+        return_tfbs: bool = False,
     ):
         """
         Calculate the footprint.
@@ -250,24 +268,20 @@ class FootPrintModel(_dispModel):
             The radius for smoothing the footprint, by default None.
         numpy : bool, optional
             Whether to return the footprint as a numpy array, by default False.
+        return_tfbs : bool, optional
+            Whether to return the TFBS score, by default False.
 
         Returns
         -------
         torch.Tensor or np.ndarray
             A tensor or numpy array containing the computed footprint.
         """
-        if isinstance(atac, torch.Tensor):
-            atac = atac.float().to(self.device)
-        else:
-            atac = torch.as_tensor(atac, dtype=torch.float32, device=self.device)
-
-        if isinstance(bias, torch.Tensor):
-            bias = bias.float().to(self.device)
-        else:
-            bias = torch.as_tensor(bias, dtype=torch.float32, device=self.device)
+        atac = torch.as_tensor(atac, dtype=torch.float32, device=self.device)
+        bias = torch.as_tensor(bias, dtype=torch.float32, device=self.device)
 
         if modes is None:
             modes = self.modes
+        modes = torch.as_tensor(modes, device=self.device)
 
         # add batch dimension if necessary
         if len(atac.shape) == 1:
@@ -276,7 +290,7 @@ class FootPrintModel(_dispModel):
             bias = bias.unsqueeze(0)
 
         with torch.inference_mode():
-            _fp = self.forward(
+            raw_fp = self.forward(
                 atac=atac,
                 bias=bias,
                 modes=modes,
@@ -284,6 +298,7 @@ class FootPrintModel(_dispModel):
                 clip_max=clip_max,
             )
             if return_pval:
+                _fp = raw_fp.clone()
                 _fp = zscore2pval_torch(_fp)
                 if smooth_radius is not None:
                     _device = _fp.device
@@ -292,12 +307,36 @@ class FootPrintModel(_dispModel):
                     if not numpy:
                         _fp = torch.as_tensor(_fp, device=_device)
 
-        if numpy:
-            if isinstance(_fp, torch.Tensor):
-                _fp = _fp.detach().cpu().numpy()
-            return _fp
+        if return_tfbs:
+            tfbs_score = self._calculate_tfbs_score(raw_fp)
+
+        if numpy and isinstance(_fp, torch.Tensor):
+            _fp = _fp.detach().cpu().numpy()
+
+        if return_tfbs:
+            return _fp, tfbs_score
         else:
             return _fp
+
+    def _calculate_tfbs_score(self, fp):
+        fp = fp[:, self.tfbs_modes_idx].clone()
+
+        # currently, the TFBS model has a special convension in process input Footprint
+        # This is due to how the TFBS model is trained, and it is made to be consistent with the training data.
+        # 1. take pval_log
+        fp = zscore2pval_torch(fp)
+        # 2. smooth the footprint with a changing radius of int(mode/2)
+        if isinstance(fp, torch.Tensor):
+            fp = fp.cpu().numpy()
+        fp_smooth = np.zeros_like(fp, dtype=fp.dtype)
+        for idx, (row, mode) in enumerate(zip(fp, self.tfbs_modes)):
+            fp_smooth[idx] = smooth_footprint(row[None, :], int(mode / 2))
+        fp_smooth = torch.as_tensor(fp_smooth, device=self.device)
+        # 3. run the TFBS model with one additional dimension, and discard the first dimension after the model
+        with torch.inference_mode():
+            tfbs_score = self.tfbs_model(fp_smooth[None, ...]).squeeze(0)
+
+        return tfbs_score
 
     @property
     def bias_handle(self):
@@ -317,27 +356,26 @@ class FootPrintModel(_dispModel):
             self._bias_handle = pyBigWig.open(self.bias_bw_path)
         return self._bias_handle
 
-    def add_atac_bw(self, atac_bw_path: str, name=None):
+    def add_atac_bw(self, *args, **kwargs):
         """
         Add an ATAC bigWig file to the atac_handles dictionary. If name is not provided, the name of the file will be used.
 
         Parameters
         ----------
-        atac_bw_path : str
-            The path to the ATAC bigWig file.
-        name : str, optional
-            The name of the ATAC bigWig file.
-
-        Returns
-        -------
-        None
+        *args : List[str]
+            The paths to the ATAC bigWig files.
+        **kwargs : Dict[str, str]
+            The names and paths to the ATAC bigWig files.
         """
-        if name is None:
-            name = pathlib.Path(str(atac_bw_path)).name
-        assert (
-            name not in self.atac_handles
-        ), f"ATAC bigWig file with name {name} already exists."
-        self.atac_handles[name] = pyBigWig.open(atac_bw_path)
+        bw_to_add = kwargs
+        for arg in args:
+            name = pathlib.Path(str(arg)).name
+            bw_to_add[name] = arg
+        for name, path in bw_to_add.items():
+            assert (
+                name not in self.atac_handles
+            ), f"ATAC bigWig file with name {name} already exists."
+            self.atac_handles[name] = pyBigWig.open(path)
 
     def close(self):
         """
@@ -404,92 +442,6 @@ class FootPrintModel(_dispModel):
         chrom: str,
         start: int,
         end: int,
-        name: str = None,
-        modes: Optional[list[str]] = None,
-        clip_min: int = -10,
-        clip_max: int = 10,
-        return_pval: bool = False,
-        smooth_radius: int = None,
-        numpy=False,
-    ) -> torch.Tensor:
-        """
-        Compute the footprint.
-
-        Parameters
-        ----------
-        chrom : str
-            The chromosome name.
-        start : int
-            The start position of the region.
-        end : int
-            The end position of the region.
-        name : str, optional
-            The name of the ATAC bigWig file. If not provided, the first ATAC bigWig file will be used.
-        modes : List[str], optional
-            A list of modes. If not provided, the default modes will be used.
-        clip_min : int, optional
-            The minimum value to clip the output to.
-        clip_max : int, optional
-            The maximum value to clip the output to.
-        return_pval : bool, optional
-            Whether to return p-values along with the computed footprint.
-        smooth_radius : int, optional
-            The radius for smoothing the footprint.
-        numpy : bool, optional
-            Whether to return the output as a NumPy array instead of a torch.Tensor.
-
-        Returns
-        -------
-        torch.Tensor or numpy.ndarray
-            A tensor or array containing the computed footprint.
-
-        Notes
-        -----
-        This method computes the footprint for a given region on a specific chromosome. It uses the ATAC bigWig file
-        and bias information to calculate the footprint. The footprint represents the signal intensity at each position
-        within the region.
-
-        If the `name` parameter is not provided, the method will use the first ATAC bigWig file available. If the `modes`
-        parameter is not provided, the method will use the default modes.
-
-        The `clip_min` and `clip_max` parameters can be used to clip the output values to a specific range.
-
-        If `return_pval` is set to True, the method will also return p-values along with the computed footprint.
-
-        If `smooth_radius` is provided, the method will apply smoothing to the footprint using a rolling window of the
-        specified radius.
-
-        If `numpy` is set to True, the output will be returned as a NumPy array instead of a torch.Tensor.
-        """
-        if modes is None:
-            modes = self.modes
-        else:
-            modes = np.array(modes)
-
-        if name is None:
-            assert (
-                len(self.atac_handles) == 1
-            ), "Multiple ATAC bigWig files found. Please provide the name of the file."
-            name = list(self.atac_handles.keys())[0]
-
-        atac = self.fetch_atac(chrom, start, end, name)
-        bias = self.fetch_bias(chrom, start, end)
-        _fp = self._calculate_footprint(
-            atac=atac,
-            bias=bias,
-            clip_min=clip_min,
-            clip_max=clip_max,
-            return_pval=return_pval,
-            smooth_radius=smooth_radius,
-            numpy=numpy,
-        )
-        return _fp
-
-    def footprint_all(
-        self,
-        chrom: str,
-        start: int,
-        end: int,
         atac_names: Optional[list[str]] = None,
         modes: Optional[list[str]] = None,
         clip_min: int = -10,
@@ -497,6 +449,8 @@ class FootPrintModel(_dispModel):
         return_pval: bool = False,
         smooth_radius: int = None,
         numpy=False,
+        return_signal: bool = False,
+        return_tfbs: bool = False,
     ) -> dict[str, torch.Tensor]:
         """
         Compute the footprint for all ATAC bigWig files.
@@ -523,6 +477,10 @@ class FootPrintModel(_dispModel):
             The radius for smoothing the footprints.
         numpy : bool, optional
             Whether to return the footprints as numpy arrays instead of torch tensors.
+        return_signal : bool, optional
+            Whether to return the atac and bias signals along with the footprints.
+        return_tfbs : bool, optional
+            Whether to return the TFBS score along with the footprints.
 
         Returns
         -------
@@ -540,9 +498,11 @@ class FootPrintModel(_dispModel):
         bias = self.fetch_bias(chrom, start, end)
 
         fp_dict = {}
+        if return_signal:
+            fp_dict["tn5_bias"] = bias
         for name in atac_names:
             atac = self.fetch_atac(chrom, start, end, name)
-            _fp = self._calculate_footprint(
+            _fp, *_tfbs = self._calculate_footprint(
                 atac=atac,
                 bias=bias,
                 clip_min=clip_min,
@@ -550,8 +510,13 @@ class FootPrintModel(_dispModel):
                 return_pval=return_pval,
                 smooth_radius=smooth_radius,
                 numpy=numpy,
+                return_tfbs=return_tfbs,
             )
-            fp_dict[name] = _fp
+            fp_dict[f"{name}_footprint"] = _fp
+            if _tfbs:
+                fp_dict[f"{name}_tfbs"] = _tfbs[0]
+            if return_signal:
+                fp_dict[f"{name}_atac"] = atac
         return fp_dict
 
     def footprint_from_data(
@@ -564,6 +529,7 @@ class FootPrintModel(_dispModel):
         return_pval: bool = False,
         smooth_radius: int = None,
         numpy: bool = False,
+        return_tfbs: bool = False,
     ) -> Union[torch.Tensor, np.ndarray]:
         """
         Compute the footprint from given ATAC-seq and bias data.
@@ -586,13 +552,16 @@ class FootPrintModel(_dispModel):
             The radius for smoothing the footprint.
         numpy : bool, optional
             Whether to return the result as a NumPy array.
+        return_tfbs : bool, optional
+            Whether to return the TFBS score along with the footprints.
 
         Returns
         -------
-        torch.Tensor or np.ndarray
-            A tensor or array containing the computed footprint.
+        torch.Tensor or np.ndarray or Tuple[np.ndarray, np.ndarray]
+            The computed footprint or a tuple containing the footprint and the TFBS score.
+
         """
-        _fp = self._calculate_footprint(
+        result = self._calculate_footprint(
             atac=atac_data,
             bias=bias_data,
             clip_min=clip_min,
@@ -601,8 +570,9 @@ class FootPrintModel(_dispModel):
             smooth_radius=smooth_radius,
             numpy=numpy,
             modes=modes,
+            return_tfbs=return_tfbs,
         )
-        return _fp
+        return result
 
     @staticmethod
     def postprocess_footprint(
