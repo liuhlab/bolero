@@ -27,6 +27,9 @@ class BatchFootPrint(FootPrintModel):
         smooth_radius: int = None,
         numpy=False,
         device=None,
+        tfbs_score_all: bool = False,
+        tfbs_score_class1: bool = False,
+        nucleosome_score: bool = False,
     ):
         """
         Apply footprint transformation to the given data dictionary.
@@ -40,6 +43,10 @@ class BatchFootPrint(FootPrintModel):
             return_pval (bool, optional): Whether to return p-values. Defaults to False.
             smooth_radius (int, optional): Radius for smoothing. Defaults to None.
             numpy (bool, optional): Whether to use numpy. Defaults to True.
+            device ([type], optional): Device for the model. Defaults to None.
+            tfbs_score_all (bool, optional): Whether to use all TFBS scores. Defaults to False.
+            tfbs_score_class1 (bool, optional): Whether to use class 1 TFBS scores. Defaults to False.
+            nucleosome_score (bool, optional): Whether to use nucleosome scores. Defaults to False.
         """
         if modes is None:
             modes = np.arange(2, 101, 1)
@@ -59,6 +66,9 @@ class BatchFootPrint(FootPrintModel):
         self.return_pval = return_pval
         self.smooth_radius = smooth_radius
         self.numpy = numpy
+        self.tfbs_score_all = tfbs_score_all
+        self.tfbs_score_class1 = tfbs_score_class1
+        self.nucleosome_score = nucleosome_score
 
     def __call__(self, data: dict, modes: np.array = None) -> dict:
         """
@@ -78,7 +88,7 @@ class BatchFootPrint(FootPrintModel):
             except KeyError:
                 continue
 
-            fp = self.footprint_from_data(
+            result = self.footprint_from_data(
                 atac_data=atac_data,
                 bias_data=bias_data,
                 clip_min=self.clip_min,
@@ -87,8 +97,19 @@ class BatchFootPrint(FootPrintModel):
                 return_pval=self.return_pval,
                 smooth_radius=self.smooth_radius,
                 numpy=self.numpy,
+                device=self.device,
+                tfbs_score_all=self.tfbs_score_all,
+                tfbs_score_class1=self.tfbs_score_class1,
+                nucleosome_score=self.nucleosome_score,
             )
+            if len(result) == 2:
+                fp, scores = result
+            else:
+                fp = result
+                scores = {}
             data[f"{atac}_footprint"] = fp
+            for key, val in scores.items():
+                data[f"{atac}_{key}"] = val
         return data
 
 

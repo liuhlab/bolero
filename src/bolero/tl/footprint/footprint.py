@@ -415,27 +415,35 @@ class FootPrintModel(_dispModel):
 
     def _calculate_footprint(
         self,
-        atac,
-        bias,
-        modes=None,
+        atac: Union[torch.Tensor, np.ndarray],
+        bias: Union[torch.Tensor, np.ndarray],
+        modes: Optional[Union[torch.Tensor, np.ndarray]] = None,
         clip_min: int = -10,
         clip_max: int = 10,
         return_pval: bool = False,
-        smooth_radius: int = None,
+        smooth_radius: Optional[int] = None,
         numpy: bool = False,
         tfbs_score_all: bool = False,
         tfbs_score_class1: bool = False,
         nucleosome_score: bool = False,
-    ):
+    ) -> Union[
+        torch.Tensor,
+        np.ndarray,
+        tuple[
+            Union[torch.Tensor, np.ndarray], dict[str, Union[torch.Tensor, np.ndarray]]
+        ],
+    ]:
         """
         Calculate the footprint.
 
         Parameters
         ----------
-        atac : torch.Tensor, np.ndarray
-            A tensor containing the ATAC-seq data.
-        bias : torch.Tensor, np.ndarray
-            A tensor containing the bias values.
+        atac : torch.Tensor or np.ndarray
+            A tensor or numpy array containing the ATAC-seq data.
+        bias : torch.Tensor or np.ndarray
+            A tensor or numpy array containing the bias values.
+        modes : torch.Tensor or np.ndarray, optional
+            A tensor or numpy array containing the modes, by default None.
         clip_min : int, optional
             The minimum value to clip the computed footprint, by default -10.
         clip_max : int, optional
@@ -455,8 +463,10 @@ class FootPrintModel(_dispModel):
 
         Returns
         -------
-        torch.Tensor or np.ndarray
+        torch.Tensor or np.ndarray or Tuple[Union[torch.Tensor, np.ndarray], Dict[str, Union[torch.Tensor, np.ndarray]]]]
             A tensor or numpy array containing the computed footprint.
+            If any of the optional parameters `tfbs_score_all`, `tfbs_score_class1`, or `nucleosome_score` is set to True,
+            a dictionary containing the corresponding scores will also be returned.
         """
         atac = torch.as_tensor(atac, dtype=torch.float32, device=self.device)
         bias = torch.as_tensor(bias, dtype=torch.float32, device=self.device)
@@ -690,17 +700,15 @@ class FootPrintModel(_dispModel):
                 nucleosome_score=nucleosome_score,
             )
 
-            _tfbs = None
+            _tfbs = {}
             if len(result) == 1:
                 _fp = result
             else:
                 _fp, _tfbs = result
 
             fp_dict[f"{name}_footprint"] = _fp
-
-            if _tfbs:
-                for key, value in _tfbs.items():
-                    fp_dict[f"{name}_{key}"] = value
+            for key, value in _tfbs.items():
+                fp_dict[f"{name}_{key}"] = value
 
             if return_signal:
                 fp_dict[f"{name}_atac"] = atac
@@ -716,7 +724,9 @@ class FootPrintModel(_dispModel):
         return_pval: bool = False,
         smooth_radius: int = None,
         numpy: bool = False,
-        return_tfbs: bool = False,
+        tfbs_score_all: bool = False,
+        tfbs_score_class1: bool = False,
+        nucleosome_score: bool = False,
     ) -> Union[torch.Tensor, np.ndarray]:
         """
         Compute the footprint from given ATAC-seq and bias data.
@@ -739,14 +749,17 @@ class FootPrintModel(_dispModel):
             The radius for smoothing the footprint.
         numpy : bool, optional
             Whether to return the result as a NumPy array.
-        return_tfbs : bool, optional
-            Whether to return the TFBS score along with the footprints.
+        tfbs_score_all : bool, optional
+            Whether to return the TFBS score for all TFs along with the footprints.
+        tfbs_score_class1 : bool, optional
+            Whether to return the TFBS score for TFs with strong footprint (Class I) along with the footprints.
+        nucleosome_score : bool, optional
+            Whether to return the nucleosome score along with the footprints.
 
         Returns
         -------
         torch.Tensor or np.ndarray or Tuple[np.ndarray, np.ndarray]
-            The computed footprint or a tuple containing the footprint and the TFBS score.
-
+            The computed footprint or a tuple containing the footprint and the TFBS score dict.
         """
         result = self._calculate_footprint(
             atac=atac_data,
@@ -757,7 +770,9 @@ class FootPrintModel(_dispModel):
             smooth_radius=smooth_radius,
             numpy=numpy,
             modes=modes,
-            return_tfbs=return_tfbs,
+            tfbs_score_all=tfbs_score_all,
+            tfbs_score_class1=tfbs_score_class1,
+            nucleosome_score=nucleosome_score,
         )
         return result
 
