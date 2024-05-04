@@ -27,17 +27,30 @@ def get_dispmodel(device) -> torch.nn.Module:
     return disp_model
 
 
-TFBS_MODEL_PATH = "/mnt/filestore/pkg/scPrinter/Footprint_TFBS_model_py_conv2.pt"
+# modal trained all TF chip data
+TFBS_MODEL_PATH = "/mnt/filestore/scprinter/footprint_to_TFBS_conv_model.pt"
+# model trained on TFs with strong footprint (Class I) data
+TFBS_MODEL_CLASS1_PATH = (
+    "/mnt/filestore/scprinter/footprint_to_TFBS_class1_conv_model.pt"
+)
+# model trained on nucleosome data
+NUCLEOSOME_MODEL_PATH = "/mnt/filestore/scprinter/footprint_to_nucleosome_conv_model.pt"
 
 
-def get_footprint_to_tfbs_model(device) -> torch.nn.Module:
+def get_footprint_to_tfbs_model(model) -> torch.nn.Module:
     """Get the footprint to TFBS model."""
-    model_path = TFBS_MODEL_PATH
+    if model == "all_tf":
+        model_path = TFBS_MODEL_PATH
+    elif model == "class1_tf":
+        model_path = TFBS_MODEL_CLASS1_PATH
+    elif model == "nucleosome":
+        model_path = NUCLEOSOME_MODEL_PATH
+    else:
+        raise ValueError(
+            f"Invalid model: {model}, needs to be one of 'all_tf', 'class1_tf', 'nucleosome'."
+        )
     model = torch.jit.load(model_path)
-    model = model.to(device)
-
-    tfbs_modes = np.array(model.scales)
-    return model, tfbs_modes
+    return model
 
 
 def zscore2pval_torch(footprint):
@@ -234,8 +247,171 @@ class FootPrintModel(_dispModel):
 
         self.atac_handles = {}
 
-        self.tfbs_model, self.tfbs_modes = get_footprint_to_tfbs_model(self.device)
-        self.tfbs_modes_idx = np.where(pd.Index(self.modes).isin(self.tfbs_modes))[0]
+        self._all_tf_tfbs_model = None
+        self._class1_tf_tfbs_model = None
+        self._nucleosome_tfbs_model = None
+
+    @property
+    def all_tf_tfbs_model(self):
+        """Get the TFBS model for all TFs."""
+        if self._all_tf_tfbs_model is None:
+            model = get_footprint_to_tfbs_model("all_tf").to(self.device)
+            model.eval()
+            self._all_tf_tfbs_model = model
+        else:
+            model = self._all_tf_tfbs_model
+        mode_idx = self._mode_to_mode_idx(model.scales)
+        return self._all_tf_tfbs_model, mode_idx
+
+    @property
+    def class1_tf_tfbs_model(self):
+        """Get the TFBS model for TFs with strong footprint (Class I)."""
+        if self._class1_tf_tfbs_model is None:
+            model = get_footprint_to_tfbs_model("class1_tf").to(self.device)
+            model.eval()
+            self._class1_tf_tfbs_model = model
+        else:
+            model = self._class1_tf_tfbs_model
+        mode_idx = self._mode_to_mode_idx(model.scales)
+        return self._class1_tf_tfbs_model, mode_idx
+
+    @property
+    def nucleosome_tfbs_model(self):
+        """Get the nucleosome model."""
+        if self._nucleosome_tfbs_model is None:
+            model = get_footprint_to_tfbs_model("nucleosome").to(self.device)
+            model.eval()
+            self._nucleosome_tfbs_model = model
+        else:
+            model = self._nucleosome_tfbs_model
+        mode_idx = self._mode_to_mode_idx(model.scales)
+        return self._nucleosome_tfbs_model, mode_idx
+
+    def get_tfbs_score(
+        self, model: str, mode_idx: int, fp: torch.Tensor, numpy: bool = False
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Get the TFBS score for the given model.
+
+        Parameters
+        ----------
+        model : Model
+            The model used for scoring.
+        mode_idx : int
+            The index of the mode.
+        fp : torch.Tensor
+            The footprint tensor.
+        numpy : bool, optional
+            Whether to return the score as a numpy array, by default False.
+
+        Returns
+        -------
+        Union[torch.Tensor, np.ndarray]
+            The TFBS score.
+
+        """
+        # post process fp for the score prediction
+        fp = fp[:, mode_idx].cpu().numpy()
+        model_modes = model.scales
+        final = []
+        for i in range(fp.shape[1]):
+            footprintPvalMatrix = fp[:, i]
+            footprintPvalMatrix = scipy.stats.norm.cdf(footprintPvalMatrix, 0, 1)
+            footprintRadius = model_modes[i]
+            smoothRadius = int(footprintRadius / 2)
+            footprintPvalMatrix[np.isnan(footprintPvalMatrix)] = (
+                1  # Set NA values to be pvalue = 1
+            )
+            pvalScoreMatrix = -np.log10(footprintPvalMatrix)
+            pvalScoreMatrix[np.isnan(pvalScoreMatrix)] = 0
+            pvalScoreMatrix[np.isinf(pvalScoreMatrix)] = 20
+            if smoothRadius > 0:
+                maximum_filter_size = [0] * len(pvalScoreMatrix.shape)
+                maximum_filter_size[-1] = 2 * smoothRadius
+                pvalScoreMatrix = maximum_filter(
+                    pvalScoreMatrix, tuple(maximum_filter_size), origin=-1
+                )
+                # Changed to smoothRadius.
+                pvalScoreMatrix = rz_conv(pvalScoreMatrix, smoothRadius) / (
+                    2 * smoothRadius
+                )
+            pvalScoreMatrix[np.isnan(pvalScoreMatrix)] = 0
+            pvalScoreMatrix[np.isinf(pvalScoreMatrix)] = 20
+            final.append(pvalScoreMatrix)
+        final = np.stack(final, axis=1)
+        final = torch.as_tensor(final, device=self.device)
+
+        with torch.inference_mode():
+            score = model(final)
+        if numpy:
+            score = score.cpu().numpy()
+        return score
+
+    def get_tfbs_score_all_tf(
+        self, fp: torch.Tensor, numpy: bool = False
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Get the TFBS score for all TFs.
+
+        Parameters
+        ----------
+        fp : torch.Tensor
+            The footprint tensor.
+        numpy : bool, optional
+            Whether to return the score as a numpy array, by default False.
+
+        Returns
+        -------
+        Union[torch.Tensor, np.ndarray]
+            The TFBS score.
+        """
+        model, mode_idx = self.all_tf_tfbs_model
+        return self.get_tfbs_score(model, mode_idx, fp, numpy)
+
+    def get_tfbs_score_class1_tf(
+        self, fp: torch.Tensor, numpy: bool = False
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Get the TFBS score for TFs with strong footprint (Class I).
+
+        Parameters
+        ----------
+        fp : torch.Tensor
+            The footprint tensor.
+        numpy : bool, optional
+            Whether to return the score as a numpy array, by default False.
+
+        Returns
+        -------
+        Union[torch.Tensor, np.ndarray]
+            The TFBS score.
+        """
+        model, mode_idx = self.class1_tf_tfbs_model
+        return self.get_tfbs_score(model, mode_idx, fp, numpy)
+
+    def get_nucleosome_score(
+        self, fp: torch.Tensor, numpy: bool = False
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Get the nucleosome score.
+
+        Parameters
+        ----------
+        fp : torch.Tensor
+            The footprint tensor.
+        numpy : bool, optional
+            Whether to return the score as a numpy array, by default False.
+
+        Returns
+        -------
+        Union[torch.Tensor, np.ndarray]
+            The nucleosome score.
+        """
+        model, mode_idx = self.nucleosome_tfbs_model
+        return self.get_tfbs_score(model, mode_idx, fp, numpy)
+
+    def _mode_to_mode_idx(self, modes):
+        return np.where(pd.Index(self.modes).isin(np.array(modes)))[0]
 
     def _calculate_footprint(
         self,
@@ -247,7 +423,9 @@ class FootPrintModel(_dispModel):
         return_pval: bool = False,
         smooth_radius: int = None,
         numpy: bool = False,
-        return_tfbs: bool = False,
+        tfbs_score_all: bool = False,
+        tfbs_score_class1: bool = False,
+        nucleosome_score: bool = False,
     ):
         """
         Calculate the footprint.
@@ -268,8 +446,12 @@ class FootPrintModel(_dispModel):
             The radius for smoothing the footprint, by default None.
         numpy : bool, optional
             Whether to return the footprint as a numpy array, by default False.
-        return_tfbs : bool, optional
-            Whether to return the TFBS score, by default False.
+        tfbs_score_all : bool, optional
+            Whether to return the TFBS score for all TFs, by default False.
+        tfbs_score_class1 : bool, optional
+            Whether to return the TFBS score for TFs with strong footprint (Class I), by default False.
+        nucleosome_score : bool, optional
+            Whether to return the nucleosome score, by default False.
 
         Returns
         -------
@@ -307,36 +489,23 @@ class FootPrintModel(_dispModel):
                     if not numpy:
                         _fp = torch.as_tensor(_fp, device=_device)
 
-        if return_tfbs:
-            tfbs_score = self._calculate_tfbs_score(raw_fp)
-
         if numpy and isinstance(_fp, torch.Tensor):
             _fp = _fp.detach().cpu().numpy()
 
-        if return_tfbs:
-            return _fp, tfbs_score
-        else:
+        score_dict = {}
+        if tfbs_score_all:
+            tfbs_score = self.get_tfbs_score_all_tf(raw_fp, numpy=numpy)
+            score_dict["tfbs_score_all_tf"] = tfbs_score
+        if tfbs_score_class1:
+            tfbs_score = self.get_tfbs_score_class1_tf(raw_fp, numpy=numpy)
+            score_dict["tfbs_score_class1_tf"] = tfbs_score
+        if nucleosome_score:
+            tfbs_score = self.get_nucleosome_score(raw_fp, numpy=numpy)
+            score_dict["nucleosome_score"] = tfbs_score
+
+        if len(score_dict) == 0:
             return _fp
-
-    def _calculate_tfbs_score(self, fp):
-        fp = fp[:, self.tfbs_modes_idx].clone()
-
-        # currently, the TFBS model has a special convension in process input Footprint
-        # This is due to how the TFBS model is trained, and it is made to be consistent with the training data.
-        # 1. take pval_log
-        fp = zscore2pval_torch(fp)
-        # 2. smooth the footprint with a changing radius of int(mode/2)
-        if isinstance(fp, torch.Tensor):
-            fp = fp.cpu().numpy()
-        fp_smooth = np.zeros_like(fp, dtype=fp.dtype)
-        for idx, (row, mode) in enumerate(zip(fp, self.tfbs_modes)):
-            fp_smooth[idx] = smooth_footprint(row[None, :], int(mode / 2))
-        fp_smooth = torch.as_tensor(fp_smooth, device=self.device)
-        # 3. run the TFBS model with one additional dimension, and discard the first dimension after the model
-        with torch.inference_mode():
-            tfbs_score = self.tfbs_model(fp_smooth[None, ...]).squeeze(0)
-
-        return tfbs_score
+        return _fp, score_dict
 
     @property
     def bias_handle(self):
@@ -450,7 +619,9 @@ class FootPrintModel(_dispModel):
         smooth_radius: int = None,
         numpy=False,
         return_signal: bool = False,
-        return_tfbs: bool = False,
+        tfbs_score_all: bool = False,
+        tfbs_score_class1: bool = False,
+        nucleosome_score: bool = False,
     ) -> dict[str, torch.Tensor]:
         """
         Compute the footprint for all ATAC bigWig files.
@@ -479,8 +650,12 @@ class FootPrintModel(_dispModel):
             Whether to return the footprints as numpy arrays instead of torch tensors.
         return_signal : bool, optional
             Whether to return the atac and bias signals along with the footprints.
-        return_tfbs : bool, optional
-            Whether to return the TFBS score along with the footprints.
+        tfbs_score_all : bool, optional
+            Whether to return the TFBS score for all TFs along with the footprints.
+        tfbs_score_class1 : bool, optional
+            Whether to return the TFBS score for TFs with strong footprint (Class I) along with the footprints.
+        nucleosome_score : bool, optional
+            Whether to return the nucleosome score along with the footprints.
 
         Returns
         -------
@@ -502,7 +677,7 @@ class FootPrintModel(_dispModel):
             fp_dict["tn5_bias"] = bias
         for name in atac_names:
             atac = self.fetch_atac(chrom, start, end, name)
-            _fp, *_tfbs = self._calculate_footprint(
+            result = self._calculate_footprint(
                 atac=atac,
                 bias=bias,
                 clip_min=clip_min,
@@ -510,11 +685,23 @@ class FootPrintModel(_dispModel):
                 return_pval=return_pval,
                 smooth_radius=smooth_radius,
                 numpy=numpy,
-                return_tfbs=return_tfbs,
+                tfbs_score_all=tfbs_score_all,
+                tfbs_score_class1=tfbs_score_class1,
+                nucleosome_score=nucleosome_score,
             )
+
+            _tfbs = None
+            if len(result) == 1:
+                _fp = result
+            else:
+                _fp, _tfbs = result
+
             fp_dict[f"{name}_footprint"] = _fp
+
             if _tfbs:
-                fp_dict[f"{name}_tfbs"] = _tfbs[0]
+                for key, value in _tfbs.items():
+                    fp_dict[f"{name}_{key}"] = value
+
             if return_signal:
                 fp_dict[f"{name}_atac"] = atac
         return fp_dict
