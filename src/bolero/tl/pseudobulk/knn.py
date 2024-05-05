@@ -13,7 +13,20 @@ from scipy.stats import gamma
 def _trigger_jit():
     # trigger jit compilation
     pynndescent.NNDescent(np.ones((5, 5)), n_neighbors=1, n_jobs=-1).prepare()
+
+    # the pynndescent must be compiled before ray.init(), otherwise it will cause error says:
+    # TypingError: Failed in nopython mode pipeline (step: nopython frontend)
+    # Failed in nopython mode pipeline (step: nopython frontend)
+    # Untyped global name 'print': Cannot determine Numba type of <class 'function'>
+    # Version info when writing this comment:
+    # ray.__verion__ '2.12.0'
+    # pynnDescent.__version__ '0.5.12'
+    # numba.__version__ '0.59.1'
+    # numpy.__version__ '1.26.4'
     return
+
+
+_trigger_jit()
 
 
 def _mask_far_neighbors(idx, dist, max_quantile):
@@ -31,7 +44,6 @@ def _mask_far_neighbors(idx, dist, max_quantile):
     # if the distance is larger than max_allowed_radius, make the index point to the first cell,
     # so these "far" cells will not be added to bag later
     masked_idx = np.where(dist > max_allowed_radius, idx[:, [0]], idx)
-    # print(f"Masked far neighbors: {np.sum(dist > max_allowed_radius) / dist.size:.3f}")
     return masked_idx
 
 
@@ -71,15 +83,7 @@ def _two_step_pseudobulk(embedding, k, oversample, n_jobs, max_dist_q):
     )
     minibulk_embedding = embedding.loc[minibulk_cells]
 
-    # print("Total cells:", embedding.shape[0])
-    # print("Mini-bulk cells:", n_mini_pseudobulk)
-    # print("K:", k)
-    # print("K_sqrt:", k_sqrt)
-
     # generate mini-bulk to cell map
-    # print(
-    #     f"Generating {n_mini_pseudobulk} mini-bulk cells to {embedding.shape[0]} cells map..."
-    # )
     remaining_cells = cell_index.copy()
     minibulk_to_cells = OrderedDict()
     minibulk_nn_idx, _, _ = _run_nndescent(
@@ -94,10 +98,6 @@ def _two_step_pseudobulk(embedding, k, oversample, n_jobs, max_dist_q):
         remaining_cells = remaining_cells.difference(minibulk_to_cells[_cell])
 
     # generte pseudobulk to sketch map
-    # print(
-    #     f"Generating {n_mini_pseudobulk} candidate pseudobulk cells "
-    #     f"to {n_mini_pseudobulk} mini-bulk cells map..."
-    # )
     pseudobulk_to_minibulk = OrderedDict()
     pseudobulk_nn_idx, _, minibulk_index = _run_nndescent(
         train_data=minibulk_embedding.values,
@@ -108,7 +108,6 @@ def _two_step_pseudobulk(embedding, k, oversample, n_jobs, max_dist_q):
     )
 
     # assign all remaining cells to its closest mini-bulk
-    # print(f"Assigning remaining {len(remaining_cells)} cells to mini-bulk...")
     _remain_cells_embedding = embedding.loc[remaining_cells]
     _remain_cells_to_minibulk_nn_idx, _ = minibulk_index.query(
         _remain_cells_embedding.values, k=k
@@ -201,7 +200,6 @@ def _merge_pseudobulk(
                 priority.drop(_cell, inplace=True)
 
     # assign all remaining mini-bulks to its closest final pseudobulk
-    # print(f"Assigning remaining {len(remaining_minibulks)} mini-bulks to pseudobulk...")
     _remain_minibulks_embedding = minibulk_embedding.loc[remaining_minibulks]
     _pseudobulk_cells = pd.Index(final_pseudobulk_to_minibulk.keys())
     _pseudobulk_embedding = minibulk_embedding.loc[_pseudobulk_cells]
@@ -228,7 +226,7 @@ def _merge_pseudobulk(
     return final_pseudobulk, final_pseudobulk_to_minibulk
 
 
-def get_pseudobulk(
+def get_pseudobulk_adata(
     adata,
     obsm="X_pca",
     min_cells=1500,

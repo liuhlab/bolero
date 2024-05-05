@@ -195,61 +195,19 @@ def postprocess_footprint(
     return footprint
 
 
-class FootPrintModel(_dispModel):
-    """Footprint model convering the ATAC-seq data to the footprint."""
+class FootPrintScoreModel:
+    """Calculate the TFBS score for the given footprint."""
 
-    def __init__(
-        self,
-        bias_bw_path: str = None,
-        dispmodels: Optional[list] = None,
-        modes: list[str] = None,
-        device=None,
-    ):
-        """
-        Initialize the FootPrintModel.
-
-        Parameters
-        ----------
-        bias_bw_path : str, optional
-            The path to the bias bigWig file.
-        dispmodels : List[DispModel], optional
-            A list of DispModel objects.
-        modes : List[str], optional
-            A list of modes.
-        device : object, optional
-            The device to use for computation.
-
-        Returns
-        -------
-        None
-        """
-        # rename the original footprint function
-        self.forward = super().footprint
-
-        if dispmodels is None:
-            model_path = scp.datasets.pretrained_dispersion_model
-            dispmodels = scp.utils.loadDispModel(model_path)
-            dispmodels = deepcopy(dispmodels)
-        super().__init__(dispmodels=dispmodels)
-
-        if device is None:
-            device = try_gpu()
-            self.to(device)
-        self.device = next(self.parameters()).device
-
-        self.bias_bw_path = bias_bw_path
-        self._bias_handle = None
-
-        if modes is None:
-            self.modes = np.arange(2, 101, 1)
-        else:
-            self.modes = modes
-
-        self.atac_handles = {}
-
+    def __init__(self, modes=None, device=None):
         self._all_tf_tfbs_model = None
         self._class1_tf_tfbs_model = None
         self._nucleosome_tfbs_model = None
+        if modes is None:
+            modes = np.arange(2, 101, 1)
+        self.modes = modes
+        if device is None:
+            device = try_gpu()
+        self.device = device
 
     @property
     def all_tf_tfbs_model(self):
@@ -261,7 +219,7 @@ class FootPrintModel(_dispModel):
         else:
             model = self._all_tf_tfbs_model
         mode_idx = self._mode_to_mode_idx(model.scales)
-        return self._all_tf_tfbs_model, mode_idx
+        return model, mode_idx
 
     @property
     def class1_tf_tfbs_model(self):
@@ -273,7 +231,7 @@ class FootPrintModel(_dispModel):
         else:
             model = self._class1_tf_tfbs_model
         mode_idx = self._mode_to_mode_idx(model.scales)
-        return self._class1_tf_tfbs_model, mode_idx
+        return model, mode_idx
 
     @property
     def nucleosome_tfbs_model(self):
@@ -285,7 +243,7 @@ class FootPrintModel(_dispModel):
         else:
             model = self._nucleosome_tfbs_model
         mode_idx = self._mode_to_mode_idx(model.scales)
-        return self._nucleosome_tfbs_model, mode_idx
+        return model, mode_idx
 
     def get_tfbs_score(
         self, model: str, mode_idx: int, fp: torch.Tensor, numpy: bool = False
@@ -412,6 +370,60 @@ class FootPrintModel(_dispModel):
 
     def _mode_to_mode_idx(self, modes):
         return np.where(pd.Index(self.modes).isin(np.array(modes)))[0]
+
+
+class FootPrintModel(_dispModel, FootPrintScoreModel):
+    """Footprint model convering the ATAC-seq data to the footprint."""
+
+    def __init__(
+        self,
+        bias_bw_path: str = None,
+        dispmodels: Optional[list] = None,
+        modes: list[str] = None,
+        device=None,
+    ):
+        """
+        Initialize the FootPrintModel.
+
+        Parameters
+        ----------
+        bias_bw_path : str, optional
+            The path to the bias bigWig file.
+        dispmodels : List[DispModel], optional
+            A list of DispModel objects.
+        modes : List[str], optional
+            A list of modes.
+        device : object, optional
+            The device to use for computation.
+
+        Returns
+        -------
+        None
+        """
+        # rename the original footprint function
+        self.forward = super().footprint
+
+        if dispmodels is None:
+            model_path = scp.datasets.pretrained_dispersion_model
+            dispmodels = scp.utils.loadDispModel(model_path)
+            dispmodels = deepcopy(dispmodels)
+        super().__init__(dispmodels=dispmodels)
+        FootPrintScoreModel.__init__(self, modes=modes, device=device)
+
+        if device is None:
+            device = try_gpu()
+            self.to(device)
+        self.device = next(self.parameters()).device
+
+        self.bias_bw_path = bias_bw_path
+        self._bias_handle = None
+
+        if modes is None:
+            self.modes = np.arange(2, 101, 1)
+        else:
+            self.modes = modes
+
+        self.atac_handles = {}
 
     def _calculate_footprint(
         self,

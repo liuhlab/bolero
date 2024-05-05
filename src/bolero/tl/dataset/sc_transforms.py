@@ -26,27 +26,24 @@ class scMetaRegionToBulkRegion:
     def __init__(
         self,
         prefixs,
-        pseudobulk_to_rows,
+        pseudobulker,
         sample_regions=200,
         min_cov=10,
         max_cov=1e5,
         low_cov_ratio=0.1,
+        n_pseudobulks=10,
     ):
         if isinstance(prefixs, str):
             prefixs = [prefixs]
         self.prefixs = prefixs
-        self.pseudobulk_to_rows = pseudobulk_to_rows
+
+        self.pseudobulker = pseudobulker
+        self.n_pseudobulks = n_pseudobulks
+
         self.sample_regions = sample_regions
         self.min_cov = min_cov
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
-
-        # bulk order
-        bulk_order = set()
-        for _dict in pseudobulk_to_rows.values():
-            for name in _dict.keys():
-                bulk_order.add(name)
-        self.bulk_order = sorted(bulk_order)
 
     def _bytes_to_array(self, data_dict):
         bytes_keys = [k for k, v in data_dict.items() if isinstance(v, bytes)]
@@ -70,19 +67,34 @@ class scMetaRegionToBulkRegion:
 
     def _get_pseudo_bulks(self, data_dict):
         _per_prefix_bulk_data = defaultdict(list)
-        for prefix in self.prefixs:
-            cell_by_base = data_dict.pop(prefix)
-            _pseudobulk_to_rows = self.pseudobulk_to_rows[prefix]
-            for name, rows in _pseudobulk_to_rows.items():
+        embedding_data = []
+        for bulk_idx, (prefix_to_rows, cell_embedding) in enumerate(
+            self.pseudobulker.take(self.n_pseudobulks)
+        ):
+            embedding_data.append(cell_embedding)
+            for prefix in self.prefixs:
+                print(bulk_idx, prefix)
+                for k, v in prefix_to_rows.items():
+                    print(k, len(v))
+                cell_by_base = data_dict[prefix]
+                rows = prefix_to_rows[prefix]
                 _bulk_values = csr_matrix(cell_by_base[rows].sum(axis=0).A1)
-                _per_prefix_bulk_data[name].append(_bulk_values)
+                _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
+        embedding_data = np.array(embedding_data)
+
+        # remove prefix csr_matrix from data_dict
+        for prefix in self.prefixs:
+            data_dict.pop(prefix)
 
         bulk_data = []
-        for name in self.bulk_order:
-            agg_bulk = csr_matrix(vstack(_per_prefix_bulk_data[name]).sum(axis=0).A1)
+        for bulk_idx in range(self.n_pseudobulks):
+            agg_bulk = csr_matrix(
+                vstack(_per_prefix_bulk_data[bulk_idx]).sum(axis=0).A1
+            )
             bulk_data.append(agg_bulk)
         bulk_data = vstack(bulk_data)
         data_dict["bulk_data"] = bulk_data
+        data_dict["embedding_data"] = embedding_data
         return data_dict
 
     def _get_regions(self, data_dict):
@@ -130,11 +142,11 @@ class scMetaRegionToBulkRegion:
                 continue
 
             _region_bulk_data = _region_bulk_data[use_rows]
-            _bulk_names = np.array(self.bulk_order)[use_rows]
+            _region_embedding_data = data_dict["embedding_data"][use_rows].copy()
 
-            for name, data in zip(_bulk_names, _region_bulk_data):
+            for data, embedding in zip(_region_bulk_data, _region_embedding_data):
                 _data = {
-                    "bulk_name": name,
+                    "bulk_embedding": embedding,
                     "bulk_data": data,
                     "region": f"{chrom}:{meta_start+rstart}-{meta_start+rend}",
                 }
