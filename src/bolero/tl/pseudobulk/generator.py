@@ -93,7 +93,7 @@ class PseudobulkGenerator:
             cells = self._predefined_pseudobulks[idx]
             prefix_to_rows = self._cells_to_prefix_dict(cells)
             embeddings = self.get_pseudobulk_centriods(cells)
-            yield prefix_to_rows, embeddings
+            yield cells, prefix_to_rows, embeddings
 
     def _cells_to_prefix_dict(self, cells: pd.Index) -> dict[str, pd.Index]:
         """

@@ -4,6 +4,8 @@ from typing import Dict, List
 import numpy as np
 from scipy.sparse import csr_matrix, vstack
 
+from bolero.tl.pseudobulk.generator import PseudobulkGenerator
+
 
 class scMetaRegionToBulkRegion:
     """
@@ -37,7 +39,7 @@ class scMetaRegionToBulkRegion:
             prefixs = [prefixs]
         self.prefixs = prefixs
 
-        self.pseudobulker = pseudobulker
+        self.pseudobulker: PseudobulkGenerator = pseudobulker
         self.n_pseudobulks = n_pseudobulks
 
         self.sample_regions = sample_regions
@@ -65,17 +67,16 @@ class scMetaRegionToBulkRegion:
             data_dict[prefix] = csr_data
         return data_dict
 
-    def _get_pseudo_bulks(self, data_dict):
+    def _get_pseudo_bulks(self, data_dict, return_cells=False):
         _per_prefix_bulk_data = defaultdict(list)
         embedding_data = []
-        for bulk_idx, (prefix_to_rows, cell_embedding) in enumerate(
+        cells_col = {}
+        for bulk_idx, (cells, prefix_to_rows, cell_embedding) in enumerate(
             self.pseudobulker.take(self.n_pseudobulks)
         ):
             embedding_data.append(cell_embedding)
+            cells_col[bulk_idx] = cells
             for prefix in self.prefixs:
-                print(bulk_idx, prefix)
-                for k, v in prefix_to_rows.items():
-                    print(k, len(v))
                 cell_by_base = data_dict[prefix]
                 rows = prefix_to_rows[prefix]
                 _bulk_values = csr_matrix(cell_by_base[rows].sum(axis=0).A1)
@@ -95,6 +96,9 @@ class scMetaRegionToBulkRegion:
         bulk_data = vstack(bulk_data)
         data_dict["bulk_data"] = bulk_data
         data_dict["embedding_data"] = embedding_data
+
+        if return_cells:
+            data_dict["cells"] = cells_col
         return data_dict
 
     def _get_regions(self, data_dict):
@@ -143,6 +147,11 @@ class scMetaRegionToBulkRegion:
 
             _region_bulk_data = _region_bulk_data[use_rows]
             _region_embedding_data = data_dict["embedding_data"][use_rows].copy()
+            if "cells" in data_dict:
+                use_row_idx = np.where(use_rows)[0]
+                use_cells = [data_dict["cells"][idx] for idx in use_row_idx]
+            else:
+                use_cells = None
 
             for data, embedding in zip(_region_bulk_data, _region_embedding_data):
                 _data = {
@@ -150,6 +159,8 @@ class scMetaRegionToBulkRegion:
                     "bulk_data": data,
                     "region": f"{chrom}:{meta_start+rstart}-{meta_start+rend}",
                 }
+                if use_cells is not None:
+                    _data["cells"] = use_cells.pop(0)
                 final_data.append(_data)
         return final_data
 
@@ -168,7 +179,7 @@ class scMetaRegionToBulkRegion:
         # for each pseudobulk:
         #     we then make pseudo bulks for each prefix, resulting in a csr_matrix of shape (n_pseudobulks, meta_region_length)
         #     multiple prefix is also combined into a single bulk_data in this step
-        data_dict = self._get_pseudo_bulks(data_dict)
+        data_dict = self._get_pseudo_bulks(data_dict, return_cells=True)
 
         # for each final region:
         #     finally, we separate the meta region data into regions and get the bulk data for each region in the form of a list of dict

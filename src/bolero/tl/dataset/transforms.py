@@ -14,6 +14,10 @@ These transform classes take a data dictionary and returns a list of modified da
 from typing import Union
 
 import numpy as np
+import pyBigWig
+import torch
+
+from bolero.utils import try_gpu
 
 
 class CropRegionsWithJitter:
@@ -250,3 +254,65 @@ class FetchRegionOneHot:
             self.dtype
         )  # (batch, channel, length)
         return data
+
+
+class BetchRegionBigWig:
+    """Fetch the bigwig signal from the genome.
+
+    Args:
+        region_key (str): The key to access the region information in the data dictionary.
+        bw_dict (dict[str, str]): A dictionary mapping the signal name to the corresponding bigwig file path.
+        dtype (str): The data type of the fetched signal. Defaults to "float32".
+        torch (bool): Whether to convert the fetched signal to a torch tensor. Defaults to False.
+        device (str): The device to store the torch tensor. If None, it will try to use the available GPU. Defaults to None.
+
+    Attributes
+    ----------
+        region_key (str): The key to access the region information in the data dictionary.
+        bw_dict (dict[str, str]): A dictionary mapping the signal name to the corresponding bigwig file path.
+        dtype (str): The data type of the fetched signal.
+        torch (bool): Whether to convert the fetched signal to a torch tensor.
+        device (str): The device to store the torch tensor.
+
+    """
+
+    def __init__(
+        self,
+        region_key: str = "Name",
+        bw_dict: dict[str, str] = None,
+        dtype: str = "float32",
+        torch: bool = False,
+        device: str = None,
+    ):
+        self.region_key = region_key
+        self.bw_dict = bw_dict
+        self.dtype = dtype
+        self.torch = torch
+        if device is None:
+            self.device = try_gpu()
+        self.device = device
+
+    def __enter__(self):
+        # open bigwig files
+        self.bw_files = {k: pyBigWig.open(v) for k, v in self.bw_dict.items()}
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        for bw in self.bw_files.values():
+            bw.close()
+        return
+
+    def __call__(self, data_dict: dict) -> dict:
+        """Fetch the bigwig signal from the genome."""
+        for k, bw in self.bw_files.items():
+            _values = []
+            for region in data_dict[self.region_key]:
+                chrom, coords = region.split(":")
+                start, end = map(int, coords.split("-"))
+                _value = bw.values(chrom, start, end, numpy=True)
+                _values.append(_value)
+            data = np.nan_to_num(np.array(_values, dtype=self.dtype))
+            if self.torch:
+                data = torch.tensor(data, device=self.device)
+            data_dict[k] = data
+        return data_dict
