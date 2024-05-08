@@ -4,11 +4,11 @@
 
 resources:
   cloud: gcp
-  cpus: 16+
-  memory: 120+
+  cpus: 64+
+  memory: 128+
   region: us-central1
   disk_size: 256
-  image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240423
+  image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240430
 
 file_mounts:
   ~/.netrc: ~/.netrc  # for wandb
@@ -45,4 +45,4 @@ setup: |
 run: |
   set -e  # Exit if any command failed.
   conda activate ray
-  nohup jupyter-lab --LabApp.token='' --no-browser --port 9990 > ~/jupyter.log 2>&1 &
+  nohup jupyter-lab --LabApp.token='' --no-browser --port 9995 > ~/jupyter.log 2>&1 &

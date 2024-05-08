@@ -744,20 +744,19 @@ class SingleCellGenomeEnsembleDataset:
         None
 
         """
-        for name, zarr_path in tqdm(
-            self.zarr_dict.items(), desc="Preparing single zarr datasets"
-        ):
+        @ray.remote
+        def _process_worker(name, zarr_path, bed, meta_region_size):
             this_output_dir = output_dir / "single_zarr" / name
             this_output_dir.mkdir(exist_ok=True, parents=True)
             flag_path = this_output_dir / "success.flag"
             if flag_path.exists():
-                continue
+                return
 
             ds = GenomeSingleCellCutsiteDataset(
                 name=name,
-                bed=self.bed,
+                bed=bed,
                 zarr_path=zarr_path,
-                meta_region_size=self.meta_region_size,
+                meta_region_size=meta_region_size,
             )
             data_list = ds.get_meta_region_data()
             chrom_data_list = defaultdict(list)
@@ -768,6 +767,16 @@ class SingleCellGenomeEnsembleDataset:
                 chrom_path = this_output_dir / chrom
                 joblib.dump(data_list, chrom_path)
             flag_path.touch()
+            return
+
+        tasks = []
+        bed_remote = ray.put(self.bed)
+        for name, zarr_path in self.zarr_dict.items():
+            task = _process_worker.remote(
+                name, zarr_path, bed_remote, self.meta_region_size
+            )
+            tasks.append(task)
+        ray.get(tasks)
         return
 
     def _process_bigwig(self, output_dir: str) -> None:
@@ -784,6 +793,7 @@ class SingleCellGenomeEnsembleDataset:
         None
         """
         bigwig_ds = GenomeBigWigDataset(**self.bw_dict)
+        # TODO parallel this step by separate meta region chunks
         data_list = bigwig_ds.get_meta_regions_data(
             regions=self.bed, meta_region_size=self.meta_region_size
         )
