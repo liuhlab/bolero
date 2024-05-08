@@ -709,7 +709,9 @@ class SingleCellGenomeEnsembleDataset:
         bed: pd.DataFrame,
         genome: Union[str, Genome],
         zarr_dict: Dict[str, str],
+        bw_dict: Optional[Dict[str, str]] = None,
         length: int = 2500,
+        meta_region_size: int = 100000,
     ) -> None:
         if isinstance(genome, str):
             genome = Genome(genome)
@@ -724,7 +726,9 @@ class SingleCellGenomeEnsembleDataset:
         )
         self.bed = bed
 
+        self.meta_region_size = meta_region_size
         self.zarr_dict = zarr_dict
+        self.bw_dict = bw_dict
 
     def _process_single_zarr(self, output_dir: str) -> None:
         """
@@ -753,6 +757,7 @@ class SingleCellGenomeEnsembleDataset:
                 name=name,
                 bed=self.bed,
                 zarr_path=zarr_path,
+                meta_region_size=self.meta_region_size,
             )
             data_list = ds.get_meta_region_data()
             chrom_data_list = defaultdict(list)
@@ -763,6 +768,41 @@ class SingleCellGenomeEnsembleDataset:
                 chrom_path = this_output_dir / chrom
                 joblib.dump(data_list, chrom_path)
             flag_path.touch()
+        return
+
+    def _process_bigwig(self, output_dir: str) -> None:
+        """
+        Process BigWig files and save the data for each chromosome.
+
+        Parameters
+        ----------
+        output_dir : str
+            The output directory to save the processed data.
+
+        Returns
+        -------
+        None
+        """
+        bigwig_ds = GenomeBigWigDataset(**self.bw_dict)
+        data_list = bigwig_ds.get_meta_regions_data(
+            regions=self.bed, meta_region_size=self.meta_region_size
+        )
+        chrom_data_list = defaultdict(list)
+
+        bw_output_dir = output_dir / "bigwig"
+        bw_output_dir.mkdir(exist_ok=True, parents=True)
+        flag_path = bw_output_dir / "success.flag"
+        if flag_path.exists():
+            return
+
+        for data in data_list:
+            chrom = data["bigwig:meta_region"].split(":")[0]
+            chrom_data_list[chrom].append(data)
+        for chrom, data_list in chrom_data_list.items():
+            chrom_path = output_dir / "bigwig" / chrom
+            joblib.dump(data_list, chrom_path)
+
+        flag_path.touch()
         return
 
     def _prepare_single_chrom(
@@ -791,10 +831,20 @@ class SingleCellGenomeEnsembleDataset:
         if flag_path.exists():
             return
 
+        list_of_dict = None
         for idx, name in enumerate(self.zarr_dict.keys()):
             chrom_data = f"{output_dir}/single_zarr/{name}/{chrom}"
             data_list = joblib.load(chrom_data)
             if idx == 0:
+                list_of_dict = data_list
+            else:
+                for idx, d in enumerate(data_list):
+                    list_of_dict[idx].update(d)
+
+        if self.bw_dict is not None:
+            chrom_data = f"{output_dir}/bigwig/{chrom}"
+            data_list = joblib.load(chrom_data)
+            if list_of_dict is None:
                 list_of_dict = data_list
             else:
                 for idx, d in enumerate(data_list):
@@ -828,11 +878,13 @@ class SingleCellGenomeEnsembleDataset:
         """
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(exist_ok=True, parents=True)
-        success_flag_path = output_dir / "success.flag"
+        success_flag_path = output_dir / "genome.flag"
         if success_flag_path.exists():
             return
 
         self._process_single_zarr(output_dir)
+        if self.bw_dict is not None:
+            self._process_bigwig(output_dir)
 
         for chrom in self.bed["Chromosome"].unique():
             self._prepare_single_chrom(output_dir, chrom, num_rows_per_file)
@@ -846,10 +898,13 @@ class SingleCellGenomeEnsembleDataset:
 
         # cleanup
         shutil.rmtree(output_dir / "single_zarr")
+        if self.bw_dict is not None:
+            shutil.rmtree(output_dir / "bigwig")
         for chrom in self.bed["Chromosome"].unique():
             chrom_dir = output_dir / chrom
             pathlib.Path(f"{chrom_dir}/success.flag").unlink()
 
-        # save success flag
-        pathlib.Path(f"{output_dir}/success.flag").touch()
+        # create success flag and record genome name
+        with open(success_flag_path, "w") as f:
+            f.write(self.genome.name)
         return

@@ -11,6 +11,7 @@ Flat* classes are for flat transformations, which will create new rows form the 
 These transform classes take a data dictionary and returns a list of modified data dictionaries.
 """
 
+from collections import defaultdict
 from typing import Union
 
 import numpy as np
@@ -256,8 +257,14 @@ class FetchRegionOneHot:
         return data
 
 
-class BetchRegionBigWig:
+class BatchRegionBigWig:
     """Fetch the bigwig signal from the genome.
+
+    This class is not compatible with ray.data pipeline
+    because the pyBigWig's c code has some weird behavior when used with ray parallel.
+    Currently, I use this class after ray dataset's iter_batches, so it is processed in a single thread
+    To speed up, this class has its own cache
+    Do not use this class to fetch multiple bigwig, it will be slow and memory consuming. Prepare a ray dataset instead.
 
     Args:
         region_key (str): The key to access the region information in the data dictionary.
@@ -278,7 +285,7 @@ class BetchRegionBigWig:
 
     def __init__(
         self,
-        region_key: str = "Name",
+        region_key: str,
         bw_dict: dict[str, str] = None,
         dtype: str = "float32",
         torch: bool = False,
@@ -295,6 +302,7 @@ class BetchRegionBigWig:
     def __enter__(self):
         # open bigwig files
         self.bw_files = {k: pyBigWig.open(v) for k, v in self.bw_dict.items()}
+        self._region_cache = defaultdict(dict)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -302,14 +310,22 @@ class BetchRegionBigWig:
             bw.close()
         return
 
+    def _cached_fetch(self, name, bw, region):
+        try:
+            _value = self._region_cache[name][region]
+        except KeyError:
+            chrom, coords = region.split(":")
+            start, end = map(int, coords.split("-"))
+            _value = bw.values(chrom, start, end, numpy=True)
+            self._region_cache[name][region] = _value
+        return _value
+
     def __call__(self, data_dict: dict) -> dict:
         """Fetch the bigwig signal from the genome."""
         for k, bw in self.bw_files.items():
             _values = []
             for region in data_dict[self.region_key]:
-                chrom, coords = region.split(":")
-                start, end = map(int, coords.split("-"))
-                _value = bw.values(chrom, start, end, numpy=True)
+                _value = self._cached_fetch(k, bw, region)
                 _values.append(_value)
             data = np.nan_to_num(np.array(_values, dtype=self.dtype))
             if self.torch:

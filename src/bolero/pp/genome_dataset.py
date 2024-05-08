@@ -1,3 +1,4 @@
+import gzip
 import pathlib
 from typing import Any, Optional, Tuple, Union
 
@@ -12,6 +13,87 @@ from scipy.sparse import csr_matrix, vstack
 
 from bolero.pp.utils import get_global_coords
 from bolero.utils import parse_region_name, parse_region_names
+
+
+def array_to_compressed_bytes(array, level=5):
+    """
+    Compresses an array to bytes.
+
+    Parameters
+    ----------
+        array: The array to compress.
+        level: The compression level. Default is 5.
+
+    Returns
+    -------
+        bytes: The compressed array.
+    """
+    return gzip.compress(array.tobytes(), compresslevel=level)
+
+
+def csr_matrix_to_compressed_bytes_dict(
+    prefix: str, matrix: csr_matrix, level: int = 5
+) -> dict[str, bytes]:
+    """
+    Compresses a CSR matrix to a dictionary of compressed bytes.
+
+    Parameters
+    ----------
+    prefix : str
+        The prefix for the keys in the dictionary.
+    matrix : csr_matrix
+        The CSR matrix to compress.
+    level : int, optional
+        The compression level. Default is 5.
+
+    Returns
+    -------
+    dict[str, bytes]
+        The dictionary of compressed bytes.
+
+    """
+    data_dict = {
+        f"{prefix}:indices+uint32": array_to_compressed_bytes(
+            matrix.indices.astype(np.uint32), level=level
+        ),
+        f"{prefix}:indptr+uint32": array_to_compressed_bytes(
+            matrix.indptr.astype(np.uint32), level=level
+        ),
+        f"{prefix}:data+float32": array_to_compressed_bytes(
+            matrix.data.astype(np.float32), level=level
+        ),
+        f"{prefix}:shape+uint32": array_to_compressed_bytes(
+            np.array(matrix.shape).astype(np.uint32), level=level
+        ),
+    }
+    return data_dict
+
+
+def prepare_meta_region(
+    bed: Union[str, pathlib.Path], meta_region_size: int
+) -> pd.DataFrame:
+    """
+    Process the region BED file to add a meta region column.
+
+    Parameters
+    ----------
+        bed (str or pathlib.Path): The path to the BED file.
+        meta_region_size (int): The size of the meta region.
+
+    Returns
+    -------
+        pd.DataFrame: The processed region BED data.
+    """
+    if isinstance(bed, (str, pathlib.Path)):
+        bed = pr.read_bed(bed, as_df=True)
+
+    start_bin = bed["Start"] // meta_region_size
+    end_bin = bed["End"] // meta_region_size
+    start_mode = bed["Start"] % meta_region_size
+    end_mode = bed["End"] % meta_region_size
+    use_bin = np.where(start_mode > end_mode, start_bin, end_bin)
+    bed["ChromBin"] = bed["Chromosome"].astype(str) + "-" + use_bin.astype(str)
+    return bed
 
 
 @ray.remote
@@ -642,6 +724,79 @@ class GenomeBigWigDataset(GenomeWideDataset):
             regions_data[name] = np.concatenate(ray.get(task))
         return regions_data
 
+    def get_meta_regions_data(
+        self, regions: Union[pr.PyRanges, pd.DataFrame], meta_region_size: int = 100000
+    ) -> dict[str, np.ndarray]:
+        """
+        Get the data for meta regions.
+
+        Parameters
+        ----------
+        regions : pr.PyRanges or pd.DataFrame
+            The regions to retrieve data for.
+
+        Returns
+        -------
+        Dict[str, np.ndarray]
+            A dictionary containing the meta region data for each dataset,
+            where the keys are the dataset names and the values are the data arrays.
+
+        Raises
+        ------
+        ValueError
+            If the regions parameter is not a PyRanges or DataFrame.
+        """
+        if isinstance(regions, pr.PyRanges):
+            regions_df = regions.df
+        elif isinstance(regions, pd.DataFrame):
+            regions_df = regions
+        else:
+            raise ValueError("regions must be a PyRanges or DataFrame")
+
+        # get all regions first
+        regions_data = self.get_regions_data(regions)
+        bw_order = list(regions_data.keys())
+
+        # prepare meta region
+        regions_df = prepare_meta_region(
+            bed=regions_df, meta_region_size=meta_region_size
+        )
+        # add a row index
+        dict_list = []
+        prefix = "bigwig"
+        regions_df["region_idx"] = range(regions_df.shape[0])
+        for chrom_bin, _regions in regions_df.groupby("ChromBin"):
+            use_rows = _regions["region_idx"].values
+            _use_regions_data = {
+                name: value[use_rows] for name, value in regions_data.items()
+            }
+            meta_region_chrom = chrom_bin.split("-")[0]
+            meta_region_start = _regions["Start"].min()
+            meta_region_end = _regions["End"].max()
+
+            meta_region_data = np.zeros(
+                shape=(len(bw_order), meta_region_end - meta_region_start),
+                dtype=np.float32,
+            )
+            relative_coords = (_regions[["Start", "End"]] - meta_region_start).values
+            for row, bw_name in enumerate(bw_order):
+                bw_data = _use_regions_data[bw_name]
+                for (rstart, rend), _one_region_data in zip(relative_coords, bw_data):
+                    meta_region_data[row, rstart:rend] = _one_region_data
+
+            final_data = csr_matrix_to_compressed_bytes_dict(
+                prefix="bigwig", matrix=csr_matrix(meta_region_data), level=5
+            )
+            final_data[f"{prefix}:name_order"] = "|".join(bw_order)
+            final_data[f"{prefix}:meta_region"] = (
+                f"{meta_region_chrom}:{meta_region_start}-{meta_region_end}"
+            )
+            final_data[f"{prefix}:relative_coords+uint32"] = array_to_compressed_bytes(
+                relative_coords.astype(np.uint32)
+            )
+            dict_list.append(final_data)
+        return dict_list
+
 
 @ray.remote
 def process_meta_region(smat: csr_matrix, region_df: pd.DataFrame) -> csr_matrix:
@@ -712,37 +867,8 @@ class GenomeSingleCellCutsiteDataset(GenomeWideDataset):
     ):
         super().__init__()
         self.dataset = CutSitesZarr(zarr_path)
-        self.region_df = self._process_region_bed(
-            bed=bed, meta_region_size=meta_region_size
-        )
+        self.region_df = prepare_meta_region(bed=bed, meta_region_size=meta_region_size)
         self.name = name
-
-    @staticmethod
-    def _process_region_bed(
-        bed: Union[str, pathlib.Path], meta_region_size: int
-    ) -> pd.DataFrame:
-        """
-        Process the region BED file.
-
-        Parameters
-        ----------
-            bed (str or pathlib.Path): The path to the BED file.
-            meta_region_size (int): The size of the meta region.
-
-        Returns
-        -------
-            pd.DataFrame: The processed region BED data.
-        """
-        if isinstance(bed, (str, pathlib.Path)):
-            bed = pr.read_bed(bed, as_df=True)
-
-        start_bin = bed["Start"] // meta_region_size
-        end_bin = bed["End"] // meta_region_size
-        start_mode = bed["Start"] % meta_region_size
-        end_mode = bed["End"] % meta_region_size
-        use_bin = np.where(start_mode > end_mode, start_bin, end_bin)
-        bed["ChromBin"] = bed["Chromosome"].astype(str) + "-" + use_bin.astype(str)
-        return bed
 
     @staticmethod
     def _prepare_meta_region_worker(ds, region_df, prefix, genome_total_length):
@@ -799,22 +925,18 @@ class GenomeSingleCellCutsiteDataset(GenomeWideDataset):
             # csr_matrix indices, indptr, data are all variable size, ray data has issue support variable size
             # when writing to parquet, we need to convert to bytes and reconstruct csr_matrix during getting data
             # https://github.com/ray-project/ray/issues/41924
-            final_data_dict = {
-                f"{prefix}:indices+uint32": final_data.indices.astype(
-                    np.uint32
-                ).tobytes(),
-                f"{prefix}:indptr+uint32": final_data.indptr.astype(
-                    np.uint32
-                ).tobytes(),
-                f"{prefix}:data+float32": final_data.data.astype(np.float32).tobytes(),
-                f"{prefix}:shape+uint32": np.array(final_data.shape)
-                .astype(np.uint32)
-                .tobytes(),
-                f"{prefix}:relative_coords+uint32": relative_region.values.astype(
-                    np.uint32
-                ).tobytes(),
-                f"{prefix}:meta_region": f"{chrom}:{meta_region_start}-{meta_region_end}",
-            }
+            final_data_dict = csr_matrix_to_compressed_bytes_dict(
+                prefix=prefix, matrix=final_data, level=5
+            )
+            final_data_dict.update(
+                {
+                    f"{prefix}:relative_coords+uint32": array_to_compressed_bytes(
+                        relative_region.values.astype(np.uint32)
+                    ),
+                    f"{prefix}:meta_region": f"{chrom}:{meta_region_start}-{meta_region_end}",
+                }
+            )
+
             meta_region_dicts.append(final_data_dict)
         return meta_region_dicts
 

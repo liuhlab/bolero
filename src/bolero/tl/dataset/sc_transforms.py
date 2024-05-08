@@ -1,3 +1,4 @@
+import gzip
 from collections import defaultdict
 from typing import Dict, List
 
@@ -5,6 +6,25 @@ import numpy as np
 from scipy.sparse import csr_matrix, vstack
 
 from bolero.tl.pseudobulk.generator import PseudobulkGenerator
+
+
+def compressed_bytes_to_array(bytes: bytes, dtype: str) -> np.ndarray:
+    """
+    Decompress bytes and convert to numpy array.
+
+    Parameters
+    ----------
+    bytes : bytes
+        The compressed bytes to be decompressed.
+    dtype : str
+        The data type of the resulting numpy array.
+
+    Returns
+    -------
+    np.ndarray
+        The decompressed numpy array.
+    """
+    return np.frombuffer(gzip.decompress(bytes), dtype=dtype)
 
 
 class scMetaRegionToBulkRegion:
@@ -34,10 +54,17 @@ class scMetaRegionToBulkRegion:
         max_cov=1e5,
         low_cov_ratio=0.1,
         n_pseudobulks=10,
+        return_cells=False,
     ):
         if isinstance(prefixs, str):
             prefixs = [prefixs]
         self.prefixs = prefixs
+
+        if "bigwig" in self.prefixs:
+            self.bigwig_prefix = "bigwig"
+            self.prefixs = [p for p in self.prefixs if p != self.bigwig_prefix]
+        else:
+            self.bigwig_prefix = None
 
         self.pseudobulker: PseudobulkGenerator = pseudobulker
         self.n_pseudobulks = n_pseudobulks
@@ -46,19 +73,25 @@ class scMetaRegionToBulkRegion:
         self.min_cov = min_cov
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
+        self.return_cells = return_cells
+        return
 
     def _bytes_to_array(self, data_dict):
         bytes_keys = [k for k, v in data_dict.items() if isinstance(v, bytes)]
         for key in bytes_keys:
             prefix, name_and_dtype = key.split(":")
             name, dtype = name_and_dtype.split("+")
-            data_dict[f"{prefix}:{name}"] = np.frombuffer(
+            data_dict[f"{prefix}:{name}"] = compressed_bytes_to_array(
                 data_dict.pop(key), dtype=dtype
             )
         return data_dict
 
     def _make_csr(self, data_dict):
-        for prefix in self.prefixs:
+        _prefixs = self.prefixs.copy()
+        if self.bigwig_prefix is not None:
+            _prefixs.append(self.bigwig_prefix)
+
+        for prefix in _prefixs:
             data = data_dict.pop(f"{prefix}:data")
             indices = data_dict.pop(f"{prefix}:indices")
             indptr = data_dict.pop(f"{prefix}:indptr")
@@ -71,6 +104,7 @@ class scMetaRegionToBulkRegion:
         _per_prefix_bulk_data = defaultdict(list)
         embedding_data = []
         cells_col = {}
+        # merge single cell to bulk and also get embedding data
         for bulk_idx, (cells, prefix_to_rows, cell_embedding) in enumerate(
             self.pseudobulker.take(self.n_pseudobulks)
         ):
@@ -78,7 +112,12 @@ class scMetaRegionToBulkRegion:
             cells_col[bulk_idx] = cells
             for prefix in self.prefixs:
                 cell_by_base = data_dict[prefix]
-                rows = prefix_to_rows[prefix]
+                rows = prefix_to_rows.get(prefix, [])
+
+                # some pseudo-bulks may not have any cells for a prefix
+                if len(rows) == 0:
+                    continue
+
                 _bulk_values = csr_matrix(cell_by_base[rows].sum(axis=0).A1)
                 _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
         embedding_data = np.array(embedding_data)
@@ -101,7 +140,29 @@ class scMetaRegionToBulkRegion:
             data_dict["cells"] = cells_col
         return data_dict
 
-    def _get_regions(self, data_dict):
+    def _get_bigwig_data(self, data_dict):
+        if self.bigwig_prefix is None:
+            return {}
+
+        bigwig_data = data_dict.pop(self.bigwig_prefix)
+        name_order = data_dict.pop(f"{self.bigwig_prefix}:name_order").split("|")
+
+        meta_region = data_dict.pop(f"{self.bigwig_prefix}:meta_region")
+        chrom, coords = meta_region.split(":")
+        meta_start, _ = map(int, coords.split("-"))
+        relative_coords = data_dict.pop(
+            f"{self.bigwig_prefix}:relative_coords"
+        ).reshape(-1, 2)
+        _bigwig_region_dict = defaultdict(dict)
+        for row, name in enumerate(name_order):
+            for rstart, rend in relative_coords:
+                region = f"{chrom}:{meta_start+rstart}-{meta_start+rend}"
+                _bigwig_region_dict[region][name] = (
+                    bigwig_data[row, rstart:rend].toarray().ravel()
+                )
+        return _bigwig_region_dict
+
+    def _get_regions(self, data_dict, bigwig_region_dict):
         # separate meta region data into regions
         _example_prefix = self.prefixs[0]
         relative_coords = data_dict[f"{_example_prefix}:relative_coords"].reshape(-1, 2)
@@ -154,11 +215,14 @@ class scMetaRegionToBulkRegion:
                 use_cells = None
 
             for data, embedding in zip(_region_bulk_data, _region_embedding_data):
+                region = f"{chrom}:{meta_start+rstart}-{meta_start+rend}"
+                _bw_data = bigwig_region_dict.get(region, {})
                 _data = {
                     "bulk_embedding": embedding,
                     "bulk_data": data,
-                    "region": f"{chrom}:{meta_start+rstart}-{meta_start+rend}",
+                    "region": region,
                 }
+                _data.update(_bw_data)
                 if use_cells is not None:
                     _data["cells"] = use_cells.pop(0)
                 final_data.append(_data)
@@ -179,10 +243,18 @@ class scMetaRegionToBulkRegion:
         # for each pseudobulk:
         #     we then make pseudo bulks for each prefix, resulting in a csr_matrix of shape (n_pseudobulks, meta_region_length)
         #     multiple prefix is also combined into a single bulk_data in this step
-        data_dict = self._get_pseudo_bulks(data_dict, return_cells=True)
+        data_dict = self._get_pseudo_bulks(data_dict, return_cells=self.return_cells)
+
+        # also process bigwig data and split to individual regions
+        # bigwig region data is saved in bigwig_region_dict, key is region name and value is a dict of bigwig data for each region
+        # each returned dict will contain the bigwig data for corresponding region
+        if self.bigwig_prefix is not None:
+            bigwig_region_dict = self._get_bigwig_data(data_dict)
+        else:
+            bigwig_region_dict = {}
 
         # for each final region:
         #     finally, we separate the meta region data into regions and get the bulk data for each region in the form of a list of dict
         #     region filter by coverage and spiking low coverage region is also performed here
-        final_data = self._get_regions(data_dict)
+        final_data = self._get_regions(data_dict, bigwig_region_dict)
         return final_data

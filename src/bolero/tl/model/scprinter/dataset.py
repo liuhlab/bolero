@@ -5,6 +5,7 @@ from ray.data.dataset import Dataset
 
 from bolero.tl.dataset.filters import RowSumFilter
 from bolero.tl.dataset.ray_dataset import RayGenomeDataset
+from bolero.tl.dataset.ray_sc_dataset import RaySingleCellDataset
 from bolero.tl.dataset.transforms import (
     BatchToFloat,
     CropRegionsWithJitter,
@@ -570,3 +571,44 @@ class scPrinterDataset(RayGenomeDataset):
         )
         self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
+
+
+class scPrinterSingleCellDataset(RaySingleCellDataset):
+    """Singel cell dataset for scPrinter model."""
+
+    def __init__(
+        self,
+        batch_size: int = 64,
+        dna_window: int = 1840,
+        signal_window: int = 1000,
+        max_jitter: int = 128,
+        cov_min_q: float = 0.0001,
+        cov_max_q: float = 0.9999,
+        clip_min: float = -10,
+        clip_max: float = 10,
+        reverse_complement: bool = True,
+    ):
+        self.batch_size = batch_size
+
+        # region properties
+        self.dna_window = dna_window
+        self.signal_window = signal_window
+        self.max_jitter = max_jitter
+        self.min_counts = 10
+        self.max_counts = 1e16
+        self.cov_min_q = cov_min_q
+        self.cov_max_q = cov_max_q
+        self.reverse_complement = reverse_complement
+        self.clip_min = clip_min
+        self.clip_max = clip_max
+        return
+
+    def __repr__(self) -> str:
+        _super_str = super().__repr__()
+        _str = (
+            f"scPrinterDataset for {len(self)} regions.\n"
+            f"DNA window: {self.dna_window}, Signal window: {self.signal_window},\n"
+            f"Max jitter: {self.max_jitter}, Batch size: {self.batch_size},\n"
+            + _super_str
+        )
+        return _str

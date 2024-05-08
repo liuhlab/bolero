@@ -629,6 +629,9 @@ class Genome:
 
         if remove_blacklist and self.blacklist_bed is not None:
             regions_bed = self._remove_blacklist(regions_bed)
+            # region length may change after removing blacklist
+            use_regions = regions_bed.df["End"] - regions_bed.df["Start"] == length
+            regions_bed = regions_bed[use_regions].copy()
 
         if len(regions_bed) == 0:
             raise pd.errors.EmptyDataError("No regions left after processing")
