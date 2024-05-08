@@ -1,7 +1,7 @@
 # TODO: scRayDataset inherits from RayDataset, and then in scprinter, scPrinterscDataset inherits from scPrinterDataset.
 # Once the sc dataset processed pseudobulk and provides region and pseudobulk data dict, the remaining preprocess step should be the same as bulk train model.
 import pathlib
-from typing import Any, Iterable, Optional, Union
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -74,7 +74,7 @@ class RaySingleCellDataset:
 
     def prepare_pseudobulker(
         self,
-        embedding: Union[str, pathlib.Path, pd.DataFrame],
+        cell_embedding: Union[str, pathlib.Path, pd.DataFrame],
         predefined_pseudobulk: Optional[dict] = None,
     ) -> None:
         """
@@ -91,11 +91,11 @@ class RaySingleCellDataset:
         -------
         None
         """
-        if isinstance(embedding, (str, pathlib.Path)):
-            _embedding = pd.read_feather(embedding)
+        if isinstance(cell_embedding, (str, pathlib.Path)):
+            _embedding = pd.read_feather(cell_embedding)
             _embedding = _embedding.set_index(_embedding.columns[0])
-        elif isinstance(embedding, pd.DataFrame):
-            _embedding = embedding
+        elif isinstance(cell_embedding, pd.DataFrame):
+            _embedding = cell_embedding
 
         pseudobulker = PseudobulkGenerator(
             embedding=_embedding, barcode_order=self.barcode_order
@@ -208,59 +208,6 @@ class RaySingleCellDataset:
         )
         self._working_dataset = self._working_dataset.map_batches(one_hot_processor)
         return
-
-    def get_dataloader(
-        self,
-        batch_size: int = 64,
-        sample_regions: int = 200,
-        n_pseudobulks: int = 10,
-        min_cov: int = 10,
-        max_cov: int = 100000,
-        low_cov_ratio: float = 0.1,
-        **kwargs,
-    ) -> Iterable[dict[str, Any]]:
-        """
-        Get the dataloader.
-
-        Parameters
-        ----------
-        batch_size : int, optional
-            The batch size, by default 64.
-        sample_regions : int, optional
-            The number of sample regions, by default 200.
-        n_pseudobulks : int, optional
-            The number of pseudobulks, by default 10.
-        min_cov : int, optional
-            The minimum coverage, by default 10.
-        max_cov : int, optional
-            The maximum coverage, by default 100000.
-        low_cov_ratio : float, optional
-            The low coverage ratio, by default 0.1.
-        **kwargs
-            Additional keyword arguments.
-
-        Returns
-        -------
-        DataLoader
-            The dataloader.
-        """
-        self._working_dataset = self._dataset
-        self._dataset_preprocess(
-            sample_regions=sample_regions,
-            n_pseudobulks=n_pseudobulks,
-            min_cov=min_cov,
-            max_cov=max_cov,
-            low_cov_ratio=low_cov_ratio,
-        )
-
-        _default = {
-            "prefetch_batches": 5,
-            "local_shuffle_buffer_size": 10000,
-            "drop_last": True,
-        }
-        _default.update(kwargs)
-        loader = self._working_dataset.iter_batches(batch_size=batch_size, **_default)
-        return loader
 
     def train(self) -> None:
         """

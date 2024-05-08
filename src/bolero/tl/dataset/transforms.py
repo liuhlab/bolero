@@ -18,6 +18,7 @@ import numpy as np
 import pyBigWig
 import torch
 
+from bolero.tl.topic.region_embedding import RegionEmbedder
 from bolero.utils import try_gpu
 
 
@@ -29,7 +30,6 @@ class CropRegionsWithJitter:
         key: Union[str, list[str]],
         final_length: int,
         max_jitter: int = 0,
-        input_type="row",
     ):
         """
         Crop regions from the input data batch.
@@ -52,13 +52,6 @@ class CropRegionsWithJitter:
         self.final_length = final_length
         self.max_jitter = max_jitter
 
-        if input_type == "batch":
-            self.crop_axis = 1
-        elif input_type == "row":
-            self.crop_axis = 0
-        else:
-            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
-
     def __call__(self, data: dict) -> dict:
         """
         Crop regions from the input data batch.
@@ -80,16 +73,12 @@ class CropRegionsWithJitter:
         for k, length in zip(self.key, self.final_length):
             _input = data[k]
 
-            _input_length = _input.shape[self.crop_axis]
+            _input_length = _input.shape[-1]
             _input_center = _input_length // 2
             _output_radius = length // 2
             _start = _input_center - _output_radius + jitter
             _end = _start + length
-
-            if self.crop_axis == 0:
-                data[k] = _input[_start:_end]
-            else:
-                data[k] = _input[:, _start:_end]
+            data[k] = _input[..., _start:_end]
         return data
 
 
@@ -331,4 +320,52 @@ class BatchRegionBigWig:
             if self.torch:
                 data = torch.tensor(data, device=self.device)
             data_dict[k] = data
+        return data_dict
+
+
+class BatchRegionEmbedding:
+    """Embed the region information in the data dictionary."""
+
+    def __init__(
+        self,
+        embedding: np.ndarray,
+        region_key: str = "region",
+        pop_region_key: bool = True,
+    ) -> None:
+        """
+        Initialize the BatchRegionEmbedding transform.
+
+        Parameters
+        ----------
+        embedding : np.ndarray
+            The embedding array.
+        region_key : str, optional
+            The key to access the region information in the data dictionary. Defaults to "region".
+        pop_region_key : bool, optional
+            Whether to remove the region key from the data dictionary after embedding. Defaults to True.
+        """
+        self.embedder = RegionEmbedder()
+        self.embedder.add_predefined_embedding(embedding)
+        self.region_key = region_key
+        self.pop_region_key = pop_region_key
+
+    def __call__(self, data_dict: dict) -> dict:
+        """
+        Apply the BatchRegionEmbedding transform to the input data.
+
+        Parameters
+        ----------
+        data_dict : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the region embedding added.
+        """
+        if self.pop_region_key:
+            regions = data_dict.pop(self.region_key)
+        else:
+            regions = data_dict[self.region_key]
+        data_dict["region_embedding"] = self.embedder(regions, predefined=True)
         return data_dict

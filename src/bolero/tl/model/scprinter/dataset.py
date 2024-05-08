@@ -1,4 +1,4 @@
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Any, Iterable, Optional, Union
 
 import numpy as np
 from ray.data.dataset import Dataset
@@ -7,6 +7,7 @@ from bolero.tl.dataset.filters import RowSumFilter
 from bolero.tl.dataset.ray_dataset import RayGenomeDataset
 from bolero.tl.dataset.ray_sc_dataset import RaySingleCellDataset
 from bolero.tl.dataset.transforms import (
+    BatchRegionEmbedding,
     BatchToFloat,
     CropRegionsWithJitter,
     ReverseComplement,
@@ -164,7 +165,7 @@ class scPrinterDataset(RayGenomeDataset):
     def __init__(
         self,
         dataset: Dataset,
-        columns: Optional[List[str]] = None,
+        columns: Optional[list[str]] = None,
         bias_name: str = None,
         batch_size: int = 64,
         dna_window: int = 1840,
@@ -464,7 +465,7 @@ class scPrinterDataset(RayGenomeDataset):
 
     def get_dna_and_signal_columns(
         self, separate_bias: bool = False
-    ) -> Tuple[List[str], List[str]]:
+    ) -> tuple[list[str], list[str]]:
         """
         Get the DNA and signal columns from the dataset.
 
@@ -567,7 +568,6 @@ class scPrinterDataset(RayGenomeDataset):
             key=key_list,
             final_length=length_list,
             max_jitter=max_jitter,
-            input_type="row",
         )
         self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
@@ -578,16 +578,22 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
     def __init__(
         self,
+        dataset_path: str,
+        use_prefixs: Optional[list[str]] = None,
         batch_size: int = 64,
         dna_window: int = 1840,
         signal_window: int = 1000,
         max_jitter: int = 128,
-        cov_min_q: float = 0.0001,
-        cov_max_q: float = 0.9999,
         clip_min: float = -10,
         clip_max: float = 10,
+        sample_regions: int = 200,
+        n_pseudobulks: int = 10,
+        min_cov: int = 10,
+        max_cov: int = 100000,
+        low_cov_ratio: float = 0.1,
         reverse_complement: bool = True,
     ):
+        super().__init__(dataset_path=dataset_path, use_prefixs=use_prefixs)
         self.batch_size = batch_size
 
         # region properties
@@ -596,11 +602,20 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         self.max_jitter = max_jitter
         self.min_counts = 10
         self.max_counts = 1e16
-        self.cov_min_q = cov_min_q
-        self.cov_max_q = cov_max_q
         self.reverse_complement = reverse_complement
         self.clip_min = clip_min
         self.clip_max = clip_max
+        self.sample_regions = sample_regions
+        self.n_pseudobulks = n_pseudobulks
+        self.min_cov = min_cov
+        self.max_cov = max_cov
+        self.low_cov_ratio = low_cov_ratio
+
+        self.dna_columns = ["dna_one_hot"]
+        self.signal_columns = ["bulk_data", "tn5_bias"]
+
+        self.region_embedding = None
+        self._working_dataset = None
         return
 
     def __repr__(self) -> str:
@@ -612,3 +627,167 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             + _super_str
         )
         return _str
+
+    def _crop_regions(self, *args, **kwargs) -> None:
+        """
+        Crop the regions in the working dataset.
+
+        Returns
+        -------
+        None
+        """
+        if self._dataset_mode != "train":
+            max_jitter = 0
+        else:
+            max_jitter = self.max_jitter
+
+        dna_columns = self.dna_columns
+        signal_columns = self.signal_columns
+        key_list = dna_columns + signal_columns
+        length_list = [self.dna_window] * len(dna_columns) + [self.signal_window] * len(
+            signal_columns
+        )
+
+        _cropper = CropRegionsWithJitter(
+            key=key_list,
+            final_length=length_list,
+            max_jitter=max_jitter,
+        )
+        self._working_dataset = self._working_dataset.map_batches(
+            _cropper, *args, **kwargs
+        )
+        return
+
+    def _reverse_complement_region(self, *args, **kwargs) -> None:
+        """
+        Reverse complement the DNA sequences by 50% probability.
+
+        Returns
+        -------
+        None
+        """
+        _rc = ReverseComplement(
+            dna_key=self.dna_columns, signal_key=self.signal_columns, input_type="batch"
+        )
+        self._working_dataset = self._working_dataset.map_batches(_rc, *args, **kwargs)
+        return
+
+    def _add_region_embedding(self):
+        embedder = BatchRegionEmbedding(
+            embedding=self.region_embedding, region_key="region", pop_region_key=True
+        )
+        self._working_dataset = self._working_dataset.map_batches(embedder)
+        return
+
+    def add_region_embedding(self, embedding):
+        """Add a predefined region embedding to the dataset."""
+        self.region_embedding = embedding
+        return
+
+    def _dataset_preprocess(self) -> None:
+        super()._dataset_preprocess(
+            sample_regions=self.sample_regions,
+            n_pseudobulks=self.n_pseudobulks,
+            min_cov=self.min_cov,
+            max_cov=self.max_cov,
+            low_cov_ratio=self.low_cov_ratio,
+        )
+
+        self._crop_regions()
+
+        if self.reverse_complement and self._dataset_mode == "train":
+            self._reverse_complement_region()
+
+        if self.region_embedding is not None:
+            self._add_region_embedding()
+        else:
+            # manually drop the region column to keep numbers columns only
+            self._working_dataset = self._working_dataset.drop_columns(["region"])
+        return
+
+    def get_footprinter(
+        self,
+        visualizer=False,
+    ) -> BatchFootPrint:
+        """
+        Get the footprint for a specific region and sample.
+
+        Parameters
+        ----------
+        region : str, optional
+            The region name (default is None).
+        sample : str, optional
+            The sample name (default is None).
+        visualizer : bool, optional
+            Whether to return p-values and smooth the data for better visualization (default is False).
+            For ML model, we used the raw z-scores to perform training and prediction, so this should be False.
+
+        Returns
+        -------
+        BatchFootPrint
+            The footprint for the specified region and sample.
+        """
+        if visualizer:
+            return_pval = True
+            smooth_radius = 5
+            numpy = True
+        else:
+            return_pval = False
+            smooth_radius = None
+            numpy = False
+
+        atac_keys = ["bulk_data"]
+        bias_key = "tn5_bias"
+        footprint = BatchFootPrint(
+            atac_key=atac_keys,
+            bias_key=bias_key,
+            clip_min=self.clip_min,
+            clip_max=self.clip_max,
+            return_pval=return_pval,
+            smooth_radius=smooth_radius,
+            numpy=numpy,
+            device=None,
+        )
+        return footprint
+
+    def get_dataloader(
+        self,
+        **kwargs,
+    ) -> Iterable[dict[str, Any]]:
+        """
+        Get the dataloader.
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            The batch size, by default 64.
+        sample_regions : int, optional
+            The number of sample regions, by default 200.
+        n_pseudobulks : int, optional
+            The number of pseudobulks, by default 10.
+        min_cov : int, optional
+            The minimum coverage, by default 10.
+        max_cov : int, optional
+            The maximum coverage, by default 100000.
+        low_cov_ratio : float, optional
+            The low coverage ratio, by default 0.1.
+        **kwargs
+            Additional keyword arguments.
+
+        Returns
+        -------
+        DataLoader
+            The dataloader.
+        """
+        self._working_dataset = self._dataset
+        self._dataset_preprocess()
+
+        _default = {
+            "prefetch_batches": 5,
+            "local_shuffle_buffer_size": 10000,
+            "drop_last": True,
+            "batch_size": self.batch_size,
+        }
+        _default.update(kwargs)
+        loader = self._working_dataset.iter_torch_batches(**_default)
+        return loader
