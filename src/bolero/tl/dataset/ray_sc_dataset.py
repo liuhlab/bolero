@@ -9,7 +9,6 @@ import ray
 
 from bolero import Genome
 from bolero.tl.dataset.sc_transforms import scMetaRegionToBulkRegion
-from bolero.tl.dataset.transforms import FetchRegionOneHot
 from bolero.tl.pseudobulk.generator import PseudobulkGenerator
 
 
@@ -17,7 +16,12 @@ class RaySingleCellDataset:
     """Single cell dataset for cell-by-meta-region data."""
 
     def __init__(
-        self, dataset_path: str, use_prefixs: Optional[list[str]] = None
+        self,
+        dataset_path: str,
+        use_prefixs: Optional[list[str]] = None,
+        override_num_blocks=None,
+        chroms=None,
+        shuffle_files=True,
     ) -> None:
         """
         Initialize the RaySingleCellDataset.
@@ -33,8 +37,18 @@ class RaySingleCellDataset:
         -------
         None
         """
+        if chroms is None:
+            chrom_dirs = [str(p) for p in pathlib.Path(dataset_path).glob("chr*")]
+        else:
+            if isinstance(chroms, str):
+                chroms = [chroms]
+            chrom_dirs = [f"{dataset_path}/{chrom}" for chrom in chroms]
+
         self._dataset = ray.data.read_parquet(
-            dataset_path, file_extensions=["parquet"], shuffle="file"
+            chrom_dirs,
+            file_extensions=["parquet"],
+            shuffle="file" if shuffle_files else None,
+            override_num_blocks=override_num_blocks,
         )
         _schema = self._dataset.schema()
         self.schema: dict = dict(zip(_schema.names, _schema.types))
@@ -103,6 +117,9 @@ class RaySingleCellDataset:
         if predefined_pseudobulk:
             pseudobulker.add_predefined_pseudobulks(predefined_pseudobulk)
         self.pseudobulker = pseudobulker
+
+        # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
+        # all pseudobulk cells should occured in the dataset
         return
 
     def _dataset_preprocess(
@@ -140,7 +157,6 @@ class RaySingleCellDataset:
             max_cov=max_cov,
             low_cov_ratio=low_cov_ratio,
         )
-        self._fetch_dna_one_hot()
         return
 
     def _pseudobulk_and_extract_regions(
@@ -150,6 +166,8 @@ class RaySingleCellDataset:
         min_cov: int,
         max_cov: int,
         low_cov_ratio: float,
+        num_cpus: int = 1,
+        memory: float = "auto",
     ) -> None:
         """
         Perform pseudobulking and extract regions.
@@ -171,6 +189,10 @@ class RaySingleCellDataset:
         -------
         None
         """
+        # TODO: determine flat_map memory dynamically based on the size of the dataset
+        if memory == "auto":
+            memory = 6 * 1024**3  # 6GB
+
         if self.pseudobulker is None:
             raise ValueError(
                 "Pseudobulker not prepared yet, call self.prepare_pseudobulker() first."
@@ -187,27 +209,11 @@ class RaySingleCellDataset:
             low_cov_ratio=low_cov_ratio,
             n_pseudobulks=n_pseudobulks,
         )
-        self._working_dataset = self._working_dataset.flat_map(processor)
+        self._working_dataset = self._working_dataset.flat_map(
+            processor, num_cpus=num_cpus, memory=memory
+        )
         # after flat_map processor, each row in working_dataset is a dict with keys:
         # ["bulk_embedding", "bulk_data", "region"]
-
-    def _fetch_dna_one_hot(self) -> None:
-        """
-        Fetch the DNA one hot.
-
-        Returns
-        -------
-        None
-        """
-        # add DNA one hot
-        one_hot_processor = FetchRegionOneHot(
-            genome=self.genome,
-            region_key="region",
-            output_key="dna_one_hot",
-            dtype="float32",
-        )
-        self._working_dataset = self._working_dataset.map_batches(one_hot_processor)
-        return
 
     def train(self) -> None:
         """

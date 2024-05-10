@@ -15,6 +15,7 @@ from collections import defaultdict
 from typing import Union
 
 import numpy as np
+import pandas as pd
 import pyBigWig
 import torch
 
@@ -367,5 +368,9 @@ class BatchRegionEmbedding:
             regions = data_dict.pop(self.region_key)
         else:
             regions = data_dict[self.region_key]
-        data_dict["region_embedding"] = self.embedder(regions, predefined=True)
+        if isinstance(regions, str):
+            regions = pd.Index([regions])
+        data_dict["region_embedding"] = np.array(
+            self.embedder(regions, predefined=True)
+        )
         return data_dict

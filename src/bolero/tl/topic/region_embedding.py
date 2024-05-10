@@ -88,8 +88,6 @@ class RegionEmbedder:
         """
         if self.predefined_region_embedding is None:
             raise ValueError("No predefined region embedding found.")
-
-        regions = understand_regions(regions, as_df=True)
         regions.index = pd.Index(
             regions["Chromosome"].astype(str)
             + ":"
@@ -121,6 +119,8 @@ class RegionEmbedder:
             If the embedding is not implemented yet.
 
         """
+        regions = understand_regions(regions, as_df=True)
+
         if predefined:
             return self._get_predefined_region_embedding(regions)
         else:

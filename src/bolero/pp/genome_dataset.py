@@ -752,50 +752,72 @@ class GenomeBigWigDataset(GenomeWideDataset):
             regions_df = regions
         else:
             raise ValueError("regions must be a PyRanges or DataFrame")
-
-        # get all regions first
-        regions_data = self.get_regions_data(regions)
-        bw_order = list(regions_data.keys())
+        bw_order = list(self.bigwig_path_dict.keys())
 
         # prepare meta region
         regions_df = prepare_meta_region(
             bed=regions_df, meta_region_size=meta_region_size
         )
-        # add a row index
-        dict_list = []
-        prefix = "bigwig"
-        regions_df["region_idx"] = range(regions_df.shape[0])
-        for chrom_bin, _regions in regions_df.groupby("ChromBin"):
-            use_rows = _regions["region_idx"].values
-            _use_regions_data = {
-                name: value[use_rows] for name, value in regions_data.items()
-            }
-            meta_region_chrom = chrom_bin.split("-")[0]
-            meta_region_start = _regions["Start"].min()
-            meta_region_end = _regions["End"].max()
 
-            meta_region_data = np.zeros(
-                shape=(len(bw_order), meta_region_end - meta_region_start),
-                dtype=np.float32,
-            )
-            relative_coords = (_regions[["Start", "End"]] - meta_region_start).values
-            for row, bw_name in enumerate(bw_order):
-                bw_data = _use_regions_data[bw_name]
-                for (rstart, rend), _one_region_data in zip(relative_coords, bw_data):
-                    meta_region_data[row, rstart:rend] = _one_region_data
+        @ray.remote
+        def get_meta_regions_worker(_regions_df):
+            # get all regions first
+            regions_data = self.get_regions_data(_regions_df)
 
-            final_data = csr_matrix_to_compressed_bytes_dict(
-                prefix="bigwig", matrix=csr_matrix(meta_region_data), level=5
-            )
-            final_data[f"{prefix}:name_order"] = "|".join(bw_order)
-            final_data[f"{prefix}:meta_region"] = (
-                f"{meta_region_chrom}:{meta_region_start}-{meta_region_end}"
-            )
-            final_data[f"{prefix}:relative_coords+uint32"] = array_to_compressed_bytes(
-                relative_coords.astype(np.uint32)
-            )
-            dict_list.append(final_data)
-        return dict_list
+            # add a row index
+            dict_list = []
+            prefix = "bigwig"
+            _regions_df["region_idx"] = range(_regions_df.shape[0])
+            for chrom_bin, _regions in _regions_df.groupby("ChromBin"):
+                use_rows = _regions["region_idx"].values
+                _use_regions_data = {
+                    name: value[use_rows] for name, value in regions_data.items()
+                }
+                meta_region_chrom = chrom_bin.split("-")[0]
+                meta_region_start = _regions["Start"].min()
+                meta_region_end = _regions["End"].max()
+
+                meta_region_data = np.zeros(
+                    shape=(len(bw_order), meta_region_end - meta_region_start),
+                    dtype=np.float32,
+                )
+                relative_coords = (
+                    _regions[["Start", "End"]] - meta_region_start
+                ).values
+                for row, bw_name in enumerate(bw_order):
+                    bw_data = _use_regions_data[bw_name]
+                    for (rstart, rend), _one_region_data in zip(
+                        relative_coords, bw_data
+                    ):
+                        meta_region_data[row, rstart:rend] = _one_region_data
+
+                final_data = csr_matrix_to_compressed_bytes_dict(
+                    prefix="bigwig", matrix=csr_matrix(meta_region_data), level=5
+                )
+                final_data[f"{prefix}:name_order"] = "|".join(bw_order)
+                final_data[f"{prefix}:meta_region"] = (
+                    f"{meta_region_chrom}:{meta_region_start}-{meta_region_end}"
+                )
+                final_data[f"{prefix}:relative_coords+uint32"] = (
+                    array_to_compressed_bytes(relative_coords.astype(np.uint32))
+                )
+                dict_list.append(final_data)
+            return dict_list
+
+        tasks = []
+        chrom_bins_list = regions_df["ChromBin"].unique().tolist()
+        chunk_size = 100
+        for chunk_start in range(0, len(chrom_bins_list), chunk_size):
+            chunk_slice = slice(chunk_start, chunk_start + chunk_size)
+            chunk_regions = regions_df[
+                regions_df["ChromBin"].isin(chrom_bins_list[chunk_slice])
+            ].copy()
+            tasks.append(get_meta_regions_worker.remote(chunk_regions))
+
+        total_dict_list = []
+        for dl in ray.get(tasks):
+            total_dict_list.extend(dl)
+        return total_dict_list
 
 
 @ray.remote

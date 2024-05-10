@@ -128,6 +128,11 @@ class scMetaRegionToBulkRegion:
 
         bulk_data = []
         for bulk_idx in range(self.n_pseudobulks):
+            bulk_data_list = _per_prefix_bulk_data[bulk_idx]
+            if len(bulk_data_list) == 0:
+                raise ValueError(
+                    f"No cells for bulk {bulk_idx}, this might be due to prefix or cell id mismatch."
+                )
             agg_bulk = csr_matrix(
                 vstack(_per_prefix_bulk_data[bulk_idx]).sum(axis=0).A1
             )

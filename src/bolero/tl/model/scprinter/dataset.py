@@ -1,6 +1,7 @@
 from typing import Any, Iterable, Optional, Union
 
 import numpy as np
+import torch
 from ray.data.dataset import Dataset
 
 from bolero.tl.dataset.filters import RowSumFilter
@@ -10,9 +11,11 @@ from bolero.tl.dataset.transforms import (
     BatchRegionEmbedding,
     BatchToFloat,
     CropRegionsWithJitter,
+    FetchRegionOneHot,
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
+from bolero.utils import try_gpu
 
 
 class BatchFootPrint(FootPrintModel):
@@ -579,6 +582,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
     def __init__(
         self,
         dataset_path: str,
+        chroms: Optional[list[str]] = None,
         use_prefixs: Optional[list[str]] = None,
         batch_size: int = 64,
         dna_window: int = 1840,
@@ -592,8 +596,14 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         max_cov: int = 100000,
         low_cov_ratio: float = 0.1,
         reverse_complement: bool = True,
+        override_num_blocks=None,
     ):
-        super().__init__(dataset_path=dataset_path, use_prefixs=use_prefixs)
+        super().__init__(
+            dataset_path=dataset_path,
+            use_prefixs=use_prefixs,
+            override_num_blocks=override_num_blocks,
+            chroms=chroms,
+        )
         self.batch_size = batch_size
 
         # region properties
@@ -628,7 +638,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         )
         return _str
 
-    def _crop_regions(self, *args, **kwargs) -> None:
+    def _get_crop_regions(self, *args, **kwargs) -> None:
         """
         Crop the regions in the working dataset.
 
@@ -653,12 +663,9 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             final_length=length_list,
             max_jitter=max_jitter,
         )
-        self._working_dataset = self._working_dataset.map_batches(
-            _cropper, *args, **kwargs
-        )
-        return
+        return _cropper
 
-    def _reverse_complement_region(self, *args, **kwargs) -> None:
+    def _get_reverse_complement_region(self, *args, **kwargs) -> None:
         """
         Reverse complement the DNA sequences by 50% probability.
 
@@ -667,22 +674,37 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         None
         """
         _rc = ReverseComplement(
-            dna_key=self.dna_columns, signal_key=self.signal_columns, input_type="batch"
+            dna_key=self.dna_columns, signal_key=self.signal_columns, input_type="row"
         )
-        self._working_dataset = self._working_dataset.map_batches(_rc, *args, **kwargs)
-        return
+        return _rc
 
-    def _add_region_embedding(self):
+    def _get_add_region_embedding(self):
         embedder = BatchRegionEmbedding(
             embedding=self.region_embedding, region_key="region", pop_region_key=True
         )
-        self._working_dataset = self._working_dataset.map_batches(embedder)
-        return
+        return embedder
 
     def add_region_embedding(self, embedding):
         """Add a predefined region embedding to the dataset."""
         self.region_embedding = embedding
         return
+
+    def _fetch_dna_one_hot(self) -> None:
+        """
+        Fetch the DNA one hot.
+
+        Returns
+        -------
+        None
+        """
+        # add DNA one hot
+        one_hot_processor = FetchRegionOneHot(
+            genome=self.genome,
+            region_key="region",
+            output_key="dna_one_hot",
+            dtype="float32",
+        )
+        return one_hot_processor
 
     def _dataset_preprocess(self) -> None:
         super()._dataset_preprocess(
@@ -693,17 +715,36 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             low_cov_ratio=self.low_cov_ratio,
         )
 
-        self._crop_regions()
+        batch_funcs = []
+
+        one_hot_processor = self._fetch_dna_one_hot()
+        batch_funcs.append(one_hot_processor)
+
+        cropper = self._get_crop_regions()
+        batch_funcs.append(cropper)
 
         if self.reverse_complement and self._dataset_mode == "train":
-            self._reverse_complement_region()
+            rc = self._get_reverse_complement_region()
+            batch_funcs.append(rc)
 
         if self.region_embedding is not None:
-            self._add_region_embedding()
+            embedder = self._get_add_region_embedding()
+            batch_funcs.append(embedder)
         else:
             # manually drop the region column to keep numbers columns only
-            self._working_dataset = self._working_dataset.drop_columns(["region"])
-        return
+            def _func(data):
+                data.pop("region", None)
+                return data
+
+            batch_funcs.append(_func)
+
+        def _compose_funcs(data):
+            for func in batch_funcs:
+                data = func(data)
+            return data
+
+        # self._working_dataset = self._working_dataset.map(_compose_funcs)
+        return _compose_funcs
 
     def get_footprinter(
         self,
@@ -752,6 +793,8 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
     def get_dataloader(
         self,
+        as_torch=True,
+        device=None,
         **kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -780,7 +823,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             The dataloader.
         """
         self._working_dataset = self._dataset
-        self._dataset_preprocess()
+        additional_funcs = self._dataset_preprocess()
 
         _default = {
             "prefetch_batches": 5,
@@ -789,5 +832,13 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             "batch_size": self.batch_size,
         }
         _default.update(kwargs)
-        loader = self._working_dataset.iter_torch_batches(**_default)
-        return loader
+
+        loader = self._working_dataset.iter_batches(**_default)
+
+        for batch in loader:
+            batch = additional_funcs(batch)
+            if as_torch:
+                if device is None:
+                    device = try_gpu()
+                batch = {k: torch.Tensor(v).to(device) for k, v in batch.items()}
+            yield batch

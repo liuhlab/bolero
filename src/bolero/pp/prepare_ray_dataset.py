@@ -744,7 +744,8 @@ class SingleCellGenomeEnsembleDataset:
         None
 
         """
-        @ray.remote
+
+        @ray.remote(memory=15 * 1024**3)  # request 15 gb mem
         def _process_worker(name, zarr_path, bed, meta_region_size):
             this_output_dir = output_dir / "single_zarr" / name
             this_output_dir.mkdir(exist_ok=True, parents=True)
@@ -792,19 +793,18 @@ class SingleCellGenomeEnsembleDataset:
         -------
         None
         """
-        bigwig_ds = GenomeBigWigDataset(**self.bw_dict)
-        # TODO parallel this step by separate meta region chunks
-        data_list = bigwig_ds.get_meta_regions_data(
-            regions=self.bed, meta_region_size=self.meta_region_size
-        )
-        chrom_data_list = defaultdict(list)
-
         bw_output_dir = output_dir / "bigwig"
         bw_output_dir.mkdir(exist_ok=True, parents=True)
         flag_path = bw_output_dir / "success.flag"
         if flag_path.exists():
             return
 
+        bigwig_ds = GenomeBigWigDataset(**self.bw_dict)
+        data_list = bigwig_ds.get_meta_regions_data(
+            regions=self.bed, meta_region_size=self.meta_region_size
+        )
+
+        chrom_data_list = defaultdict(list)
         for data in data_list:
             chrom = data["bigwig:meta_region"].split(":")[0]
             chrom_data_list[chrom].append(data)
@@ -869,7 +869,7 @@ class SingleCellGenomeEnsembleDataset:
         return
 
     def prepare_ray_dataset(
-        self, output_dir: str, num_rows_per_file: int = 200
+        self, output_dir: str, num_rows_per_file: int = 100
     ) -> None:
         """
         Prepare the ray dataset.
