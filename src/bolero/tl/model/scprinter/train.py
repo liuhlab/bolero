@@ -1,8 +1,6 @@
 import gc
 import json
-import math
 import pathlib
-from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,150 +13,26 @@ from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
 from tqdm import trange
 
 from bolero.pl.footprint import FootPrintExamplePlotter, figure_to_array
-from bolero.tl.model.scprinter.dataset import scPrinterDataset
-from bolero.utils import check_wandb_success, compare_configs, get_fs_and_path, try_gpu
-
-
-class CumulativeCounter:
-    """Cumulative counter for calculating mean and sum of values."""
-
-    def __init__(self):
-        self.total = 0
-        self.count = 0
-
-    def update(self, value: Union[np.ndarray, torch.Tensor]) -> None:
-        """
-        Update the cumulative counter with a new value.
-
-        Parameters
-        ----------
-            value (np.ndarray or torch.Tensor): The value to be added to the counter.
-        """
-        try:
-            self.total += float(np.nansum(value))
-        except TypeError:
-            # torch
-            self.total += float(torch.nansum(value).detach().cpu().item())
-        # both numpy and torch will work
-        self.count += np.prod(value.shape)
-
-    def mean(self) -> float:
-        """
-        Calculate the mean of the values in the counter.
-
-        Returns
-        -------
-            float: The mean value.
-        """
-        if self.count == 0:
-            return 0
-        return self.total / self.count
-
-    def sum(self) -> float:
-        """
-        Calculate the sum of the values in the counter.
-
-        Returns
-        -------
-            float: The sum value.
-        """
-        return self.total
-
-
-class CumulativePearson:
-    """Cumulative pearson counter for calculating the pearson correlation coefficient."""
-
-    def __init__(self):
-        self.count = 0
-        self.x_counter = CumulativeCounter()
-        self.y_counter = CumulativeCounter()
-        self.xy_counter = CumulativeCounter()
-        self.x2_counter = CumulativeCounter()
-        self.y2_counter = CumulativeCounter()
-
-    def update(
-        self, x: Union[np.ndarray, torch.Tensor], y: Union[np.ndarray, torch.Tensor]
-    ) -> None:
-        """
-        Update the cumulative pearson counter with new values.
-
-        Parameters
-        ----------
-            x (np.ndarray or torch.Tensor): The x values to be added to the counter.
-            y (np.ndarray or torch.Tensor): The y values to be added to the counter.
-        """
-        self.x_counter.update(x)
-        self.y_counter.update(y)
-        self.xy_counter.update(x * y)
-        self.x2_counter.update(x**2)
-        self.y2_counter.update(y**2)
-
-    def corr(self) -> float:
-        """
-        Calculate the pearson correlation coefficient.
-
-        Returns
-        -------
-            float: The pearson correlation coefficient.
-        """
-        nx = self.x_counter.count
-        ny = self.y_counter.count
-        assert nx == ny, "Length mismatch between x and y"
-        count = nx
-
-        if nx == 0:
-            return 0
-
-        sum_x = self.x_counter.sum()
-        mean_x = self.x_counter.mean()
-        sum_y = self.y_counter.sum()
-        mean_y = self.y_counter.mean()
-        sum_xy = self.xy_counter.sum()
-        sum_x2 = self.x2_counter.sum()
-        sum_y2 = self.y2_counter.sum()
-
-        covariance = sum_xy - mean_x * sum_y - mean_y * sum_x + count * mean_x * mean_y
-        variance_x = sum_x2 - 2 * mean_x * sum_x + count * mean_x**2
-        variance_y = sum_y2 - 2 * mean_y * sum_y + count * mean_y**2
-
-        # Pearson correlation
-        correlation = covariance / (
-            math.sqrt(variance_x * variance_y) + 1e-8
-        )  # Adding small value for numerical stability
-        return correlation
-
-
-def _safe_save(obj, path):
-    temp_path = f"{path}.temp"
-    torch.save(obj, temp_path)
-    pathlib.Path(temp_path).rename(path)
-    return
-
-
-def _batch_pearson_correlation(x, y):
-    # Compute means along the batch dimension
-    mean_x = torch.mean(x, dim=-1, keepdim=True)
-    mean_y = torch.mean(y, dim=-1, keepdim=True)
-
-    diff_x = x - mean_x
-    diff_y = y - mean_y
-
-    # Compute covariance and variance
-    covariance = torch.sum(diff_x * diff_y, dim=-1)
-    variance_x = torch.sum((diff_x) ** 2, dim=-1)
-    variance_y = torch.sum((diff_y) ** 2, dim=-1)
-
-    # Pearson correlation
-    correlation = covariance / (
-        torch.sqrt(variance_x * variance_y) + 1e-8
-    )  # Adding small value for numerical stability
-    return correlation
+from bolero.tl.model.scprinter.dataset import (
+    scPrinterDataset,
+    scPrinterSingleCellDataset,
+)
+from bolero.tl.model.scprinter.utils import (
+    CumulativeCounter,
+    CumulativePearson,
+    batch_pearson_correlation,
+    check_wandb_success,
+    compare_configs,
+    safe_save,
+)
+from bolero.utils import get_fs_and_path, try_gpu
 
 
 class scFootprintTrainer:
     """scFootprintBPNet model for training on pseudobulk ATAC data."""
 
     default_config = {
+        "mode": "init",
         "output_dir": "./scprinter",
         "savename": "WANDB_RUN_NAME",
         "n_layers": 8,
@@ -207,8 +81,22 @@ class scFootprintTrainer:
         "region": "REQUIRED",
     }
 
+    lora_config = default_config.copy()
+    lora_config.update(
+        {
+            "mode": "lora",
+            "pretrained_model": "REQUIRED",
+            "use_prefix": None,
+            "sample_regions": 200,
+            "n_pseudobulk": 10,
+            "min_cov": 10,
+            "max_cov": 100,
+            "low_cov_ratio": 0.1,
+        }
+    )
+
     @classmethod
-    def example_config(cls) -> dict:
+    def example_config(cls, mode="init") -> dict:
         """
         Returns an example configuration dictionary.
 
@@ -216,10 +104,13 @@ class scFootprintTrainer:
         -------
             dict: Example configuration dictionary.
         """
-        return cls.default_config
+        if mode == "lora":
+            return cls.lora_config
+        else:
+            return cls.default_config
 
     @classmethod
-    def make_config(cls, **kwargs) -> dict:
+    def make_config(cls, mode="init", **kwargs) -> dict:
         """
         Make a configuration dictionary.
 
@@ -230,7 +121,11 @@ class scFootprintTrainer:
         -------
             dict: Configuration dictionary.
         """
-        config = cls.default_config.copy()
+        if mode == "lora":
+            config = cls.lora_config.copy()
+        else:
+            config = cls.default_config.copy()
+
         config.update(kwargs)
         # check if all required fields are present
         missing_keys = []
@@ -249,6 +144,9 @@ class scFootprintTrainer:
             config (dict): Configuration dictionary containing model parameters.
         """
         self.config = config
+
+        # mode controls global trainer behavior in initial training or LoRA fine tuning
+        self.mode = config.pop("mode").lower()
 
     def _setup_wandb(self):
         """
@@ -449,12 +347,29 @@ class scFootprintTrainer:
             dna_len=dna_len,
             output_len=output_len,
         )
-        return acc_model, dna_len, output_len
+        acc_model.to(self.device)
+        return acc_model
 
     def _setup_model_from_checkpoint(self):
         # load model if not exists
         model = torch.load(self.savename + ".model.pt")
-        return model, model.dna_len, model.output_len
+        model.to(self.device)
+        return model
+
+    def _setup_pretrain_model_for_lora(self):
+        pretrain_model_path = self.config["pretrained_model"]
+        model = torch.load(pretrain_model_path)
+
+        # set all parameters to fixed, except the profile cnn's w&b
+        for p in model.parameters():
+            p.requires_grad = False
+        model.profile_cnn_model.conv_layer.weight.requires_grad = True
+        model.profile_cnn_model.conv_layer.bias.requires_grad = True
+        model.profile_cnn_model.linear.weight.requires_grad = True
+        model.profile_cnn_model.linear.bias.requires_grad = True
+
+        model.to(self.device)
+        return model
 
     def _update_state_dict(self):
         self._cleanup_env()
@@ -485,55 +400,82 @@ class scFootprintTrainer:
         return
 
     def _set_total_params(self):
-        self.total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print("Total model parameters", self.total_params)
+        total_params = 0
+        trainable_params = 0
+        for p in self.parameters():
+            total_params += p.numel()
+            if p.requires_grad:
+                trainable_params += p.numel()
+        self.total_params = total_params
+        self.trainable_params = trainable_params
+        print(
+            f"Total model parameters {total_params}, trainable parameters {trainable_params}"
+        )
         return
 
     def _setup_model(self):
+        mode = self.mode
         self.scp_model = None
+
         if self.checkpoint:
-            model, dna_len, output_len = self._setup_model_from_checkpoint()
+            self.scp_model = self._setup_model_from_checkpoint()
         else:
-            model, dna_len, output_len = self._setup_model_from_config()
-        self.scp_model = model.to(self.device)
+            if mode == "init":
+                self.scp_model = self._setup_model_from_config()
+            elif mode == "lora":
+                self.scp_model = self._setup_pretrain_model_for_lora()
+            else:
+                raise ValueError(f"Incorrect mode: {mode}.")
 
         # collect some shortcuts post model setup
         self.parameters = self.scp_model.parameters
         self.forward = self.scp_model.forward
-        self.dna_len = dna_len
-        self.output_len = output_len
+        self.dna_len = self.scp_model.dna_len
+        self.output_len = self.scp_model.output_len
 
         self._set_total_params()
         return
+
+    # dataset paths
+    def _get_dataset_paths(self, _chroms):
+        # check if the file exists in gcs bucket
+        dataset_paths = []
+        for chrom in _chroms:
+            path = f"{self.dataset_dir}/{chrom}"
+            if self.fs.get_file_info(path).type:
+                # type is True only if the file exists
+                dataset_paths.append(path)
+        return dataset_paths
 
     def _setup_dataset(self):
         config = self.config
 
         # parameter from setup_model
-        dna_len = self.dna_len
         output_len = self.output_len
+        # The footprint function will trim 100bp from both ends of the signal to account for border effects
+        # Therefore the signal window should be 200bp longer than the output length of the model
+        self.signal_window = output_len + 200
 
         # train, valid, test split by chromosome
         chrom_split = config["chrom_split"]
-        train_chroms = chrom_split["train"]
-        valid_chroms = chrom_split["valid"]
-        test_chroms = chrom_split["test"]
+        self.train_chroms = chrom_split["train"]
+        self.valid_chroms = chrom_split["valid"]
+        self.test_chroms = chrom_split["test"]
 
         # dataset location and schema
-        fs, path = get_fs_and_path(config["dataset_path"].rstrip("/"))
-        dataset_dir = path
-        columns = config["dataset_columns"]
-        read_parquet_kwargs = config["read_parquet_kwargs"]
+        self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
+        self.columns = config["dataset_columns"]
+        self.read_parquet_kwargs = config["read_parquet_kwargs"]
 
         # preprocessing parameters
-        batch_size = config["batch_size"]
-        bias_name = config["bias_name"]
-        max_jitter = config["max_jitter"]
-        cov_min_q = config["cov_min_q"]
-        cov_max_q = config["cov_max_q"]
-        clip_min = config["clip_min"]
-        clip_max = config["clip_max"]
-        reverse_complement = config["reverse_complement"]
+        self.batch_size = config["batch_size"]
+        self.bias_name = config["bias_name"]
+        self.max_jitter = config["max_jitter"]
+        self.cov_min_q = config["cov_min_q"]
+        self.cov_max_q = config["cov_max_q"]
+        self.clip_min = config["clip_min"]
+        self.clip_max = config["clip_max"]
+        self.reverse_complement = config["reverse_complement"]
 
         # dataloader
         self.local_shuffle_buffer_size = config["local_shuffle_buffer_size"]
@@ -541,45 +483,92 @@ class scFootprintTrainer:
         self.train_downsample = config["train_downsample"]
         self.valid_downsample = config["valid_downsample"]
 
-        # The footprint function will trim 100bp from both ends of the signal to account for border effects
-        # Therefore the signal window should be 200bp longer than the output length of the model
-        signal_window = output_len + 200
+        # single-cell dataset specfic parameters
+        # for LoRA fine tuning
+        self.use_prefix = config["use_prefix"]
+        self.sample_regions = config["sample_regions"]
+        self.n_pseudobulk = config["n_pseudobulk"]
+        self.min_cov = config["min_cov"]
+        self.max_cov = config["max_cov"]
+        self.low_cov_ratio = config["low_cov_ratio"]
 
-        # dataset paths
-        def __get_dataset_paths(_chroms):
-            # check if the file exists in gcs bucket
-            dataset_paths = []
-            for chrom in _chroms:
-                path = f"{dataset_dir}/{chrom}"
-                if fs.get_file_info(path).type:
-                    # type is True only if the file exists
-                    dataset_paths.append(path)
-            return dataset_paths
+        # create dataset slots
+        self._train_dataset = None
+        self._valid_dataset = None
+        self._test_dataset = None
 
-        # setup dataset
-        datasets = (
-            scPrinterDataset(
-                dataset=__get_dataset_paths(_chroms),
-                columns=columns,
-                bias_name=bias_name,
-                batch_size=batch_size,
-                dna_window=dna_len,
-                signal_window=signal_window,
-                max_jitter=max_jitter,
-                cov_min_q=cov_min_q,
-                cov_max_q=cov_max_q,
-                clip_min=clip_min,
-                clip_max=clip_max,
-                reverse_complement=reverse_complement,
-                **read_parquet_kwargs,
+    def _get_dataset(self, chroms):
+        mode = self.mode
+        if mode == "init":
+            dataset = scPrinterDataset(
+                dataset=self._get_dataset_paths(chroms),
+                columns=self.columns,
+                bias_name=self.bias_name,
+                batch_size=self.batch_size,
+                dna_window=self.dna_len,
+                signal_window=self.signal_window,
+                max_jitter=self.max_jitter,
+                cov_min_q=self.cov_min_q,
+                cov_max_q=self.cov_max_q,
+                clip_min=self.clip_min,
+                clip_max=self.clip_max,
+                reverse_complement=self.reverse_complement,
+                **self.read_parquet_kwargs,
             )
-            for _chroms in [train_chroms, valid_chroms, test_chroms]
-        )
-        self.train_dataset, self.valid_dataset, self.test_dataset = datasets
-        self.train_dataset.train()
-        self.valid_dataset.eval()
-        self.test_dataset.eval()
-        return
+        elif mode == "lora":
+            dataset = scPrinterSingleCellDataset(
+                dataset=self.dataset_dir,
+                chroms=chroms,
+                use_prefixs=self.use_prefix,
+                batch_size=self.batch_size,
+                dna_window=self.dna_len,
+                signal_window=self.signal_window,
+                max_jitter=self.max_jitter,
+                clip_min=self.clip_min,
+                clip_max=self.clip_max,
+                sample_regions=self.sample_regions,
+                n_pseudobulks=self.n_pseudobulk,
+                min_cov=self.min_cov,
+                max_cov=self.max_cov,
+                low_cov_ratio=self.low_cov_ratio,
+                reverse_complement=self.reverse_complement,
+                override_num_blocks=None,
+            )
+        else:
+            raise ValueError(f"Incorrect mode: {mode}.")
+        return dataset
+
+    @property
+    def _train_dataset(self):
+        mode = self.mode
+        if mode == "init":
+            # init dataset only once
+            if self._train_dataset is None:
+                dataset = self._get_dataset(self.train_chroms)
+                dataset.train()
+                self._train_dataset = dataset
+            return self._train_dataset
+        else:
+            # init dataset everytime and file order will be shuffled
+            dataset = self._get_dataset(self.train_chroms)
+            dataset.train()
+            return dataset
+
+    @property
+    def _valid_dataset(self):
+        if self._valid_dataset is None:
+            dataset = self._get_dataset(self.valid_chroms)
+            dataset.eval()
+            self._valid_dataset = dataset
+        return self._valid_dataset
+
+    @property
+    def _test_dataset(self):
+        if self._test_dataset is None:
+            dataset = self._get_dataset(self.test_chroms)
+            dataset.eval()
+            self._test_dataset = dataset
+        return self._test_dataset
 
     def _get_ema(self):
         if self.checkpoint:
@@ -664,20 +653,39 @@ class scFootprintTrainer:
 
     @torch.no_grad()
     def _model_validation_step(
-        self, model, val_dataset, val_downsample, sample, region
+        self, model, val_dataset, val_downsample, sample=None, region=None
     ):
-        val_data_loader = val_dataset.get_dataloader(
-            sample=sample,
-            region=region,
-            local_shuffle_buffer_size=0,
-            randomize_block_order=False,
-            downsample_rate=val_downsample,
-        )
-        atac_key = f"{region}|{sample}"
-        dna_key = f"{region}|{val_dataset.dna_name}"
-        bias_key = f"{region}|{val_dataset.bias_name}"
-        footprint_key = f"{region}|{sample}_footprint"
-        footprinter = val_dataset.get_footprinter()
+        mode = self.mode
+
+        if mode == "init":
+            val_data_loader = val_dataset.get_dataloader(
+                sample=sample,
+                region=region,
+                local_shuffle_buffer_size=0,
+                randomize_block_order=False,
+                downsample_rate=val_downsample,
+            )
+            atac_key = f"{region}|{sample}"
+            dna_key = f"{region}|{val_dataset.dna_name}"
+            bias_key = f"{region}|{val_dataset.bias_name}"
+            cell_embedding_key = "NaNNaN"
+            region_embedding_key = "NaNNaN"
+            footprint_key = f"{region}|{sample}_footprint"
+            footprinter = val_dataset.get_footprinter()
+        elif mode == "lora":
+            val_data_loader = val_dataset.get_dataloader(
+                device=self.device,
+                downsample_rate=val_downsample,
+            )
+            atac_key = "bulk_data"
+            dna_key = "dna_one_hot"
+            bias_key = "tn5_bias"
+            cell_embedding_key = "cell_embedding"
+            region_embedding_key = "region_embedding"
+            footprint_key = "bulk_data_footprint"
+            footprinter = val_dataset.get_footprinter()
+        else:
+            raise ValueError(f"Incorrect mode: {mode}.")
 
         validation_size = (
             int(len(val_dataset) * val_downsample) // val_dataset.batch_size
@@ -702,8 +710,12 @@ class scFootprintTrainer:
             # X
             # ==========
             X = batch[dna_key]
-            # TODO: LoRA embedding
-            cell = None
+            if mode == "lora":
+                cell_embedding = batch[cell_embedding_key]
+                region_embedding = batch[region_embedding_key]
+            else:
+                cell_embedding = None
+                region_embedding = None
 
             # ==========
             # y_footprint, y_coverage
@@ -720,9 +732,13 @@ class scFootprintTrainer:
             # ==========
             # Forward and Loss
             # ==========
-            pred_score, pred_coverage = model(X, cells=cell)
+            pred_score, pred_coverage = model(
+                X, cell_embedding=cell_embedding, region_embedding=region_embedding
+            )
             pred_score_img = pred_score.clone().detach().cpu().numpy()
             y_footprint = torch.nan_to_num(y_footprint, nan=0)
+            # as is in scPrinter
+            # validation loss only has pred_score MSE, no coverage
             loss_ = F.mse_loss(pred_score[mask], y_footprint[mask])
             pred_score = pred_score.reshape((len(pred_score), -1))
             y_footprint = y_footprint.reshape((len(y_footprint), -1))
@@ -733,7 +749,7 @@ class scFootprintTrainer:
             # ==========
             # within batch pearson
             corr = (
-                _batch_pearson_correlation(pred_score, y_footprint)
+                batch_pearson_correlation(pred_score, y_footprint)
                 .detach()
                 .cpu()[:, None]
             )
@@ -806,10 +822,10 @@ class scFootprintTrainer:
 
     def _validation_step(self, sample, region, testing=False):
         if testing:
-            _dataset = self.test_dataset
+            _dataset = self._test_dataset
             _downsample = self.valid_downsample
         else:
-            _dataset = self.valid_dataset
+            _dataset = self._valid_dataset
             _downsample = self.valid_downsample
 
         if self.use_ema:
@@ -827,7 +843,7 @@ class scFootprintTrainer:
             self.ema.train()
             self.ema.ema_model.train()
         else:
-            self.eval()
+            self.scp_model.eval()
             val_loss, profile_pearson, across_pearson, wandb_images = (
                 self._model_validation_step(
                     model=self,
@@ -837,7 +853,7 @@ class scFootprintTrainer:
                     region=region,
                 )
             )
-            self.train()
+            self.scp_model.train()
         return val_loss, profile_pearson, across_pearson, wandb_images
 
     def _save_checkpint(self, update_best):
@@ -851,17 +867,17 @@ class scFootprintTrainer:
             "scheduler": self.scheduler.state_dict() if self.scheduler else None,
             "ema": self.ema.state_dict() if self.use_ema else None,
         }
-        _safe_save(checkpoint, self.savename + ".checkpoint.pt")
-        _safe_save(self.scp_model, self.savename + ".model.pt")
+        safe_save(checkpoint, self.savename + ".checkpoint.pt")
+        safe_save(self.scp_model, self.savename + ".model.pt")
         if self.use_ema:
-            _safe_save(self.ema, self.savename + ".ema.pt")
+            safe_save(self.ema, self.savename + ".ema.pt")
 
         if update_best:
-            _safe_save(checkpoint, f"{self.savename}.best_checkpoint.pt")
+            safe_save(checkpoint, f"{self.savename}.best_checkpoint.pt")
             if self.use_ema:
-                _safe_save(self.ema.model, f"{self.savename}.best_model.pt")
+                safe_save(self.ema.model, f"{self.savename}.best_model.pt")
             else:
-                _safe_save(self.scp_model, f"{self.savename}.best_model.pt")
+                safe_save(self.scp_model, f"{self.savename}.best_model.pt")
         return
 
     def _log_save_and_check_stop(self, epoch, example_images):
@@ -911,7 +927,7 @@ class scFootprintTrainer:
 
     def _fit(self, sample, region):
         # dataset related
-        training_dataset = self.train_dataset
+        training_dataset = self._train_dataset
         train_downsample = self.train_downsample
         atac_key = f"{region}|{sample}"
         dna_key = f"{region}|{training_dataset.dna_name}"
@@ -1143,3 +1159,12 @@ class scFootprintTrainer:
             self._cleanup_env()
             wandb.finish()
         return
+
+    def train_lora(self) -> None:
+        """Train the scFootprintTrainer model on LoRA mode."""
+        wandb_run = self._setup_wandb()
+        if wandb_run is None:
+            return
+
+        with wandb_run:
+            self._setup_env()

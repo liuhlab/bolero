@@ -22,6 +22,7 @@ class RaySingleCellDataset:
         override_num_blocks=None,
         chroms=None,
         shuffle_files=True,
+        genome: str = None,
     ) -> None:
         """
         Initialize the RaySingleCellDataset.
@@ -67,9 +68,14 @@ class RaySingleCellDataset:
         self.pseudobulker = None
 
         # get genome
-        with open(f"{dataset_path}/genome.flag") as f:
-            genome = f.read().strip()
-        self.genome = Genome(genome)
+        if genome is None:
+            with open(f"{dataset_path}/genome.flag") as f:
+                genome = f.read().strip()
+        if isinstance(genome, str):
+            self.genome = Genome(genome)
+        else:
+            self.genome = genome
+
         # trigger one hot loading
         _ = self.genome.genome_one_hot
 
@@ -191,7 +197,7 @@ class RaySingleCellDataset:
         """
         # TODO: determine flat_map memory dynamically based on the size of the dataset
         if memory == "auto":
-            memory = 6 * 1024**3  # 6GB
+            memory = 4 * 1024**3  # 4GB
 
         if self.pseudobulker is None:
             raise ValueError(

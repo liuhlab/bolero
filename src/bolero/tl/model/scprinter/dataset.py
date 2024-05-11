@@ -168,6 +168,7 @@ class scPrinterDataset(RayGenomeDataset):
     def __init__(
         self,
         dataset: Dataset,
+        genome=None,
         columns: Optional[list[str]] = None,
         bias_name: str = None,
         batch_size: int = 64,
@@ -217,7 +218,7 @@ class scPrinterDataset(RayGenomeDataset):
         -------
         None
         """
-        super().__init__(dataset, columns=columns, **kwargs)
+        super().__init__(dataset, columns=columns, genome=genome, **kwargs)
         # all filter and map operations will be done on this working dataset
 
         if bias_name is None:
@@ -345,7 +346,7 @@ class scPrinterDataset(RayGenomeDataset):
         downsample_rate: float = 1,
         local_shuffle_buffer_size: int = 10000,
         randomize_block_order: bool = False,
-        torch=True,
+        as_torch=True,
         batch_collate_fn=None,
         **kwargs,
     ) -> Iterable:
@@ -364,7 +365,7 @@ class scPrinterDataset(RayGenomeDataset):
             The size of the local shuffle buffer (default is 10000).
         randomize_block_order : bool, optional
             Whether to randomize the block order (default is False).
-        torch : bool, optional
+        as_torch : bool, optional
             Whether to return a iterator with batches data in torch tensor format (default is True).
         batch_collate_fn : list, optional
             A list of functions to apply to the batch data AFTER all the default preprocessing steps (default is None).
@@ -394,7 +395,7 @@ class scPrinterDataset(RayGenomeDataset):
         else:
             filter_column = f"{region}|{sample}"
 
-        if torch:
+        if as_torch:
             # the torch iterator can only handle float, int, and bool columns to torch tensors
             use_columns = []
             possible_dtypes = ("float", "int", "bool")
@@ -430,7 +431,7 @@ class scPrinterDataset(RayGenomeDataset):
             kwargs["drop_last"] = True if self._dataset_mode == "train" else False
         if local_shuffle_buffer_size < self.batch_size:
             local_shuffle_buffer_size = None
-        if torch:
+        if as_torch:
             loader = self._working_dataset.iter_torch_batches(
                 batch_size=self.batch_size,
                 local_shuffle_buffer_size=local_shuffle_buffer_size,
@@ -795,6 +796,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         self,
         as_torch=True,
         device=None,
+        downsample_rate=1,
         **kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -823,6 +825,12 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             The dataloader.
         """
         self._working_dataset = self._dataset
+
+        if downsample_rate < 1:
+            self._working_dataset = self._working_dataset.random_sample(
+                fraction=downsample_rate
+            )
+
         additional_funcs = self._dataset_preprocess()
 
         _default = {
