@@ -3,8 +3,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from scprinter.seq.Baseline_Modules import BiasInjection
-from scprinter.seq.Modules import Conv1dLoRA, Conv1dWrapper
+from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, Conv1dWrapper
 
 
 class scFootprintBPNet(nn.Module):
@@ -54,7 +53,6 @@ class scFootprintBPNet(nn.Module):
         lora_pff_cnn: bool = False,
         lora_output_cnn: bool = False,
         lora_count_cnn: bool = False,
-        method: str = "lora",
         n_lora_layers: int = 0,
     ):
         super().__init__()
@@ -69,49 +67,44 @@ class scFootprintBPNet(nn.Module):
             self.embeddings.weight.data = torch.from_numpy(embeddings).float()
             self.embeddings.weight.requires_grad = False
 
-        if method == "lora":
-            wrapper = Conv1dLoRA
-        else:
-            wrapper = BiasInjection
-
         if lora_dna_cnn:
-            self.dna_cnn_model.conv = wrapper(
+            self.dna_cnn_model.conv = Conv1dMultiLoRA(
                 self.dna_cnn_model.conv,
                 A_embedding=self.embeddings,
                 B_embedding=self.embeddings,
                 r=rank,
-                hidden_dim=hidden_dim,
+                hidden_dims=hidden_dim,
                 n_layers=n_lora_layers,
             )
 
         hidden_layers = self.hidden_layer_model.layers
         for i in range(len(hidden_layers)):
             if lora_dilated_cnn:
-                hidden_layers[i].module.conv1 = wrapper(
+                hidden_layers[i].module.conv1 = Conv1dMultiLoRA(
                     hidden_layers[i].module.conv1,
                     A_embedding=self.embeddings,
                     B_embedding=self.embeddings,
                     r=rank,
-                    hidden_dim=hidden_dim,
+                    hidden_dims=hidden_dim,
                     n_layers=n_lora_layers,
                 )
             if lora_pff_cnn:
-                hidden_layers[i].module.conv2 = wrapper(
+                hidden_layers[i].module.conv2 = Conv1dMultiLoRA(
                     hidden_layers[i].module.conv2,
                     A_embedding=self.embeddings,
                     B_embedding=self.embeddings,
                     r=rank,
-                    hidden_dim=hidden_dim,
+                    hidden_dims=hidden_dim,
                     n_layers=n_lora_layers,
                 )
 
         if lora_output_cnn:
-            self.profile_cnn_model.conv_layer = wrapper(
+            self.profile_cnn_model.conv_layer = Conv1dMultiLoRA(
                 self.profile_cnn_model.conv_layer,
                 A_embedding=self.embeddings,
                 B_embedding=self.embeddings,
                 r=rank,
-                hidden_dim=hidden_dim,
+                hidden_dims=hidden_dim,
                 n_layers=n_lora_layers,
             )
         if isinstance(self.profile_cnn_model.linear, nn.Linear):
@@ -127,12 +120,12 @@ class scFootprintBPNet(nn.Module):
             self.profile_cnn_model.linear.conv.bias.data = bias
 
         if lora_count_cnn:
-            self.profile_cnn_model.linear = wrapper(
+            self.profile_cnn_model.linear = Conv1dMultiLoRA(
                 self.profile_cnn_model.linear,
                 A_embedding=self.embeddings,
                 B_embedding=self.embeddings,
                 r=1,
-                hidden_dim=hidden_dim,
+                hidden_dims=hidden_dim,
                 n_layers=n_lora_layers,
             )
 
@@ -232,7 +225,6 @@ class scFootprintBPNet(nn.Module):
         if turn_on_grads:
             for p in model_clone.parameters():
                 p.requires_grad = True
-
         return model_clone
 
     def forward(
