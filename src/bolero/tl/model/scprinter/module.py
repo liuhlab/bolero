@@ -1,13 +1,15 @@
 import copy
 from typing import Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-import numpy as np
 
 
 class Conv1dWrapper(nn.Module):
+    """Conv1d Layer Wrapper that support modes."""
+
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.conv = nn.Conv1d(*args, **kwargs)
@@ -15,6 +17,7 @@ class Conv1dWrapper(nn.Module):
         self.bias = self.conv.bias
 
     def forward(self, X, *args, modes=None, **kwargs):
+        """Forward pass of the Conv1dWrapper module."""
         # The args, and kwargs are just placeholders
         # Use modes to select a subset of the weights
         return (
@@ -123,9 +126,9 @@ class EmbeddingMLP(nn.Module):
             mean, std = example_output.mean(), example_output.std()
             print(f"Embedding example mean: {mean}, std: {std}")
             rescale_factor = 1 / (std)
-            self.mlp[0].weight.data[
-                ...
-            ] *= rescale_factor  # rescale the embedding matrix
+            self.mlp[0].weight.data[...] *= (
+                rescale_factor  # rescale the embedding matrix
+            )
         return
 
     def fix_parameters(self):
@@ -149,6 +152,7 @@ class Conv1dMultiLoRA(nn.Module):
         alpha: Optional[int] = None,
         hidden_dims: Optional[list[int]] = None,
         n_layers: int = 0,
+        example_a_embedding: Optional[torch.Tensor] = None,
     ) -> None:
         """
         Initialize the Conv1dLoRA module.
@@ -197,8 +201,8 @@ class Conv1dMultiLoRA(nn.Module):
         if hidden_dims is None:
             self.hidden_dim = A_embedding_dims
         else:
-            assert len(hidden_dims) == len(
-                A_embedding_dims
+            assert (
+                len(hidden_dims) == len(A_embedding_dims)
             ), f"hidden_dim must have the same length as A_embedding_dims (length of {len(A_embedding_dims)})"
             self.hidden_dim = hidden_dims
 
@@ -232,7 +236,8 @@ class Conv1dMultiLoRA(nn.Module):
 
         # test A_output distribution and rescale the weights of the first layer
         # this step should be called especially when the model is initialized
-        # self.a_embedding_scale_weights(example_embedding)
+        if example_a_embedding is not None:
+            self.a_embedding_scale_weights(example_a_embedding)
 
     def b_embedding_zero_weights_and_bias(self):
         """
@@ -242,10 +247,15 @@ class Conv1dMultiLoRA(nn.Module):
             _m.zero_weights_and_bias()
         return
 
-    def a_embedding_scale_weights(self, example_embedding):
+    def a_embedding_scale_weights(self, example_embedding, max_sample=128):
         """
         Scale the weights of the A embedding based on the example embedding.
         """
+        if example_embedding.shape[0] > max_sample:
+            # random choice max_sample rows of example_embedding
+            example_embedding = example_embedding[
+                torch.random.torch.randint(0, example_embedding.shape[0], (max_sample,))
+            ]
         for _m in self.A_embedding_list:
             _m.scale_weights(example_embedding)
         return
@@ -370,7 +380,6 @@ class Conv1dMultiLoRA(nn.Module):
             if modes is not None:
                 B = B[:, modes]
             lora_x = torch.bmm(B, lora_x)  # (batch_size, layer_dim_out, seq_len
-            layer_output += lora_x
         else:
             # When kernel_size > 1, the convolution can be written as groupped convolution,
             # take a long path

@@ -197,7 +197,7 @@ class RaySingleCellDataset:
         """
         # TODO: determine flat_map memory dynamically based on the size of the dataset
         if memory == "auto":
-            memory = 4 * 1024**3  # 4GB
+            memory = 5 * 1024**3  # 4GB
 
         if self.pseudobulker is None:
             raise ValueError(

@@ -510,6 +510,8 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
                     _fp = smooth_footprint(_fp, smooth_radius)
                     if not numpy:
                         _fp = torch.as_tensor(_fp, device=_device)
+            else:
+                _fp = raw_fp
 
         if numpy and isinstance(_fp, torch.Tensor):
             _fp = _fp.detach().cpu().numpy()
