@@ -4,7 +4,7 @@ resources:
   memory: 64+
   region: us-central1
   disk_size: 256
-  accelerators: { "L4:1", "T4:1" }
+  accelerators: { "L4:1" }
   image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240423
 
 file_mounts:
@@ -22,9 +22,9 @@ setup: |
     echo "Skip setup"
   else
     pip install git+https://github.com/lhqing/scmallet.git
-    pip install -e /mnt/filestore/pkg/bolero-process
-    pip install -e /mnt/filestore/pkg/bolero
-    pip install -e /mnt/filestore/pkg/scPrinter
+    pip install git+https://github.com/lhqing/bolero.git
+    pip install git+https://github.com/lhqing/bolero-process.git
+    pip install git+https://github.com/lhqing/scPrinter.git
     pip install papermill
     touch $HOME/.SKIPSETUP
   fi
