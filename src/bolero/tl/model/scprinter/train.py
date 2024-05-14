@@ -786,7 +786,9 @@ class scFootprintTrainer:
         across_batch_pearson_cov = CumulativePearson()
 
         example_batches = []  # collect example batches for making images
-        for batch_id, batch in tqdm(enumerate(val_data_loader), desc=" - (Validation)"):
+        for batch_id, batch in tqdm(
+            enumerate(val_data_loader), desc=" - (Validation)", dynamic_ncols=True
+        ):
             # ==========
             # X
             # ==========
@@ -1071,13 +1073,12 @@ class scFootprintTrainer:
             iteration = 0
             nan_loss = False
 
-            iter_loader = iter(train_data_loader)
             loader_ended = False
+            iter_loader = iter(train_data_loader)
             while not loader_ended:
                 bar = trange(
                     self.val_frequency,
                     desc=f" - (Training) {self.cur_epoch}",
-                    leave=False,
                     dynamic_ncols=True,
                 )
                 for iteration in bar:
@@ -1191,7 +1192,6 @@ class scFootprintTrainer:
                     # epoch break due to nan loss, skip validation
                     continue
 
-                del train_data_loader
                 self._cleanup_env()
 
                 self.train_loss = moving_avg_loss / iteration
@@ -1215,6 +1215,9 @@ class scFootprintTrainer:
                     print(f"Early stopping at epoch {self.cur_epoch}")
                     self.early_stoped = True
                     break
+
+            del train_data_loader
+            self._cleanup_env()
             if stop_flag:
                 break
         return
