@@ -31,6 +31,7 @@ class CropRegionsWithJitter:
         key: Union[str, list[str]],
         final_length: int,
         max_jitter: int = 0,
+        input_type="row",
     ):
         """
         Crop regions from the input data batch.
@@ -53,6 +54,13 @@ class CropRegionsWithJitter:
         self.final_length = final_length
         self.max_jitter = max_jitter
 
+        if input_type == "batch":
+            self.crop_axis = 1
+        elif input_type == "row":
+            self.crop_axis = 0
+        else:
+            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
+
     def __call__(self, data: dict) -> dict:
         """
         Crop regions from the input data batch.
@@ -74,12 +82,15 @@ class CropRegionsWithJitter:
         for k, length in zip(self.key, self.final_length):
             _input = data[k]
 
-            _input_length = _input.shape[-1]
+            _input_length = _input.shape[self.crop_axis]
             _input_center = _input_length // 2
             _output_radius = length // 2
             _start = _input_center - _output_radius + jitter
             _end = _start + length
-            data[k] = _input[..., _start:_end]
+            if self.crop_axis == 0:
+                data[k] = _input[_start:_end]
+            else:
+                data[k] = _input[:, _start:_end]
         return data
 
 

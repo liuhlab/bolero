@@ -1190,7 +1190,7 @@ class scFootprintTrainer:
                 if nan_loss:
                     # epoch break due to nan loss, skip validation
                     continue
-                bar.close()
+
                 del train_data_loader
                 self._cleanup_env()
 

@@ -570,6 +570,7 @@ class scPrinterDataset(RayGenomeDataset):
             key=key_list,
             final_length=length_list,
             max_jitter=max_jitter,
+            input_type="row",
         )
         self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
@@ -663,6 +664,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             key=key_list,
             final_length=length_list,
             max_jitter=max_jitter,
+            input_type="batch",
         )
         return _cropper
 
