@@ -288,7 +288,7 @@ class scFootprintTrainer:
         return
 
     def _find_last_checkpoint(self):
-        if pathlib.Path(f"{self.savename}.{self.mode}.checkpoint.pt").exists():
+        if pathlib.Path(f"{self.savename}.{self.mode}.best_checkpoint.pt").exists():
             return True
         return False
 
@@ -738,9 +738,6 @@ class scFootprintTrainer:
         # update state dict if checkpoint exists
         if self.checkpoint:
             self._update_state_dict()
-        else:
-            # save the very first checkpoint to allow init even first epoch fails
-            self._save_checkpint(update_best=True)
         return
 
     @torch.no_grad()
