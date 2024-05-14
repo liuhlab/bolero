@@ -102,12 +102,11 @@ class BatchFootPrint(FootPrintModel):
                 return_pval=self.return_pval,
                 smooth_radius=self.smooth_radius,
                 numpy=self.numpy,
-                device=self.device,
                 tfbs_score_all=self.tfbs_score_all,
                 tfbs_score_class1=self.tfbs_score_class1,
                 nucleosome_score=self.nucleosome_score,
             )
-            if len(result) == 2:
+            if isinstance(result, tuple):
                 fp, scores = result
             else:
                 fp = result
@@ -168,7 +167,6 @@ class scPrinterDataset(RayGenomeDataset):
     def __init__(
         self,
         dataset: Dataset,
-        genome=None,
         columns: Optional[list[str]] = None,
         bias_name: str = None,
         batch_size: int = 64,
@@ -218,7 +216,7 @@ class scPrinterDataset(RayGenomeDataset):
         -------
         None
         """
-        super().__init__(dataset, columns=columns, genome=genome, **kwargs)
+        super().__init__(dataset, columns=columns, **kwargs)
         # all filter and map operations will be done on this working dataset
 
         if bias_name is None:
@@ -582,7 +580,8 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
     def __init__(
         self,
-        dataset_path: str,
+        dataset: str,
+        genome,
         chroms: Optional[list[str]] = None,
         use_prefixs: Optional[list[str]] = None,
         batch_size: int = 64,
@@ -600,10 +599,11 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         override_num_blocks=None,
     ):
         super().__init__(
-            dataset_path=dataset_path,
+            dataset_path=dataset,
             use_prefixs=use_prefixs,
             override_num_blocks=override_num_blocks,
             chroms=chroms,
+            genome=genome,
         )
         self.batch_size = batch_size
 
@@ -835,7 +835,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
         _default = {
             "prefetch_batches": 5,
-            "local_shuffle_buffer_size": 10000,
+            "local_shuffle_buffer_size": 5000,
             "drop_last": True,
             "batch_size": self.batch_size,
         }
@@ -848,5 +848,6 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             if as_torch:
                 if device is None:
                     device = try_gpu()
-                batch = {k: torch.Tensor(v).to(device) for k, v in batch.items()}
+                batch = {k: torch.Tensor(v.copy()).to(device) for k, v in batch.items()}
+            batch["cell_embedding"] = batch.pop("bulk_embedding")
             yield batch

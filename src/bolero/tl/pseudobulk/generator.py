@@ -43,8 +43,10 @@ class PseudobulkGenerator:
         -------
         None
         """
-        self._predefined_pseudobulks = list(pseudobulks.values())
-        pass
+        if self._predefined_pseudobulks is None:
+            self._predefined_pseudobulks = list(pseudobulks.values())
+        else:
+            self._predefined_pseudobulks.extend(pseudobulks.values())
 
     def get_pseudobulk_centriods(
         self, cells: pd.Index, method: str = "mean"
