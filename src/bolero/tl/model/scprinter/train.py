@@ -381,12 +381,6 @@ class scFootprintTrainer:
         acc_model.to(self.device)
         return acc_model
 
-    def _setup_model_from_checkpoint(self):
-        # load model if not exists
-        model = torch.load(f"{self.savename}.{self.mode}.model.pt")
-        model.to(self.device)
-        return model
-
     def _setup_pretrain_model_for_adjust_output(self):
         pretrain_model_path = self.config["pretrained_model"]
         model = torch.load(pretrain_model_path)
@@ -439,7 +433,11 @@ class scFootprintTrainer:
 
     def _update_state_dict(self):
         self._cleanup_env()
-        checkpoint = torch.load(f"{self.savename}.{self.mode}.checkpoint.pt")
+        cpt_path = f"{self.savename}.{self.mode}.best_checkpoint.pt"
+        print(f"Load and update state dict from checkpoint file: {cpt_path}")
+        checkpoint = torch.load(cpt_path)
+        epoch_info = torch.load(f"{self.savename}.{self.mode}.epoch_info.pt")
+        checkpoint.update(epoch_info)
 
         # adjust epochs
         epoch = checkpoint["epoch"]
@@ -482,17 +480,14 @@ class scFootprintTrainer:
     def _setup_model(self):
         mode = self.mode
 
-        if self.checkpoint:
-            self.scp_model = self._setup_model_from_checkpoint()
+        if mode == "init":
+            self.scp_model = self._setup_model_from_config()
+        elif mode == "adj_output":
+            self.scp_model = self._setup_pretrain_model_for_adjust_output()
+        elif mode == "lora":
+            self.scp_model = self._setup_pretrain_model_for_lora()
         else:
-            if mode == "init":
-                self.scp_model = self._setup_model_from_config()
-            elif mode == "adj_output":
-                self.scp_model = self._setup_pretrain_model_for_adjust_output()
-            elif mode == "lora":
-                self.scp_model = self._setup_pretrain_model_for_lora()
-            else:
-                raise ValueError(f"Incorrect mode: {mode}.")
+            raise ValueError(f"Incorrect mode: {mode}.")
 
         # collect some shortcuts post model setup
         self.parameters = self.scp_model.parameters
@@ -662,16 +657,13 @@ class scFootprintTrainer:
         return self._test_dataset
 
     def _get_ema(self):
-        if self.checkpoint:
-            ema = torch.load(f"{self.savename}.{self.mode}.ema.pt")
-        else:
-            update_after_step = 100
-            ema = EMA(
-                self.scp_model,
-                beta=0.9999,  # exponential moving average factor
-                update_after_step=update_after_step,  # only after this number of .update() calls will it start updating
-                update_every=10,
-            )  # how often to actually update, to save on compute (updates every 10th .update() call)
+        update_after_step = 100
+        ema = EMA(
+            self.scp_model,
+            beta=0.9999,  # exponential moving average factor
+            update_after_step=update_after_step,  # only after this number of .update() calls will it start updating
+            update_every=10,
+        )  # how often to actually update, to save on compute (updates every 10th .update() call)
         return ema
 
     def _get_scaler(self):
@@ -937,25 +929,25 @@ class scFootprintTrainer:
         return val_loss, profile_pearson, across_pearson, wandb_images
 
     def _save_checkpint(self, update_best):
-        checkpoint = {
+        epoch_info = {
             "epoch": self.cur_epoch,
             "early_stopping_counter": self.early_stopping_counter,
-            "best_val_loss": self.best_val_loss,
-            "state_dict": self.scp_model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "scaler": self.scaler.state_dict(),
-            "scheduler": self.scheduler.state_dict() if self.scheduler else None,
-            "ema": self.ema.state_dict() if self.use_ema else None,
         }
-        safe_save(checkpoint, f"{self.savename}.{self.mode}.checkpoint.pt")
-        safe_save(self.scp_model, f"{self.savename}.{self.mode}.model.pt")
-        if self.use_ema:
-            safe_save(self.ema, f"{self.savename}.{self.mode}.ema.pt")
-
+        safe_save(epoch_info, f"{self.savename}.{self.mode}.epoch_info.pt")
         if update_best:
+            checkpoint = {
+                "best_val_loss": self.best_val_loss,
+                "state_dict": self.scp_model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "scaler": self.scaler.state_dict(),
+                "scheduler": self.scheduler.state_dict() if self.scheduler else None,
+                "ema": self.ema.state_dict() if self.use_ema else None,
+            }
             safe_save(checkpoint, f"{self.savename}.{self.mode}.best_checkpoint.pt")
             if self.use_ema:
-                safe_save(self.ema.model, f"{self.savename}.{self.mode}.best_model.pt")
+                safe_save(
+                    self.ema.ema_model, f"{self.savename}.{self.mode}.best_model.pt"
+                )
             else:
                 safe_save(self.scp_model, f"{self.savename}.{self.mode}.best_model.pt")
         return
