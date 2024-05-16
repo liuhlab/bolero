@@ -2,6 +2,7 @@ from copy import deepcopy
 from functools import partial
 from typing import Optional
 
+import pandas as pd
 import torch
 import torch.nn as nn
 
@@ -18,8 +19,8 @@ class scFootprintBPNetLoRA(nn.Module):
         profile_cnn_model: nn.Module = None,
         dna_len: int = 1840,
         output_len: int = 1000,
-        example_cell_embedding: Optional[torch.Tensor] = None,
-        example_region_embedding: Optional[torch.Tensor] = None,
+        example_cell_embedding: Optional[pd.DataFrame] = None,
+        example_region_embedding: Optional[pd.DataFrame] = None,
         a_embedding: str = "cell",
         b_embedding: str = "cell",
         lora_dna_cnn: bool = False,
@@ -62,6 +63,12 @@ class scFootprintBPNetLoRA(nn.Module):
         example_a_embedding = self.A_embedding_process(
             example_cell_embedding, example_region_embedding
         )
+        # make a small tensor for the example embedding
+        if example_a_embedding is not None:
+            max_rows = 256
+            if max_rows < example_a_embedding.shape[0]:
+                example_a_embedding = example_a_embedding.sample(max_rows).values
+            example_a_embedding = torch.Tensor(example_a_embedding)
 
         conv1d_lora = partial(
             Conv1dMultiLoRA,
@@ -110,9 +117,25 @@ class scFootprintBPNetLoRA(nn.Module):
             self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
             self.profile_cnn_model.linear.conv.bias.data = bias
         if lora_count_cnn:
-            self.profile_cnn_model.linear = Conv1dMultiLoRA(
+            self.profile_cnn_model.linear = conv1d_lora(
                 layer=self.profile_cnn_model.linear,
             )
+
+    @staticmethod
+    def _get_cell_embedding(cell, region):
+        return cell
+
+    @staticmethod
+    def _get_region_embedding(cell, region):
+        return region
+
+    @staticmethod
+    def _concat_cell_region_embedding(cell, region):
+        return torch.cat((cell, region), dim=-1)
+
+    @staticmethod
+    def _get_null(cell, region):
+        return None
 
     def _determine_embedding_dims(
         self, cell_embedding, region_embedding, a_embedding, b_embedding
@@ -127,35 +150,31 @@ class scFootprintBPNetLoRA(nn.Module):
         # determine A B embedding dims
         if a_embedding == "concat":
             self.A_embedding_dims = cell_embedding_dims + region_embedding_dims
-            self.A_embedding_process = lambda cell, region: torch.cat(
-                (cell, region), dim=-1
-            )
+            self.A_embedding_process = self._concat_cell_region_embedding
         elif a_embedding == "cell":
             self.A_embedding_dims = cell_embedding_dims
-            self.A_embedding_process = lambda cell, _: cell
+            self.A_embedding_process = self._get_cell_embedding
         elif a_embedding == "region":
             self.A_embedding_dims = region_embedding_dims
-            self.A_embedding_process = lambda _, region: region
+            self.A_embedding_process = self._get_region_embedding
         elif a_embedding == "none":
             self.A_embedding_dims = 0
-            self.A_embedding_process = lambda *_: None
+            self.A_embedding_process = self._get_null
         else:
             raise ValueError(f"Invalid A embedding type: {a_embedding}")
 
         if b_embedding == "concat":
             self.B_embedding_dims = cell_embedding_dims + region_embedding_dims
-            self.B_embedding_process = lambda cell, region: torch.cat(
-                (cell, region), dim=-1
-            )
+            self.B_embedding_process = self._concat_cell_region_embedding
         elif b_embedding == "cell":
             self.B_embedding_dims = cell_embedding_dims
-            self.B_embedding_process = lambda cell, _: cell
+            self.B_embedding_process = self._get_cell_embedding
         elif b_embedding == "region":
             self.B_embedding_dims = region_embedding_dims
-            self.B_embedding_process = lambda _, region: region
+            self.B_embedding_process = self._get_region_embedding
         elif b_embedding == "none":
             self.B_embedding_dims = 0
-            self.B_embedding_process = lambda *_: None
+            self.B_embedding_process = self._get_null
         else:
             raise ValueError(f"Invalid B embedding type: {b_embedding}")
         return
