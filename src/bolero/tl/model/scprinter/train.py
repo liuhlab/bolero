@@ -84,8 +84,10 @@ class scFootprintTrainer:
         "sample": "REQUIRED",
         "region": "REQUIRED",
         "accumulate_grad": 1,
-        "val_frequency": 3000,
+        "val_frequency": 2500,
+        "val_batches": 500,
         "output_len": 800,
+        "loss_tolerance": 0.003,
     }
 
     lora_config = default_config.copy()
@@ -171,7 +173,7 @@ class scFootprintTrainer:
         Args:
             config (dict): Configuration dictionary containing model parameters.
         """
-        self.config = config
+        self.config = config.copy()
 
         # mode controls global trainer behavior in initial training or LoRA fine tuning
         self.mode = config.pop("mode").lower()
@@ -407,7 +409,13 @@ class scFootprintTrainer:
             region_emb = pd.read_feather(region_emb)
             region_emb = region_emb.set_index(region_emb.columns[0])
 
-        acc_model = self.scp_model
+        adj_output_model_path = f"{self.savename}.adj_output.best_model.pt"
+        acc_model = torch.load(adj_output_model_path)
+
+        # fix all parameters in the pretrained model
+        for p in acc_model.parameters():
+            p.requires_grad = False
+
         acc_model = acc_model.cpu()
         acc_model = scFootprintBPNetLoRA(
             dna_cnn_model=acc_model.dna_cnn_model,
@@ -690,7 +698,9 @@ class scFootprintTrainer:
         # epochs
         self.max_epochs = config["max_epochs"]
         self.patience = config["patience"]
+        self.loss_tolerance = config["loss_tolerance"]
         self.val_frequency = config["val_frequency"]
+        self.val_batches = config["val_batches"]
         self.early_stopping_counter = 0
         self.early_stoped = False
         self.best_val_loss = float("inf")
@@ -776,7 +786,10 @@ class scFootprintTrainer:
 
         example_batches = []  # collect example batches for making images
         for batch_id, batch in tqdm(
-            enumerate(val_data_loader), desc=" - (Validation)", dynamic_ncols=True
+            enumerate(val_data_loader),
+            desc=" - (Validation)",
+            dynamic_ncols=True,
+            total=self.val_batches,
         ):
             # ==========
             # X
@@ -837,6 +850,9 @@ class scFootprintTrainer:
             if batch_id < self.plot_example_per_epoch:
                 batch["pred_score"] = pred_score_img
                 example_batches.append(batch)
+
+            if batch_id > self.val_batches:
+                break
 
         del val_data_loader
         self._cleanup_env()
@@ -967,20 +983,22 @@ class scFootprintTrainer:
         print("Profile pearson", profile_pearson)
         print("Across peak pearson", across_pearson)
 
-        if val_loss < self.best_val_loss:
-            self.best_val_loss = val_loss
-            print(
-                f"Best loss at epoch {epoch}: {self.best_val_loss:.5f}, Saving model."
-            )
+        # only clear the early stopping counter if the loss improvement is better than tolerance
+        previous_best = self.best_val_loss
+        if val_loss < self.best_val_loss - self.loss_tolerance:
             self.early_stopping_counter = 0
-            self._save_checkpint(update_best=True)
         else:
             self.early_stopping_counter += 1
-            print(
-                f"Best loss at epoch {epoch}: {self.best_val_loss:.5f}, "
-                f"which is better than current loss {val_loss:.5f}; "
-                f"Early stopping counter: {self.early_stopping_counter}"
-            )
+        print(
+            f"Previous best loss: {previous_best:.4f}, "
+            f"Loss at epoch {epoch}: {val_loss:.4f}; "
+            f"Early stopping counter: {self.early_stopping_counter}"
+        )
+        # save checkpoint if the loss is better
+        if val_loss < self.best_val_loss:
+            self.best_val_loss = val_loss
+            self._save_checkpint(update_best=True)
+        else:
             self._save_checkpint(update_best=False)
 
         wandb.log(
@@ -988,6 +1006,7 @@ class scFootprintTrainer:
                 "train/train_loss": train_loss,
                 "val/val_loss": val_loss,
                 "val/best_val_loss": self.best_val_loss,
+                "val/early_stopping_counter": self.early_stopping_counter,
                 "val/profile_pearson": profile_pearson[0],
                 "val/across_pearson_footprint": across_pearson[0],
                 "val/across_pearson_coverage": across_pearson[1],
@@ -998,7 +1017,10 @@ class scFootprintTrainer:
         flag = self.early_stopping_counter >= self.patience
         return flag
 
-    def _fit(self, sample, region):
+    def _fit(self, sample, region, max_epochs=None):
+        if max_epochs is None:
+            max_epochs = self.max_epochs
+
         mode = self.mode
 
         # dataset related
@@ -1035,7 +1057,7 @@ class scFootprintTrainer:
         self.val_loss = None
 
         stop_flag = False
-        while self.cur_epoch <= self.max_epochs:
+        while self.cur_epoch <= max_epochs:
             if self.early_stopping_counter >= self.patience:
                 # early stopping counter could be loaded from the checkpoint
                 # check before starting the for loop
@@ -1058,13 +1080,13 @@ class scFootprintTrainer:
                     downsample_rate=train_downsample,
                 )
 
-            moving_avg_loss = 0
-            iteration = 0
-            nan_loss = False
-
             loader_ended = False
             iter_loader = iter(train_data_loader)
             while not loader_ended:
+                moving_avg_loss = 0
+                iteration = 0
+                nan_loss = False
+
                 bar = trange(
                     self.val_frequency,
                     desc=f" - (Training) {self.cur_epoch}",
@@ -1305,15 +1327,17 @@ class scFootprintTrainer:
             self._setup_dataset()
 
             # Fit the pretrained model on the profile CNN only with pseudobulk data
-            if self._check_stage_flag("pretrain_output"):
+            if self._check_stage_flag("adj_output"):
                 print("Pretrain output exists, skipping pretrain.")
             else:
                 self.mode = "adj_output"
                 self.checkpoint = self._find_last_checkpoint()
                 self._setup_model()
                 self._setup_fit()
-                self._fit(sample=None, region=None)
-                self._save_stage_flag("pretrain_output")
+
+                # only train for 3 epochs to adjust the output layer
+                self._fit(sample=None, region=None, max_epochs=3)
+                self._save_stage_flag("adj_output")
                 self._cleanup_env()
                 self.mode = "lora"
 
@@ -1322,7 +1346,6 @@ class scFootprintTrainer:
             self._setup_model()
             self._setup_fit()
             self._fit(sample=None, region=None)
-
             self._test(sample=None, region=None)
             self._cleanup_env()
             wandb.finish()

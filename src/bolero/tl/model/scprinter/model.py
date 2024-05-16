@@ -2,7 +2,7 @@ from copy import deepcopy
 from functools import partial
 from typing import Optional
 
-import pandas as pd
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -19,8 +19,8 @@ class scFootprintBPNetLoRA(nn.Module):
         profile_cnn_model: nn.Module = None,
         dna_len: int = 1840,
         output_len: int = 1000,
-        example_cell_embedding: Optional[pd.DataFrame] = None,
-        example_region_embedding: Optional[pd.DataFrame] = None,
+        example_cell_embedding: Optional[np.ndarray] = None,
+        example_region_embedding: Optional[np.ndarray] = None,
         a_embedding: str = "cell",
         b_embedding: str = "cell",
         lora_dna_cnn: bool = False,
@@ -53,7 +53,20 @@ class scFootprintBPNetLoRA(nn.Module):
         # will store the input cell embedding and region embedding, output A or B embedding
         self.A_embedding_process = None
         self.B_embedding_process = None
+
         # determine the embedding dims based on a_embedding and b_embedding type
+        use_rows = min(
+            256, example_cell_embedding.shape[0], example_region_embedding.shape[0]
+        )
+        if example_cell_embedding is not None:
+            example_cell_embedding = torch.Tensor(
+                np.array(example_cell_embedding[:use_rows])
+            )
+        if example_region_embedding is not None:
+            example_region_embedding = torch.Tensor(
+                np.array(example_region_embedding[:use_rows])
+            )
+
         self._determine_embedding_dims(
             cell_embedding=example_cell_embedding,
             region_embedding=example_region_embedding,
@@ -63,12 +76,6 @@ class scFootprintBPNetLoRA(nn.Module):
         example_a_embedding = self.A_embedding_process(
             example_cell_embedding, example_region_embedding
         )
-        # make a small tensor for the example embedding
-        if example_a_embedding is not None:
-            max_rows = 256
-            if max_rows < example_a_embedding.shape[0]:
-                example_a_embedding = example_a_embedding.sample(max_rows).values
-            example_a_embedding = torch.Tensor(example_a_embedding)
 
         conv1d_lora = partial(
             Conv1dMultiLoRA,
