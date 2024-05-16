@@ -21,11 +21,8 @@ setup: |
   then
     echo "Skip setup"
   else
-    pip install git+https://github.com/lhqing/scmallet.git
-    pip install git+https://github.com/lhqing/bolero.git
-    pip install git+https://github.com/lhqing/bolero-process.git
-    pip install git+https://github.com/lhqing/scPrinter.git
-    pip install papermill
+    pip install scmallet bolero papermill
+    pip install /mnt/filestore/pkg/scPrinter
     touch $HOME/.SKIPSETUP
   fi
 
