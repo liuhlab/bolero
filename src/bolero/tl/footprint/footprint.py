@@ -9,6 +9,8 @@ import scipy
 import torch
 from scipy.ndimage import maximum_filter
 
+from bolero.tl.footprint.segment import get_masks, get_peaks_df_pval_fp
+
 try:
     # TODO: scprinter is not publicly available currently, remove this try-except block when it is available
     import scprinter as scp
@@ -501,8 +503,8 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
                 clip_min=clip_min,
                 clip_max=clip_max,
             )
+            _fp = raw_fp.clone()
             if return_pval:
-                _fp = raw_fp.clone()
                 _fp = zscore2pval_torch(_fp)
                 if smooth_radius is not None:
                     _device = _fp.device
@@ -510,12 +512,25 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
                     _fp = smooth_footprint(_fp, smooth_radius)
                     if not numpy:
                         _fp = torch.as_tensor(_fp, device=_device)
-            else:
-                _fp = raw_fp
 
         if numpy and isinstance(_fp, torch.Tensor):
             _fp = _fp.detach().cpu().numpy()
 
+        score_dict = self._get_score_dict(
+            raw_fp=raw_fp,
+            numpy=numpy,
+            tfbs_score_all=tfbs_score_all,
+            tfbs_score_class1=tfbs_score_class1,
+            nucleosome_score=nucleosome_score,
+        )
+
+        if len(score_dict) == 0:
+            return _fp
+        return _fp, score_dict
+
+    def _get_score_dict(
+        self, raw_fp, numpy, tfbs_score_all, tfbs_score_class1, nucleosome_score
+    ):
         score_dict = {}
         if tfbs_score_all:
             tfbs_score = self.get_tfbs_score_all_tf(raw_fp, numpy=numpy)
@@ -526,10 +541,7 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
         if nucleosome_score:
             tfbs_score = self.get_nucleosome_score(raw_fp, numpy=numpy)
             score_dict["nucleosome_score"] = tfbs_score
-
-        if len(score_dict) == 0:
-            return _fp
-        return _fp, score_dict
+        return score_dict
 
     @property
     def bias_handle(self):
@@ -789,6 +801,30 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
             nucleosome_score=nucleosome_score,
         )
         return result
+
+    def _get_footprint_mask(self, raw_fp, as_torch=True):
+        footprint_pval = self.postprocess_footprint(raw_fp.clone())
+        scores = self._get_score_dict(
+            raw_fp=raw_fp,
+            numpy=True,
+            tfbs_score_all=True,
+            tfbs_score_class1=True,
+            nucleosome_score=True,
+        )
+
+        batch_size = footprint_pval.shape[0]
+
+        masks = []
+        for i in range(batch_size):
+            use_fp = footprint_pval[i]
+            use_scores = {k: v[i] for k, v in scores.items()}
+            peaks_df = get_peaks_df_pval_fp(use_fp, use_scores)
+            mask = get_masks(use_fp, peaks_df)
+            masks.append(mask)
+        masks = np.stack(masks, axis=0)
+        if as_torch:
+            masks = torch.as_tensor(masks, device=self.device)
+        return masks
 
     @staticmethod
     def postprocess_footprint(
