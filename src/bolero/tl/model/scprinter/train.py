@@ -744,8 +744,17 @@ class scFootprintTrainer:
 
     @torch.no_grad()
     def _model_validation_step(
-        self, model, val_dataset, val_downsample, sample=None, region=None
+        self,
+        model,
+        val_dataset,
+        val_downsample,
+        sample=None,
+        region=None,
+        val_batches=None,
     ):
+        if val_batches is None:
+            val_batches = self.val_batches
+        # if val batches is None, use all batches in the dataset
         mode = self.mode
 
         if mode == "init":
@@ -778,7 +787,7 @@ class scFootprintTrainer:
         else:
             raise ValueError(f"Incorrect mode: {mode}.")
 
-        size = 0
+        size = 1e-9
         val_loss = [0]
         profile_pearson_counter = CumulativeCounter()
         across_batch_pearson_fp = CumulativePearson()
@@ -789,7 +798,7 @@ class scFootprintTrainer:
             enumerate(val_data_loader),
             desc=" - (Validation)",
             dynamic_ncols=True,
-            total=self.val_batches,
+            total=val_batches,
         ):
             # ==========
             # X
@@ -851,7 +860,7 @@ class scFootprintTrainer:
                 batch["pred_score"] = pred_score_img
                 example_batches.append(batch)
 
-            if batch_id > self.val_batches:
+            if batch_id > val_batches:
                 break
 
         del val_data_loader
@@ -908,7 +917,7 @@ class scFootprintTrainer:
             )
         return wandb_images
 
-    def _validation_step(self, sample, region, testing=False):
+    def _validation_step(self, sample, region, testing=False, val_batches=None):
         if testing:
             _dataset = self.test_dataset
             _downsample = self.valid_downsample
@@ -926,6 +935,7 @@ class scFootprintTrainer:
                     val_downsample=_downsample,
                     sample=sample,
                     region=region,
+                    val_batches=val_batches,
                 )
             )
             self.ema.train()
@@ -939,6 +949,7 @@ class scFootprintTrainer:
                     val_downsample=_downsample,
                     sample=sample,
                     region=region,
+                    val_batches=val_batches,
                 )
             )
             self.scp_model.train()
@@ -1248,7 +1259,7 @@ class scFootprintTrainer:
                 self.val_profile_pearson,
                 self.val_across_pearson,
                 _,
-            ) = self._validation_step(sample=sample, region=region)
+            ) = self._validation_step(sample=sample, region=region, val_batches=None)
         valid_across_pearson_footprint, valid_across_pearson_coverage = (
             self.val_across_pearson
         )
@@ -1258,7 +1269,9 @@ class scFootprintTrainer:
             self.test_profile_pearson,
             self.test_across_pearson,
             wandb_images,
-        ) = self._validation_step(sample=sample, region=region, testing=True)
+        ) = self._validation_step(
+            sample=sample, region=region, testing=True, val_batches=None
+        )
         test_across_pearson_footprint, test_across_pearson_coverage = (
             self.test_across_pearson
         )
