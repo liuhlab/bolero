@@ -570,7 +570,7 @@ class scPrinterDataset(RayGenomeDataset):
             key=key_list,
             final_length=length_list,
             max_jitter=max_jitter,
-            input_type="row",
+            crop_axis=0,
         )
         self._working_dataset = self._working_dataset.map(_cropper, *args, **kwargs)
         return
@@ -664,9 +664,15 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             key=key_list,
             final_length=length_list,
             max_jitter=max_jitter,
-            input_type="batch",
+            crop_axis=1,
         )
-        return _cropper
+
+        def _transpose_dna_after_crop(data):
+            data = _cropper(data)
+            data["dna_one_hot"] = data["dna_one_hot"].swapaxes(1, 2)
+            return data
+
+        return _transpose_dna_after_crop
 
     def _get_reverse_complement_region(self, *args, **kwargs) -> None:
         """
@@ -709,13 +715,14 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         )
         return one_hot_processor
 
-    def _dataset_preprocess(self) -> None:
+    def _dataset_preprocess(self, return_cells=False) -> None:
         super()._dataset_preprocess(
             sample_regions=self.sample_regions,
             n_pseudobulks=self.n_pseudobulks,
             min_cov=self.min_cov,
             max_cov=self.max_cov,
             low_cov_ratio=self.low_cov_ratio,
+            return_cells=return_cells,
         )
 
         batch_funcs = []
@@ -799,6 +806,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         as_torch=True,
         device=None,
         downsample_rate=1,
+        return_cells=False,
         **kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -806,20 +814,20 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
         Parameters
         ----------
-        batch_size : int, optional
-            The batch size, by default 64.
-        sample_regions : int, optional
-            The number of sample regions, by default 200.
-        n_pseudobulks : int, optional
-            The number of pseudobulks, by default 10.
-        min_cov : int, optional
-            The minimum coverage, by default 10.
-        max_cov : int, optional
-            The maximum coverage, by default 100000.
-        low_cov_ratio : float, optional
-            The low coverage ratio, by default 0.1.
+        downsample_rate : float, optional
+            The downsample rate, by default 1.
+        local_shuffle_buffer_size : int, optional
+            The size of the local shuffle buffer, by default 10000.
+        randomize_block_order : bool, optional
+            Whether to randomize the block order, by default False.
+        as_torch : bool, optional
+            Whether to return a PyTorch dataloader, by default True.
+        device : str, optional
+            The device to use, by default None.
+        return_cells : bool, optional
+            Whether to return the cell ids, by default False.
         **kwargs
-            Additional keyword arguments.
+            Additional keyword arguments pass to ray.data.Dataset.iter_batches.
 
         Returns
         -------
@@ -833,7 +841,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
                 fraction=downsample_rate
             )
 
-        additional_funcs = self._dataset_preprocess()
+        additional_funcs = self._dataset_preprocess(return_cells=return_cells)
 
         _default = {
             "prefetch_batches": 5,

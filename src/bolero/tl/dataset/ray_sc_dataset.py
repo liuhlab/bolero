@@ -135,6 +135,7 @@ class RaySingleCellDataset:
         min_cov: int,
         max_cov: int,
         low_cov_ratio: float,
+        return_cells: bool = False,
     ) -> None:
         """
         Preprocess the dataset.
@@ -151,6 +152,8 @@ class RaySingleCellDataset:
             The maximum coverage.
         low_cov_ratio : float
             The low coverage ratio.
+        return_cells : bool, optional
+            Whether to return cell ids of each pseudobulk, by default False.
 
         Returns
         -------
@@ -162,6 +165,7 @@ class RaySingleCellDataset:
             min_cov=min_cov,
             max_cov=max_cov,
             low_cov_ratio=low_cov_ratio,
+            return_cells=return_cells,
         )
         return
 
@@ -174,6 +178,7 @@ class RaySingleCellDataset:
         low_cov_ratio: float,
         num_cpus: int = 1,
         memory: float = "auto",
+        return_cells: bool = False,
     ) -> None:
         """
         Perform pseudobulking and extract regions.
@@ -190,6 +195,12 @@ class RaySingleCellDataset:
             The maximum coverage.
         low_cov_ratio : float
             The low coverage ratio.
+        num_cpus : int, optional
+            The number of CPUs to use in each ray task, by default 1.
+        memory : float, optional
+            The memory to use in each ray task, by default "auto".
+        return_cells : bool, optional
+            Whether to return cell ids of each pseudobulk, by default False.
 
         Returns
         -------
@@ -214,6 +225,7 @@ class RaySingleCellDataset:
             max_cov=max_cov,
             low_cov_ratio=low_cov_ratio,
             n_pseudobulks=n_pseudobulks,
+            return_cells=return_cells,
         )
         self._working_dataset = self._working_dataset.flat_map(
             processor, num_cpus=num_cpus, memory=memory

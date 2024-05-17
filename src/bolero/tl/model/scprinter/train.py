@@ -408,6 +408,9 @@ class scFootprintTrainer:
         model.profile_cnn_model.conv_layer.bias.requires_grad = True
         model.profile_cnn_model.linear.weight.requires_grad = True
         model.profile_cnn_model.linear.bias.requires_grad = True
+        # debug
+        # for p in model.parameters():
+        #     p.requires_grad = True
 
         model.to(self.device)
         return model
@@ -808,12 +811,13 @@ class scFootprintTrainer:
         across_batch_pearson_cov = CumulativePearson()
 
         example_batches = []  # collect example batches for making images
-        for batch_id, batch in tqdm(
+        bar = tqdm(
             enumerate(val_data_loader),
             desc=" - (Validation)",
             dynamic_ncols=True,
             total=val_batches,
-        ):
+        )
+        for batch_id, batch in bar:
             # ==========
             # X
             # ==========
@@ -874,6 +878,11 @@ class scFootprintTrainer:
                 batch["pred_score"] = pred_score_img
                 example_batches.append(batch)
 
+            desc_str = (
+                f" - (Validation) {self.cur_epoch} "
+                f"Footprint Loss: {loss_.item():.2f} "
+            )
+            bar.set_description(desc_str)
             if batch_id > val_batches:
                 break
 

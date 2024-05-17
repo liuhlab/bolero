@@ -113,14 +113,12 @@ class scFootprintBPNetLoRA(nn.Module):
                 layer=self.profile_cnn_model.conv_layer,
             )
         if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            print("translating linear into conv1d")
+            # translating linear into conv1d"
             weight = self.profile_cnn_model.linear.weight.data
-            print(weight.shape)
             bias = self.profile_cnn_model.linear.bias.data
             self.profile_cnn_model.linear = Conv1dWrapper(
                 weight.shape[1], weight.shape[0], 1
             )
-            print(self.profile_cnn_model.linear.conv.weight.shape)
             self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
             self.profile_cnn_model.linear.conv.bias.data = bias
         if lora_count_cnn:

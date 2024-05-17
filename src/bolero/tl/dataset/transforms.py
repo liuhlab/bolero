@@ -31,7 +31,7 @@ class CropRegionsWithJitter:
         key: Union[str, list[str]],
         final_length: int,
         max_jitter: int = 0,
-        input_type="row",
+        crop_axis=0,
     ):
         """
         Crop regions from the input data batch.
@@ -41,6 +41,7 @@ class CropRegionsWithJitter:
             final_length (int): The desired length of the cropped regions.
             max_jitter (int, optional): The maximum amount of jitter to apply to the cropping position.
                 Defaults to 0.
+            crop_axis (int, optional): The axis to crop the regions. Defaults to 0.
         """
         if isinstance(key, str):
             key = [key]
@@ -53,13 +54,7 @@ class CropRegionsWithJitter:
             ), "final_length must have the same length as key"
         self.final_length = final_length
         self.max_jitter = max_jitter
-
-        if input_type == "batch":
-            self.crop_axis = 1
-        elif input_type == "row":
-            self.crop_axis = 0
-        else:
-            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
+        self.crop_axis = crop_axis
 
     def __call__(self, data: dict) -> dict:
         """
@@ -87,10 +82,12 @@ class CropRegionsWithJitter:
             _output_radius = length // 2
             _start = _input_center - _output_radius + jitter
             _end = _start + length
-            if self.crop_axis == 0:
-                data[k] = _input[_start:_end]
-            else:
-                data[k] = _input[:, _start:_end]
+            sel = slice(_start, _end)
+            idx = tuple(
+                sel if i == self.crop_axis else slice(None) for i in range(_input.ndim)
+            )
+            data[k] = _input[idx]
+
         return data
 
 
@@ -252,9 +249,7 @@ class FetchRegionOneHot:
             The modified data dictionary with the one-hot encoded DNA.
         """
         one_hot = self.genome.get_regions_one_hot(data[self.region_key])
-        data[self.output_key] = one_hot.swapaxes(-1, -2).astype(
-            self.dtype
-        )  # (batch, channel, length)
+        data[self.output_key] = one_hot.astype(self.dtype)  # (batch, length, channel)
         return data
 
 
