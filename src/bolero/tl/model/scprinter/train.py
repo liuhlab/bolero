@@ -218,15 +218,29 @@ class scFootprintTrainer:
                     print(
                         f"Resuming W & B run with name: {wandb_run_info['name']} and id: {wandb_run_info['id']}."
                     )
-                    wandb_run = wandb.init(
-                        id=wandb_run_info["id"],
-                        project=config["wandb_project"],
-                        job_type=config["wandb_job_type"],
-                        entity=wandb_run_info["entity"],
-                        name=wandb_run_info["name"],
-                        group=wandb_run_info["group"],
-                        resume="allow",
-                    )
+                    from wandb.errors import CommError
+
+                    try:
+                        wandb_run = wandb.init(
+                            id=wandb_run_info["id"],
+                            project=config["wandb_project"],
+                            job_type=config["wandb_job_type"],
+                            entity=wandb_run_info["entity"],
+                            name=wandb_run_info["name"],
+                            group=wandb_run_info["group"],
+                            resume="allow",
+                        )
+                    except CommError:
+                        print(
+                            "W & B run exists but cannot be resumed. Starting a new run."
+                        )
+                        wandb_run = wandb.init(
+                            config=config,
+                            project=config["wandb_project"],
+                            job_type=config["wandb_job_type"],
+                            group=config["wandb_group"],
+                            save_code=True,
+                        )
             else:
                 print("W & B run exists with different config. Starting a new run.")
                 wandb_run = wandb.init(
