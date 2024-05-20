@@ -21,6 +21,7 @@ setup: |
   then
     echo "Skip setup"
   else
+    pip install wandb --upgrade
     pip install scmallet bolero papermill
     pip install /mnt/filestore/pkg/scPrinter
     touch $HOME/.SKIPSETUP

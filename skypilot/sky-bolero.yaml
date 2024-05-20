@@ -36,6 +36,7 @@ setup: |
     echo "Skip setup"
   else
     # install inhouse packages
+    pip install wandb --upgrade
     pip install git+https://github.com/lhqing/scmallet.git
     pip install -e /mnt/filestore/pkg/bolero-process
     pip install -e /mnt/filestore/pkg/bolero
