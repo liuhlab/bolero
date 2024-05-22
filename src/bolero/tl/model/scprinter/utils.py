@@ -28,7 +28,7 @@ hg38_splits[0] = {
         "chr21",
         "chr22",
         "chrX",
-        "chrY",
+        # "chrY",
     ],
 }
 hg38_splits[1] = {
@@ -52,11 +52,17 @@ hg38_splits[1] = {
         "chr21",
         "chr22",
         "chrX",
-        "chrY",
+        # "chrY",
     ],
 }
 hg38_splits[2] = {
-    "test": ["chr4", "chr11", "chr12", "chr15", "chrY"],
+    "test": [
+        "chr4",
+        "chr11",
+        "chr12",
+        "chr15",
+        # "chrY",
+    ],
     "valid": ["chr22", "chr7"],
     "train": [
         "chr1",
@@ -97,7 +103,7 @@ hg38_splits[3] = {
         "chr17",
         "chr19",
         "chrX",
-        "chrY",
+        # "chrY",
     ],
 }
 hg38_splits[4] = {
@@ -119,7 +125,7 @@ hg38_splits[4] = {
         "chr16",
         "chr20",
         "chr22",
-        "chrY",
+        # "chrY",
     ],
 }
 
@@ -143,7 +149,13 @@ mm10_splits[0] = {
 }
 mm10_splits[1] = {
     "test": ["chr2", "chr7", "chr10", "chr14", "chr17"],
-    "valid": ["chr5", "chr9", "chr13", "chr15", "chrY"],
+    "valid": [
+        "chr5",
+        "chr9",
+        "chr13",
+        "chr15",
+        # "chrY",
+    ],
     "train": [
         "chr1",
         "chr3",
@@ -160,7 +172,13 @@ mm10_splits[1] = {
 }
 mm10_splits[2] = {
     "test": ["chr3", "chr8", "chr13", "chr15", "chr17"],
-    "valid": ["chr2", "chr9", "chr11", "chr12", "chrY"],
+    "valid": [
+        "chr2",
+        "chr9",
+        "chr11",
+        "chr12",
+        # "chrY",
+    ],
     "train": [
         "chr1",
         "chr4",
@@ -177,7 +195,13 @@ mm10_splits[2] = {
 }
 mm10_splits[3] = {
     "test": ["chr4", "chr9", "chr11", "chr14", "chr19"],
-    "valid": ["chr1", "chr7", "chr12", "chr13", "chrY"],
+    "valid": [
+        "chr1",
+        "chr7",
+        "chr12",
+        "chr13",
+        # "chrY",
+    ],
     "train": [
         "chr2",
         "chr3",
@@ -193,7 +217,13 @@ mm10_splits[3] = {
     ],
 }
 mm10_splits[4] = {
-    "test": ["chr5", "chr10", "chr12", "chr16", "chrY"],
+    "test": [
+        "chr5",
+        "chr10",
+        "chr12",
+        "chr16",
+        # "chrY",
+    ],
     "valid": ["chr3", "chr7", "chr14", "chr15", "chr18"],
     "train": [
         "chr1",

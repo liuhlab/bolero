@@ -135,6 +135,7 @@ class FootPrintExamplePlotter:
             np.quantile(predict, target_hue_min_quantile),
             np.quantile(predict, target_hue_max_quantile),
         )
+        # predict_hue_norm = (0, 2)
 
         self._plot_image(
             ax=axes[2], image=target, title="Target", hue_norm=target_hue_norm
@@ -215,5 +216,6 @@ class FootPrintExamplePlotter:
 
         vmin, vmax = hue_norm
         ax.imshow(image[::-1], cmap="Blues", aspect="auto", vmin=vmin, vmax=vmax)
+        ax.text(x=10, y=100, s=f"{vmax:.3f}\n{vmin:.3f}", fontsize=12, color="red")
         ax.set_title(title, fontsize=8)
         self._common_axes_setup(ax)

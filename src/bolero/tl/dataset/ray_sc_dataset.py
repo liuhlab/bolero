@@ -45,6 +45,16 @@ class RaySingleCellDataset:
                 chroms = [chroms]
             chrom_dirs = [f"{dataset_path}/{chrom}" for chrom in chroms]
 
+            # make sure all chrom_dir exists
+            chrom_dirs = [
+                chrom_dir
+                for chrom_dir in chrom_dirs
+                if pathlib.Path(chrom_dir).exists()
+            ]
+            assert (
+                len(chrom_dirs) > 0
+            ), f"None of the chroms {chroms} exists in {dataset_path}"
+
         self._dataset = ray.data.read_parquet(
             chrom_dirs,
             file_extensions=["parquet"],

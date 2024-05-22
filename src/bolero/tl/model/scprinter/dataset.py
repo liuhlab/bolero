@@ -341,8 +341,7 @@ class scPrinterDataset(RayGenomeDataset):
         self,
         sample: Optional[str] = None,
         region: Optional[str] = None,
-        downsample_rate: float = 1,
-        local_shuffle_buffer_size: int = 10000,
+        local_shuffle_buffer_size: int = 5000,
         randomize_block_order: bool = False,
         as_torch=True,
         batch_collate_fn=None,
@@ -357,8 +356,6 @@ class scPrinterDataset(RayGenomeDataset):
             The name of the sample (default is None).
         region : str, optional
             The name of the region (default is None).
-        downsample_rate : float, optional
-            The downsample rate (default is 1).
         local_shuffle_buffer_size : int, optional
             The size of the local shuffle buffer (default is 10000).
         randomize_block_order : bool, optional
@@ -411,11 +408,6 @@ class scPrinterDataset(RayGenomeDataset):
 
         if randomize_block_order:
             self._working_dataset = self._working_dataset.randomize_block_order()
-
-        if downsample_rate < 1:
-            self._working_dataset = self._working_dataset.random_sample(
-                fraction=downsample_rate
-            )
 
         self._dataset_preprocess(filter_column)
 
@@ -674,7 +666,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
         return _transpose_dna_after_crop
 
-    def _get_reverse_complement_region(self, *args, **kwargs) -> None:
+    def _get_reverse_complement_region(self, input_type) -> None:
         """
         Reverse complement the DNA sequences by 50% probability.
 
@@ -683,7 +675,9 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         None
         """
         _rc = ReverseComplement(
-            dna_key=self.dna_columns, signal_key=self.signal_columns, input_type="row"
+            dna_key=self.dna_columns,
+            signal_key=self.signal_columns,
+            input_type=input_type,
         )
         return _rc
 
@@ -734,7 +728,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         batch_funcs.append(cropper)
 
         if self.reverse_complement and self._dataset_mode == "train":
-            rc = self._get_reverse_complement_region()
+            rc = self._get_reverse_complement_region(input_type="batch")
             batch_funcs.append(rc)
 
         if self.region_embedding is not None:
@@ -805,7 +799,6 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         self,
         as_torch=True,
         device=None,
-        downsample_rate=1,
         return_cells=False,
         **kwargs,
     ) -> Iterable[dict[str, Any]]:
@@ -814,8 +807,6 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
         Parameters
         ----------
-        downsample_rate : float, optional
-            The downsample rate, by default 1.
         local_shuffle_buffer_size : int, optional
             The size of the local shuffle buffer, by default 10000.
         randomize_block_order : bool, optional
@@ -836,15 +827,10 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         """
         self._working_dataset = self._dataset
 
-        if downsample_rate < 1:
-            self._working_dataset = self._working_dataset.random_sample(
-                fraction=downsample_rate
-            )
-
         additional_funcs = self._dataset_preprocess(return_cells=return_cells)
 
         _default = {
-            "prefetch_batches": 5,
+            "prefetch_batches": 3,
             "local_shuffle_buffer_size": 5000,
             "drop_last": True,
             "batch_size": self.batch_size,

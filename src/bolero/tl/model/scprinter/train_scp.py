@@ -20,7 +20,7 @@ from bolero.tl.model.scprinter.dataset import (
     scPrinterDataset,
     scPrinterSingleCellDataset,
 )
-from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
+from bolero.tl.model.scprinter.model_scp import scFootprintBPNetOrigin
 from bolero.tl.model.scprinter.utils import (
     CumulativeCounter,
     CumulativePearson,
@@ -117,7 +117,6 @@ class scFootprintTrainer:
             "lora_output_layer_groups": 1,
             "acumulate_grad": 8,
             "lr": 3e-4,
-            "no_over_rank": False,
         }
     )
     # some parameters not used in LoRA mode
@@ -436,16 +435,15 @@ class scFootprintTrainer:
             p.requires_grad = False
 
         acc_model = acc_model.cpu()
-        acc_model = scFootprintBPNetLoRA(
+        acc_model = scFootprintBPNetOrigin(
             dna_cnn_model=acc_model.dna_cnn_model,
             hidden_layer_model=acc_model.hidden_layer_model,
             profile_cnn_model=acc_model.profile_cnn_model,
             dna_len=acc_model.dna_len,
             output_len=acc_model.output_len,
-            example_cell_embedding=cell_emb,
-            example_region_embedding=region_emb,
-            a_embedding=config["a_embedding"],
-            b_embedding=config["b_embedding"],
+            a_embedding_dim=cell_emb.shape[1],
+            b_embedding_dim=cell_emb.shape[1],
+            example_a_embedding=torch.Tensor(cell_emb.sample(64).values).cuda(),
             lora_dna_cnn=config["lora_dna_cnn"],
             lora_dilated_cnn=config["lora_dilated_cnn"],
             lora_pff_cnn=config["lora_pff_cnn"],
@@ -454,8 +452,6 @@ class scFootprintTrainer:
             rank=config["lora_rank"],
             n_lora_layers=config["n_lora_layers"],
             hidden_dim=config["lora_hidden_dim"],
-            output_layer_groups=config["lora_output_layer_groups"],
-            no_over_rank=config["no_over_rank"],
         )
         acc_model.cuda()
         return acc_model

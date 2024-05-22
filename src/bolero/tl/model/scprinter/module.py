@@ -1,115 +1,44 @@
 import copy
 import math
+from functools import partial
 from typing import Optional, Tuple, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.nn import Parameter, init
 
 
-class LowRankLinear(nn.Module):
-    """
-    Low-Rank Linear Layer modified from nn.Linear.
+class GroupedLinear(nn.Module):
+    """Use nn.Conv1D with kernel_size=1 to simulate nn.Linear,
+    and utilize its groups parameter to simulate grouped linear layer.
 
-    A wrapper for nn.Linear layer that uses low-rank approximation for the weight matrix when the input * output dimension is large.
-
-    Parameters
-    ----------
-        in_features (int): Number of input features.
-        out_features (int): Number of output features.
-        rank (int, optional): Rank of the low-rank approximation. Defaults to 4.
-        bias (bool, optional): If set to True, adds a learnable bias to the output. Defaults to True.
-        device (str, optional): Device on which the tensors are allocated. Defaults to None.
-        dtype (torch.dtype, optional): Data type of the tensors. Defaults to None.
-        zero_init (bool, optional): If set to True, initializes the weights and bias with zeros. Defaults to False.
-
-    Attributes
-    ----------
-        in_features (int): Number of input features.
-        out_features (int): Number of output features.
-        weight_a (torch.Tensor): Low-rank weight tensor of shape (rank, in_features).
-        weight_b (torch.Tensor): Low-rank weight tensor of shape (out_features, rank).
-        bias (torch.Tensor or None): Bias tensor of shape (out_features,) or None if bias is False.
-
-    Methods
-    -------
-        reset_parameters(zero_init: bool) -> None:
-            Resets the parameters of the layer.
-        forward(input: torch.Tensor) -> torch.Tensor:
-            Performs forward pass through the layer.
-
+    The input and output dimensions are the same as nn.Linear.
     """
 
-    __constants__ = ["in_features", "out_features"]
-    in_features: int
-    out_features: int
-    weight_a: torch.Tensor
-    weight_b: torch.Tensor
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        rank: int = 4,
-        bias: bool = True,
-        device: Optional[str] = None,
-        dtype: Optional[torch.dtype] = None,
-        zero_init: bool = False,
-    ) -> None:
-        factory_kwargs = {"device": device, "dtype": dtype}
+    def __init__(self, in_features, out_features, groups=1, bias=True):
         super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight_a = Parameter(torch.empty((rank, in_features), **factory_kwargs))
-        self.weight_b = Parameter(torch.empty((out_features, rank), **factory_kwargs))
-        if bias:
-            self.bias = Parameter(torch.empty(out_features, **factory_kwargs))
-        else:
-            self.register_parameter("bias", None)
-        self.reset_parameters(zero_init)
 
-    def reset_parameters(self, zero_init: bool) -> None:
-        """
-        Resets the parameters of the layer.
+        self.internal_out_features = int(math.ceil(out_features / groups) * groups)
+        self.out_feathers = out_features
+        self.conv = nn.Conv1d(
+            in_channels=in_features,
+            out_channels=self.internal_out_features,
+            kernel_size=1,
+            groups=groups,
+            bias=bias,
+        )
+        self.weight = self.conv.weight
+        self.bias = self.conv.bias
 
-        Args:
-            zero_init (bool): If set to True, initializes the weights and bias with zeros.
-        """
-        if zero_init:
-            init.zeros_(self.weight_a)
-            init.zeros_(self.weight_b)
-            if self.bias is not None:
-                init.zeros_(self.bias)
-        else:
-            # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
-            # uniform(-1/sqrt(in_features), 1/sqrt(in_features)). For details, see
-            # https://github.com/pytorch/pytorch/issues/57109
-            init.kaiming_uniform_(self.weight_a, a=math.sqrt(5))
-            init.kaiming_uniform_(self.weight_b, a=math.sqrt(5))
-            if self.bias is not None:
-                fan_in = self.in_features
-                bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-                init.uniform_(self.bias, -bound, bound)
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """
-        Performs forward pass through the layer.
-
-        Args:
-            input (torch.Tensor): Input tensor of shape (batch_size, in_features).
-
-        Returns
-        -------
-            torch.Tensor: Output tensor of shape (batch_size, out_features).
-        """
-        weight = torch.matmul(self.weight_b, self.weight_a)
-        return F.linear(input, weight, self.bias)
-
-    def extra_repr(self) -> str:
-        """Returns the extra representation of the layer."""
-        return f"in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}"
+    def forward(self, x):
+        """Forward pass of the GroupedLinear module."""
+        x.unsqueeze_(2)  # add the length dimension
+        x = self.conv(x)
+        x.squeeze_(2)  # remove the length dimension
+        if self.internal_out_features != self.out_feathers:
+            x = x[:, : self.out_feathers]
+        return x
 
 
 class Conv1dWrapper(nn.Module):
@@ -152,6 +81,7 @@ class EmbeddingMLP(nn.Module):
         groups: int = None,
         kernel_size: int = None,
         n_layers: int = 0,
+        output_layer_groups: int = 1,
     ) -> None:
         """
         Initialize the EmbeddingMLP module.
@@ -184,6 +114,14 @@ class EmbeddingMLP(nn.Module):
         else:
             raise ValueError(f"emb_type must be either 'A' or 'B', got {emb_type}")
 
+        if output_layer_groups > 1:
+            if self.hidden_dim > 8 and self.out_feathres > 8:
+                output_module = partial(GroupedLinear, groups=output_layer_groups)
+            else:
+                output_module = nn.Linear
+        else:
+            output_module = nn.Linear
+
         layers = (
             [
                 nn.Linear(in_features=self.embedding_dim, out_features=self.hidden_dim),
@@ -197,7 +135,7 @@ class EmbeddingMLP(nn.Module):
             ]
             * n_layers
             + [
-                nn.Linear(
+                output_module(
                     in_features=self.hidden_dim,
                     out_features=self.out_feathres,
                 ),
@@ -223,9 +161,14 @@ class EmbeddingMLP(nn.Module):
         Zero the weights and bias of the MLP's first layer, use this in B embedding.
         """
         for i in range(len(self.mlp)):
-            if isinstance(self.mlp[i], nn.Linear):
+            if isinstance(self.mlp[i], (nn.GELU, nn.BatchNorm1d)):
+                continue
+
+            if isinstance(self.mlp[i], (nn.Linear, GroupedLinear)):
                 self.mlp[i].bias.data[...] = 0
                 self.mlp[i].weight.data[...] = 0
+            else:
+                print("Skip zero weights and bias for layer", i, type(self.mlp[i]))
         return
 
     def scale_weights(self, example_embedding):
@@ -271,6 +214,8 @@ class Conv1dMultiLoRA(nn.Module):
         hidden_dims: Optional[list[int]] = None,
         n_layers: int = 0,
         example_a_embedding: Optional[torch.Tensor] = None,
+        output_layer_groups: int = 1,
+        no_over_rank: bool = False,
     ) -> None:
         """
         Initialize the Conv1dLoRA module.
@@ -297,6 +242,12 @@ class Conv1dMultiLoRA(nn.Module):
         self.dilation = self.pretrain_conv.dilation[0]
         self.padding = self.pretrain_conv.padding[0]
         self.groups = self.pretrain_conv.groups
+        self.output_layer_groups = output_layer_groups
+
+        if no_over_rank:
+            # restrict rank to be less than the minimum of
+            # layer_dim_in and layer_dim_out
+            r = int(min(self.layer_dim_in, self.layer_dim_out, r))
 
         if alpha is None:
             alpha = r
@@ -336,6 +287,7 @@ class Conv1dMultiLoRA(nn.Module):
                 hidden_dim=hidden_dim,
                 n_layers=n_layers,
                 emb_type="A",
+                output_layer_groups=self.output_layer_groups,
             )
             for A_embedding_dim, hidden_dim in zip(
                 self.A_embedding_dims, self.hidden_dims
@@ -351,6 +303,7 @@ class Conv1dMultiLoRA(nn.Module):
                 n_layers=n_layers,
                 kernel_size=self.kernel_size,
                 emb_type="B",
+                output_layer_groups=self.output_layer_groups,
             )
             for B_embedding_dim, hidden_dim in zip(
                 self.B_embedding_dims, self.hidden_dims
@@ -592,3 +545,180 @@ class Conv1dMultiLoRA(nn.Module):
             lora_x = lora_x + _x
         final_output = layer_output + lora_x
         return final_output
+
+
+class Conv1dLoRA(nn.Module):
+    """Original Conv1d Layer with Low Rank Adaptation Fine-tuning from scprinter."""
+
+    def __init__(
+        self,
+        layer,
+        A_embedding_dim=None,
+        B_embedding_dim=None,
+        example_a_embedding=None,
+        r=8,
+        alpha=None,
+        hidden_dim=None,
+        n_layers=0,
+    ):
+        super().__init__()
+        import scprinter
+
+        assert isinstance(
+            layer, scprinter.seq.Modules.Conv1dWrapper
+        ), "The layer must be a Conv1dWrapper layer"
+        self.layer = layer
+        self.pretrain_conv = layer.conv
+        self.layer_dim_in = self.pretrain_conv.in_channels
+        self.layer_dim_out = self.pretrain_conv.out_channels
+        self.kernel_size = self.pretrain_conv.kernel_size[0]
+        self.dilation = self.pretrain_conv.dilation[0]
+        self.padding = self.pretrain_conv.padding[0]
+        self.groups = self.pretrain_conv.groups
+
+        self.A_embedding_dim = A_embedding_dim
+        self.B_embedding_dim = B_embedding_dim
+
+        if alpha is None:
+            alpha = r
+
+        self.scale = alpha / r
+        self.r = r
+
+        if hidden_dim is None:
+            self.hidden_dim = self.A_embedding_dim
+        else:
+            self.hidden_dim = hidden_dim
+
+        layers = (
+            [
+                nn.Linear(
+                    in_features=self.A_embedding_dim, out_features=self.hidden_dim
+                ),
+                nn.BatchNorm1d(self.hidden_dim),
+                nn.GELU(),
+            ]
+            + [
+                nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim),
+                nn.BatchNorm1d(self.hidden_dim),
+                nn.GELU(),
+            ]
+            * n_layers
+            + [
+                nn.Linear(
+                    in_features=self.hidden_dim,
+                    out_features=int(
+                        self.layer_dim_in * r / self.groups
+                    ),  # lead to a weight matrix of shape (r, layer_dim_in)
+                ),
+            ]
+        )
+        self.A_embedding = nn.Sequential(*layers)
+
+        layers = (
+            [
+                nn.Linear(
+                    in_features=self.B_embedding_dim, out_features=self.hidden_dim
+                ),
+                nn.BatchNorm1d(self.hidden_dim),
+                nn.GELU(),
+            ]
+            + [
+                nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim),
+                nn.BatchNorm1d(self.hidden_dim),
+                nn.GELU(),
+            ]
+            * n_layers
+            + [
+                nn.Linear(
+                    in_features=self.hidden_dim,
+                    out_features=int(
+                        self.layer_dim_out * r * self.kernel_size
+                    ),  # lead to a weight matrix of shape (layer_dim_out, r)
+                ),
+            ]
+        )
+        self.B_embedding = nn.Sequential(*layers)
+
+        # When combined, this will lead to a weight matrix of shape (layer_dim_out, layer_dim_in, kernel_size)
+
+        ## Make sure B starts as all zeros:
+        for i in range(len(self.B_embedding)):
+            if isinstance(self.B_embedding[i], nn.Linear):
+                self.B_embedding[i].bias.data[...] = 0
+                self.B_embedding[i].weight.data[...] = 0
+
+        # test A_output distribution
+        with torch.no_grad():
+            self.A_embedding.eval()
+            self.A_embedding.cuda()
+            A_output = self.A_embedding(example_a_embedding.cuda())
+            mean, std = A_output.mean(), A_output.std()
+            print(f"A_output mean: {mean}, std: {std}")
+            self.rescale_factor = 1 / (std)  # rescale the embedding matrix
+
+    def forward(self, X, a_embedding, b_embedding, modes=None):
+        """
+        Forward pass of the Conv1dLoRA module.
+        """
+        with torch.no_grad():
+            a_embedding = a_embedding * self.rescale_factor
+            b_embedding = b_embedding * self.rescale_factor
+
+        if self.kernel_size == 1:
+            # When kernel_size == 1, the convolution is actually a linear layer, take a short path
+            A = self.A_embedding(a_embedding).reshape((-1, self.r, self.layer_dim_in))
+            B = self.B_embedding(b_embedding).reshape((-1, self.layer_dim_out, self.r))
+            # x: (batch_size, layer_dim_in, seq_len)
+            lora_x = torch.bmm(A, X)  # (batch_size, r, seq_len)
+            if modes is not None:
+                B = B[:, modes]
+            lora_x = torch.bmm(B, lora_x)  # (batch_size, layer_dim_out, seq_len
+            return lora_x * self.scale + (self.layer(X, modes=modes))
+        else:
+            # When kernel_size > 1, the convolution can be written as groupped convolutioni,
+            # take a long path
+            bs = X.shape[0]  # batch_size
+            A = self.A_embedding(a_embedding).reshape(
+                (bs, int(self.layer_dim_in / self.groups), self.r)
+            )
+            B = self.B_embedding(b_embedding).reshape(
+                (bs, self.r, self.layer_dim_out, self.kernel_size)
+            )
+            if modes is not None:
+                B = B[:, modes]
+            B = B.reshape((bs, self.r, self.layer_dim_out * self.kernel_size))
+            weight = (
+                torch.bmm(A, B)
+                .reshape(
+                    (
+                        bs,
+                        int(self.layer_dim_in / self.groups),
+                        self.layer_dim_out,
+                        self.kernel_size,
+                    )
+                )
+                .contiguous()
+                .permute(0, 2, 1, 3)
+            )
+            # size of (batch_size, layer_dim_out, layer_dim_in / groups, kernel_size)
+
+            # route 1
+            weight = weight.reshape(
+                (-1, int(self.layer_dim_in / self.groups), self.kernel_size)
+            )
+            # size of (batch_size * layer_dim_out, layer_dim_in / groups, kernel_size)
+            # X after reshape (1, batch_size*layer_dim_in, seq_len)
+            lora_x = F.conv1d(
+                X.reshape((1, -1, X.shape[-1])),
+                weight=weight,
+                bias=None,
+                dilation=self.dilation,
+                groups=bs * self.groups,
+                padding=self.padding,
+            )  # each batch_size is a group
+            # within each group, the convolution projects from (layer_dim_in, seq_len) to (layer_dim_out, seq_len)
+            # This is equivalent to a for loop over each sample in the batch
+            lora_x = lora_x.view(bs, self.layer_dim_out, -1)
+            X = lora_x * self.scale + self.layer(X, modes=modes)
+            return X
