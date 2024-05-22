@@ -48,7 +48,7 @@ class RaySingleCellDataset:
         self._dataset = ray.data.read_parquet(
             chrom_dirs,
             file_extensions=["parquet"],
-            shuffle="file" if shuffle_files else None,
+            shuffle="files" if shuffle_files else None,
             override_num_blocks=override_num_blocks,
         )
         _schema = self._dataset.schema()
@@ -95,6 +95,7 @@ class RaySingleCellDataset:
     def prepare_pseudobulker(
         self,
         cell_embedding: Union[str, pathlib.Path, pd.DataFrame],
+        cell_coverage: Union[str, pathlib.Path, pd.Series],
         predefined_pseudobulk: Optional[dict] = None,
     ) -> None:
         """
@@ -117,8 +118,14 @@ class RaySingleCellDataset:
         elif isinstance(cell_embedding, pd.DataFrame):
             _embedding = cell_embedding
 
+        if isinstance(cell_coverage, (str, pathlib.Path)):
+            cell_coverage = pd.read_feather(cell_coverage)
+            cell_coverage = cell_coverage.set_index(cell_coverage.columns[0]).squeeze()
+
         pseudobulker = PseudobulkGenerator(
-            embedding=_embedding, barcode_order=self.barcode_order
+            embedding=_embedding,
+            barcode_order=self.barcode_order,
+            cell_coverage=cell_coverage,
         )
         if predefined_pseudobulk:
             pseudobulker.add_predefined_pseudobulks(predefined_pseudobulk)
@@ -208,7 +215,7 @@ class RaySingleCellDataset:
         """
         # TODO: determine flat_map memory dynamically based on the size of the dataset
         if memory == "auto":
-            memory = 5 * 1024**3  # 4GB
+            memory = 3 * 1024**3  # Gb to bytes
 
         if self.pseudobulker is None:
             raise ValueError(

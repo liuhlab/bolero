@@ -100,7 +100,7 @@ def prepare_meta_region(
 def _remote_isel(da, dim, sel):
     # try first sel to get shape
     data_list = []
-    for slice_ in enumerate(sel):
+    for slice_ in sel:
         data_list.append(da.isel({dim: slice_}).values)
     return data_list
 

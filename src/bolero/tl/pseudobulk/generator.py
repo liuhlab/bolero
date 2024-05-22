@@ -9,7 +9,10 @@ class PseudobulkGenerator:
     """Generate pseudobulks from embedding data."""
 
     def __init__(
-        self, embedding: pd.DataFrame, barcode_order: dict[str, pd.Index]
+        self,
+        embedding: pd.DataFrame,
+        barcode_order: dict[str, pd.Index],
+        cell_coverage: pd.Series,
     ) -> None:
         """
         Initialize the PseudobulkGenerator.
@@ -26,12 +29,15 @@ class PseudobulkGenerator:
         self.embedding = embedding.astype("float32")
         self.cells = embedding.index
         self.n_cells, self.n_features = embedding.shape
+        self.cell_coverage = cell_coverage
 
         self._predefined_pseudobulks = None
 
         self.barcode_order = barcode_order
 
-    def add_predefined_pseudobulks(self, pseudobulks: dict[str, pd.Index]) -> None:
+    def add_predefined_pseudobulks(
+        self, pseudobulks: dict[str, pd.Index], standard_cells=2500
+    ) -> None:
         """
         Add predefined pseudobulks.
 
@@ -43,10 +49,22 @@ class PseudobulkGenerator:
         -------
         None
         """
+        use_pseudobulks = {}
+        for k, cells in pseudobulks.items():
+            cells = pd.Series(list(cells))
+            if cells.size >= standard_cells:
+                cells = cells.sample(standard_cells, random_state=0)
+                use_pseudobulks[k] = cells
+            else:
+                continue
+        print(
+            f"{len(use_pseudobulks)} predefined pseudobulks are used, each having {standard_cells} cells."
+        )
+
         if self._predefined_pseudobulks is None:
-            self._predefined_pseudobulks = list(pseudobulks.values())
+            self._predefined_pseudobulks = list(use_pseudobulks.values())
         else:
-            self._predefined_pseudobulks.extend(pseudobulks.values())
+            self._predefined_pseudobulks.extend(use_pseudobulks.values())
 
     def get_pseudobulk_centriods(
         self, cells: pd.Index, method: str = "mean"
@@ -71,6 +89,20 @@ class PseudobulkGenerator:
         else:
             raise ValueError(f"Unknown method {method}")
 
+    def get_pseudobulk_coverage(self, cells: pd.Index) -> float:
+        """
+        Get the coverage of pseudobulks.
+
+        Parameters
+        ----------
+        cells (pd.Index): The cells to calculate coverage for.
+
+        Returns
+        -------
+        float: The coverage of pseudobulks.
+        """
+        return np.log10(self.cell_coverage.loc[cells].sum() + 1)
+
     def take_predefined_pseudobulk(
         self, n: int
     ) -> Generator[tuple[dict[str, pd.Index], np.ndarray], None, None]:
@@ -88,13 +120,15 @@ class PseudobulkGenerator:
         if self._predefined_pseudobulks is None:
             raise ValueError("No predefined pseudobulks")
 
-        random_idx = np.random.choice(
-            len(self._predefined_pseudobulks), size=n, replace=False
-        )
+        n_defined = len(self._predefined_pseudobulks)
+        actual_n = min(n, n_defined)
+        random_idx = np.random.choice(n_defined, size=actual_n, replace=False)
         for idx in random_idx:
             cells = self._predefined_pseudobulks[idx]
             prefix_to_rows = self._cells_to_prefix_dict(cells)
             embeddings = self.get_pseudobulk_centriods(cells)
+            coverage = self.get_pseudobulk_coverage(cells)
+            embeddings = np.concatenate([embeddings, [coverage]])
             yield cells, prefix_to_rows, embeddings
 
     def _cells_to_prefix_dict(self, cells: pd.Index) -> dict[str, pd.Index]:
