@@ -1371,7 +1371,7 @@ class scFootprintTrainer:
             print(f"Output adjusted model path {output_adj_model_path} does not exist.")
             return False
 
-    def train_lora(self, adj_output_only=False) -> None:
+    def train_lora(self, adj_output_only=False, valid_first=False) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
         wandb_run = self._setup_wandb()
         if wandb_run is None:
@@ -1396,7 +1396,9 @@ class scFootprintTrainer:
                     self._setup_fit()
 
                     # only train for 3 epochs to adjust the output layer
-                    self._fit(sample=None, region=None, max_epochs=2, valid_first=True)
+                    self._fit(
+                        sample=None, region=None, max_epochs=2, valid_first=valid_first
+                    )
                     self._save_stage_flag("adj_output")
                     self._cleanup_env()
                     self.mode = "lora"
@@ -1409,7 +1411,7 @@ class scFootprintTrainer:
                 self.checkpoint = self._find_last_checkpoint()
                 self._setup_model()
                 self._setup_fit()
-                self._fit(sample=None, region=None, valid_first=True)
+                self._fit(sample=None, region=None, valid_first=valid_first)
                 self._test(sample=None, region=None)
             self._cleanup_env()
             wandb.finish()
