@@ -120,18 +120,23 @@ class scMetaRegionToBulkRegion:
 
                 _bulk_values = csr_matrix(cell_by_base[rows].sum(axis=0).A1)
                 _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
+                # TODO: check if all cell is found, otherwise print warning
         embedding_data = np.array(embedding_data)
 
         # remove prefix csr_matrix from data_dict
         for prefix in self.prefixs:
             data_dict.pop(prefix)
 
+        # pseudobulks maybe less than self.n_pseudobulks
+        actual_n_pseudobulks = embedding_data.shape[0]
         bulk_data = []
-        for bulk_idx in range(self.n_pseudobulks):
+        for bulk_idx in range(actual_n_pseudobulks):
             bulk_data_list = _per_prefix_bulk_data[bulk_idx]
             if len(bulk_data_list) == 0:
+                example_cells = list(cells_col[bulk_idx])[:5]
                 raise ValueError(
-                    f"No cells for bulk {bulk_idx}, this might be due to prefix or cell id mismatch."
+                    f"No cells for bulk {bulk_idx}, this might be due to prefix or cell id mismatch. "
+                    f"Example cells: {example_cells}"
                 )
             agg_bulk = csr_matrix(
                 vstack(_per_prefix_bulk_data[bulk_idx]).sum(axis=0).A1

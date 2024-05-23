@@ -58,8 +58,11 @@ class PseudobulkGenerator:
                     use_pseudobulks[k] = cells
                 else:
                     continue
+            else:
+                use_pseudobulks[k] = cells
+
         print(
-            f"{len(use_pseudobulks)} predefined pseudobulks are used, each having {standard_cells} cells."
+            f"{len(use_pseudobulks)} predefined pseudobulks are used, standard cell number is {standard_cells}."
         )
 
         if self._predefined_pseudobulks is None:
