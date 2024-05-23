@@ -2,7 +2,6 @@ import gc
 import json
 import pathlib
 
-import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -97,6 +96,7 @@ class scFootprintTrainer:
             "use_prefix": None,
             "sample_regions": 200,
             "n_pseudobulk": 10,
+            "standard_cells": 2500,
             "min_cov": 10,
             "max_cov": 100000,
             "low_cov_ratio": 0.1,
@@ -630,19 +630,16 @@ class scFootprintTrainer:
                 genome=self.genome,
             )
             # setup pseudobulker for sc dataset
-            pseudobulk_path = self.config["pseudobulk_path"]
-            if pseudobulk_path is not None:
-                pseudobulks = joblib.load(pseudobulk_path)
-            else:
-                pseudobulks = None
-
             cell_embedding_path = self.config["cell_embedding"]
             region_embedding_path = self.config["region_embedding"]
             cell_coverage_path = self.config["cell_coverage"]
+            pseudobulk_path = self.config["pseudobulk_path"]
+            standard_cells = self.config["standard_cells"]
             dataset.prepare_pseudobulker(
                 cell_embedding=cell_embedding_path,
                 cell_coverage=cell_coverage_path,
-                predefined_pseudobulk=pseudobulks,
+                predefined_pseudobulk_path=pseudobulk_path,
+                standard_cells=standard_cells,
             )
             dataset.add_region_embedding(region_embedding_path)
         else:

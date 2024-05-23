@@ -52,11 +52,12 @@ class PseudobulkGenerator:
         use_pseudobulks = {}
         for k, cells in pseudobulks.items():
             cells = pd.Series(list(cells))
-            if cells.size >= standard_cells:
-                cells = cells.sample(standard_cells, random_state=0)
-                use_pseudobulks[k] = cells
-            else:
-                continue
+            if standard_cells is not None:
+                if cells.size >= standard_cells:
+                    cells = cells.sample(standard_cells, random_state=0)
+                    use_pseudobulks[k] = cells
+                else:
+                    continue
         print(
             f"{len(use_pseudobulks)} predefined pseudobulks are used, each having {standard_cells} cells."
         )

@@ -3,6 +3,7 @@
 import pathlib
 from typing import Optional, Union
 
+import joblib
 import numpy as np
 import pandas as pd
 import ray
@@ -106,7 +107,8 @@ class RaySingleCellDataset:
         self,
         cell_embedding: Union[str, pathlib.Path, pd.DataFrame],
         cell_coverage: Union[str, pathlib.Path, pd.Series],
-        predefined_pseudobulk: Optional[dict] = None,
+        predefined_pseudobulk_path: Union[str, pathlib.Path] = None,
+        standard_cells: int = 2500,
     ) -> None:
         """
         Prepare the pseudobulker.
@@ -137,8 +139,14 @@ class RaySingleCellDataset:
             barcode_order=self.barcode_order,
             cell_coverage=cell_coverage,
         )
-        if predefined_pseudobulk:
-            pseudobulker.add_predefined_pseudobulks(predefined_pseudobulk)
+        if predefined_pseudobulk_path is not None:
+            if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
+                predefined_pseudobulk_path = [predefined_pseudobulk_path]
+            for i, path in enumerate(predefined_pseudobulk_path):
+                _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
+                pseudobulker.add_predefined_pseudobulks(
+                    _d, standard_cells=standard_cells
+                )
         self.pseudobulker = pseudobulker
 
         # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
