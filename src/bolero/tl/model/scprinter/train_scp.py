@@ -96,6 +96,7 @@ class scFootprintTrainer:
             "use_prefix": None,
             "sample_regions": 200,
             "n_pseudobulk": 10,
+            "standard_cells": 2500,
             "min_cov": 10,
             "max_cov": 100000,
             "low_cov_ratio": 0.1,
@@ -116,6 +117,7 @@ class scFootprintTrainer:
             "lora_output_layer_groups": 1,
             "acumulate_grad": 8,
             "lr": 3e-4,
+            "no_over_rank": False,
         }
     )
     # some parameters not used in LoRA mode
@@ -629,10 +631,12 @@ class scFootprintTrainer:
             region_embedding_path = self.config["region_embedding"]
             cell_coverage_path = self.config["cell_coverage"]
             pseudobulk_path = self.config["pseudobulk_path"]
+            standard_cells = self.config["standard_cells"]
             dataset.prepare_pseudobulker(
                 cell_embedding=cell_embedding_path,
                 cell_coverage=cell_coverage_path,
                 predefined_pseudobulk_path=pseudobulk_path,
+                standard_cells=standard_cells,
             )
             dataset.add_region_embedding(region_embedding_path)
         else:

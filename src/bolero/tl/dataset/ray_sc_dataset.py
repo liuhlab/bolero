@@ -56,10 +56,12 @@ class RaySingleCellDataset:
                 len(chrom_dirs) > 0
             ), f"None of the chroms {chroms} exists in {dataset_path}"
 
+        print("File shuffle is disabled!!!")
         self._dataset = ray.data.read_parquet(
             chrom_dirs,
             file_extensions=["parquet"],
-            shuffle="files" if shuffle_files else None,
+            shuffle=None,
+            # shuffle="files" if shuffle_files else None,
             override_num_blocks=override_num_blocks,
         )
         _schema = self._dataset.schema()
