@@ -21,7 +21,6 @@ setup: |
   then
     echo "Skip setup"
   else
-    pip install wandb --upgrade
     pip install scmallet bolero papermill
     pip install /mnt/filestore/pkg/scPrinter
     touch $HOME/.SKIPSETUP
@@ -31,4 +30,5 @@ run: |
   set -e  # Exit if any command failed.
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 3456 > ~/jupyter.log 2>&1 &
-  papermill --cwd /mnt/filestore/240315-scPrinter/04.bulk_train/ -p split_id 0 /mnt/filestore/240315-scPrinter/04.bulk_train/02.train_bulk_model.ipynb /mnt/filestore/240315-scPrinter/04.bulk_train/02.train_bulk_model.split0.ipynb
+  papermill --cwd /mnt/filestore/240315-scPrinter/05.lora_train/ /mnt/filestore/240315-scPrinter/05.lora_train//train-knn-cell_scp.ipynb /mnt/filestore/240315-scPrinter/05.lora_train//train-knn-cell_scp.job.ipynb
+

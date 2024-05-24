@@ -1,3 +1,23 @@
+"""
+scFootprintBPNetLoRA
+
+This model composed of three parts
+1. DNA CNN Model:
+Description: A convolutional neural network model for extracting motif level features from DNA sequences.
+Input Shape: (batch_size, dna_channels, dna_len), default (64, 4, 1840)
+Output Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
+
+2. Hidden Layer Model:
+Description: A multi-layer residual connect CNN model for encoding sequence information.
+Layers: 8 layers of ConvBlocks, each block contains a dialated, grouped CNN layer and a pointwise feedforward CNN layer; connected by residual connections.
+Input Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
+Output Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
+
+3. Profile CNN Model:
+
+
+"""
+
 from copy import deepcopy
 from functools import partial
 from typing import Optional

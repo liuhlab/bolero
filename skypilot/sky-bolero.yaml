@@ -5,7 +5,7 @@
 resources:
   cloud: gcp
   cpus: 16+
-  memory: 64+
+  memory: 128+
   region: us-central1
   disk_size: 256
   accelerators: { "L4:1", "T4:1" }
