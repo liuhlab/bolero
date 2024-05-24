@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from bolero.tl.model.scprinter.module import Conv1dWrapper
+from bolero.tl.model.utils.module import Conv1dWrapper
 
 
 class scFootprintBPNetOrigin(nn.Module):

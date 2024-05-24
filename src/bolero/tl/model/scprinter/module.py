@@ -1,5 +1,4 @@
 import copy
-import math
 from functools import partial
 from typing import Optional, Tuple, Union
 
@@ -8,62 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-
-class GroupedLinear(nn.Module):
-    """Use nn.Conv1D with kernel_size=1 to simulate nn.Linear,
-    and utilize its groups parameter to simulate grouped linear layer.
-
-    The input and output dimensions are the same as nn.Linear.
-    """
-
-    def __init__(self, in_features, out_features, groups=1, bias=True):
-        super().__init__()
-
-        self.internal_out_features = int(math.ceil(out_features / groups) * groups)
-        self.out_feathers = out_features
-        self.conv = nn.Conv1d(
-            in_channels=in_features,
-            out_channels=self.internal_out_features,
-            kernel_size=1,
-            groups=groups,
-            bias=bias,
-        )
-        self.weight = self.conv.weight
-        self.bias = self.conv.bias
-
-    def forward(self, x):
-        """Forward pass of the GroupedLinear module."""
-        x.unsqueeze_(2)  # add the length dimension
-        x = self.conv(x)
-        x.squeeze_(2)  # remove the length dimension
-        if self.internal_out_features != self.out_feathers:
-            x = x[:, : self.out_feathers]
-        return x
-
-
-class Conv1dWrapper(nn.Module):
-    """Conv1d Layer Wrapper that support modes."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv1d(*args, **kwargs)
-        self.weight = self.conv.weight
-        self.bias = self.conv.bias
-
-    def forward(self, X, *args, modes=None, **kwargs):
-        """Forward pass of the Conv1dWrapper module."""
-        # The args, and kwargs are just placeholders
-        # Use modes to select a subset of the weights
-        return (
-            self.conv(X)
-            if modes is None
-            else F.conv1d(
-                X,
-                self.conv.weight[modes],
-                self.conv.bias[modes],
-                padding=self.conv.padding[0],
-            )
-        )
+from bolero.tl.model.utils.module import GroupedLinear, Conv1dWrapper
 
 
 class EmbeddingMLP(nn.Module):
@@ -187,9 +131,9 @@ class EmbeddingMLP(nn.Module):
             mean, std = example_output.mean(), example_output.std()
             print(f"Embedding example mean: {mean}, std: {std}")
             rescale_factor = 1 / (std)
-            self.mlp[0].weight.data[...] *= (
-                rescale_factor  # rescale the embedding matrix
-            )
+            self.mlp[0].weight.data[
+                ...
+            ] *= rescale_factor  # rescale the embedding matrix
         return
 
     def fix_parameters(self):
@@ -273,8 +217,8 @@ class Conv1dMultiLoRA(nn.Module):
         elif isinstance(hidden_dims, int):
             self.hidden_dims = [hidden_dims] * len(A_embedding_dims)
         else:
-            assert (
-                len(hidden_dims) == len(A_embedding_dims)
+            assert len(hidden_dims) == len(
+                A_embedding_dims
             ), f"hidden_dim must have the same length as A_embedding_dims (length of {len(A_embedding_dims)})"
             self.hidden_dims = hidden_dims
 

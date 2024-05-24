@@ -14,7 +14,11 @@ Input Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 Output Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 
 3. Profile CNN Model:
-
+Description: A output model for predicting multi-mode footprint (mode as channels) or coverage signals.
+Input Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
+Output Shape: 
+    - Footprint, (batch_size, n_modes, output_len), default (64, 99, 800)
+    - Coverage (log10(cov_mean) of the region), (batch_size, 1), default (64, 1)
 
 """
 
@@ -26,8 +30,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, Conv1dWrapper
+from bolero.tl.model.scprinter.module import Conv1dMultiLoRA
 
+from bolero.tl.model.utils.module import Conv1dWrapper
 
 class scFootprintBPNet(nn.Module):
     """scFootprintBPNet bulk model."""
