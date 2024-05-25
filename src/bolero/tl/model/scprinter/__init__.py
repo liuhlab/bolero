@@ -1,3 +1,3 @@
 from .dataset import scPrinterDataset
 from .train import scFootprintTrainer
-from .utils import get_splits
+from ..utils.train_helper import get_splits

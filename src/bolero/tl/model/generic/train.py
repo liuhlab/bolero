@@ -1,0 +1,528 @@
+from torch import nn
+import torch
+import pathlib
+import json
+import wandb
+from bolero.tl.model.generic.train_helper import (
+    validate_config,
+    check_wandb_success,
+    compare_configs,
+    safe_save,
+)
+from bolero.tl.model.generic.ema import EMA
+from bolero.utils import try_gpu, get_fs_and_path
+import gc
+import numpy as np
+
+
+class GenericDataset:
+    defalut_config = {}
+
+    @classmethod
+    def get_default_config(cls):
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config):
+        return cls(**config)
+
+
+class GenericModel(nn.Module):
+    default_config = {}
+
+    @classmethod
+    def get_default_config(cls):
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config):
+        return cls(**config)
+
+
+class TrainerAttributesMixin:
+    savename: str
+    mode: str
+
+    @property
+    def wandb_run_info_path(self) -> pathlib.Path:
+        return pathlib.Path(f"{self.savename}.wandb_run_info.json")
+
+    @property
+    def best_checkpoint_path(self) -> pathlib.Path:
+        return pathlib.Path(f"{self.savename}.{self.mode}.best_checkpoint.pt")
+
+    @property
+    def epoch_info_path(self) -> pathlib.Path:
+        return pathlib.Path(f"{self.savename}.{self.mode}.epoch_info.pt")
+
+    @property
+    def best_model_path(self) -> pathlib.Path:
+        return pathlib.Path(f"{self.savename}.{self.mode}.best_model.pt")
+
+
+class TrainerDatasetMixin:
+    dataset_class: GenericDataset
+    train_dataset: GenericDataset
+    valid_dataset: GenericDataset
+    test_dataset: GenericDataset
+    train_chroms: list[str]
+    valid_chroms: list[str]
+    test_chroms: list[str]
+    config: dict
+
+    def _setup_dataset(self):
+        config = self.config
+
+        # train, valid, test split by chromosome
+        chrom_split = config["chrom_split"]
+        self.train_chroms = chrom_split["train"]
+        self.valid_chroms = chrom_split["valid"]
+        self.test_chroms = chrom_split["test"]
+
+        # dataset location and schema
+        self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
+        # create dataset slots
+        self._train_dataset = None
+        self._valid_dataset = None
+        self._test_dataset = None
+
+    def _get_dataset_paths(self, _chroms):
+        # check if the file exists in gcs bucket
+        dataset_paths = []
+        for chrom in _chroms:
+            dataset_path = self.config["dataset_path"]
+            path = f"{dataset_path}/{chrom}"
+            if self.fs.get_file_info(path).type:
+                # type is True only if the file exists
+                dataset_paths.append(path)
+        return dataset_paths
+
+    @property
+    def train_dataset(self):
+        """Training dataset."""
+        if self._train_dataset is None:
+            dataset = self._get_dataset(self.train_chroms)
+            dataset.train()
+            self._train_dataset = dataset
+        return self._train_dataset
+
+    @property
+    def valid_dataset(self):
+        """Validation dataset."""
+        if self._valid_dataset is None:
+            self._valid_dataset = self._get_dataset(self.valid_chroms)
+            self._valid_dataset.eval()
+        return self._valid_dataset
+
+    @property
+    def test_dataset(self):
+        """Test dataset."""
+        if self._test_dataset is None:
+            self._test_dataset = self._get_dataset(self.test_chroms)
+            self._test_dataset.eval()
+        return self._test_dataset
+
+    def _get_dataset(self, chroms):
+        dataset_paths = self._get_dataset_paths(chroms)
+        config = self.config.copy()
+        config["dataset_path"] = dataset_paths
+        validate_config(
+            config, self.dataset_class.default_config, allow_extra_keys=True
+        )
+        dataset = self.dataset_class.create_from_config()
+        return dataset
+
+
+class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
+    """Generic Trainer for training models."""
+
+    trainer_config = {
+        "mode": "init",
+        "chrom_split": "REQUIRED",
+        "sample": "REQUIRED",
+        "region": "REQUIRED",
+        "output_dir": "REQUIRED",
+        "savename": "REQUIRED",
+        "wandb_project": "REQUIRED",
+        "wandb_job_type": "REQUIRED",
+        "wandb_group": None,
+        "max_epochs": 100,
+        "patience": 5,
+        "use_amp": True,
+        "use_ema": True,
+        "scheduler": False,
+        "lr": 0.003,
+        "weight_decay": 0.001,
+        "accumulate_grad": 1,
+        "train_batches": 5000,
+        "val_batches": 500,
+        "loss_tolerance": 0.003,
+    }
+    dataset_class = GenericDataset
+    model_class = GenericModel
+
+    def __init__(self, config):
+        validate_config(config, self.get_default_config(), allow_extra_keys=False)
+        self.config: dict = config.copy()
+
+        # mode controls global trainer behavior in initial training or LoRA fine tuning
+        self.mode: str = config["mode"]
+        self.mode = self.mode.lower()
+
+        # dataset objects
+        self.train_dataset: GenericDataset = None
+        self.valid_dataset: GenericDataset = None
+        self.test_dataset: GenericDataset = None
+
+        # model and helper objects
+        self.model: GenericModel = None
+        self.total_params: int = None
+        self.trainable_params: int = None
+        self.device: torch.device = try_gpu()
+        self.optimizer: torch.optim.Optimizer = None
+        self.scheduler: torch.optim.lr_scheduler._LRScheduler = None
+        self.scaler: torch.cuda.amp.GradScaler = None
+        self.ema: EMA = None
+
+        # epoch info
+        self.checkpoint: bool = False
+        self.cur_epoch: int = 0
+        self.early_stopping_counter: int = 0
+        self.best_val_loss: float = np.Inf
+
+        # path and file names
+        self.output_dir: pathlib.Path = None
+        self.savename: str = None
+        self.run_name: str = None
+        self.mode: str = None
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """Get default configuration combined from dataset, model and trainer."""
+        dataset_config = cls.dataset_class.get_default_config()
+        model_config = cls.model_class.get_default_config()
+        default_config = {**cls.trainer_config, **dataset_config, **model_config}
+        return default_config
+
+    @classmethod
+    def make_config(cls, **kwargs) -> dict:
+        """
+        Make a configuration dictionary.
+
+        Args:
+            **kwargs: Additional keyword arguments to update the configuration.
+
+        Returns
+        -------
+            dict: Configuration dictionary.
+        """
+        config = cls.get_default_config()
+        config.update(kwargs)
+        validate_config(config, cls.get_default_config(), allow_extra_keys=False)
+        return config
+
+    def _setup_wandb(self):
+        """
+        Set up Weights and Biases for logging.
+
+        Args:
+            config (dict): Configuration dictionary.
+
+        Returns
+        -------
+            Weights and Biases run context.
+        """
+        config = self.config
+
+        # setup directory
+        self.output_dir = pathlib.Path(config["output_dir"]).absolute().resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        savename = config["savename"]
+        self.savename = str(self.output_dir / savename)
+        wandb_run_info_path = self.wandb_run_info_path
+
+        # load wandb run info file if exists
+        if wandb_run_info_path.exists():
+            with open(wandb_run_info_path) as f:
+                wandb_run_info = json.load(f)
+
+            # check if the previous run has finished successfully on W & B API
+            success = check_wandb_success(wandb_run_info["path"])
+            same_config = compare_configs(wandb_run_info["config"], config)
+            if same_config:
+                if success:
+                    print(
+                        f"W & B run {wandb_run_info['name']} {wandb_run_info['id']} was successful. Skipping."
+                    )
+                    return None
+                else:
+                    print(
+                        f"Resuming W & B run with name: {wandb_run_info['name']} and id: {wandb_run_info['id']}."
+                    )
+                    from wandb.errors import CommError
+
+                    try:
+                        wandb_run = wandb.init(
+                            id=wandb_run_info["id"],
+                            project=config["wandb_project"],
+                            job_type=config["wandb_job_type"],
+                            entity=wandb_run_info["entity"],
+                            name=wandb_run_info["name"],
+                            group=wandb_run_info["group"],
+                            resume="allow",
+                        )
+                    except CommError:
+                        print(
+                            "W & B run exists but cannot be resumed. Starting a new run."
+                        )
+                        wandb_run = wandb.init(
+                            config=config,
+                            project=config["wandb_project"],
+                            job_type=config["wandb_job_type"],
+                            group=config["wandb_group"],
+                            save_code=True,
+                        )
+            else:
+                print("W & B run exists with different config. Starting a new run.")
+                wandb_run = wandb.init(
+                    config=config,
+                    project=config["wandb_project"],
+                    job_type=config["wandb_job_type"],
+                    group=config["wandb_group"],
+                    save_code=True,
+                )
+        else:
+            wandb_run = wandb.init(
+                config=config,
+                project=config["wandb_project"],
+                job_type=config["wandb_job_type"],
+                group=config["wandb_group"],
+                save_code=True,
+            )
+
+        # save wandb
+        wandb_run_info = {
+            "id": wandb_run.id,
+            "name": wandb_run.name,
+            "project": wandb_run.project,
+            "entity": wandb_run.entity,
+            "job_type": wandb_run.job_type,
+            "url": wandb_run.url,
+            "path": wandb_run.path,
+            "group": wandb_run.group,
+            "config": dict(wandb_run.config),
+        }
+        with open(wandb_run_info_path, "w") as f:
+            json.dump(wandb_run_info, f, indent=4)
+
+        self.run_name = wandb.run.name
+        self.config = wandb.run.config
+        return wandb_run
+
+    def _has_last_checkpoint(self):
+        if pathlib.Path(self.best_checkpoint_path).exists():
+            return True
+        return False
+
+    def _setup_env(self):
+        # setup torch environment
+        torch.set_num_threads(4)
+        torch.backends.cudnn.benchmark = True
+        self.device = try_gpu()
+
+        # save config to output_dir
+        with open(f"{self.savename}.config.json", "w") as f:
+            json.dump(dict(self.config), f, indent=4)
+
+        self.checkpoint = self._has_last_checkpoint()
+        return
+
+    def _cleanup_env(self):
+        gc.collect()
+        torch.cuda.empty_cache()
+        return
+
+    def _setup_model_from_config(self):
+        # initialize model with config
+        config = self.config
+        validate_config(config, self.model_class.default_config, allow_extra_keys=True)
+        model = self.model_class.create_from_config(config)
+        model.to(self.device)
+        return model
+
+    def _set_total_params(self):
+        total_params = 0
+        trainable_params = 0
+        for p in self.model.parameters():
+            total_params += p.numel()
+            if p.requires_grad:
+                trainable_params += p.numel()
+        self.total_params = total_params
+        self.trainable_params = trainable_params
+        print(
+            f"Total model parameters {total_params}, trainable parameters {trainable_params}"
+        )
+        return
+
+    def _update_state_dict(self):
+        self._cleanup_env()
+
+        print(
+            f"Load and update state dict from checkpoint file: {self.best_checkpoint_path}"
+        )
+        checkpoint: dict = torch.load(self.best_checkpoint_path)
+        try:
+            epoch_info = torch.load(self.epoch_info_path)
+            checkpoint.update(epoch_info)
+        except FileNotFoundError:
+            print("Epoch info not found, skipping.")
+
+        # adjust epochs
+        self.cur_epoch = checkpoint.get("epoch", 0)
+        self.early_stopping_counter = checkpoint.get("early_stopping_counter", 0)
+        self.best_val_loss = checkpoint.get("best_val_loss", np.Inf)
+        print(
+            f"Best val loss: {self.best_val_loss:.5f}, "
+            f"early stopping counter: {self.early_stopping_counter}."
+        )
+
+        # load state dict
+        self.model.load_state_dict(checkpoint["state_dict"])
+        if self.optimizer is not None:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if self.scaler is not None:
+            self.scaler.load_state_dict(checkpoint["scaler"])
+        if self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint["scheduler"])
+        if self.ema is not None:
+            self.ema.load_state_dict(checkpoint["ema"])
+
+        del checkpoint
+        torch.cuda.empty_cache()
+        return
+
+    def _get_ema(self):
+        ema = EMA(
+            self.model,
+            beta=0.9999,  # exponential moving average factor
+            update_after_step=100,  # only after this number of .update() calls will it start updating
+            update_every=10,
+        )  # how often to actually update, to save on compute (updates every 10th .update() call)
+        return ema
+
+    def _get_scaler(self):
+        scaler = torch.cuda.amp.GradScaler(enabled=self.config["use_amp"])
+        return scaler
+
+    def _get_optimizer(self, lr, weight_decay):
+        optimizer = torch.optim.AdamW(
+            self.model.parameters(), lr=lr, weight_decay=weight_decay
+        )
+        return optimizer
+
+    def _get_scheduler(self, optimizer):
+        import transformers
+
+        scheduler = transformers.get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps=3000, num_training_steps=100000
+        )
+        return scheduler
+
+    def model_validation_step(self, model, dataset, val_batches, **kwargs):
+        """Model specific validation step."""
+        print("Implement model specific validation step here.")
+        raise NotImplementedError
+
+    def _validation_step(self, testing=False, val_batches=None, **kwargs):
+        if testing:
+            _dataset = self.test_dataset
+        else:
+            _dataset = self.valid_dataset
+
+        if self.config["use_ema"]:
+            self.ema.eval()
+            self.ema.ema_model.eval()
+            val_results = self.model_validation_step(
+                model=self.ema.ema_model,
+                dataset=_dataset,
+                val_batches=val_batches,
+                **kwargs,
+            )
+            self.ema.train()
+            self.ema.ema_model.train()
+        else:
+            self.model.eval()
+            val_results = self.model_validation_step(
+                model=self.model,
+                dataset=_dataset,
+                val_batches=val_batches,
+                **kwargs,
+            )
+            self.model.train()
+        return val_results
+
+    def _save_checkpint(self, update_best: bool):
+        epoch_info = {
+            "epoch": self.cur_epoch,
+            "early_stopping_counter": self.early_stopping_counter,
+        }
+        safe_save(epoch_info, self.epoch_info_path)
+        if update_best:
+            # check point includes model and other training states
+            checkpoint = {
+                "best_val_loss": self.best_val_loss,
+                "state_dict": self.model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "scaler": self.scaler.state_dict() if self.scaler is not None else None,
+                "scheduler": (
+                    self.scheduler.state_dict() if self.scheduler is not None else None
+                ),
+                "ema": self.ema.state_dict() if self.ema is not None else None,
+            }
+            safe_save(checkpoint, self.best_checkpoint_path)
+
+            # save best model in a separate file
+            if self.config["use_ema"]:
+                safe_save(self.ema.ema_model, self.best_model_path)
+            else:
+                safe_save(self.model, self.best_model_path)
+        return
+
+    def _save_stage_flag(self, flag_name):
+        import datetime
+
+        with open(f"{self.savename}.{flag_name}.flag", "w") as f:
+            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+        return
+
+    def _check_stage_flag(self, flag_name) -> bool:
+        return pathlib.Path(f"{self.savename}.{flag_name}.flag").exists()
+
+    def fit(self):
+        """
+        Model specific training loop.
+        """
+        print("Implement model specific training loop here.")
+        raise NotImplementedError
+
+    def train(self):
+        """
+        Model specific overall training steps.
+
+        # example
+        ```
+        wandb_run = self._setup_wandb()
+        if wandb_run is None:
+            return
+        with wandb_run:
+            self._setup_env()  # generic
+            self._setup_model()  # model specific
+            self._setup_dataset()  # model specific
+            self._setup_fit()  # model specific
+            self.fit(sample=sample, region=region)  # model specific
+            self._test(sample=sample, region=region)  # model specific
+            self._cleanup_env()  # generic
+            wandb.finish()
+        ```
+        """
+        raise NotImplementedError

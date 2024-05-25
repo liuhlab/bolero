@@ -1,6 +1,6 @@
 import math
 import pathlib
-from typing import Dict, Union
+from typing import dict, Union
 
 import numpy as np
 import torch
@@ -241,7 +241,7 @@ mm10_splits[4] = {
 }
 
 
-def get_splits(genome: str, split_id: int) -> Dict[str, Union[list, None]]:
+def get_splits(genome: str, split_id: int) -> dict[str, Union[list, None]]:
     """
     Get the splits for a given genome and split ID.
 
@@ -487,3 +487,32 @@ def check_wandb_success(wandb_path):
     run = api.run(wandb_path)
     run_success = run.state == "finished" and run.summary.get("success", False)
     return run_success
+
+
+def validate_config(config, default_config, allow_extra_keys=True):
+    """
+    Validate the config dictionary against the default config dictionary.
+    """
+    error_msg = ''
+    required_missing = []
+    for k, v in default_config.items():
+        if v == "REQUIRED":
+            _v = config.get(k, "REQUIRED")
+            if _v == "REQUIRED":
+                required_missing.append(k)
+    if len(required_missing) > 0:
+        error_msg += f"Required fields missing from config: {required_missing}\n"
+        
+
+    if not allow_extra_keys:
+        extra_keys = []
+        for k in config.keys():
+            if k not in default_config:
+                extra_keys.append(k)
+        if len(extra_keys) > 0:
+            error_msg += f"Extra keys found in config: {extra_keys}\n"
+
+    if len(error_msg) > 0:
+        raise ValueError(error_msg)
+
+    return True

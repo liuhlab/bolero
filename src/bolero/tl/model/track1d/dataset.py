@@ -1,6 +1,5 @@
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Union
 import numpy as np
-from ray.data.dataset import Dataset
 
 from bolero.tl.dataset.filters import RowSumFilter
 from bolero.tl.dataset.ray_dataset import RayGenomeDataset
@@ -9,9 +8,10 @@ from bolero.tl.dataset.transforms import (
     CropRegionsWithJitter,
     ReverseComplement,
 )
+from bolero.tl.model.generic.train_helper import validate_config
 
 
-class Bulk1DTrackDataset(RayGenomeDataset):
+class Track1DDataset(RayGenomeDataset):
     """
     RayDataset class for working with bulk 1-D track model.
 
@@ -55,18 +55,60 @@ class Bulk1DTrackDataset(RayGenomeDataset):
         Reverse complement the DNA sequences.
     """
 
+    default_config = {
+        "dataset_path": "REQUIRED",
+        "dataset_columns": "REQUIRED",
+        "batch_size": 64,
+        "dna_window": 1840,
+        "signal_window": 1000,
+        "max_jitter": 128,
+        "cov_min_q": 0.0001,
+        "cov_max_q": 0.9999,
+        "local_shuffle_buffer_size": 5000,
+        "reverse_complement": True,
+    }
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """
+        Get the default configuration.
+
+        Returns
+        -------
+        dict
+            The default configuration.
+        """
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config: dict) -> "Track1DDataset":
+        """
+        Create a Bulk1DTrackDataset object from the configuration.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration.
+
+        Returns
+        -------
+        Bulk1DTrackDataset
+            The Bulk1DTrackDataset object.
+        """
+        validate_config(config, cls.default_config)
+        return cls(**config)
+
     def __init__(
         self,
-        dataset: Dataset,
-        columns: Optional[list[str]] = None,
+        dataset_path: Union[str, list[str]],
+        dataset_columns: Optional[list[str]] = None,
         batch_size: int = 64,
         dna_window: int = 1840,
         signal_window: int = 1000,
         max_jitter: int = 128,
         cov_min_q: float = 0.0001,
         cov_max_q: float = 0.9999,
-        clip_min: float = -10,
-        clip_max: float = 10,
+        local_shuffle_buffer_size: int = 5000,
         reverse_complement: bool = True,
         **kwargs,
     ) -> None:
@@ -91,10 +133,6 @@ class Bulk1DTrackDataset(RayGenomeDataset):
             The minimum quantile value for coverage (default is 0.0001).
         cov_max_q : float, optional
             The maximum quantile value for coverage (default is 0.9999).
-        clip_min : float, optional
-            The minimum clip value (default is -10).
-        clip_max : float, optional
-            The maximum clip value (default is 10).
         reverse_complement : bool, optional
             Whether to use reverse complement (default is True).
         **kwargs
@@ -104,7 +142,7 @@ class Bulk1DTrackDataset(RayGenomeDataset):
         -------
         None
         """
-        super().__init__(dataset, columns=columns, **kwargs)
+        super().__init__(dataset_path, columns=dataset_columns, **kwargs)
 
         self.batch_size = batch_size
         # region properties
@@ -116,8 +154,9 @@ class Bulk1DTrackDataset(RayGenomeDataset):
         self.cov_min_q = cov_min_q
         self.cov_max_q = cov_max_q
         self.reverse_complement = reverse_complement
-        self.clip_min = clip_min
-        self.clip_max = clip_max
+
+        # data loader
+        self.local_shuffle_buffer_size = local_shuffle_buffer_size
         return
 
     def __repr__(self) -> str:
@@ -153,7 +192,6 @@ class Bulk1DTrackDataset(RayGenomeDataset):
         self,
         sample: Optional[str] = None,
         region: Optional[str] = None,
-        local_shuffle_buffer_size: int = 5000,
         as_torch=True,
         **kwargs,
     ) -> Iterable:
@@ -218,7 +256,7 @@ class Bulk1DTrackDataset(RayGenomeDataset):
         # get data loader
         default_kwargs = {
             "drop_last": True if self._dataset_mode == "train" else False,
-            "local_shuffle_buffer_size": local_shuffle_buffer_size,
+            "local_shuffle_buffer_size": self.local_shuffle_buffer_size,
         }
         kwargs = {**default_kwargs, **kwargs}
         if as_torch:

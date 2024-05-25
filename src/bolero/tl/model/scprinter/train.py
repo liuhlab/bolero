@@ -13,14 +13,15 @@ from scprinter.seq.Models import scFootprintBPNet
 from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
 from tqdm import tqdm
 
-from bolero.pl.footprint import FootPrintExamplePlotter, figure_to_array
+from bolero.pl.footprint import FootPrintExamplePlotter
+from bolero.pl.utils import figure_to_array
 from bolero.pp.genome import Genome
 from bolero.tl.model.scprinter.dataset import (
     scPrinterDataset,
     scPrinterSingleCellDataset,
 )
 from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
-from bolero.tl.model.scprinter.utils import (
+from bolero.tl.model.utils.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,

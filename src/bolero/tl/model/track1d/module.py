@@ -1,6 +1,6 @@
 from torch import nn
 
-from bolero.tl.model.utils.module import Conv1dWrapper
+from bolero.tl.model.generic.module import Conv1dWrapper
 
 
 class OutputHead(nn.Module):
