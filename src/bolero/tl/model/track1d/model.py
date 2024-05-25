@@ -19,6 +19,7 @@ class DialatedCNNTrack1DModel(nn.Module):
         "activation": "gelu",
         "conv_groups": 8,
         "hidden_conv_blocks": 8,
+        "dilation_func": None,
         "batch_norm": True,
         "batch_norm_momentum": 0.1,
         # whether to residual connect hidden layers' input with hidden layers' output

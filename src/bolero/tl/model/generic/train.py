@@ -8,6 +8,7 @@ from bolero.tl.model.generic.train_helper import (
     check_wandb_success,
     compare_configs,
     safe_save,
+    FakeWandb
 )
 from bolero.tl.model.generic.ema import EMA
 from bolero.utils import try_gpu, get_fs_and_path
@@ -129,7 +130,7 @@ class TrainerDatasetMixin:
         validate_config(
             config, self.dataset_class.default_config, allow_extra_keys=True
         )
-        dataset = self.dataset_class.create_from_config()
+        dataset = self.dataset_class.create_from_config(config)
         return dataset
 
 
@@ -170,9 +171,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.mode = self.mode.lower()
 
         # dataset objects
-        self.train_dataset: GenericDataset = None
-        self.valid_dataset: GenericDataset = None
-        self.test_dataset: GenericDataset = None
+        # see TrainerDatasetMixin for more details
 
         # model and helper objects
         self.model: GenericModel = None
@@ -191,10 +190,14 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.best_val_loss: float = np.Inf
 
         # path and file names
-        self.output_dir: pathlib.Path = None
-        self.savename: str = None
-        self.run_name: str = None
-        self.mode: str = None
+        self.output_dir = pathlib.Path(config["output_dir"]).absolute().resolve()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.savename = str(self.output_dir / config["savename"])
+        self.wandb_run_name: str = None
+
+    @property
+    def wandb_active(self) -> bool:
+        return wandb.run is not None
 
     @classmethod
     def get_default_config(cls) -> dict:
@@ -221,7 +224,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         validate_config(config, cls.get_default_config(), allow_extra_keys=False)
         return config
 
-    def _setup_wandb(self):
+    def _setup_wandb(self, use_wandb: bool = True):
         """
         Set up Weights and Biases for logging.
 
@@ -232,13 +235,11 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         -------
             Weights and Biases run context.
         """
-        config = self.config
+        if not use_wandb:
+            wandb_run = FakeWandb()
+            return wandb_run
 
-        # setup directory
-        self.output_dir = pathlib.Path(config["output_dir"]).absolute().resolve()
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        savename = config["savename"]
-        self.savename = str(self.output_dir / savename)
+        config = self.config
         wandb_run_info_path = self.wandb_run_info_path
 
         # load wandb run info file if exists
@@ -315,7 +316,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         with open(wandb_run_info_path, "w") as f:
             json.dump(wandb_run_info, f, indent=4)
 
-        self.run_name = wandb.run.name
+        self.wandb_run_name = wandb.run.name
         self.config = wandb.run.config
         return wandb_run
 
@@ -411,10 +412,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         return ema
 
     def _get_scaler(self):
-        scaler = torch.cuda.amp.GradScaler(enabled=self.config["use_amp"])
+        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         return scaler
 
-    def _get_optimizer(self, lr, weight_decay):
+    def _get_optimizer(self):
+        lr = self.config["lr"]
+        weight_decay = self.config["weight_decay"]
         optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=lr, weight_decay=weight_decay
         )

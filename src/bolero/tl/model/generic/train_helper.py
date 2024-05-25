@@ -1,6 +1,6 @@
 import math
 import pathlib
-from typing import dict, Union
+from typing import Union
 
 import numpy as np
 import torch
@@ -516,3 +516,17 @@ def validate_config(config, default_config, allow_extra_keys=True):
         raise ValueError(error_msg)
 
     return True
+
+class FakeWandb:
+    """
+    A fake wandb context manager that does nothing.
+    """
+    def __init__(self):
+        self.config = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+    

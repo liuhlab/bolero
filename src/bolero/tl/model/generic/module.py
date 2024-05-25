@@ -216,7 +216,7 @@ class DilatedCNN(nn.Module):
                         groups=groups,
                     )
                 )
-                for i in enumerate(n_blocks)
+                for i in range(n_blocks)
             ]
         )
 

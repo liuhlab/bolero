@@ -380,3 +380,71 @@ class BatchRegionEmbedding:
             self.embedder(regions, predefined=True)
         )
         return data_dict
+
+
+class AddChannels:
+    """Add channel dimension to the input data.
+
+    Parameters
+    ----------
+    key : Union[str, list[str]]
+        The key(s) of the data to add channel dimension to.
+    channel_func : callable, optional
+        The function to add channel dimension. Defaults to None.
+    channel_dim : int, optional
+        The dimension to add the channel. Defaults to 1.
+
+    Returns
+    -------
+    dict
+        The modified data dictionary with the added channel dimension.
+
+    """
+
+    def __init__(
+        self,
+        key: Union[str, list[str]],
+        channel_func: callable = None,
+        channel_dim: int = 1,
+    ):
+        """
+        Add channel dimension to the input data.
+
+        Parameters
+        ----------
+        key : Union[str, list[str]]
+            The key(s) of the data to add channel dimension to.
+        channel_func : callable, optional
+            The function to add channel dimension from the original data.
+            If None, it will add the channel dimension using the unsqueeze(channel_dim).
+            Defaults to None.
+        channel_dim : int, optional
+            The dimension to add the channel. Defaults to 1.
+
+        """
+        if isinstance(key, str):
+            key = [key]
+        self.keys = key
+
+        if channel_func is None:
+            channel_func = lambda x: np.expand_dims(x, channel_dim)
+        self.channel_func = channel_func
+
+    def __call__(self, data: dict) -> dict:
+        """
+        Add channel dimension to the input data.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the added channel dimension.
+
+        """
+        for k in self.keys:
+            data[k] = self.channel_func(data[k])
+        return data

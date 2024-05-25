@@ -7,6 +7,7 @@ from bolero.tl.dataset.transforms import (
     BatchToFloat,
     CropRegionsWithJitter,
     ReverseComplement,
+    AddChannels,
 )
 from bolero.tl.model.generic.train_helper import validate_config
 
@@ -57,7 +58,7 @@ class Track1DDataset(RayGenomeDataset):
 
     default_config = {
         "dataset_path": "REQUIRED",
-        "dataset_columns": "REQUIRED",
+        "dataset_columns": None,
         "batch_size": 64,
         "dna_window": 1840,
         "signal_window": 1000,
@@ -81,7 +82,10 @@ class Track1DDataset(RayGenomeDataset):
         return cls.default_config
 
     @classmethod
-    def create_from_config(cls, config: dict) -> "Track1DDataset":
+    def create_from_config(
+        cls,
+        config: dict,
+    ) -> "Track1DDataset":
         """
         Create a Bulk1DTrackDataset object from the configuration.
 
@@ -89,6 +93,8 @@ class Track1DDataset(RayGenomeDataset):
         ----------
         config : dict
             The configuration.
+        remove_additional_keys : bool, optional
+            Whether to remove additional keys in the configuration (default is True).
 
         Returns
         -------
@@ -96,6 +102,8 @@ class Track1DDataset(RayGenomeDataset):
             The Bulk1DTrackDataset object.
         """
         validate_config(config, cls.default_config)
+        # remove additional keys in the configuration
+        config = {k: v for k, v in config.items() if k in cls.default_config}
         return cls(**config)
 
     def __init__(
@@ -186,86 +194,8 @@ class Track1DDataset(RayGenomeDataset):
         dataset = self._crop_regions(dataset)
         # batch operations
         dataset = self._dna_to_float(dataset)
+        dataset = self._add_channels(dataset)
         return dataset
-
-    def get_dataloader(
-        self,
-        sample: Optional[str] = None,
-        region: Optional[str] = None,
-        as_torch=True,
-        **kwargs,
-    ) -> Iterable:
-        """
-        Get a PyTorch DataLoader for the specified sample and region.
-
-        Parameters
-        ----------
-        sample : str, optional
-            The name of the sample (default is None).
-        region : str, optional
-            The name of the region (default is None).
-        local_shuffle_buffer_size : int, optional
-            The size of the local shuffle buffer (default is 5000).
-        as_torch : bool, optional
-            Whether to return a iterator with batches data in torch tensor format (default is True).
-        **kwargs
-            Additional keyword arguments passed to the DataLoader.
-
-        Returns
-        -------
-        Iterable
-            Batch iterator similar to PyTorch DataLoader.
-        """
-        _working_dataset = self.dataset
-
-        if self._dataset_mode is None:
-            raise ValueError(
-                "Set .train() or .eval() first before calling .get_dataloader()"
-            )
-
-        if sample is None:
-            if len(self.samples) == 1:
-                sample = self.samples[0]
-        if region is None:
-            if len(self.regions) == 1:
-                region = self.regions[0]
-        if sample is None or region is None:
-            filter_column = None
-        else:
-            filter_column = f"{region}|{sample}"
-
-        if as_torch:
-            # the torch iterator can only handle float, int, and bool columns to torch tensors
-            use_columns = []
-            possible_dtypes = ("float", "int", "bool")
-            for column in self.columns:
-                column_schema = self.schema[column]
-                try:
-                    dtype = str(column_schema.scalar_type)
-                except AttributeError:
-                    dtype = str(column_schema)
-                for possible_dtype in possible_dtypes:
-                    if possible_dtype in dtype:
-                        use_columns.append(column)
-                        break
-            _working_dataset = _working_dataset.select_columns(use_columns)
-
-        # preprocess dataset
-        _working_dataset = self._dataset_preprocess(_working_dataset, filter_column)
-
-        # get data loader
-        default_kwargs = {
-            "drop_last": True if self._dataset_mode == "train" else False,
-            "local_shuffle_buffer_size": self.local_shuffle_buffer_size,
-        }
-        kwargs = {**default_kwargs, **kwargs}
-        if as_torch:
-            loader = _working_dataset.iter_torch_batches(
-                batch_size=self.batch_size, **kwargs
-            )
-        else:
-            loader = _working_dataset.iter_batches(batch_size=self.batch_size, **kwargs)
-        return loader
 
     def set_min_max_counts_cutoff(self, column: str) -> None:
         """
@@ -384,3 +314,96 @@ class Track1DDataset(RayGenomeDataset):
         )
         dataset = dataset.map(_cropper, *args, **kwargs)
         return dataset
+    
+    def _add_channels(self, dataset, *args, **kwargs) -> None:
+        """
+        Add channels to the dataset.
+
+        Returns
+        -------
+        None
+        """
+        _, signal_columns = self.get_dna_and_signal_columns()
+        channel_func = lambda x: np.expand_dims(x, 1)
+        _map = AddChannels(signal_columns, channel_func=channel_func)
+        dataset = dataset.map_batches(_map, *args, **kwargs)
+        return dataset
+
+    def get_dataloader(
+        self,
+        sample: Optional[str] = None,
+        region: Optional[str] = None,
+        as_torch=True,
+        **kwargs,
+    ) -> Iterable:
+        """
+        Get a PyTorch DataLoader for the specified sample and region.
+
+        Parameters
+        ----------
+        sample : str, optional
+            The name of the sample (default is None).
+        region : str, optional
+            The name of the region (default is None).
+        local_shuffle_buffer_size : int, optional
+            The size of the local shuffle buffer (default is 5000).
+        as_torch : bool, optional
+            Whether to return a iterator with batches data in torch tensor format (default is True).
+        **kwargs
+            Additional keyword arguments passed to the DataLoader.
+
+        Returns
+        -------
+        Iterable
+            Batch iterator similar to PyTorch DataLoader.
+        """
+        _working_dataset = self.dataset
+
+        if self._dataset_mode is None:
+            raise ValueError(
+                "Set .train() or .eval() first before calling .get_dataloader()"
+            )
+
+        if sample is None:
+            if len(self.samples) == 1:
+                sample = self.samples[0]
+        if region is None:
+            if len(self.regions) == 1:
+                region = self.regions[0]
+        if sample is None or region is None:
+            filter_column = None
+        else:
+            filter_column = f"{region}|{sample}"
+
+        if as_torch:
+            # the torch iterator can only handle float, int, and bool columns to torch tensors
+            use_columns = []
+            possible_dtypes = ("float", "int", "bool")
+            for column in self.columns:
+                column_schema = self.schema[column]
+                try:
+                    dtype = str(column_schema.scalar_type)
+                except AttributeError:
+                    dtype = str(column_schema)
+                for possible_dtype in possible_dtypes:
+                    if possible_dtype in dtype:
+                        use_columns.append(column)
+                        break
+            _working_dataset = _working_dataset.select_columns(use_columns)
+
+        # preprocess dataset
+        _working_dataset = self._dataset_preprocess(_working_dataset, filter_column)
+
+        # get data loader
+        default_kwargs = {
+            "drop_last": True if self._dataset_mode == "train" else False,
+            "local_shuffle_buffer_size": self.local_shuffle_buffer_size,
+        }
+        kwargs = {**default_kwargs, **kwargs}
+        if as_torch:
+            loader = _working_dataset.iter_torch_batches(
+                batch_size=self.batch_size, **kwargs
+            )
+        else:
+            loader = _working_dataset.iter_batches(batch_size=self.batch_size, **kwargs)
+        return loader

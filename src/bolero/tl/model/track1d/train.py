@@ -25,9 +25,9 @@ class Track1DModelTrainer(GenericTrainer):
         "chrom_split": "REQUIRED",
         "sample": "REQUIRED",
         "region": "REQUIRED",
-        "output_dir": "./track_1d",
+        "output_dir": "track_1d_model",
         "savename": "model",
-        "wandb_project": "scprinter",
+        "wandb_project": "track_1d",
         "wandb_job_type": "train",
         "wandb_group": None,
         "max_epochs": 100,
@@ -41,6 +41,7 @@ class Track1DModelTrainer(GenericTrainer):
         "train_batches": 5000,
         "val_batches": 500,
         "loss_tolerance": 0.003,
+        "plot_example_per_epoch": 3,
     }
     dataset_class = Track1DDataset
     model_class = DialatedCNNTrack1DModel
@@ -49,6 +50,12 @@ class Track1DModelTrainer(GenericTrainer):
         super().__init__(config)
 
         self.model: DialatedCNNTrack1DModel = None
+
+        self._setup_env()
+        self._setup_model()
+        self._setup_dataset()
+        self._setup_fit()
+        return
 
     def _setup_model(self):
         mode = self.mode
@@ -81,12 +88,14 @@ class Track1DModelTrainer(GenericTrainer):
         self.cur_epoch = 0
 
         # scaler
-        if config["use_amp"]:
-            self.scaler = self._get_scaler()
+        if self.device == torch.device("cpu"):
+            self.use_amp = False
+        else:
+            self.use_amp = self.config["use_amp"]
+        self.scaler = self._get_scaler()
 
         # optimizer
-        self.learning_rate = config["lr"]
-        self.optimizer = self._get_optimizer(self.learning_rate, weight_decay=config["weight_decay"])
+        self.optimizer = self._get_optimizer()
 
         # scheduler
         if config["scheduler"]:
@@ -115,28 +124,27 @@ class Track1DModelTrainer(GenericTrainer):
     def model_validation_step(
         self,
         model,
-        val_dataset,
-        sample=None,
-        region=None,
+        dataset,
         val_batches=None,
     ):
         if val_batches is None:
             val_batches = self.val_batches
         # if val batches is None, use all batches in the dataset
 
-        val_data_loader = val_dataset.get_dataloader(
+        sample = self.config["sample"]
+        region = self.config["region"]
+        val_data_loader = dataset.get_dataloader(
             sample=sample,
             region=region,
             local_shuffle_buffer_size=0,
-            randomize_block_order=False,
         )
         data_key = f"{region}|{sample}"
-        dna_key = f"{region}|{val_dataset.dna_name}"
+        dna_key = f"{region}|{dataset.dna_name}"
 
         size = 0
-        val_loss = [0]
-        profile_pearson_counter = CumulativeCounter()
-        across_batch_pearson_cov = CumulativePearson()
+        val_loss = 0
+        single_batch_pearson_counter = CumulativeCounter()
+        across_batch_pearson_counter = CumulativePearson()
 
         example_batches = []  # collect example batches for making images
         bar = tqdm(
@@ -152,41 +160,36 @@ class Track1DModelTrainer(GenericTrainer):
             X = batch[dna_key]
 
             # ==========
-            # y_footprint, y_coverage
+            # y
             # ==========
-            y_coverage = batch[data_key]
-            y_coverage = torch.log1p(y_coverage)
+            y = batch[data_key]
+            y = torch.log1p(y)
 
             # ==========
             # Forward and Loss
             # ==========
-            pred_coverage = model(X)
-            loss_ = F.mse_loss(pred_coverage, y_coverage)
-            pred_score = pred_score.reshape((len(pred_score), -1))
-            val_loss[0] += loss_.item()
+            pred = model(X)
+            loss_ = F.mse_loss(pred, y)
+            val_loss += loss_.item()
 
             # ==========
             # Within batch pearson and save for across batch pearson
             # ==========
             # within batch pearson
-            corr = (
-                batch_pearson_correlation(pred_coverage, y_coverage)
-                .detach()
-                .cpu()[:, None]
-            )
-            profile_pearson_counter.update(corr)
+            corr = batch_pearson_correlation(pred, y).detach().cpu()[:, None]
+            single_batch_pearson_counter.update(corr)
             # save for across batch pearson
-            across_batch_pearson_cov.update(pred_coverage, y_coverage)
+            across_batch_pearson_counter.update(pred, y)
 
             size += 1
             if batch_id < self.plot_example_per_epoch:
-                batch["pred_score"] = pred_coverage.detach().cpu().numpy()
+                batch["pred_"] = pred.detach()
                 example_batches.append(batch)
 
             if size > 5:
                 desc_str = (
                     f" - (Validation) {self.cur_epoch} "
-                    f"Footprint Loss: {val_loss[0]/size:.4f} "
+                    f"MSE Loss: {val_loss/size:.4f} "
                 )
                 bar.set_description(desc_str)
             if batch_id >= val_batches:
@@ -195,44 +198,45 @@ class Track1DModelTrainer(GenericTrainer):
         del val_data_loader
 
         self._cleanup_env()
-        wandb_images = self._plot_example_footprints(
-            example_batches,
+        wandb_images = self._plot_example_images(
+            example_batches, target_key=data_key
         )
 
         # ==========
         # Loss
         # ==========
-        val_loss = [l / size for l in val_loss]
-        val_loss = np.sum(val_loss)
+        val_loss = val_loss / size
 
         # ==========
         # Within batch pearson
         # ==========
-        profile_pearson = np.array([profile_pearson_counter.mean()])
+        single_batch_pearson = single_batch_pearson_counter.mean()
 
         # ==========
         # Across batch pearson
         # ==========
-        across_corr = [
-            across_batch_pearson_cov.corr(),
-        ]
-        return val_loss, profile_pearson, across_corr, wandb_images
+        across_batch_pearson = across_batch_pearson_counter.corr()
+        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
-    def _plot_example_footprints(
-        self, example_batches, footprinter, atac_key, bias_key, footprint_key
+    def _plot_example_images(
+        self, example_batches, target_key, predict_key="pred_"
     ):
         epoch = self.cur_epoch + 1
         wandb_images = []
         for idx, batch in enumerate(example_batches):
             plotter = Track1DExamplePlotter(
-                signal=batch[atac_key],
-                bias=batch[bias_key],
-                target=batch[footprint_key],
-                predict=batch["pred_score"],
-                footprinter=footprinter,
+                target_key=target_key, predict_key=predict_key
             )
-            fig, _ = plotter.plot(figsize=(6, 2.5), dpi=100)
+            fig, _ = plotter.plot(
+                batch,
+                figsize=(6, 6),
+                dpi=100,
+                top_example=1,
+                bottom_example=1,
+                plot_channel=0,
+            )
             fig_array = figure_to_array(fig)
+            fig.savefig(f"{self.savename}.example_{epoch}_{idx}.jpg")
             plt.close(fig)
 
             wandb_images.append(
@@ -246,21 +250,21 @@ class Track1DModelTrainer(GenericTrainer):
             )
         return wandb_images
 
-    def _log_save_and_check_stop(self, example_images):
+    def _log_save_and_check_stop(self):
         epoch = self.cur_epoch
-        train_fp_loss = self.train_fp_loss
-        train_cov_loss = self.train_cov_loss
+        train_loss = self.train_loss
         learning_rate = self.cur_lr
         val_loss = self.val_loss
-        profile_pearson = self.val_profile_pearson
-        across_pearson = self.val_across_pearson
+        single_batch_pearson = self.val_single_batch_pearson
+        across_batch_pearson = self.val_across_batch_pearson
+        example_images = self.example_wandb_images
 
         print(
-            f" - (Training) {epoch} Footprint Loss: {train_fp_loss:.5f}; Coverage Loss: {train_cov_loss:.5f}; Learning rate {learning_rate}."
+            f" - (Training) {epoch}; Coverage Loss: {train_loss:.3f}; Learning rate {learning_rate}."
         )
-        print(f" - (Validation) {epoch} Loss: {val_loss:.5f}")
-        print("Profile pearson", profile_pearson)
-        print("Across peak pearson", across_pearson)
+        print(f" - (Validation) {epoch} Loss: {val_loss:.3f}")
+        print(f"Single Batch Pearson Corr.: {single_batch_pearson:.3f}")
+        print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
@@ -269,8 +273,8 @@ class Track1DModelTrainer(GenericTrainer):
         else:
             self.early_stopping_counter += 1
         print(
-            f"Previous best loss: {previous_best:.4f}, "
-            f"Loss at epoch {epoch}: {val_loss:.4f}; "
+            f"Previous best loss: {previous_best:.3f}, "
+            f"Loss at epoch {epoch}: {val_loss:.3f}; "
             f"Early stopping counter: {self.early_stopping_counter}"
         )
         # save checkpoint if the loss is better
@@ -279,33 +283,30 @@ class Track1DModelTrainer(GenericTrainer):
             self._save_checkpint(update_best=True)
         else:
             self._save_checkpint(update_best=False)
-
-        wandb.log(
-            {
-                "train/train_fp_loss": train_fp_loss,
-                "train/train_cov_loss": train_cov_loss,
-                "val/val_loss": val_loss,
-                "val/best_val_loss": self.best_val_loss,
-                "val/early_stopping_counter": self.early_stopping_counter,
-                "val/profile_pearson": profile_pearson[0],
-                "val/across_pearson_footprint": across_pearson[0],
-                "val/across_pearson_coverage": across_pearson[1],
-                "val_example/example_footprints": example_images,
-            }
-        )
-
+        if self.wandb_active:
+            wandb.log(
+                {
+                    "train/train_loss": train_loss,
+                    "val/val_loss": val_loss,
+                    "val/best_val_loss": self.best_val_loss,
+                    "val/early_stopping_counter": self.early_stopping_counter,
+                    "val/single_batch_pearson": single_batch_pearson,
+                    "val/across_batch_pearson": across_batch_pearson,
+                    "val_example/example_predictions": example_images,
+                }
+            )
         flag = self.early_stopping_counter >= self.patience
         return flag
 
-    def _fit(self, sample, region, max_epochs=None, valid_first=False):
+    def _fit(self, max_epochs=None, valid_first=False):
         if max_epochs is None:
             max_epochs = self.max_epochs
-
-        mode = self.mode
 
         # dataset related
         training_dataset = self.train_dataset
 
+        sample = self.config["sample"]
+        region = self.config["region"]
         data_key = f"{region}|{sample}"
         dna_key = f"{region}|{training_dataset.dna_name}"
 
@@ -320,27 +321,26 @@ class Track1DModelTrainer(GenericTrainer):
             print("Perform validation before training.")
             (
                 self.val_loss,
-                self.val_profile_pearson,
-                self.val_across_pearson,
+                self.val_single_batch_pearson,
+                self.val_across_batch_pearson,
                 wandb_images,
-            ) = self._validation_step(sample=sample, region=region)
-            print(f"Validation loss before training: {self.val_loss:.4f}")
-            print(f"Validation Profile pearson: {self.val_profile_pearson[0]:.3f}")
+            ) = self._validation_step()
+            print(f"Validation loss before training: {self.val_loss:.3f}")
             print(
-                f"Validation Across peak footprint pearson: {self.val_across_pearson[0]:.3f}."
+                f"Validation single-batch pearson: {self.val_single_batch_pearson:.3f}"
             )
             print(
-                f"Validation Across peak coverage pearson: {self.val_across_pearson[1]:.3f}."
+                f"Validation across batch pearson: {self.val_across_batch_pearson:.3f}."
             )
-            wandb.log(
-                {
-                    "val/val_loss": self.val_loss,
-                    "val/profile_pearson": self.val_profile_pearson[0],
-                    "val/across_pearson_footprint": self.val_across_pearson[0],
-                    "val/across_pearson_coverage": self.val_across_pearson[1],
-                    "val_example/example_footprints": wandb_images,
-                }
-            )
+            if self.wandb_active:
+                wandb.log(
+                    {
+                        "val/val_loss": self.val_loss,
+                        "val/val_single_batch_pearson": self.val_single_batch_pearson,
+                        "val/val_across_batch_pearson": self.val_across_batch_pearson,
+                        "val_example/example_predictions": wandb_images,
+                    }
+                )
 
         stop_flag = False
         if self.cur_epoch > 0:
@@ -363,7 +363,7 @@ class Track1DModelTrainer(GenericTrainer):
             )
 
             # start train epochs
-            moving_avg_cov_loss = 0
+            moving_avg_loss = 0
             nan_loss = False
 
             bar = tqdm(
@@ -394,26 +394,17 @@ class Track1DModelTrainer(GenericTrainer):
                     X = batch[dna_key]
 
                     # ==========
-                    # y_footprint, y_coverage
+                    # y
                     # ==========
-                    random_modes = np.random.permutation(self.modes)[
-                        : self.select_n_modes
-                    ]
-                    select_index = torch.as_tensor(
-                        [self.modes_index.index(mode) for mode in random_modes]
-                    )
-                    y_coverage = batch[data_key].sum(dim=-1)
-                    y_coverage = torch.log1p(y_coverage)
+                    y = batch[data_key]
+                    y = torch.log1p(y)
 
                     # ==========
                     # Forward and Loss
                     # ==========
-                    pred_coverage = self.model.forward(
-                        X,
-                        modes=select_index,
-                    )
-                    loss_coverage = F.mse_loss(y_coverage, pred_coverage)
-                    loss = loss_coverage / self.accumulate_grad
+                    pred = self.model.forward(X)
+                    loss_ = F.mse_loss(y, pred)
+                    loss = loss_ / self.accumulate_grad
 
                     if np.isnan(loss.item()):
                         nan_loss = True
@@ -425,7 +416,7 @@ class Track1DModelTrainer(GenericTrainer):
                 # Backward
                 # ==========
                 scaler.scale(loss).backward()
-                moving_avg_cov_loss += loss_coverage.item()
+                moving_avg_loss += loss.item()
                 # only update optimizer every accumulate_grad steps
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)
                 # however, with larger batch size, the GPU memory usage will be higher
@@ -433,7 +424,6 @@ class Track1DModelTrainer(GenericTrainer):
                     scaler.unscale_(
                         optimizer
                     )  # Unscale gradients for clipping without inf/nan gradients affecting the model
-
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
@@ -447,7 +437,7 @@ class Track1DModelTrainer(GenericTrainer):
                 if (batch_id + 1) % 5 == 0:
                     desc_str = (
                         f" - (Training) {self.cur_epoch} "
-                        f"Coverage Loss: {moving_avg_cov_loss / (batch_id + 1):.4f}"
+                        f"MSE Loss: {moving_avg_loss / (batch_id + 1):.4f}"
                     )
                     bar.set_description(desc_str)
                 bar.update(1)
@@ -462,14 +452,14 @@ class Track1DModelTrainer(GenericTrainer):
                 # epoch break due to nan loss, skip validation
                 continue
 
-            self.train_cov_loss = moving_avg_cov_loss / (batch_id + 1)
+            self.train_loss = moving_avg_loss / (batch_id + 1)
             self.cur_lr = optimizer.param_groups[0]["lr"]
             (
                 self.val_loss,
-                self.val_profile_pearson,
-                self.val_across_pearson,
-                wandb_images,
-            ) = self._validation_step(sample=sample, region=region)
+                self.val_single_batch_pearson,
+                self.val_across_batch_pearson,
+                self.example_wandb_images,
+            ) = self._validation_step()
 
             if np.isnan(self.val_loss):
                 print("Validation loss is NaN, skipping epoch.")
@@ -477,7 +467,7 @@ class Track1DModelTrainer(GenericTrainer):
                 continue
 
             self.cur_epoch += 1
-            stop_flag = self._log_save_and_check_stop(example_images=wandb_images)
+            stop_flag = self._log_save_and_check_stop()
             if stop_flag:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
@@ -485,74 +475,60 @@ class Track1DModelTrainer(GenericTrainer):
         self._cleanup_env()
         return
 
-    def _test(self, sample, region):
+    def _test(self):
         if self.val_loss is None:
             (
                 self.val_loss,
-                self.val_profile_pearson,
-                self.val_across_pearson,
+                self.val_single_batch_pearson,
+                self.val_across_batch_pearson,
                 _,
-            ) = self._validation_step(sample=sample, region=region, val_batches=None)
-        valid_across_pearson_footprint, valid_across_pearson_coverage = (
-            self.val_across_pearson
-        )
+            ) = self._validation_step(val_batches=None)
 
         (
             self.test_loss,
-            self.test_profile_pearson,
-            self.test_across_pearson,
+            self.test_single_batch_pearson,
+            self.test_across_batch_pearson,
             wandb_images,
-        ) = self._validation_step(
-            sample=sample, region=region, testing=True, val_batches=None
-        )
-        test_across_pearson_footprint, test_across_pearson_coverage = (
-            self.test_across_pearson
-        )
+        ) = self._validation_step(testing=True, val_batches=None)
 
-        wandb.summary["final_valid_loss"] = self.val_loss
-        wandb.summary["final_valid_within"] = self.val_profile_pearson[0]
-        wandb.summary["final_valid_across"] = valid_across_pearson_footprint
-        wandb.summary["final_valid_cov"] = valid_across_pearson_coverage
-        wandb.summary["final_test_loss"] = self.test_loss
-        wandb.summary["final_test_within"] = self.test_profile_pearson[0]
-        wandb.summary["final_test_across"] = test_across_pearson_footprint
-        wandb.summary["final_test_cov"] = test_across_pearson_coverage
-        wandb.summary["final_image"] = wandb_images
+        if self.wandb_active:
+            wandb.summary["final_valid_loss"] = self.val_loss
+            wandb.summary["final_valid_single_batch_pearson"] = (
+                self.val_single_batch_pearson
+            )
+            wandb.summary["final_valid_across_batch_pearson"] = (
+                self.val_across_batch_pearson
+            )
+            wandb.summary["final_test_loss"] = self.test_loss
+            wandb.summary["final_test_single_batch_pearson"] = (
+                self.test_single_batch_pearson
+            )
+            wandb.summary["final_test_across_batch_pearson"] = (
+                self.test_across_batch_pearson
+            )
+            wandb.summary["final_test_image"] = wandb_images
 
-        # final wandb flag to indicate the run is successfully finished
-        wandb.summary["success"] = True
+            # final wandb flag to indicate the run is successfully finished
+            wandb.summary["success"] = True
+
+        self._cleanup_env()
         return
 
-    def train(self) -> None:
+    def train(self, use_wandb=True) -> None:
         """
-        Train the scFootprintTrainer model on a specific sample and region.
-
-        Parameters
-        ----------
-            sample (str): The name of the sample.
-            region (str): The name of the region.
+        Train the model.
 
         Returns
         -------
             None
         """
-        if self.mode == "lora":
-            return self.train_lora()
-
-        sample = self.config["sample"]
-        region = self.config["region"]
-
-        wandb_run = self._setup_wandb()
+        wandb_run = self._setup_wandb(use_wandb)
         if wandb_run is None:
             return
-
+        
         with wandb_run:
-            self._setup_env()
-            self._setup_model()
-            self._setup_dataset()
-            self._setup_fit()
-            self._fit(sample=sample, region=region)
-            self._test(sample=sample, region=region)
-            self._cleanup_env()
-            wandb.finish()
+            self._fit()
+            self._test()
+        
+        wandb.finish()
         return
