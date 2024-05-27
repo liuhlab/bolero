@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from bolero.tl.model.utils.module import GroupedLinear, Conv1dWrapper
+from bolero.tl.model.generic.module import GroupedLinear, Conv1dWrapper
 
 
 class EmbeddingMLP(nn.Module):
