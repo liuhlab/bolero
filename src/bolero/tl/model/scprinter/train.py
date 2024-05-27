@@ -16,12 +16,7 @@ from tqdm import tqdm
 from bolero.pl.footprint import FootPrintExamplePlotter
 from bolero.pl.utils import figure_to_array
 from bolero.pp.genome import Genome
-from bolero.tl.model.scprinter.dataset import (
-    scPrinterDataset,
-    scPrinterSingleCellDataset,
-)
-from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
-from bolero.tl.model.utils.train_helper import (
+from bolero.tl.model.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,
@@ -29,6 +24,11 @@ from bolero.tl.model.utils.train_helper import (
     compare_configs,
     safe_save,
 )
+from bolero.tl.model.scprinter.dataset import (
+    scPrinterDataset,
+    scPrinterSingleCellDataset,
+)
+from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
 from bolero.utils import get_fs_and_path, try_gpu
 
 

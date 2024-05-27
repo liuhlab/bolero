@@ -87,7 +87,6 @@ class CropRegionsWithJitter:
                 sel if i == self.crop_axis else slice(None) for i in range(_input.ndim)
             )
             data[k] = _input[idx]
-
         return data
 
 
