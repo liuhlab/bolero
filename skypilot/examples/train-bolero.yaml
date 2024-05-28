@@ -30,5 +30,5 @@ run: |
   set -e  # Exit if any command failed.
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 3456 > ~/jupyter.log 2>&1 &
-  papermill --cwd /mnt/filestore/240315-scPrinter/05.lora_train/ /mnt/filestore/240315-scPrinter/05.lora_train//train-knn-bolero_concat.ipynb /mnt/filestore/240315-scPrinter/05.lora_train//train-knn-bolero_concat.job.ipynb
+  papermill --cwd /mnt/filestore/240315-scPrinter/05.lora_train/ /mnt/filestore/240315-scPrinter/05.lora_train//train-bolero.ipynb /mnt/filestore/240315-scPrinter/05.lora_train//train-bolero.job.ipynb
 
