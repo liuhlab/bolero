@@ -76,6 +76,7 @@ class UNetTrans(nn.Module):
         """
         _config = cls.default_config.copy()
         _config.update(config)
+        _config = {k: v for k, v in _config.items() if k in cls.default_config}
         return cls(**_config)
 
     def __init__(

@@ -1108,6 +1108,7 @@ class scFootprintTrainer:
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
+        train_data_loader = None
         while self.cur_epoch < max_epochs and not stop_flag:
             # check early stop
             if self.early_stopping_counter >= self.patience:
@@ -1118,18 +1119,20 @@ class scFootprintTrainer:
                 break
 
             # get train data loader
-            if mode in {"lora", "adj_output"}:
-                train_data_loader = training_dataset.get_dataloader(
-                    device=self.device,
-                    local_shuffle_buffer_size=local_shuffle_buffer_size,
-                )
-            else:
-                train_data_loader = training_dataset.get_dataloader(
-                    sample=sample,
-                    region=region,
-                    local_shuffle_buffer_size=local_shuffle_buffer_size,
-                    randomize_block_order=randomize_block_order,
-                )
+            if train_data_loader is None:
+                if mode in {"lora", "adj_output"}:
+                    train_data_loader = training_dataset.get_dataloader(
+                        device=self.device,
+                        local_shuffle_buffer_size=local_shuffle_buffer_size,
+                    )
+                else:
+                    train_data_loader = training_dataset.get_dataloader(
+                        sample=sample,
+                        region=region,
+                        local_shuffle_buffer_size=local_shuffle_buffer_size,
+                        randomize_block_order=randomize_block_order,
+                    )
+                train_data_loader = iter(train_data_loader)
 
             # start train epochs
             moving_avg_fp_loss = 0
@@ -1137,12 +1140,29 @@ class scFootprintTrainer:
             nan_loss = False
 
             bar = tqdm(
-                enumerate(train_data_loader),
+                range(self.train_batches),
                 desc=f" - (Training) {self.cur_epoch}",
                 dynamic_ncols=True,
                 total=self.train_batches,
             )
-            for batch_id, batch in bar:
+            for batch_id in bar:
+                try:
+                    batch = next(train_data_loader)
+                except StopIteration:
+                    if mode in {"lora", "adj_output"}:
+                        train_data_loader = training_dataset.get_dataloader(
+                            device=self.device,
+                            local_shuffle_buffer_size=local_shuffle_buffer_size,
+                        )
+                    else:
+                        train_data_loader = training_dataset.get_dataloader(
+                            sample=sample,
+                            region=region,
+                            local_shuffle_buffer_size=local_shuffle_buffer_size,
+                            randomize_block_order=randomize_block_order,
+                        )
+                    train_data_loader = iter(train_data_loader)
+
                 try:
                     auto_cast_context = torch.autocast(
                         device_type=str(self.device),
@@ -1250,7 +1270,7 @@ class scFootprintTrainer:
                 if batch_id >= self.train_batches:
                     break
 
-            del train_data_loader
+            # del train_data_loader
             self._cleanup_env()
             if nan_loss:
                 # epoch break due to nan loss, skip validation
