@@ -1,68 +1,186 @@
-from torch import nn
-import torch
-import pathlib
+import gc
 import json
+import pathlib
+
+import numpy as np
+import torch
 import wandb
+from torch import nn
+
+from bolero.tl.model.generic.ema import EMA
 from bolero.tl.model.generic.train_helper import (
-    validate_config,
+    FakeWandb,
     check_wandb_success,
     compare_configs,
     safe_save,
-    FakeWandb
+    validate_config,
 )
-from bolero.tl.model.generic.ema import EMA
-from bolero.utils import try_gpu, get_fs_and_path
-import gc
-import numpy as np
+from bolero.utils import get_fs_and_path, try_gpu
 
 
 class GenericDataset:
-    defalut_config = {}
+    """
+    Generic dataset class.
+    """
+
+    default_config: dict = {}
 
     @classmethod
-    def get_default_config(cls):
+    def get_default_config(cls) -> dict:
+        """
+        Get the default configuration for the dataset.
+
+        Returns
+        -------
+            dict: The default configuration.
+        """
         return cls.default_config
 
     @classmethod
-    def create_from_config(cls, config):
+    def create_from_config(cls, config: dict):
+        """
+        Create a dataset instance from a configuration.
+
+        Args:
+            config (dict): The configuration.
+
+        Returns
+        -------
+            GenericDataset: The dataset instance.
+        """
         return cls(**config)
 
 
 class GenericModel(nn.Module):
-    default_config = {}
+    """
+    Generic model class.
+    """
+
+    default_config: dict = {}
 
     @classmethod
-    def get_default_config(cls):
+    def get_default_config(cls) -> dict:
+        """
+        Get the default configuration for the model.
+
+        Returns
+        -------
+            dict: The default configuration.
+        """
         return cls.default_config
 
     @classmethod
-    def create_from_config(cls, config):
+    def create_from_config(cls, config: dict):
+        """
+        Create a model instance from a configuration.
+
+        Args:
+            config (dict): The configuration.
+
+        Returns
+        -------
+            GenericModel: The model instance.
+        """
         return cls(**config)
 
 
 class TrainerAttributesMixin:
+    """
+    Mixin class for managing trainer attributes.
+
+    Attributes
+    ----------
+        savename (str): The name of the save file.
+        mode (str): The mode of the trainer.
+
+    Methods
+    -------
+        wandb_run_info_path(): Property that returns the path to the wandb run info file.
+        best_checkpoint_path(): Property that returns the path to the best checkpoint file.
+        epoch_info_path(): Property that returns the path to the epoch info file.
+        best_model_path(): Property that returns the path to the best model file.
+
+    """
+
     savename: str
     mode: str
 
     @property
     def wandb_run_info_path(self) -> pathlib.Path:
+        """
+        Get the path to the wandb run info file.
+
+        Returns
+        -------
+            pathlib.Path: The path to the wandb run info file.
+
+        """
         return pathlib.Path(f"{self.savename}.wandb_run_info.json")
 
     @property
     def best_checkpoint_path(self) -> pathlib.Path:
+        """
+        Get the path to the best checkpoint file.
+
+        Returns
+        -------
+            pathlib.Path: The path to the best checkpoint file.
+
+        """
         return pathlib.Path(f"{self.savename}.{self.mode}.best_checkpoint.pt")
 
     @property
     def epoch_info_path(self) -> pathlib.Path:
+        """
+        Get the path to the epoch info file.
+
+        Returns
+        -------
+            pathlib.Path: The path to the epoch info file.
+
+        """
         return pathlib.Path(f"{self.savename}.{self.mode}.epoch_info.pt")
 
     @property
     def best_model_path(self) -> pathlib.Path:
+        """
+        Get the path to the best model file.
+
+        Returns
+        -------
+            pathlib.Path: The path to the best model file.
+
+        """
         return pathlib.Path(f"{self.savename}.{self.mode}.best_model.pt")
 
 
 class TrainerDatasetMixin:
-    dataset_class: GenericDataset
+    """
+    Mixin class for managing datasets used in the trainer.
+
+    Attributes
+    ----------
+        dataset_class (type): The class of the generic dataset.
+        train_dataset (GenericDataset): The training dataset.
+        valid_dataset (GenericDataset): The validation dataset.
+        test_dataset (GenericDataset): The test dataset.
+        train_chroms (List[str]): The list of chromosomes used for training.
+        valid_chroms (List[str]): The list of chromosomes used for validation.
+        test_chroms (List[str]): The list of chromosomes used for testing.
+        config (dict): The configuration dictionary.
+
+    Methods
+    -------
+        _setup_dataset(): Set up the dataset by splitting it into train, valid, and test sets.
+        _get_dataset_paths(_chroms): Get the paths of the dataset files for the given chromosomes.
+        train_dataset: Property that returns the training dataset.
+        valid_dataset: Property that returns the validation dataset.
+        test_dataset: Property that returns the test dataset.
+        _get_dataset(chroms): Get the dataset object for the given chromosomes.
+
+    """
+
+    dataset_class: type
     train_dataset: GenericDataset
     valid_dataset: GenericDataset
     test_dataset: GenericDataset
@@ -72,6 +190,9 @@ class TrainerDatasetMixin:
     config: dict
 
     def _setup_dataset(self):
+        """
+        Set up the dataset by splitting it into train, valid, and test sets.
+        """
         config = self.config
 
         # train, valid, test split by chromosome
@@ -88,6 +209,17 @@ class TrainerDatasetMixin:
         self._test_dataset = None
 
     def _get_dataset_paths(self, _chroms):
+        """
+        Get the paths of the dataset files for the given chromosomes.
+
+        Args:
+            _chroms (List[str]): The list of chromosomes.
+
+        Returns
+        -------
+            List[str]: The list of dataset file paths.
+
+        """
         # check if the file exists in gcs bucket
         dataset_paths = []
         for chrom in _chroms:
@@ -100,7 +232,14 @@ class TrainerDatasetMixin:
 
     @property
     def train_dataset(self):
-        """Training dataset."""
+        """
+        Training dataset.
+
+        Returns
+        -------
+            GenericDataset: The training dataset.
+
+        """
         if self._train_dataset is None:
             dataset = self._get_dataset(self.train_chroms)
             dataset.train()
@@ -109,7 +248,14 @@ class TrainerDatasetMixin:
 
     @property
     def valid_dataset(self):
-        """Validation dataset."""
+        """
+        Validation dataset.
+
+        Returns
+        -------
+            GenericDataset: The validation dataset.
+
+        """
         if self._valid_dataset is None:
             self._valid_dataset = self._get_dataset(self.valid_chroms)
             self._valid_dataset.eval()
@@ -117,13 +263,31 @@ class TrainerDatasetMixin:
 
     @property
     def test_dataset(self):
-        """Test dataset."""
+        """
+        Test dataset.
+
+        Returns
+        -------
+            GenericDataset: The test dataset.
+
+        """
         if self._test_dataset is None:
             self._test_dataset = self._get_dataset(self.test_chroms)
             self._test_dataset.eval()
         return self._test_dataset
 
     def _get_dataset(self, chroms):
+        """
+        Get the dataset object for the given chromosomes.
+
+        Args:
+            chroms (List[str]): The list of chromosomes.
+
+        Returns
+        -------
+            GenericDataset: The dataset object.
+
+        """
         dataset_paths = self._get_dataset_paths(chroms)
         config = self.config.copy()
         config["dataset_path"] = dataset_paths
@@ -197,6 +361,13 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
     @property
     def wandb_active(self) -> bool:
+        """
+        Check if Weights and Biases is active.
+
+        Returns
+        -------
+            bool: True if Weights and Biases is active, False otherwise.
+        """
         return wandb.run is not None
 
     @classmethod
@@ -317,7 +488,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             json.dump(wandb_run_info, f, indent=4)
 
         self.wandb_run_name = wandb.run.name
-        self.config = wandb.run.config
         return wandb_run
 
     def _has_last_checkpoint(self):

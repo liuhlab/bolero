@@ -1,3 +1,5 @@
+from typing import Any, Optional, Tuple
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -5,16 +7,18 @@ import torch.nn.functional as F
 import wandb
 from tqdm import tqdm
 
-from bolero.tl.model.track1d.model import DialatedCNNTrack1DModel
-from bolero.tl.model.track1d.dataset import Track1DDataset
+from bolero.pl.track1d import Track1DExamplePlotter
+from bolero.pl.utils import figure_to_array
+from bolero.tl.model.generic.train import GenericTrainer
 from bolero.tl.model.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,
 )
-from bolero.pl.track1d import Track1DExamplePlotter
-from bolero.pl.utils import figure_to_array
-from bolero.tl.model.generic.train import GenericTrainer
+from bolero.tl.model.track1d.dataset import Track1DDataset
+from bolero.tl.model.track1d.model import DialatedCNNTrack1DModel
+
+from .unet.model import UNetTrans
 
 
 class Track1DModelTrainer(GenericTrainer):
@@ -49,7 +53,7 @@ class Track1DModelTrainer(GenericTrainer):
     def __init__(self, config):
         super().__init__(config)
 
-        self.model: DialatedCNNTrack1DModel = None
+        self.model: torch.nn.Module = None
 
         self._setup_env()
         self._setup_model()
@@ -123,13 +127,30 @@ class Track1DModelTrainer(GenericTrainer):
     @torch.no_grad()
     def model_validation_step(
         self,
-        model,
-        dataset,
-        val_batches=None,
-    ):
+        model: torch.nn.Module,
+        dataset: Track1DDataset,
+        val_batches: Optional[int] = None,
+    ) -> Tuple[float, float, float, list[Any]]:
+        """
+        Perform model validation step.
+
+        Parameters
+        ----------
+        model : torch.nn.Module
+            The model to validate.
+        dataset : Track1DDataset
+            The dataset to use for validation.
+        val_batches : int, optional
+            The number of validation batches to use, by default None.
+
+        Returns
+        -------
+        Tuple[float, float, float, List[Any]]
+            A tuple containing the validation loss, single batch Pearson correlation,
+            across batch Pearson correlation, and a list of example images.
+        """
         if val_batches is None:
             val_batches = self.val_batches
-        # if val batches is None, use all batches in the dataset
 
         sample = self.config["sample"]
         region = self.config["region"]
@@ -198,9 +219,7 @@ class Track1DModelTrainer(GenericTrainer):
         del val_data_loader
 
         self._cleanup_env()
-        wandb_images = self._plot_example_images(
-            example_batches, target_key=data_key
-        )
+        wandb_images = self._plot_example_images(example_batches, target_key=data_key)
 
         # ==========
         # Loss
@@ -218,9 +237,7 @@ class Track1DModelTrainer(GenericTrainer):
         across_batch_pearson = across_batch_pearson_counter.corr()
         return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
-    def _plot_example_images(
-        self, example_batches, target_key, predict_key="pred_"
-    ):
+    def _plot_example_images(self, example_batches, target_key, predict_key="pred_"):
         epoch = self.cur_epoch + 1
         wandb_images = []
         for idx, batch in enumerate(example_batches):
@@ -434,7 +451,7 @@ class Track1DModelTrainer(GenericTrainer):
                     if scheduler is not None:
                         scheduler.step()
 
-                if (batch_id + 1) % 5 == 0:
+                if (batch_id + 1) % 10 == 0:
                     desc_str = (
                         f" - (Training) {self.cur_epoch} "
                         f"MSE Loss: {moving_avg_loss / (batch_id + 1):.4f}"
@@ -525,10 +542,18 @@ class Track1DModelTrainer(GenericTrainer):
         wandb_run = self._setup_wandb(use_wandb)
         if wandb_run is None:
             return
-        
+
         with wandb_run:
             self._fit()
             self._test()
-        
+
         wandb.finish()
+        return
+
+
+class Track1DUnetTransTrainer(Track1DModelTrainer):
+    model_class = UNetTrans
+
+    def __init__(self, config):
+        super().__init__(config)
         return

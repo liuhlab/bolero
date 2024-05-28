@@ -1,14 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import pearsonr
 import seaborn as sns
+from scipy.stats import pearsonr
 
 
 def per_row_pearsonr(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
     """
     Calculate Pearson correlation coefficient between each row of two arrays.
     """
-    print(arr1.shape, arr2.shape, 'per_row_pearsonr')
     pearson_correlations = []
     for row1, row2 in zip(arr1, arr2):
         correlation, _ = pearsonr(row1, row2)
@@ -24,12 +23,40 @@ def per_row_mse(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
 
 
 class Track1DExamplePlotter:
-    def __init__(self, target_key, predict_key):
+    def __init__(self, target_key: str, predict_key: str):
+        """
+        Initialize the Track1DExamplePlotter class.
+
+        Parameters
+        ----------
+        - target_key (str): The key for the target data in the batch.
+        - predict_key (str): The key for the predicted data in the batch.
+        """
         self.target_key = target_key
         self.predict_key = predict_key
-        pass
 
-    def _select_example_by_corr(self, batch, top_example=1, bottom_example=1, plot_channel=0):
+    def _select_example_by_corr(
+        self,
+        batch: dict,
+        top_example: int = 1,
+        bottom_example: int = 1,
+        plot_channel: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Select examples based on correlation between target and predicted data.
+
+        Parameters
+        ----------
+        - batch (dict): The batch containing target and predicted data.
+        - top_example (int): Number of top examples to select.
+        - bottom_example (int): Number of bottom examples to select.
+        - plot_channel (int): The channel to plot.
+
+        Returns
+        -------
+        - tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: A tuple containing the selected target data,
+          selected predicted data, correlation values, and mean squared error values.
+        """
         target_count = batch[self.target_key].cpu().numpy()[:, plot_channel, ...]
         target = np.log1p(target_count)
         predict = batch[self.predict_key].cpu().numpy()[:, plot_channel, ...]
@@ -50,16 +77,50 @@ class Track1DExamplePlotter:
         mse_data = mse[example_idx]
         return target_data, predict_data, corr_data, mse_data
 
+    @staticmethod
+    def moving_average(data: np.ndarray, window: int) -> np.ndarray:
+        """
+        Calculate the moving average of a given data array.
+
+        Parameters
+        ----------
+        - data (np.ndarray): The input data array.
+        - window (int): The size of the moving average window.
+
+        Returns
+        -------
+        - np.ndarray: The moving average of the input data.
+        """
+        return np.convolve(data, np.ones(window) / window, mode="same")
+
     def plot(
         self,
-        batch,
-        figsize=(6, 2.5),
-        dpi=100,
-        top_example=1,
-        bottom_example=1,
-        plot_channel=0,
-    ):
-        nrows = int((top_example + bottom_example) * 3)
+        batch: dict,
+        figsize: tuple[int, int] = (6, 6),
+        dpi: int = 100,
+        top_example: int = 2,
+        bottom_example: int = 2,
+        plot_channel: int = 0,
+        moving_ave_window: int = None,
+    ) -> tuple[plt.Figure, list[plt.Axes]]:
+        """
+        Plot the target and predicted data.
+
+        Parameters
+        ----------
+        - batch (dict): The batch containing target and predicted data.
+        - figsize (tuple[int, int]): The size of the figure.
+        - dpi (int): The resolution of the figure.
+        - top_example (int): Number of top examples to plot.
+        - bottom_example (int): Number of bottom examples to plot.
+        - plot_channel (int): The channel to plot.
+        - moving_ave_window (int): The size of the moving average window.
+
+        Returns
+        -------
+        - tuple[plt.Figure, list[plt.Axes]]: A tuple containing the figure and a list of axes.
+        """
+        nrows = int((top_example + bottom_example) * 2)
         fig = plt.figure(figsize=figsize, dpi=dpi, constrained_layout=True)
         gs = fig.add_gridspec(ncols=1, nrows=nrows)
         axes = [fig.add_subplot(gs[i]) for i in range(nrows)]
@@ -67,26 +128,34 @@ class Track1DExamplePlotter:
         target_data, predict_data, corr_data, mse_data = self._select_example_by_corr(
             batch, top_example, bottom_example, plot_channel
         )
-        y_max = np.quantile(np.concatenate([target_data, predict_data]), 0.95)
 
         title_fs = 8
         for i, (target, predict, corr, mse) in enumerate(
             zip(target_data, predict_data, corr_data, mse_data)
         ):
-            base = int(i * 3)
+            base = int(i * 2)
             ax = axes[base]
-            ax.plot(target)
+            if moving_ave_window is None:
+                ax.plot(target, color="steelblue")
+            else:
+                ax.plot(
+                    self.moving_average(target, moving_ave_window),
+                    color="steelblue",
+                )
             ax.set_title("Target", fontsize=title_fs)
             ax = axes[base + 1]
-            ax.plot(predict)
-            ax.set_title("Predict", fontsize=title_fs)
-            ax = axes[base + 2]
-            ax.plot(target - predict)
+            if moving_ave_window is None:
+                ax.plot(predict, color="salmon")
+            else:
+                ax.plot(
+                    self.moving_average(predict, moving_ave_window),
+                    color="salmon",
+                )
             ax.set_title(
-                f"Delta (Pearson Corr: {corr:.3f}; MSE: {mse:.3f})", fontsize=title_fs
+                f"Predict (Pearson Corr: {corr:.3f}; MSE: {mse:.3f})", fontsize=title_fs
             )
 
-        for i, ax in enumerate(axes):
-            ax.set(xlim=(0, len(target_data[0])), ylim=(0, y_max), yticks=[])
-            sns.despine(ax=ax, left=True)
+        for ax in axes:
+            ax.set(xlim=(0, len(target_data[0])))
+            sns.despine(ax=ax)
         return fig, axes
