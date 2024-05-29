@@ -590,6 +590,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         low_cov_ratio: float = 0.1,
         reverse_complement: bool = True,
         override_num_blocks=None,
+        shuffle_files=False,
     ):
         super().__init__(
             dataset_path=dataset,
@@ -597,6 +598,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             override_num_blocks=override_num_blocks,
             chroms=chroms,
             genome=genome,
+            shuffle_files=shuffle_files,
         )
         self.batch_size = batch_size
 
@@ -625,7 +627,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
     def __repr__(self) -> str:
         _super_str = super().__repr__()
         _str = (
-            f"scPrinterDataset for {len(self)} regions.\n"
+            f"scPrinterDataset\n"
             f"DNA window: {self.dna_window}, Signal window: {self.signal_window},\n"
             f"Max jitter: {self.max_jitter}, Batch size: {self.batch_size},\n"
             + _super_str
@@ -681,9 +683,11 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         )
         return _rc
 
-    def _get_add_region_embedding(self):
+    def _get_add_region_embedding(self, return_region_id):
         embedder = BatchRegionEmbedding(
-            embedding=self.region_embedding, region_key="region", pop_region_key=True
+            embedding=self.region_embedding,
+            region_key="region",
+            pop_region_key=not return_region_id,
         )
         return embedder
 
@@ -709,7 +713,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         )
         return one_hot_processor
 
-    def _dataset_preprocess(self, return_cells=False) -> None:
+    def _dataset_preprocess(self, return_cells=False, return_region_id=False) -> None:
         super()._dataset_preprocess(
             sample_regions=self.sample_regions,
             n_pseudobulks=self.n_pseudobulks,
@@ -732,15 +736,16 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             batch_funcs.append(rc)
 
         if self.region_embedding is not None:
-            embedder = self._get_add_region_embedding()
+            embedder = self._get_add_region_embedding(return_region_id=return_region_id)
             batch_funcs.append(embedder)
         else:
-            # manually drop the region column to keep numbers columns only
-            def _func(data):
-                data.pop("region", None)
-                return data
+            if not return_region_id:
+                # manually drop the region column to keep numbers columns only
+                def _func(data):
+                    data.pop("region", None)
+                    return data
 
-            batch_funcs.append(_func)
+                batch_funcs.append(_func)
 
         def _compose_funcs(data):
             for func in batch_funcs:
@@ -800,6 +805,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         as_torch=True,
         device=None,
         return_cells=False,
+        return_region_id=False,
         **kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -827,7 +833,9 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         """
         self._working_dataset = self._dataset
 
-        additional_funcs = self._dataset_preprocess(return_cells=return_cells)
+        additional_funcs = self._dataset_preprocess(
+            return_cells=return_cells, return_region_id=return_region_id
+        )
 
         _default = {
             "prefetch_batches": 3,

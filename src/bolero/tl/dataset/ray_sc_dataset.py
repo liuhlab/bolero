@@ -22,7 +22,7 @@ class RaySingleCellDataset:
         use_prefixs: Optional[list[str]] = None,
         override_num_blocks=None,
         chroms=None,
-        shuffle_files=True,
+        shuffle_files=False,
         genome: str = None,
     ) -> None:
         """
@@ -55,13 +55,13 @@ class RaySingleCellDataset:
             assert (
                 len(chrom_dirs) > 0
             ), f"None of the chroms {chroms} exists in {dataset_path}"
-
-        print("File shuffle is disabled!!!")
+        if not shuffle_files:
+            print("File shuffle is disabled!!!")
         self._dataset = ray.data.read_parquet(
             chrom_dirs,
             file_extensions=["parquet"],
-            shuffle=None,
-            # shuffle="files" if shuffle_files else None,
+            # shuffle=None,
+            shuffle="files" if shuffle_files else None,
             override_num_blocks=override_num_blocks,
         )
         _schema = self._dataset.schema()

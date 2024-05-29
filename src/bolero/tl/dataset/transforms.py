@@ -73,6 +73,7 @@ class CropRegionsWithJitter:
             )
         else:
             jitter = 0
+        data["jitter"] = np.array([jitter])
 
         for k, length in zip(self.key, self.final_length):
             _input = data[k]
@@ -150,6 +151,9 @@ class ReverseComplement:
             # reverse signal
             for k in self.signal_key:
                 data[k] = np.flip(data[k], axis=self.flip_signal_axis)
+            data["flipped"] = np.array([1])
+        else:
+            data["flipped"] = np.array([0])
         return data
 
 

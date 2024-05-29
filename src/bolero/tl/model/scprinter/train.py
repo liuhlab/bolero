@@ -86,6 +86,7 @@ class scFootprintTrainer:
         "val_batches": 500,
         "output_len": 800,
         "loss_tolerance": 0.003,
+        "shuffle_files": False,
     }
 
     lora_config = default_config.copy()
@@ -556,6 +557,7 @@ class scFootprintTrainer:
         # dataset location and schema
         self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
         self.read_parquet_kwargs = config["read_parquet_kwargs"]
+        self.shuffle_files = config["shuffle_files"]
 
         # preprocessing parameters
         self.batch_size = config["batch_size"]
@@ -629,6 +631,7 @@ class scFootprintTrainer:
                 reverse_complement=self.reverse_complement,
                 override_num_blocks=None,
                 genome=self.genome,
+                shuffle_files=self.shuffle_files,
             )
             # setup pseudobulker for sc dataset
             cell_embedding_path = self.config["cell_embedding"]
