@@ -140,15 +140,14 @@ class RaySingleCellDataset:
             embedding=_embedding,
             barcode_order=self.barcode_order,
             cell_coverage=cell_coverage,
+            standard_cells=standard_cells,
         )
         if predefined_pseudobulk_path is not None:
             if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
                 predefined_pseudobulk_path = [predefined_pseudobulk_path]
             for i, path in enumerate(predefined_pseudobulk_path):
                 _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
-                pseudobulker.add_predefined_pseudobulks(
-                    _d, standard_cells=standard_cells
-                )
+                pseudobulker.add_predefined_pseudobulks(_d)
         self.pseudobulker = pseudobulker
 
         # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
