@@ -104,11 +104,13 @@ class scMetaRegionToBulkRegion:
         _per_prefix_bulk_data = defaultdict(list)
         embedding_data = []
         cells_col = {}
+        pseudobulk_ids = []
         # merge single cell to bulk and also get embedding data
-        for bulk_idx, (cells, prefix_to_rows, cell_embedding) in enumerate(
+        for bulk_idx, (cells, prefix_to_rows, cell_embedding, pseudobulk_id) in enumerate(
             self.pseudobulker.take(self.n_pseudobulks)
         ):
             embedding_data.append(cell_embedding)
+            pseudobulk_ids.append(pseudobulk_id)
             cells_col[bulk_idx] = cells
             for prefix in self.prefixs:
                 cell_by_base = data_dict[prefix]
@@ -122,6 +124,7 @@ class scMetaRegionToBulkRegion:
                 _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
                 # TODO: check if all cell is found, otherwise print warning
         embedding_data = np.array(embedding_data)
+        pseudobulk_ids = np.array(pseudobulk_ids)
 
         # remove prefix csr_matrix from data_dict
         for prefix in self.prefixs:
@@ -145,6 +148,7 @@ class scMetaRegionToBulkRegion:
         bulk_data = vstack(bulk_data)
         data_dict["bulk_data"] = bulk_data
         data_dict["embedding_data"] = embedding_data
+        data_dict["pseudobulk_ids"] = pseudobulk_ids
 
         if return_cells:
             data_dict["cells"] = cells_col
@@ -218,17 +222,19 @@ class scMetaRegionToBulkRegion:
 
             _region_bulk_data = _region_bulk_data[use_rows]
             _region_embedding_data = data_dict["embedding_data"][use_rows].copy()
+            _pseudobulk_ids_data = data_dict["pseudobulk_ids"][use_rows].copy()
             if "cells" in data_dict:
                 use_row_idx = np.where(use_rows)[0]
                 use_cells = [data_dict["cells"][idx] for idx in use_row_idx]
             else:
                 use_cells = None
 
-            for data, embedding in zip(_region_bulk_data, _region_embedding_data):
+            for data, embedding, pseudobulk_id in zip(_region_bulk_data, _region_embedding_data, _pseudobulk_ids_data):
                 region = f"{chrom}:{meta_start+rstart}-{meta_start+rend}"
                 _bw_data = bigwig_region_dict.get(region, {})
                 _data = {
                     "bulk_embedding": embedding,
+                    "bulk_id": pseudobulk_id,
                     "bulk_data": data,
                     "region": region,
                 }

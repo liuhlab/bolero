@@ -13,6 +13,7 @@ class PseudobulkGenerator:
         embedding: pd.DataFrame,
         barcode_order: dict[str, pd.Index],
         cell_coverage: pd.Series,
+        standard_cells: int = 2500,
     ) -> None:
         """
         Initialize the PseudobulkGenerator.
@@ -21,6 +22,8 @@ class PseudobulkGenerator:
         ----------
         embedding (pd.DataFrame): The embedding data.
         barcode_order (dict[str, pd.Index]): The barcode order dictionary.
+        cell_coverage (pd.Series): The cell coverage.
+        standard_cells (int): The standard cell number. Default is 2500.
 
         Returns
         -------
@@ -32,12 +35,13 @@ class PseudobulkGenerator:
         self.cell_coverage = cell_coverage
 
         self._predefined_pseudobulks = None
+        self._predefined_pseudobulks_names = None
+        self.standard_cells = standard_cells
+        # TODO: use standard_total_reads instead of standard_cells
 
         self.barcode_order = barcode_order
 
-    def add_predefined_pseudobulks(
-        self, pseudobulks: dict[str, pd.Index], standard_cells=2500
-    ) -> None:
+    def add_predefined_pseudobulks(self, pseudobulks: dict[str, pd.Index]) -> None:
         """
         Add predefined pseudobulks.
 
@@ -52,23 +56,25 @@ class PseudobulkGenerator:
         use_pseudobulks = {}
         for k, cells in pseudobulks.items():
             cells = pd.Series(list(cells))
-            if standard_cells is not None:
-                if cells.size >= standard_cells:
-                    cells = cells.sample(standard_cells, random_state=0)
-                    use_pseudobulks[k] = cells
-                else:
-                    continue
-            else:
+            if cells.size >= self.standard_cells:
                 use_pseudobulks[k] = cells
 
         print(
-            f"{len(use_pseudobulks)} predefined pseudobulks are used, standard cell number is {standard_cells}."
+            f"{len(use_pseudobulks)} predefined pseudobulks are used, standard cell number is {self.standard_cells}."
         )
 
+        pseudobulk_list = []
+        pseudobulk_names = []
+        for k, cells in use_pseudobulks.items():
+            pseudobulk_list.append(cells)
+            pseudobulk_names.append(k)
+
         if self._predefined_pseudobulks is None:
-            self._predefined_pseudobulks = list(use_pseudobulks.values())
+            self._predefined_pseudobulks = pseudobulk_list
+            self._predefined_pseudobulks_names = pseudobulk_names
         else:
-            self._predefined_pseudobulks.extend(use_pseudobulks.values())
+            self._predefined_pseudobulks.extend(pseudobulk_list)
+            self._predefined_pseudobulks_names.extend(pseudobulk_names)
 
     def get_pseudobulk_centriods(
         self, cells: pd.Index, method: str = "mean"
@@ -129,11 +135,15 @@ class PseudobulkGenerator:
         random_idx = np.random.choice(n_defined, size=actual_n, replace=False)
         for idx in random_idx:
             cells = self._predefined_pseudobulks[idx]
+            
+            if cells.size > self.standard_cells:
+                cells = pd.Index(np.random.choice(cells, size=self.standard_cells, replace=False))
+
             prefix_to_rows = self._cells_to_prefix_dict(cells)
             embeddings = self.get_pseudobulk_centriods(cells)
             coverage = self.get_pseudobulk_coverage(cells)
             embeddings = np.concatenate([embeddings, [coverage]])
-            yield cells, prefix_to_rows, embeddings
+            yield cells, prefix_to_rows, embeddings, idx
 
     def _cells_to_prefix_dict(self, cells: pd.Index) -> dict[str, pd.Index]:
         """
@@ -180,3 +190,8 @@ class PseudobulkGenerator:
             return self.take_predefined_pseudobulk(n)
         else:
             raise NotImplementedError(f"Unknown mode {mode}")
+
+    def pseudobulk_id_to_name(self, idx):
+        if isinstance(idx, int):
+            idx = np.array([idx])
+        return [self._predefined_pseudobulks_names[i] for i in idx]
