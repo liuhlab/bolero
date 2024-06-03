@@ -37,6 +37,9 @@ class BatchInference:
         self.model = model
         self.postprocess = postprocess
 
+    def _get_tfbs(self, data: dict) -> dict:
+        return data
+
     def __call__(self, data: dict) -> dict:
         """
         Perform batch inference on the given data.
@@ -334,7 +337,7 @@ class scPrinterInferencer:
             ds.coords["region"] = regions
         return ds
 
-    def offline_transform(self, bed_path: str, output_path: str) -> None:
+    def offline_transform(self, bed_path: str, output_path: str, **kwargs) -> None:
         """
         Perform offline transformation.
 
@@ -346,6 +349,8 @@ class scPrinterInferencer:
             The output path.
         chunk_size : int, optional
             The size of each chunk. Default is 20.
+        **kwargs : dict
+            Additional keyword arguments pass to the transform method.
 
         Returns
         -------
@@ -373,7 +378,7 @@ class scPrinterInferencer:
 
             if pathlib.Path(chunk_out_path).exists():
                 continue
-            chunk_ds = self.transform(chunk_bed, batch_size=batch_size)
+            chunk_ds = self.transform(chunk_bed, batch_size=batch_size, **kwargs)
             joblib.dump(chunk_ds, f"{chunk_out_path}.temp", compress=1)
             pathlib.Path(f"{chunk_out_path}.temp").rename(chunk_out_path)
 

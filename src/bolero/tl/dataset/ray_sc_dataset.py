@@ -1,16 +1,15 @@
 # TODO: scRayDataset inherits from RayDataset, and then in scprinter, scPrinterscDataset inherits from scPrinterDataset.
 # Once the sc dataset processed pseudobulk and provides region and pseudobulk data dict, the remaining preprocess step should be the same as bulk train model.
 import pathlib
-from typing import Optional, Union
+from copy import deepcopy
+from typing import Optional
 
-import joblib
 import numpy as np
 import pandas as pd
 import ray
 
 from bolero import Genome
 from bolero.tl.dataset.sc_transforms import scMetaRegionToBulkRegion
-from bolero.tl.pseudobulk.generator import PseudobulkGenerator
 
 
 class RaySingleCellDataset:
@@ -78,7 +77,6 @@ class RaySingleCellDataset:
             for name, cells in np.load(f"{dataset_path}/barcodes.npz").items()
             if name in self.prefixs
         }
-        self.pseudobulker = None
 
         # get genome
         if genome is None:
@@ -105,55 +103,6 @@ class RaySingleCellDataset:
         """
         return self._dataset.__repr__()
 
-    def prepare_pseudobulker(
-        self,
-        cell_embedding: Union[str, pathlib.Path, pd.DataFrame],
-        cell_coverage: Union[str, pathlib.Path, pd.Series],
-        predefined_pseudobulk_path: Union[str, pathlib.Path] = None,
-        standard_cells: int = 2500,
-    ) -> None:
-        """
-        Prepare the pseudobulker.
-
-        Parameters
-        ----------
-        embedding : Union[str, pathlib.Path, pd.DataFrame]
-            The embedding data.
-        predefined_pseudobulk : Optional[dict], optional
-            Predefined pseudobulk data, by default None.
-
-        Returns
-        -------
-        None
-        """
-        if isinstance(cell_embedding, (str, pathlib.Path)):
-            _embedding = pd.read_feather(cell_embedding)
-            _embedding = _embedding.set_index(_embedding.columns[0])
-        elif isinstance(cell_embedding, pd.DataFrame):
-            _embedding = cell_embedding
-
-        if isinstance(cell_coverage, (str, pathlib.Path)):
-            cell_coverage = pd.read_feather(cell_coverage)
-            cell_coverage = cell_coverage.set_index(cell_coverage.columns[0]).squeeze()
-
-        pseudobulker = PseudobulkGenerator(
-            embedding=_embedding,
-            barcode_order=self.barcode_order,
-            cell_coverage=cell_coverage,
-            standard_cells=standard_cells,
-        )
-        if predefined_pseudobulk_path is not None:
-            if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
-                predefined_pseudobulk_path = [predefined_pseudobulk_path]
-            for i, path in enumerate(predefined_pseudobulk_path):
-                _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
-                pseudobulker.add_predefined_pseudobulks(_d)
-        self.pseudobulker = pseudobulker
-
-        # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
-        # all pseudobulk cells should occured in the dataset
-        return
-
     def _dataset_preprocess(
         self,
         sample_regions: int,
@@ -162,6 +111,7 @@ class RaySingleCellDataset:
         max_cov: int,
         low_cov_ratio: float,
         return_cells: bool = False,
+        **kwargs,
     ) -> None:
         """
         Preprocess the dataset.
@@ -192,6 +142,7 @@ class RaySingleCellDataset:
             max_cov=max_cov,
             low_cov_ratio=low_cov_ratio,
             return_cells=return_cells,
+            **kwargs,
         )
         return
 
@@ -205,6 +156,7 @@ class RaySingleCellDataset:
         num_cpus: int = 1,
         memory: float = "auto",
         return_cells: bool = False,
+        **psuedobulker_kwargs,
     ) -> None:
         """
         Perform pseudobulking and extract regions.
@@ -236,25 +188,26 @@ class RaySingleCellDataset:
         if memory == "auto":
             memory = 3 * 1024**3  # Gb to bytes
 
-        if self.pseudobulker is None:
-            raise ValueError(
-                "Pseudobulker not prepared yet, call self.prepare_pseudobulker() first."
-            )
-
         # merge cell into pseudobulk and
         # split large meta region (storage) into smaller final regions (data consumption)
-        processor = scMetaRegionToBulkRegion(
-            prefixs=self.prefixs,
-            pseudobulker=self.pseudobulker,
-            sample_regions=sample_regions,
-            min_cov=min_cov,
-            max_cov=max_cov,
-            low_cov_ratio=low_cov_ratio,
-            n_pseudobulks=n_pseudobulks,
-            return_cells=return_cells,
-        )
+        kwargs = psuedobulker_kwargs
+        other_kwargs = {
+            "barcode_order": deepcopy(self.barcode_order),
+            "prefixs": self.prefixs,
+            "sample_regions": sample_regions,
+            "min_cov": min_cov,
+            "max_cov": max_cov,
+            "low_cov_ratio": low_cov_ratio,
+            "n_pseudobulks": n_pseudobulks,
+            "return_cells": return_cells,
+        }
+        kwargs.update(other_kwargs)
         self._working_dataset = self._working_dataset.flat_map(
-            processor, num_cpus=num_cpus, memory=memory
+            fn=scMetaRegionToBulkRegion,
+            fn_constructor_kwargs=kwargs,
+            num_cpus=num_cpus,
+            memory=memory,
+            concurrency=(2, 15),
         )
         # after flat_map processor, each row in working_dataset is a dict with keys:
         # ["bulk_embedding", "bulk_data", "region"]

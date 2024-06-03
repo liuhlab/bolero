@@ -19,6 +19,7 @@ import pandas as pd
 import pyBigWig
 import torch
 
+from bolero.pp.genome import Genome
 from bolero.tl.topic.region_embedding import RegionEmbedder
 from bolero.utils import try_gpu
 
@@ -232,6 +233,8 @@ class FetchRegionOneHot:
         dtype : str, optional
             The data type of the one-hot encoded DNA. Defaults to "float32".
         """
+        if isinstance(genome, str):
+            genome = Genome(genome)
         self.genome = genome
         self.region_key = region_key
         self.output_key = output_key

@@ -97,7 +97,7 @@ class scFootprintTrainer:
             "use_prefix": None,
             "sample_regions": 200,
             "n_pseudobulk": 10,
-            "standard_cells": 2500,
+            "standard_cov": 10e6,
             "min_cov": 10,
             "max_cov": 100000,
             "low_cov_ratio": 0.1,
@@ -632,12 +632,12 @@ class scFootprintTrainer:
             region_embedding_path = self.config["region_embedding"]
             cell_coverage_path = self.config["cell_coverage"]
             pseudobulk_path = self.config["pseudobulk_path"]
-            standard_cells = self.config["standard_cells"]
+            standard_cov = self.config["standard_cov"]
             dataset.prepare_pseudobulker(
                 cell_embedding=cell_embedding_path,
                 cell_coverage=cell_coverage_path,
                 predefined_pseudobulk_path=pseudobulk_path,
-                standard_cells=standard_cells,
+                standard_cov=standard_cov,
             )
             dataset.add_region_embedding(region_embedding_path)
         else:

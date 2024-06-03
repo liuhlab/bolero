@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from bolero.tl.model.generic.module import GroupedLinear, Conv1dWrapper
+from bolero.tl.model.generic.module import Conv1dWrapper, GroupedLinear
 
 
 class EmbeddingMLP(nn.Module):
@@ -86,6 +86,7 @@ class EmbeddingMLP(nn.Module):
             ]
         )
         self.mlp = nn.Sequential(*layers)
+        self.rescale_factor = nn.Parameter(torch.tensor(1.0), requires_grad=False)
 
     def forward(self, embedding: torch.Tensor) -> torch.Tensor:
         """
@@ -98,7 +99,7 @@ class EmbeddingMLP(nn.Module):
         -------
             torch.Tensor: The output tensor after passing through the MLP layers.
         """
-        return self.mlp(embedding)
+        return self.mlp(embedding * self.rescale_factor)
 
     def zero_weights_and_bias(self):
         """
@@ -131,9 +132,10 @@ class EmbeddingMLP(nn.Module):
             mean, std = example_output.mean(), example_output.std()
             print(f"Embedding example mean: {mean}, std: {std}")
             rescale_factor = 1 / (std)
-            self.mlp[0].weight.data[
-                ...
-            ] *= rescale_factor  # rescale the embedding matrix
+            self.rescale_factor = nn.Parameter(
+                torch.tensor(rescale_factor), requires_grad=False
+            )
+            # rescale the embedding matrix
         return
 
     def fix_parameters(self):
@@ -217,8 +219,8 @@ class Conv1dMultiLoRA(nn.Module):
         elif isinstance(hidden_dims, int):
             self.hidden_dims = [hidden_dims] * len(A_embedding_dims)
         else:
-            assert len(hidden_dims) == len(
-                A_embedding_dims
+            assert (
+                len(hidden_dims) == len(A_embedding_dims)
             ), f"hidden_dim must have the same length as A_embedding_dims (length of {len(A_embedding_dims)})"
             self.hidden_dims = hidden_dims
 

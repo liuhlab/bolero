@@ -11,7 +11,6 @@ import wandb
 from scprinter.seq.ema import EMA
 from scprinter.seq.Models import scFootprintBPNet
 from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
-from tqdm import tqdm
 
 from bolero.pl.footprint import FootPrintExamplePlotter
 from bolero.pl.utils import figure_to_array
@@ -98,11 +97,12 @@ class scFootprintTrainer:
             "use_prefix": None,
             "sample_regions": 200,
             "n_pseudobulk": 10,
-            "standard_cells": 2500,
+            "standard_cov": 10e6,
             "min_cov": 10,
             "max_cov": 100000,
             "low_cov_ratio": 0.1,
             "cell_embedding": "REQUIRED",
+            "example_pseudobulk_embedding": "REQUIRED",
             "region_embedding": "REQUIRED",
             "a_embedding": "REQUIRED",
             "b_embedding": "REQUIRED",
@@ -425,12 +425,15 @@ class scFootprintTrainer:
         cell_coverage = np.log10(cell_coverage + 1)
         cell_emb["_coverage"] = cell_coverage
 
+        cell_emb = np.load(config["example_pseudobulk_embedding"])
         region_emb = config["region_embedding"]
         if region_emb is not None:
             region_emb = pd.read_feather(region_emb)
             region_emb = region_emb.set_index(region_emb.columns[0])
 
         adj_output_model_path = config["output_adjusted_model"]
+        if adj_output_model_path is None:
+            adj_output_model_path = f"{self.savename}.adj_output.best_model.pt"
         acc_model = torch.load(adj_output_model_path)
 
         # fix all parameters in the pretrained model
@@ -633,18 +636,20 @@ class scFootprintTrainer:
                 genome=self.genome,
                 shuffle_files=self.shuffle_files,
             )
-            # setup pseudobulker for sc dataset
+
+            # setup pseudobulker params for sc dataset
             cell_embedding_path = self.config["cell_embedding"]
-            region_embedding_path = self.config["region_embedding"]
             cell_coverage_path = self.config["cell_coverage"]
             pseudobulk_path = self.config["pseudobulk_path"]
-            standard_cells = self.config["standard_cells"]
-            dataset.prepare_pseudobulker(
-                cell_embedding=cell_embedding_path,
-                cell_coverage=cell_coverage_path,
-                predefined_pseudobulk_path=pseudobulk_path,
-                standard_cells=standard_cells,
-            )
+            standard_cov = self.config["standard_cov"]
+            self.pseudobulk_kwargs = {
+                "cell_embedding": cell_embedding_path,
+                "cell_coverage": cell_coverage_path,
+                "predefined_pseudobulk_path": pseudobulk_path,
+                "standard_cov": standard_cov,
+            }
+
+            region_embedding_path = self.config["region_embedding"]
             dataset.add_region_embedding(region_embedding_path)
         else:
             raise ValueError(f"Incorrect mode: {mode}.")
@@ -653,11 +658,17 @@ class scFootprintTrainer:
     @property
     def train_dataset(self):
         """Training dataset."""
-        if self._train_dataset is None:
-            dataset = self._get_dataset(self.train_chroms)
+        if self.mode == "lora":
+            _chroms = list(np.random.choice(self.train_chroms, 1))
+            print("Train chroms:", _chroms)
+            dataset = self._get_dataset(_chroms)
             dataset.train()
-            self._train_dataset = dataset
-        return self._train_dataset
+        else:
+            if self._train_dataset is None:
+                self._train_dataset = self._get_dataset(self.train_chroms)
+                self._train_dataset.train()
+            dataset = self._train_dataset
+        return dataset
 
     @property
     def valid_dataset(self):
@@ -764,6 +775,7 @@ class scFootprintTrainer:
     ):
         if val_batches is None:
             val_batches = self.val_batches
+        print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
         mode = self.mode
 
@@ -785,6 +797,7 @@ class scFootprintTrainer:
             val_data_loader = val_dataset.get_dataloader(
                 device=self.device,
                 local_shuffle_buffer_size=0,
+                pseudobulk_kwargs=self.pseudobulk_kwargs,
             )
             atac_key = "bulk_data"
             dna_key = "dna_one_hot"
@@ -803,12 +816,7 @@ class scFootprintTrainer:
         across_batch_pearson_cov = CumulativePearson()
 
         example_batches = []  # collect example batches for making images
-        bar = tqdm(
-            enumerate(val_data_loader),
-            desc=" - (Validation)",
-            dynamic_ncols=True,
-            total=val_batches,
-        )
+        bar = enumerate(val_data_loader)
         for batch_id, batch in bar:
             # ==========
             # X
@@ -870,15 +878,19 @@ class scFootprintTrainer:
                 batch["pred_score"] = pred_score_img
                 example_batches.append(batch)
 
-            if size > 5:
+            if ((batch_id + 1) % print_step) == 0:
                 desc_str = (
-                    f" - (Validation) {self.cur_epoch} "
-                    f"Footprint Loss: {val_loss[0]/size:.4f} "
+                    f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
+                    f"Footprint Loss: {val_loss[0]/size:.3f}; "
+                    f"Profile Pearson: {profile_pearson_counter.mean():.3f}; "
+                    f"Across batch Pearson: FP {across_batch_pearson_fp.corr():.3f}; "
+                    f"Cov {across_batch_pearson_cov.corr():.3f}"
                 )
-                bar.set_description(desc_str)
+                print(desc_str)
+
             if batch_id >= val_batches:
                 break
-        bar.close()
+
         del val_data_loader
         self._cleanup_env()
         wandb_images = self._plot_example_footprints(
@@ -939,32 +951,33 @@ class scFootprintTrainer:
         else:
             _dataset = self.valid_dataset
 
-        if self.use_ema:
-            self.ema.eval()
-            self.ema.ema_model.eval()
-            val_loss, profile_pearson, across_pearson, wandb_images = (
-                self._model_validation_step(
-                    model=self.ema.ema_model,
-                    val_dataset=_dataset,
-                    sample=sample,
-                    region=region,
-                    val_batches=val_batches,
+        with torch.inference_mode():
+            if self.use_ema:
+                self.ema.eval()
+                self.ema.ema_model.eval()
+                val_loss, profile_pearson, across_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.ema.ema_model,
+                        val_dataset=_dataset,
+                        sample=sample,
+                        region=region,
+                        val_batches=val_batches,
+                    )
                 )
-            )
-            self.ema.train()
-            self.ema.ema_model.train()
-        else:
-            self.scp_model.eval()
-            val_loss, profile_pearson, across_pearson, wandb_images = (
-                self._model_validation_step(
-                    model=self.scp_model,
-                    val_dataset=_dataset,
-                    sample=sample,
-                    region=region,
-                    val_batches=val_batches,
+                self.ema.train()
+                self.ema.ema_model.train()
+            else:
+                self.scp_model.eval()
+                val_loss, profile_pearson, across_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.scp_model,
+                        val_dataset=_dataset,
+                        sample=sample,
+                        region=region,
+                        val_batches=val_batches,
+                    )
                 )
-            )
-            self.scp_model.train()
+                self.scp_model.train()
         return val_loss, profile_pearson, across_pearson, wandb_images
 
     def _save_checkpint(self, update_best):
@@ -1106,13 +1119,15 @@ class scFootprintTrainer:
                 }
             )
 
-        stop_flag = False
+        stop_flag = self.early_stopping_counter >= self.patience
         if self.cur_epoch > 0:
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
-        train_data_loader = None
         while self.cur_epoch < max_epochs and not stop_flag:
+            print(
+                f"Current epoch: {self.cur_epoch}, max epochs: {max_epochs}, stop flag: {stop_flag}."
+            )
             # check early stop
             if self.early_stopping_counter >= self.patience:
                 # early stopping counter could be loaded from the checkpoint
@@ -1122,50 +1137,28 @@ class scFootprintTrainer:
                 break
 
             # get train data loader
-            if train_data_loader is None:
-                if mode in {"lora", "adj_output"}:
-                    train_data_loader = training_dataset.get_dataloader(
-                        device=self.device,
-                        local_shuffle_buffer_size=local_shuffle_buffer_size,
-                    )
-                else:
-                    train_data_loader = training_dataset.get_dataloader(
-                        sample=sample,
-                        region=region,
-                        local_shuffle_buffer_size=local_shuffle_buffer_size,
-                        randomize_block_order=randomize_block_order,
-                    )
-                train_data_loader = iter(train_data_loader)
+            print("Get data loader")
+            if mode in {"lora", "adj_output"}:
+                train_data_loader = self.train_dataset.get_dataloader(
+                    device=self.device,
+                    local_shuffle_buffer_size=local_shuffle_buffer_size,
+                    pseudobulk_kwargs=self.pseudobulk_kwargs,
+                )
+            else:
+                train_data_loader = self.train_dataset.get_dataloader(
+                    sample=sample,
+                    region=region,
+                    local_shuffle_buffer_size=local_shuffle_buffer_size,
+                    randomize_block_order=randomize_block_order,
+                )
 
             # start train epochs
             moving_avg_fp_loss = 0
             moving_avg_cov_loss = 0
             nan_loss = False
 
-            bar = tqdm(
-                range(self.train_batches),
-                desc=f" - (Training) {self.cur_epoch}",
-                dynamic_ncols=True,
-                total=self.train_batches,
-            )
-            for batch_id in bar:
-                try:
-                    batch = next(train_data_loader)
-                except StopIteration:
-                    if mode in {"lora", "adj_output"}:
-                        train_data_loader = training_dataset.get_dataloader(
-                            device=self.device,
-                            local_shuffle_buffer_size=local_shuffle_buffer_size,
-                        )
-                    else:
-                        train_data_loader = training_dataset.get_dataloader(
-                            sample=sample,
-                            region=region,
-                            local_shuffle_buffer_size=local_shuffle_buffer_size,
-                            randomize_block_order=randomize_block_order,
-                        )
-                    train_data_loader = iter(train_data_loader)
-
+            print_steps = max(5, self.train_batches // 50)
+            for batch_id, batch in enumerate(train_data_loader):
                 try:
                     auto_cast_context = torch.autocast(
                         device_type=str(self.device),
@@ -1260,20 +1253,22 @@ class scFootprintTrainer:
                     if scheduler is not None:
                         scheduler.step()
 
-                if (batch_id + 1) % 5 == 0:
+                if (batch_id + 1) % print_steps == 0:
                     desc_str = (
-                        f" - (Training) {self.cur_epoch} "
+                        f" - (Training) {self.cur_epoch} {batch_id} "
                         f"Footprint Loss: {moving_avg_fp_loss / (batch_id + 1):.4f} "
                         f"Coverage Loss: {moving_avg_cov_loss / (batch_id + 1):.4f}"
                     )
-                    bar.set_description(desc_str)
-                bar.update(1)
+                    print(desc_str)
 
                 # early break batch loop
                 if batch_id >= self.train_batches:
+                    print(
+                        f"Stop training at batch {batch_id} due to self.train_batches={self.train_batches}."
+                    )
                     break
 
-            # del train_data_loader
+            del train_data_loader
             self._cleanup_env()
             if nan_loss:
                 # epoch break due to nan loss, skip validation
@@ -1318,7 +1313,7 @@ class scFootprintTrainer:
                 self.val_profile_pearson,
                 self.val_across_pearson,
                 _,
-            ) = self._validation_step(sample=sample, region=region, val_batches=None)
+            ) = self._validation_step(sample=sample, region=region, val_batches=1500)
         valid_across_pearson_footprint, valid_across_pearson_coverage = (
             self.val_across_pearson
         )
@@ -1329,7 +1324,7 @@ class scFootprintTrainer:
             self.test_across_pearson,
             wandb_images,
         ) = self._validation_step(
-            sample=sample, region=region, testing=True, val_batches=None
+            sample=sample, region=region, testing=True, val_batches=1500
         )
         test_across_pearson_footprint, test_across_pearson_coverage = (
             self.test_across_pearson
@@ -1424,7 +1419,7 @@ class scFootprintTrainer:
 
                     # only train for 3 epochs to adjust the output layer
                     self._fit(
-                        sample=None, region=None, max_epochs=2, valid_first=valid_first
+                        sample=None, region=None, max_epochs=3, valid_first=valid_first
                     )
                     self._save_stage_flag("adj_output")
                     self._cleanup_env()

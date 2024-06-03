@@ -713,7 +713,9 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         )
         return one_hot_processor
 
-    def _dataset_preprocess(self, return_cells=False, return_region_id=False) -> None:
+    def _dataset_preprocess(
+        self, return_cells=False, return_region_id=False, **kwargs
+    ) -> None:
         super()._dataset_preprocess(
             sample_regions=self.sample_regions,
             n_pseudobulks=self.n_pseudobulks,
@@ -721,6 +723,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
             max_cov=self.max_cov,
             low_cov_ratio=self.low_cov_ratio,
             return_cells=return_cells,
+            **kwargs,
         )
 
         batch_funcs = []
@@ -802,6 +805,7 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
 
     def get_dataloader(
         self,
+        pseudobulk_kwargs,
         as_torch=True,
         device=None,
         return_cells=False,
@@ -834,7 +838,9 @@ class scPrinterSingleCellDataset(RaySingleCellDataset):
         self._working_dataset = self._dataset
 
         additional_funcs = self._dataset_preprocess(
-            return_cells=return_cells, return_region_id=return_region_id
+            return_cells=return_cells,
+            return_region_id=return_region_id,
+            **pseudobulk_kwargs,
         )
 
         _default = {

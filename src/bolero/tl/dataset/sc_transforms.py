@@ -48,13 +48,13 @@ class scMetaRegionToBulkRegion:
     def __init__(
         self,
         prefixs,
-        pseudobulker,
         sample_regions=200,
         min_cov=10,
         max_cov=1e5,
         low_cov_ratio=0.1,
         n_pseudobulks=10,
         return_cells=False,
+        **kwargs,
     ):
         if isinstance(prefixs, str):
             prefixs = [prefixs]
@@ -66,7 +66,9 @@ class scMetaRegionToBulkRegion:
         else:
             self.bigwig_prefix = None
 
-        self.pseudobulker: PseudobulkGenerator = pseudobulker
+        self.pseudobulker: PseudobulkGenerator = (
+            PseudobulkGenerator.prepare_pseudobulker(**kwargs)
+        )
         self.n_pseudobulks = n_pseudobulks
 
         self.sample_regions = sample_regions
@@ -106,9 +108,12 @@ class scMetaRegionToBulkRegion:
         cells_col = {}
         pseudobulk_ids = []
         # merge single cell to bulk and also get embedding data
-        for bulk_idx, (cells, prefix_to_rows, cell_embedding, pseudobulk_id) in enumerate(
-            self.pseudobulker.take(self.n_pseudobulks)
-        ):
+        for bulk_idx, (
+            cells,
+            prefix_to_rows,
+            cell_embedding,
+            pseudobulk_id,
+        ) in enumerate(self.pseudobulker.take(self.n_pseudobulks)):
             embedding_data.append(cell_embedding)
             pseudobulk_ids.append(pseudobulk_id)
             cells_col[bulk_idx] = cells
@@ -229,7 +234,9 @@ class scMetaRegionToBulkRegion:
             else:
                 use_cells = None
 
-            for data, embedding, pseudobulk_id in zip(_region_bulk_data, _region_embedding_data, _pseudobulk_ids_data):
+            for data, embedding, pseudobulk_id in zip(
+                _region_bulk_data, _region_embedding_data, _pseudobulk_ids_data
+            ):
                 region = f"{chrom}:{meta_start+rstart}-{meta_start+rend}"
                 _bw_data = bigwig_region_dict.get(region, {})
                 _data = {
