@@ -1,4 +1,3 @@
-import gzip
 import pathlib
 from typing import Any, Optional, Tuple, Union
 
@@ -14,59 +13,10 @@ from scipy.sparse import csr_matrix, vstack
 from bolero.pp.utils import get_global_coords
 from bolero.utils import parse_region_name, parse_region_names
 
-
-def array_to_compressed_bytes(array, level=5):
-    """
-    Compresses an array to bytes.
-
-    Parameters
-    ----------
-        array: The array to compress.
-        level: The compression level. Default is 5.
-
-    Returns
-    -------
-        bytes: The compressed array.
-    """
-    return gzip.compress(array.tobytes(), compresslevel=level)
-
-
-def csr_matrix_to_compressed_bytes_dict(
-    prefix: str, matrix: csr_matrix, level: int = 5
-) -> dict[str, bytes]:
-    """
-    Compresses a CSR matrix to a dictionary of compressed bytes.
-
-    Parameters
-    ----------
-    prefix : str
-        The prefix for the keys in the dictionary.
-    matrix : csr_matrix
-        The CSR matrix to compress.
-    level : int, optional
-        The compression level. Default is 5.
-
-    Returns
-    -------
-    dict[str, bytes]
-        The dictionary of compressed bytes.
-
-    """
-    data_dict = {
-        f"{prefix}:indices+uint32": array_to_compressed_bytes(
-            matrix.indices.astype(np.uint32), level=level
-        ),
-        f"{prefix}:indptr+uint32": array_to_compressed_bytes(
-            matrix.indptr.astype(np.uint32), level=level
-        ),
-        f"{prefix}:data+float32": array_to_compressed_bytes(
-            matrix.data.astype(np.float32), level=level
-        ),
-        f"{prefix}:shape+uint32": array_to_compressed_bytes(
-            np.array(matrix.shape).astype(np.uint32), level=level
-        ),
-    }
-    return data_dict
+from .genome_chunk_dataset import (
+    array_to_compressed_bytes,
+    csr_matrix_to_compressed_bytes_dict,
+)
 
 
 def prepare_meta_region(

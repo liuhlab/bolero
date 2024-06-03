@@ -31,3 +31,4 @@ __pycache__/
 /.idea/
 /.vscode/
 .ipynb_checkpoints/
+tests/check.ipynb

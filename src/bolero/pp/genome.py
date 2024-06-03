@@ -281,6 +281,20 @@ class Genome:
             subprocess.check_call(["gunzip", fasta_gz_file])
         return fasta_file, chrom_sizes_file
 
+    def make_windows(self, window_size, step, as_df=False):
+        """
+        Create windows across the genome, mimicking bedtools makewindows
+        """
+        records = []
+        for chrom, size in self.chrom_sizes.items():
+            for start in range(0, size, step):
+                end = min(size, start + window_size)
+                records.append([chrom, start, end])
+        bed = pd.DataFrame(records, columns=["Chromosome", "Start", "End"])
+        if not as_df:
+            bed = pr.PyRanges(bed)
+        return bed
+
     def get_region_fasta(self, bed_path, output_path=None, compress=True):
         """
         Extract fasta sequences from a bed file.

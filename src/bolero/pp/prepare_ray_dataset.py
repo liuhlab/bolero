@@ -114,7 +114,7 @@ class GenomeEnsembleDataset:
                 user must ensure all regions have the same length
                 and do not exceed the genome boarder. Default is 2500.
             query_datasets (str or List[str]): The datasets to query when retrieving region data.
-                Default is 'all', which queries all datasets in self.datasets.
+                Default is 'all', which queries all datasets in self.datasets.keys().
             check_length (bool): Whether to check if all regions have the same length. Default is False.
             remove_blacklist (bool): Whether to remove regions that overlap with blacklisted regions. Default is True.
             boarder_strategy (str): The stratagy to handle regions that go beyond the genome boarder. Default is 'drop'. See `Genome.standard_region_length` for more details.
