@@ -1,9 +1,9 @@
-import math
-import torch
-from torch import nn
 import copy
+import math
 
+import torch
 import torch.nn.functional as F
+from torch import nn
 
 
 class GroupedLinear(nn.Module):
@@ -226,10 +226,6 @@ class DilatedCNN(nn.Module):
         ----------
         self
         X: torch.tensor, shape=(batch_size, n_filters, seq_len)
-
-        Returns
-        -------
-
         """
         if self.bipass_connect:
             X0 = X.clone()
@@ -331,10 +327,6 @@ class ConvBlockModule(nn.Module):
         ----------
         self
         X: torch.tensor, shape=(batch_size, n_filters, seq_len)
-
-        Returns
-        -------
-
         """
         X = self.conv1(X, *args, **kwargs)
         X = self.block1(X)

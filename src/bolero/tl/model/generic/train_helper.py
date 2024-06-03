@@ -493,7 +493,7 @@ def validate_config(config, default_config, allow_extra_keys=True):
     """
     Validate the config dictionary against the default config dictionary.
     """
-    error_msg = ''
+    error_msg = ""
     required_missing = []
     for k, v in default_config.items():
         if v == "REQUIRED":
@@ -502,7 +502,6 @@ def validate_config(config, default_config, allow_extra_keys=True):
                 required_missing.append(k)
     if len(required_missing) > 0:
         error_msg += f"Required fields missing from config: {required_missing}\n"
-        
 
     if not allow_extra_keys:
         extra_keys = []
@@ -517,10 +516,12 @@ def validate_config(config, default_config, allow_extra_keys=True):
 
     return True
 
+
 class FakeWandb:
     """
     A fake wandb context manager that does nothing.
     """
+
     def __init__(self):
         self.config = {}
 
@@ -529,4 +530,3 @@ class FakeWandb:
 
     def __exit__(self, *args):
         pass
-    

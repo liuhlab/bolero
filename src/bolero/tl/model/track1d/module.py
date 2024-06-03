@@ -1,5 +1,4 @@
 from torch import nn
-import torch.nn.functional as F
 
 from bolero.tl.model.generic.module import Conv1dWrapper
 
@@ -30,6 +29,7 @@ class OutputHead(nn.Module):
         )
 
     def forward(self, X, *args, output_len=None, modes=None, **kwargs):
+        """Forward pass of the model."""
         X_score = self.conv_layer(X, *args, modes=modes, **kwargs)
         if output_len is None:
             trim = 0

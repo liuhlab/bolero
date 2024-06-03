@@ -1,4 +1,5 @@
 from torch import nn
+
 from bolero.tl.model.generic.module import DNA_CNN, DilatedCNN
 from bolero.tl.model.track1d.module import OutputHead
 
@@ -14,7 +15,7 @@ class DialatedCNNTrack1DModel(nn.Module):
         "output_kernel_size": 1,
         "input_channels": 4,
         "output_channels": 1,
-        "dna_len": 'auto',
+        "dna_len": "auto",
         "output_len": 1000,
         "activation": "gelu",
         "conv_groups": 8,
@@ -28,10 +29,12 @@ class DialatedCNNTrack1DModel(nn.Module):
 
     @classmethod
     def get_default_config(cls):
+        """Get the default configuration for the model."""
         return cls.default_config
 
     @classmethod
     def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
         activation = config["activation"]
         if activation.lower() == "gelu":
             activation = nn.GELU()
@@ -45,7 +48,7 @@ class DialatedCNNTrack1DModel(nn.Module):
             in_channels=config["input_channels"],
         )
 
-        dilation_func = config['dilation_func']
+        dilation_func = config["dilation_func"]
         if dilation_func is None:
             dilation_func = lambda x: 2 ** (x + 1)
         hidden_layer_model = DilatedCNN(

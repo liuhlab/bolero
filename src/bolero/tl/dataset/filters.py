@@ -9,6 +9,7 @@ The filter function takes a data dictionary and returns a boolean value.
 
 # TODO: change filter to map_batches
 
+
 class RowSumFilter:
     """Filter rows based on the sum of a column in the data dictionary.
 

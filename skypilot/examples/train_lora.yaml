@@ -31,4 +31,3 @@ run: |
   conda activate ray
   nohup jupyter-lab --LabApp.token='' --no-browser --port 3456 > ~/jupyter.log 2>&1 &
   papermill --cwd {cwd} {input_nb} {output_nb}
-

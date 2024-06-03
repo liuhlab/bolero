@@ -1,13 +1,14 @@
 from typing import Iterable, Optional, Union
+
 import numpy as np
 
 from bolero.tl.dataset.filters import RowSumFilter
 from bolero.tl.dataset.ray_dataset import RayGenomeDataset
 from bolero.tl.dataset.transforms import (
+    AddChannels,
     BatchToFloat,
     CropRegionsWithJitter,
     ReverseComplement,
-    AddChannels,
 )
 from bolero.tl.model.generic.train_helper import validate_config
 
@@ -314,7 +315,7 @@ class Track1DDataset(RayGenomeDataset):
         )
         dataset = dataset.map(_cropper, *args, **kwargs)
         return dataset
-    
+
     def _add_channels(self, dataset, *args, **kwargs) -> None:
         """
         Add channels to the dataset.

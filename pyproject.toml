@@ -135,6 +135,10 @@ lint.ignore = [
     "D213",
 ]
 extend-include = ["*.ipynb"]
+exclude = [
+  "src/bolero/tl/model/generic/ema.py",
+  "tests/"
+]
 
 [tool.ruff.format]
 docstring-code-format = true

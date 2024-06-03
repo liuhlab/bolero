@@ -7,11 +7,10 @@ from copy import deepcopy
 from functools import partial
 
 import torch
+from beartype import beartype
+from beartype.typing import Optional, Set
 from torch import Tensor
 from torch.nn import Module
-
-from beartype import beartype
-from beartype.typing import Set, Optional
 
 
 def exists(val):

@@ -53,7 +53,7 @@ setup: |
 
   # ray
   conda create -n ray python=3.10 -y
-  mamba install -y -n ray nodejs nvtop  
+  mamba install -y -n ray nodejs nvtop
   conda activate ray
   npm install -g vtop
   pip install "ray[train]"
