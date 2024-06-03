@@ -6,7 +6,7 @@ from ray.data.dataset import Dataset
 
 from bolero.tl.dataset.filters import RowSumFilter
 from bolero.tl.dataset.ray_dataset import RayGenomeDataset
-from bolero.tl.dataset.ray_sc_dataset import RaySingleCellDataset
+from bolero.tl.dataset.ray_sc_dataset import RayGenomeChunkDataset
 from bolero.tl.dataset.transforms import (
     BatchRegionEmbedding,
     BatchToFloat,
@@ -568,7 +568,7 @@ class scPrinterDataset(RayGenomeDataset):
         return
 
 
-class scPrinterSingleCellDataset(RaySingleCellDataset):
+class scPrinterSingleCellDataset(RayGenomeChunkDataset):
     """Singel cell dataset for scPrinter model."""
 
     def __init__(

@@ -12,7 +12,7 @@ from bolero import Genome
 from bolero.tl.dataset.sc_transforms import scMetaRegionToBulkRegion
 
 
-class RaySingleCellDataset:
+class RayGenomeChunkDataset:
     """Single cell dataset for cell-by-meta-region data."""
 
     def __init__(
@@ -54,8 +54,11 @@ class RaySingleCellDataset:
             assert (
                 len(chrom_dirs) > 0
             ), f"None of the chroms {chroms} exists in {dataset_path}"
+
         if not shuffle_files:
             print("File shuffle is disabled!!!")
+
+        # create ray.data.Dataset
         self._dataset = ray.data.read_parquet(
             chrom_dirs,
             file_extensions=["parquet"],
@@ -63,6 +66,7 @@ class RaySingleCellDataset:
             shuffle="files" if shuffle_files else None,
             override_num_blocks=override_num_blocks,
         )
+
         _schema = self._dataset.schema()
         self.schema: dict = dict(zip(_schema.names, _schema.types))
 
