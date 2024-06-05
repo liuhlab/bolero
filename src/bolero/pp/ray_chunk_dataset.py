@@ -28,7 +28,7 @@ class GenomeChunkDatasetGenerator:
         genome: Union[str, Genome],
         window_size: int = 100000,
         step_size: int = 90000,
-        num_rows_per_file: int = 100,
+        num_rows_per_file: int = 50,
     ) -> None:
         self.output_dir = pathlib.Path(output_dir).resolve().absolute()
         self.output_dir.mkdir(exist_ok=True, parents=True)
@@ -36,9 +36,6 @@ class GenomeChunkDatasetGenerator:
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
-        for chrom in self.genome.chromosomes:
-            chrom_dir = self.output_dir / chrom
-            chrom_dir.mkdir(exist_ok=True)
 
         self.window_size = window_size
         self.step_size = step_size
@@ -46,8 +43,12 @@ class GenomeChunkDatasetGenerator:
             self.window_size >= self.step_size
         ), "Window size must be greater than step size."
         self.genome_chunk_df = self.genome.make_windows(
-            window_size=self.window_size, step_size=self.step_size, as_df=True
+            window_size=self.window_size, step=self.step_size, as_df=True
         )
+        for chrom in self.genome.chromosomes:
+            chrom_dir = self.output_dir / chrom
+            chrom_dir.mkdir(exist_ok=True)
+
         self.num_rows_per_file = num_rows_per_file
 
         self.uniform_dataset_dict = {
@@ -77,7 +78,7 @@ class GenomeChunkDatasetGenerator:
         }
         return
 
-    def add_bigwig(self, prefix, name, path):
+    def add_bigwig(self, prefix, name, path, sparse=True, compress_level=5):
         """
         Add BigWig files. BigWig will be aggregated based on the prefix.
 
@@ -88,9 +89,21 @@ class GenomeChunkDatasetGenerator:
         """
         bw_class = GenomeBigWigDataset
         if prefix in self.uniform_dataset_dict:
+            cur_prefix_dict = self.uniform_dataset_dict[prefix]
+            
             assert (
-                self.uniform_dataset_dict[prefix][1] == bw_class
+                cur_prefix_dict["ds_class"] == bw_class
             ), f"Dataset with name {prefix} should be bigwig."
+            assert (
+                name not in cur_prefix_dict["ds_kwargs"]
+            ), f"BigWig with name {name} already exists for dataset {prefix}."
+            assert (
+                cur_prefix_dict["ds_kwargs"]["sparse"] == sparse
+            ), f"Sparse flag must be the same for dataset {prefix}."
+            assert (
+                cur_prefix_dict["ds_kwargs"]["compress_level"] == compress_level
+            ), f"Compress level must be the same for dataset {prefix}."
+
             self.uniform_dataset_dict[prefix]["ds_kwargs"][name] = str(path)
             self.uniform_dataset_dict[prefix]["remote_kwargs"]["memory"] += (
                 0.5 * 1024**3
@@ -98,7 +111,7 @@ class GenomeChunkDatasetGenerator:
         else:
             self.uniform_dataset_dict[prefix] = {
                 "ds_class": bw_class,
-                "ds_kwargs": {name: str(path)},
+                "ds_kwargs": {name: str(path), "prefix": prefix, "sparse": sparse, "compress_level": compress_level},
                 "remote_kwargs": {"memory": 1 * 1024**3},
             }
         return
@@ -131,11 +144,11 @@ class GenomeChunkDatasetGenerator:
 
     def _process_each_prefix(self):
         prefix_tasks = []
-        for prefix, (
-            _ds_class,
-            _ds_kwargs,
-            _remote_kwargs,
-        ) in self.uniform_dataset_dict.items():
+        for prefix, info_dict in self.uniform_dataset_dict.items():
+            _ds_class = info_dict["ds_class"]
+            _ds_kwargs = info_dict["ds_kwargs"]
+            _remote_kwargs = info_dict["remote_kwargs"]
+
 
             @ray.remote(**_remote_kwargs)
             def _process_worker(prefix, ds_class, ds_kwargs, output_dir, regions_df):
@@ -193,6 +206,7 @@ class GenomeChunkDatasetGenerator:
         if flag_path.exists():
             return
 
+        print(f"Creating dataset for chromosome {chrom}.")
         for i, prefix in enumerate(self.uniform_dataset_dict.keys()):
             _data = joblib.load(chrom_dir / f"{prefix}.list_of_dicts.joblib")
             if i == 0:
@@ -229,29 +243,36 @@ class GenomeChunkDatasetGenerator:
             pathlib.Path(f"{self.output_dir}/{prefix}.row_names.joblib").unlink()
         return
 
-    def prepare_ray_dataset(self) -> None:
+    def generate(self) -> None:
         """
-        Prepare the ray dataset.
+        Generate the ray dataset.
         """
         output_dir = self.output_dir
-        success_flag_path = output_dir / "genome.flag"
+        success_flag_path = output_dir / "config.joblib"
         if success_flag_path.exists():
             return
 
         self._process_each_prefix()
 
-        for chrom in self.genome.chromosomes:
-            self._prepare_single_chrom(output_dir, chrom)
+        chroms = self.genome_chunk_df["Chromosome"].unique()
+        for chrom in chroms:
+            self._prepare_single_chrom(chrom)
 
         # save row names
         self._dump_row_names()
 
         # create success flag and record genome name
         with open(success_flag_path, "w") as f:
-            f.write(self.genome.name)
+            config_dict = {
+                'genome': self.genome.name,
+                'window_size': self.window_size,
+                'step_size': self.step_size,
+                "num_rows_per_file": self.num_rows_per_file,
+            }
+            joblib.dump(config_dict, f)
 
         # cleanup
-        for chrom in self.bed["Chromosome"].unique():
+        for chrom in self.genome_chunk_df["Chromosome"].unique():
             chrom_dir = output_dir / chrom
             pathlib.Path(f"{chrom_dir}/success.flag").unlink()
         for prefix in self.uniform_dataset_dict.keys():

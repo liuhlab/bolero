@@ -173,14 +173,16 @@ def get_default_save_dir(save_dir):
 
     """
     if save_dir is None:
-        _my_default = pathlib.Path("/ref/bolero")
         home_dir = pathlib.Path.home()
-        _my_default2 = pathlib.Path(f"{home_dir}/ref/bolero")
-        if _my_default.exists():
-            save_dir = _my_default
-        elif _my_default2.exists():
-            save_dir = _my_default2
-        else:
+        _my_defaults = [pathlib.Path("/ref/bolero"), 
+                        pathlib.Path(f"{home_dir}/ref/bolero"),
+                        pathlib.Path(f"{home_dir}/data/bolero")]
+        save_dir = None
+        for _default in _my_defaults:
+            if _default.exists():
+                save_dir = _default
+                break
+        if save_dir is None:
             save_dir = get_package_dir()
     save_dir = pathlib.Path(save_dir).absolute()
     return save_dir

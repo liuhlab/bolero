@@ -174,17 +174,25 @@ class PseudobulkGenerator:
             prefix_to_cells[prefix].append(barcode)
 
         prefix_to_rows = {}
+        found_cells = 0
         for prefix, cells in prefix_to_cells.items():
             try:
                 barcode_orders = self.barcode_order[prefix]
-                prefix_to_rows[prefix] = barcode_orders.isin(cells)
+                bool_index = barcode_orders.isin(cells)
+                found_cells += bool_index.sum()
+                prefix_to_rows[prefix] = bool_index
             except KeyError:
                 continue
+
+        # check if all cells are in the dataset
+        if found_cells != len(cells):
+            print(f"Not all cells are in the dataset! Pseudobulk size: {len(cells)}, Found cells: {found_cells}.")
+            
         return prefix_to_rows
 
     def take(
         self, n: int, mode: str = "predefined"
-    ) -> Generator[tuple[dict[str, pd.Index], np.ndarray], None, None]:
+    ) -> tuple[dict[str, pd.Index], np.ndarray]:
         """
         Take pseudobulks.
 
@@ -195,7 +203,8 @@ class PseudobulkGenerator:
 
         Yields
         ------
-        Tuple[dict[str, pd.Index], np.ndarray]: A tuple of prefix to rows dictionary and pseudobulk centroids.
+        Tuple[pd.Index, dict[pd.Index], np.ndarray, int]: A tuple of four objects,
+        containing cell index, prefix_to_rows, embeddings, pseudobulk idx
         """
         records = []
         for _ in range(n):
@@ -253,10 +262,20 @@ class PseudobulkGenerator:
 
         Parameters
         ----------
-        embedding : Union[str, pathlib.Path, pd.DataFrame]
-            The embedding data.
+        cell_embedding : Union[str, pathlib.Path, pd.DataFrame]
+            The cell embedding data, cell id should contain prefix and unique.
+        cell_coverage : Union[str, pathlib.Path, pd.Series]
+            The cell coverage data. Index should be cell id.
+        barcode_order : dict[str, pd.Index]
+            The barcode order dictionary. Key is the prefix, value is the barcode index without prefix.
+            This dict is part of the ray dataset, stored at "dataset_dir/row"
         predefined_pseudobulk : Optional[dict], optional
             Predefined pseudobulk data, by default None.
+        standard_cov : int, optional
+            The standard total pseudobulk coverage, by default 10e6.
+            Pseudobulk cells will be randowmly sampled to reach this coverage. 
+            If a predefined pseudobulk's total coverage is bellow this value, 
+            it will be discarded when adding predefined pseudobulks.
 
         Returns
         -------
@@ -287,7 +306,8 @@ class PseudobulkGenerator:
                 _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
                 pseudobulker.add_predefined_pseudobulks(_d)
 
-        pseudobulker.prepare_scaler()
+        if len(pseudobulker._predefined_pseudobulks) > 0:
+            pseudobulker.prepare_scaler()
         # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
         # all pseudobulk cells should occured in the dataset
         return pseudobulker

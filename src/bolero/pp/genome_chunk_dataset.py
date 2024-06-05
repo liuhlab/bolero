@@ -7,7 +7,7 @@ import pandas as pd
 import pyBigWig
 import ray
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
-from scipy.sparse import csr_matrix, vstack
+from scipy.sparse import csr_matrix, csc_matrix, vstack
 
 from bolero.pp.utils import get_global_coords
 
@@ -95,9 +95,40 @@ def csr_matrix_to_compressed_bytes_dict(
     return data_dict
 
 
+def array_to_compressed_bytes_dict(
+    prefix: str, array: np.ndarray, level: int = 5
+) -> dict[str, bytes]:
+    """
+    Compresses an array to a dictionary of compressed bytes.
+
+    Parameters
+    ----------
+    prefix : str
+        The prefix for the keys in the dictionary.
+    array : np.ndarray
+        The array to compress.
+    level : int, optional
+        The compression level. Default is 5.
+
+    Returns
+    -------
+    dict[str, bytes]
+        The dictionary of compressed bytes.
+    """
+    data_dict = {
+        f"{prefix}:data+float32": gzip.compress(
+            array.astype(np.float32).tobytes(), compresslevel=level
+        ),
+        f"{prefix}:shape+uint32": gzip.compress(
+            np.array(array.shape).astype(np.uint32).tobytes(), compresslevel=level
+        ),
+    }
+    return data_dict
+
+
 @ray.remote
 def select_smat_region(
-    smat: csr_matrix,
+    smat: csc_matrix,
     prefix: str,
     chrom: str,
     start: int,
@@ -108,9 +139,13 @@ def select_smat_region(
     """
     Select a region sparse matrix from genome sparse matrix.
     """
-    region_smat = smat[:, gstart:gend].copy()
+    if gstart is not None and gend is not None:
+        region_csr_mat = smat[:, gstart:gend].tocsr()
+    else:
+        region_csr_mat = smat[:, start:end].tocsr()
+
     data_dict = csr_matrix_to_compressed_bytes_dict(
-        prefix=prefix, matrix=region_smat, level=5
+        prefix=prefix, matrix=region_csr_mat, level=5
     )
     data_dict["region"] = f"{chrom}:{start}-{end}"
     return data_dict
@@ -137,9 +172,16 @@ class SingleCellCutsiteDataset:
         super().__init__()
         self.dataset = CutSitesZarr(zarr_path)
         self.name = name
-        self.remote_smat = self._put_smat(barcode_whitelist)
 
-    def _put_smat(self, barcode_whitelist):
+        # record the barcode whitelist in int index
+        if barcode_whitelist is not None:
+            self.use_barcode_idx = self.dataset.get_barcodes_idx(barcode_whitelist)
+        else:
+            self.use_barcode_idx = None
+        self.remote_csc_mat = self._put_csc_mat()
+        return
+
+    def _put_csc_mat(self):
         """
         Put the sparse matrix into ray object.
 
@@ -147,16 +189,7 @@ class SingleCellCutsiteDataset:
         ----------
             barcode_whitelist: The barcode whitelist.
         """
-        if barcode_whitelist is None:
-            site_sel = (
-                self.dataset["cutsite"]
-                .sel(value="barcode")
-                .isin(barcode_whitelist)
-                .values
-            )
-            sites_data = self.dataset["cutsite"].sel(site=site_sel).to_pandas()
-        else:
-            sites_data = self.dataset["cutsite"].to_pandas()
+        sites_data = self.dataset["cutsite"].to_pandas()
 
         # csr is very efficient even doing genome position selection
         smat = csr_matrix(
@@ -166,7 +199,11 @@ class SingleCellCutsiteDataset:
             ),
             shape=(sites_data["barcode"].max() + 1, self.dataset.genome_total_length),
         )
-        return ray.put(smat)
+
+        # filter rows
+        if self.use_barcode_idx is not None:
+            smat = smat[self.use_barcode_idx].copy()
+        return ray.put(smat.tocsc())
 
     def get_regions_data(self, regions_df):
         """
@@ -189,7 +226,7 @@ class SingleCellCutsiteDataset:
         total_dicts = []
         for _, (chrom, start, end, gstart, gend) in regions_df.iterrows():
             task = select_smat_region.remote(
-                smat=self.remote_smat,
+                smat=self.remote_csc_mat,
                 prefix=self.name,
                 chrom=chrom,
                 start=start,
@@ -203,32 +240,40 @@ class SingleCellCutsiteDataset:
 
     def get_row_names(self):
         """
-        Get the row names of the sparse matrix.
+        Get the row names (str) of the sparse matrix.
 
         Returns
         -------
             pd.Index: The row names.
         """
-        barcodes = self.dataset.barcode_to_idx.index
-        barcodes = pd.Index(barcodes)
-        if self.barcode_whitelist is not None:
-            barcodes = barcodes[barcodes.isin(self.barcode_whitelist)].copy()
-        return barcodes
-
-
-def _bw_values(bw, chrom, start, end):
-    # inside bw, always keep numpy true
-    _data = np.nan_to_num(bw.values(chrom, start, end, numpy=True)).astype("float32")
-    return _data
+        barcodes = self.dataset.barcode_to_idx
+        if self.use_barcode_idx is not None:
+            barcodes = barcodes[barcodes.isin(self.use_barcode_idx)].copy()
+        return barcodes.index
 
 
 @ray.remote
-def _remote_bw_values(bw_path, regions) -> list[csr_matrix]:
+def _bw_values_worker(bw_path, regions):
     regions_data = []
     with pyBigWig.open(bw_path) as bw:
         for _, (chrom, start, end, *_) in regions.iterrows():
-            values = _bw_values(bw=bw, chrom=chrom, start=start, end=end)
-            values = csr_matrix(values)
+            _data = bw.values(chrom, start, end, numpy=True)
+            _data = np.nan_to_num(_data).astype("float32")
+            regions_data.append(csr_matrix(_data))
+    return regions_data
+
+
+@ray.remote
+def _remote_bw_values(bw_path, regions, fetch_chunks=5000) -> list[csr_matrix]:
+    regions["chunk_id"] = np.arange(len(regions)) // fetch_chunks
+
+    chunk_col = []
+    for _, chunk_df in regions.groupby("chunk_id"):
+        chunk_col.append(_bw_values_worker.remote(bw_path, chunk_df))
+
+    regions_data = []
+    for chunk_data in ray.get(chunk_col):
+        regions_data.extend(chunk_data)
     return regions_data
 
 
@@ -238,6 +283,9 @@ class GenomeBigWigDataset:
     def __init__(
         self,
         *args,
+        prefix="bigwig",
+        sparse=True,
+        compress_level=5,
         **kwargs,
     ):
         """
@@ -250,7 +298,10 @@ class GenomeBigWigDataset:
         **kwargs : str
             The paths to the BigWig files, with the dataset names as the keys.
         """
-        super().__init__()
+        self.prefix = prefix
+        self.sparse = sparse
+        self.compress_level = compress_level
+
         self.bigwig_path_dict = {}
         self._add_bigwig(*args, **kwargs)
 
@@ -336,17 +387,17 @@ class GenomeBigWigDataset:
         tasks = []
         for name in names:
             path = self.bigwig_path_dict[name]
-            this_tasks = []  # will be a list of csr_matrix for each region
-            this_tasks.append(_remote_bw_values.remote(path, regions_df, sparse=True))
-            tasks.append(this_tasks)
+            this_task = _remote_bw_values.remote(path, regions_df)
+            tasks.append(this_task)
 
         for i, task in enumerate(tasks):
+            list_of_csr = ray.get(task)
             if i == 0:
                 list_of_lists: list[list[csr_matrix]] = [
-                    [region_csr] for region_csr in ray.get(task)
+                    [region_csr] for region_csr in list_of_csr
                 ]
             else:
-                for idx, region_csr in enumerate(ray.get(task)):
+                for idx, region_csr in enumerate(list_of_csr):
                     list_of_lists[idx].append(region_csr)
 
         # region
@@ -358,11 +409,32 @@ class GenomeBigWigDataset:
             + regions_df["End"].astype(str)
         ).tolist()
 
+        @ray.remote
+        def _get_data_dict(region_csr_list, region, sparse, prefix, compress_level):
+            if sparse:
+                data_dict = csr_matrix_to_compressed_bytes_dict(
+                    prefix=prefix, matrix=vstack(region_csr_list), level=compress_level
+                )
+            else:
+                data_dict = array_to_compressed_bytes_dict(
+                    prefix=prefix,
+                    array=np.vstack([x.toarray() for x in region_csr_list]),
+                    level=compress_level,
+                )
+            data_dict["region"] = region
+            return data_dict
+
         list_of_dicts = []
         for region, region_csr_list in zip(region_names, list_of_lists):
-            data_dict = csr_matrix_to_compressed_bytes_dict(vstack(region_csr_list))
-            data_dict["region"] = region
-            list_of_dicts.append(data_dict)
+            task = _get_data_dict.remote(
+                region_csr_list=region_csr_list,
+                region=region,
+                sparse=self.sparse,
+                prefix=self.prefix,
+                compress_level=self.compress_level,
+            )
+            list_of_dicts.append(task)
+        list_of_dicts = ray.get(list_of_dicts)
         return list_of_dicts
 
     def get_row_names(self):
@@ -377,23 +449,53 @@ class SnapAnnDataDataset:
         import snapatac2 as snap
 
         self.name = name
-        self.adata = snap.read(path)
+        self.adata = snap.read(path, backed="r")
 
-        self.use_barcodes = self.adata.obs_names
+        self.use_barcodes = pd.Series(
+            {name: idx for idx, name in enumerate(self.adata.obs_names)}
+        )
         if barcode_whitelist is not None:
             self.use_barcodes = self.use_barcodes[
-                self.use_barcodes.isin(barcode_whitelist)
+                self.use_barcodes.index.isin(barcode_whitelist)
             ]
+        self.use_barcodes_idx = self.use_barcodes.values
 
-    def _put_smat(self):
-        # put insertion sites into ray object
-        # select rows if needed
-        pass
+    def _get_remote_csc_mat(self, chrom):
+        adata = self.adata
+
+        insertion_key = f"insertion_{chrom}"
+        insertion_csc = adata.obsm[insertion_key].tocsc()
+        if self.use_barcodes_idx is not None:
+            insertion_csc = insertion_csc[self.use_barcodes_idx, :].copy()
+        return ray.put(insertion_csc)
 
     def get_regions_data(self, regions_df):
         """Get list of dicts for each region's sparse matrix"""
-        pass
+        total_dicts = []
+        for chrom, chrom_df in regions_df.groupby("Chromosome"):
+            try:
+                remote_smat = self._get_remote_csc_mat(chrom)
+            except KeyError:
+                print(f"No insertion data for {chrom}")
+                continue
+
+            for _, (chrom, start, end) in chrom_df.iterrows():
+                task = select_smat_region.remote(
+                    smat=remote_smat,
+                    prefix=self.name,
+                    chrom=chrom,
+                    start=start,
+                    end=end,
+                    gstart=None,
+                    gend=None,
+                )
+                total_dicts.append(task)
+        total_dicts = ray.get(total_dicts)
+        return total_dicts
 
     def get_row_names(self):
         """Get row names of the sparse matrix."""
-        return self.adata.obs.index
+        names = pd.Index(self.adata.obs_names)
+        if self.use_barcodes_idx is not None:
+            names = names[names.isin(self.use_barcodes.index)].copy()
+        return names
