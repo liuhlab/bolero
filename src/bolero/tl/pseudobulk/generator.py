@@ -1,5 +1,4 @@
 import pathlib
-from collections import defaultdict
 from typing import Generator
 
 import joblib
@@ -8,9 +7,112 @@ import pandas as pd
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
+from bolero.tl.model.generic.train_helper import validate_config
+
 
 class PseudobulkGenerator:
+    """Base class for pseudobulk generator."""
+
+    default_config = {}
+
+    @classmethod
+    def get_default_config(cls):
+        """Get the default configuration."""
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config):
+        """Create the pseudobulk generator from configuration."""
+        config = {k: v for k, v in config.items() if v in cls.default_config}
+        validate_config(config, cls.default_config)
+        return cls(**config)
+
+
+class PredefinedPseudobulkGenerator(PseudobulkGenerator):
     """Generate pseudobulks from embedding data."""
+
+    default_config = {
+        "cell_embedding": "REQUIRED",
+        "cell_coverage": "REQUIRED",
+        # although barcode_order is required,
+        # user don't need to provide it, RayGenomeChunkDataset will provide it
+        # the predefined pseudobulk cell id needs to be consistent with the barcode_order's cell id
+        "barcode_order": "REQUIRED",
+        "predefined_pseudobulk_path": None,
+        "standard_cov": 10e6,
+        "standard_cell": None,
+    }
+
+    @classmethod
+    def create_from_config(
+        cls,
+        cell_embedding,
+        cell_coverage,
+        barcode_order,
+        predefined_pseudobulk_path=None,
+        standard_cov: int = 10e6,
+        standard_cell: int = None,
+    ) -> "PredefinedPseudobulkGenerator":
+        """
+        Prepare the pseudobulker.
+
+        Parameters
+        ----------
+        cell_embedding : Union[str, pathlib.Path, pd.DataFrame]
+            The cell embedding data, cell id should contain prefix and unique.
+        cell_coverage : Union[str, pathlib.Path, pd.Series]
+            The cell coverage data. Index should be cell id.
+        barcode_order : dict[str, pd.Index]
+            The barcode order dictionary. Key is the prefix, value is the barcode index without prefix.
+            This dict is part of the ray dataset, stored at "dataset_dir/row"
+        predefined_pseudobulk : Optional[dict], optional
+            Predefined pseudobulk data, by default None.
+        standard_cov : int, optional
+            The standard total pseudobulk coverage, by default 10e6.
+            Pseudobulk cells will be randowmly sampled to reach this coverage.
+            If a predefined pseudobulk's total coverage is bellow this value,
+            it will be discarded when adding predefined pseudobulks.
+            Only one of standard_cov and standard_cell can be set.
+        standard_cell : int, optional
+            The standard total pseudobulk cell number, by default None.
+            Pseudobulk cells will be randowmly sampled to reach this cell number.
+            If a predefined pseudobulk's total cell number is bellow this value,
+            it will be discarded when adding predefined pseudobulks.
+            Only one of standard_cov and standard_cell can be set.
+
+        Returns
+        -------
+        None
+        """
+        if isinstance(cell_embedding, (str, pathlib.Path)):
+            _embedding = pd.read_feather(cell_embedding)
+            _embedding = _embedding.set_index(_embedding.columns[0])
+        elif isinstance(cell_embedding, pd.DataFrame):
+            _embedding = cell_embedding.copy()
+
+        if isinstance(cell_coverage, (str, pathlib.Path)):
+            cell_coverage = pd.read_feather(cell_coverage)
+            cell_coverage = cell_coverage.set_index(cell_coverage.columns[0]).squeeze()
+        else:
+            cell_coverage = cell_coverage.copy()
+
+        pseudobulker = cls(
+            embedding=_embedding,
+            barcode_order=barcode_order,
+            cell_coverage=cell_coverage,
+            standard_cov=standard_cov,
+            standard_cell=standard_cell,
+        )
+        if predefined_pseudobulk_path is not None:
+            if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
+                predefined_pseudobulk_path = [predefined_pseudobulk_path]
+            for i, path in enumerate(predefined_pseudobulk_path):
+                _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
+                pseudobulker.add_predefined_pseudobulks(_d)
+
+        if len(pseudobulker._predefined_pseudobulks) > 0:
+            pseudobulker.prepare_scaler()
+        return pseudobulker
 
     def __init__(
         self,
@@ -18,9 +120,10 @@ class PseudobulkGenerator:
         barcode_order: dict[str, pd.Index],
         cell_coverage: pd.Series,
         standard_cov: int = 10e6,
+        standard_cell: int = None,
     ) -> None:
         """
-        Initialize the PseudobulkGenerator.
+        Initialize the pseudobulk generator.
 
         Parameters
         ----------
@@ -28,6 +131,7 @@ class PseudobulkGenerator:
         barcode_order (dict[str, pd.Index]): The barcode order dictionary.
         cell_coverage (pd.Series): The cell coverage.
         standard_cov (int): The standard total pseudobulk coverage. Default is 10e6.
+        standard_cell (int): The standard total pseudobulk cell number. Default is None.
 
         Returns
         -------
@@ -41,6 +145,10 @@ class PseudobulkGenerator:
         self._predefined_pseudobulks = None
         self._predefined_pseudobulks_names = None
         self.standard_cov = standard_cov
+        self.standard_cell = standard_cell
+        assert not (
+            standard_cov and standard_cell
+        ), "Only one of standard_cov and standard_cell can be set."
         self.barcode_order = barcode_order
 
         self.scaler1 = RobustScaler(quantile_range=(5, 95))
@@ -62,12 +170,21 @@ class PseudobulkGenerator:
         use_pseudobulks = {}
         for k, cells in pseudobulks.items():
             cells = pd.Series(list(cells))
-            total_coverage = self.cell_coverage.loc[cells.values].sum()
-            if total_coverage >= self.standard_cov:
-                use_pseudobulks[k] = cells
+
+            if self.standard_cov:
+                # cov mode
+                total_coverage = self.cell_coverage.loc[cells.values].sum()
+                if total_coverage >= self.standard_cov:
+                    use_pseudobulks[k] = cells
+            else:
+                # cell mode
+                if len(cells) >= self.standard_cell:
+                    use_pseudobulks[k] = cells
 
         print(
-            f"{len(use_pseudobulks)} predefined pseudobulks are used, standard pseudobulk coverage is {int(self.standard_cov)}."
+            f"{len(use_pseudobulks)} predefined pseudobulks are used, "
+            f"standard pseudobulk coverage is {int(self.standard_cov)}, "
+            f"standard cell is {self.standard_cell}."
         )
 
         pseudobulk_list = []
@@ -106,6 +223,10 @@ class PseudobulkGenerator:
             embedding = self.embedding.loc[cells].median(axis=0).values
         else:
             raise ValueError(f"Unknown method {method}")
+
+        # if cell mode, add the pseudobulk coverage log1p to the end
+        if not self.standard_cov:
+            embedding = np.append(embedding, self.get_pseudobulk_coverage(cells))
 
         try:
             # Normalize the embedding
@@ -146,11 +267,15 @@ class PseudobulkGenerator:
         idx = np.random.choice(n_defined)
         cells = pd.Index(self._predefined_pseudobulks[idx])
 
-        # select random cells to reach the standard coverage
-        random_cumsum = (
-            self.cell_coverage.loc[cells].sample(cells.size, replace=False).cumsum()
-        )
-        cells = random_cumsum[random_cumsum < self.standard_cov].index
+        if self.standard_cov:
+            # select random cells to reach the standard coverage
+            random_cumsum = (
+                self.cell_coverage.loc[cells].sample(cells.size, replace=False).cumsum()
+            )
+            cells = random_cumsum[random_cumsum < self.standard_cov].index
+        else:
+            # select random cells to reach the standard cell number
+            cells = pd.Index(np.random.choice(cells, self.standard_cell, replace=False))
 
         prefix_to_rows = self._cells_to_prefix_dict(cells)
         embeddings = self.get_pseudobulk_centriods(cells)
@@ -168,10 +293,13 @@ class PseudobulkGenerator:
         -------
         dict[str, pd.Index]: The prefix to rows dictionary.
         """
-        prefix_to_cells = defaultdict(list)
-        for cell in cells:
-            prefix, barcode = cell.split(":")
-            prefix_to_cells[prefix].append(barcode)
+        prefix_to_cells_series = pd.Series(
+            cells.map(lambda x: x.split(":")[0], index=cells)
+        )
+        prefix_to_cells = {
+            k: v.index
+            for k, v in prefix_to_cells_series.groupby(prefix_to_cells_series)
+        }
 
         prefix_to_rows = {}
         found_cells = 0
@@ -228,6 +356,12 @@ class PseudobulkGenerator:
         col = []
         for cells in self._predefined_pseudobulks:
             embedding = self.embedding.loc[cells.values].mean()
+
+            if not self.standard_cov:
+                # add the coverage log1p to the end of the embedding
+                _cells = np.random.choice(cells, self.standard_cell, replace=False)
+                embedding = np.append(embedding, self.get_pseudobulk_coverage(_cells))
+
             col.append(embedding)
         embedding = np.array(col)
         embedding = np.clip(self.scaler1.fit_transform(embedding), -1, 1)
@@ -249,72 +383,3 @@ class PseudobulkGenerator:
         if reshape:
             embedding = embedding[0]
         return embedding
-
-    @classmethod
-    def prepare_pseudobulker(
-        cls,
-        cell_embedding,
-        cell_coverage,
-        barcode_order,
-        predefined_pseudobulk_path=None,
-        standard_cov: int = 10e6,
-    ) -> "PseudobulkGenerator":
-        """
-        Prepare the pseudobulker.
-
-        Parameters
-        ----------
-        cell_embedding : Union[str, pathlib.Path, pd.DataFrame]
-            The cell embedding data, cell id should contain prefix and unique.
-        cell_coverage : Union[str, pathlib.Path, pd.Series]
-            The cell coverage data. Index should be cell id.
-        barcode_order : dict[str, pd.Index]
-            The barcode order dictionary. Key is the prefix, value is the barcode index without prefix.
-            This dict is part of the ray dataset, stored at "dataset_dir/row"
-        predefined_pseudobulk : Optional[dict], optional
-            Predefined pseudobulk data, by default None.
-        standard_cov : int, optional
-            The standard total pseudobulk coverage, by default 10e6.
-            Pseudobulk cells will be randowmly sampled to reach this coverage.
-            If a predefined pseudobulk's total coverage is bellow this value,
-            it will be discarded when adding predefined pseudobulks.
-
-        Returns
-        -------
-        None
-        """
-        if isinstance(cell_embedding, (str, pathlib.Path)):
-            _embedding = pd.read_feather(cell_embedding)
-            _embedding = _embedding.set_index(_embedding.columns[0])
-        elif isinstance(cell_embedding, pd.DataFrame):
-            _embedding = cell_embedding.copy()
-
-        if isinstance(cell_coverage, (str, pathlib.Path)):
-            cell_coverage = pd.read_feather(cell_coverage)
-            cell_coverage = cell_coverage.set_index(cell_coverage.columns[0]).squeeze()
-        else:
-            cell_coverage = cell_coverage.copy()
-
-        pseudobulker = cls(
-            embedding=_embedding,
-            barcode_order=barcode_order,
-            cell_coverage=cell_coverage,
-            standard_cov=standard_cov,
-        )
-        if predefined_pseudobulk_path is not None:
-            if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
-                predefined_pseudobulk_path = [predefined_pseudobulk_path]
-            for i, path in enumerate(predefined_pseudobulk_path):
-                _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
-                pseudobulker.add_predefined_pseudobulks(_d)
-
-        if len(pseudobulker._predefined_pseudobulks) > 0:
-            pseudobulker.prepare_scaler()
-        # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
-        # all pseudobulk cells should occured in the dataset
-        return pseudobulker
-
-
-class SimplebulkGenerator:
-    def __init__(self):
-        pass

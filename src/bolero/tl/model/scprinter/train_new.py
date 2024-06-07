@@ -25,7 +25,7 @@ from bolero.tl.model.generic.train_helper import (
 )
 from bolero.tl.model.scprinter.dataset import NewscPrinterDataset
 from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
-from bolero.tl.pseudobulk.generator import PseudobulkGenerator
+from bolero.tl.pseudobulk.generator import PredefinedPseudobulkGenerator
 from bolero.utils import get_fs_and_path, try_gpu
 
 
@@ -580,7 +580,7 @@ class scFootprintLoRATrainer:
             self.columns = config["dataset_columns"]
 
         # create dataset
-        self.dataset = self._get_dataset()
+        self.dataset: NewscPrinterDataset = self._get_dataset()
         self.footprinter = self.dataset.get_footprinter()
 
     def _get_dataset(self):
@@ -595,7 +595,7 @@ class scFootprintLoRATrainer:
         }
         dataset.add_pseudobulker(
             name="predefined",
-            cls=PseudobulkGenerator,
+            cls=PredefinedPseudobulkGenerator,
             pseudobulker_kwargs=pseudobulker_params,
         )
 

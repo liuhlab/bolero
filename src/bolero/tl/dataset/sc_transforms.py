@@ -8,7 +8,9 @@ import pandas as pd
 import ray
 from scipy.sparse import csr_matrix, vstack
 
-from bolero.tl.pseudobulk.generator import PseudobulkGenerator
+from bolero.tl.pseudobulk.generator import (
+    PseudobulkGenerator,
+)
 
 
 def compressed_bytes_to_array(bytes: bytes, dtype: str) -> np.ndarray:

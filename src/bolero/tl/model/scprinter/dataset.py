@@ -898,6 +898,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
         "clip_min": -10,
         "clip_max": 10,
         "n_pseudobulks": 10,
+        "cov_filter_name": "REQUIRED",
         "min_cov": 10,
         "max_cov": 100000,
         "low_cov_ratio": 0.1,
@@ -939,6 +940,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
         min_cov: int = 10,
         max_cov: int = 100000,
         low_cov_ratio: float = 0.1,
+        cov_filter_name: str = None,
         reverse_complement: bool = True,
         shuffle_files=False,
     ):
@@ -962,7 +964,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
         self.min_cov = min_cov
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
-        print("apply cov filter!!!!!!!!")
+        self.cov_filter_name = cov_filter_name
 
         self.bias_column = "tn5_bias"
 
@@ -1052,7 +1054,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
         """
         if "barcode_order" not in pseudobulker_kwargs:
             pseudobulker_kwargs["barcode_order"] = self.barcode_order
-        generator = cls.prepare_pseudobulker(**pseudobulker_kwargs)
+        generator = cls.create_from_config(**pseudobulker_kwargs)
         self.pseudobulker_and_names.append((generator, name))
         return
 
@@ -1091,6 +1093,10 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             pseudobulker_and_names=self.pseudobulker_and_names,
             bypass_keys=[self.bias_column],
             n_pseudobulks=self.n_pseudobulks,
+            min_cov=self.min_cov,
+            max_cov=self.max_cov,
+            low_cov_ratio=self.low_cov_ratio,
+            cov_filter_name=self.cov_filter_name,
             return_rows=return_cells,
             inplace=False,
             region_action_keys=[self.bias_column],
