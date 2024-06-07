@@ -7,7 +7,7 @@ import pandas as pd
 import pyBigWig
 import ray
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
-from scipy.sparse import csr_matrix, csc_matrix, vstack
+from scipy.sparse import csc_matrix, csr_matrix, vstack
 
 from bolero.pp.utils import get_global_coords
 

@@ -74,10 +74,9 @@ class CropRegionsWithJitter:
             )
         else:
             jitter = 0
-        data["jitter"] = np.array([jitter])
 
         for k, length in zip(self.key, self.final_length):
-            _input = data[k]
+            _input = data.pop(k)
 
             _input_length = _input.shape[self.crop_axis]
             _input_center = _input_length // 2
@@ -89,6 +88,71 @@ class CropRegionsWithJitter:
                 sel if i == self.crop_axis else slice(None) for i in range(_input.ndim)
             )
             data[k] = _input[idx]
+
+        # data["jitter"] = np.array([jitter])
+        return data
+
+
+class CropLastAxisWithJitter:
+    """Crop regions from the input data batch."""
+
+    def __init__(
+        self,
+        key: Union[str, list[str]],
+        final_length: int,
+        max_jitter: int = 0,
+    ):
+        """
+        Crop regions from the input data batch.
+
+        Args:
+            key (Union[str, list[str]]): The key(s) of the data to be cropped.
+            final_length (int): The desired length of the cropped regions.
+            max_jitter (int, optional): The maximum amount of jitter to apply to the cropping position.
+                Defaults to 0.
+            crop_axis (int, optional): The axis to crop the regions. Defaults to 0.
+        """
+        if isinstance(key, str):
+            key = [key]
+        self.key = key
+        if isinstance(final_length, int):
+            final_length = [final_length] * len(key)
+        else:
+            assert len(final_length) == len(
+                key
+            ), "final_length must have the same length as key"
+        self.final_length = final_length
+        self.max_jitter = max_jitter
+
+    def __call__(self, data: dict) -> dict:
+        """
+        Crop regions from the input data batch.
+
+        Args:
+            data (dict): The input data batch.
+
+        Returns
+        -------
+            dict: The cropped data batch.
+        """
+        if self.max_jitter > 0:
+            jitter = (
+                np.random.default_rng().integers(self.max_jitter * 2) - self.max_jitter
+            )
+        else:
+            jitter = 0
+
+        for k, length in zip(self.key, self.final_length):
+            _input = data.pop(k)
+
+            _input_length = _input.shape[-1]
+            _input_center = _input_length // 2
+            _output_radius = length // 2
+            _start = _input_center - _output_radius + jitter
+            _end = _start + length
+            data[k] = _input[..., _start:_end].copy()
+
+        # data["jitter"] = np.array([jitter])
         return data
 
 
@@ -99,7 +163,6 @@ class ReverseComplement:
         self,
         dna_key: Union[str, list[str]],
         signal_key: Union[str, list[str]],
-        input_type="row",
         prob=0.5,
     ):
         """
@@ -122,14 +185,8 @@ class ReverseComplement:
 
         self.prob = prob
 
-        if input_type == "batch":
-            self.flip_dna_axis = (1, 2)
-            self.flip_signal_axis = 1
-        elif input_type == "row":
-            self.flip_dna_axis = (0, 1)
-            self.flip_signal_axis = 0
-        else:
-            raise ValueError(f"input_type must be 'row' or 'batch', got {input_type}")
+        self.flip_dna_axis = (-1, -2)
+        self.flip_signal_axis = -1
         return
 
     def __call__(self, data: dict) -> dict:
@@ -152,9 +209,6 @@ class ReverseComplement:
             # reverse signal
             for k in self.signal_key:
                 data[k] = np.flip(data[k], axis=self.flip_signal_axis)
-            data["flipped"] = np.array([1])
-        else:
-            data["flipped"] = np.array([0])
         return data
 
 
@@ -343,7 +397,6 @@ class BatchRegionEmbedding:
         self,
         embedding: np.ndarray,
         region_key: str = "region",
-        pop_region_key: bool = True,
     ) -> None:
         """
         Initialize the BatchRegionEmbedding transform.
@@ -357,10 +410,10 @@ class BatchRegionEmbedding:
         pop_region_key : bool, optional
             Whether to remove the region key from the data dictionary after embedding. Defaults to True.
         """
+        embedding = embedding.copy().astype(np.float32)
         self.embedder = RegionEmbedder()
         self.embedder.add_predefined_embedding(embedding)
         self.region_key = region_key
-        self.pop_region_key = pop_region_key
 
     def __call__(self, data_dict: dict) -> dict:
         """
@@ -376,10 +429,7 @@ class BatchRegionEmbedding:
         dict
             The modified data dictionary with the region embedding added.
         """
-        if self.pop_region_key:
-            regions = data_dict.pop(self.region_key)
-        else:
-            regions = data_dict[self.region_key]
+        regions = data_dict[self.region_key]
         if isinstance(regions, str):
             regions = pd.Index([regions])
         data_dict["region_embedding"] = np.array(

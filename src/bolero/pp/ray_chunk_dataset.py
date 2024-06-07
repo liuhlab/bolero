@@ -74,7 +74,7 @@ class GenomeChunkDatasetGenerator:
                 "zarr_path": path,
                 "barcode_whitelist": barcode_whitelist,
             },
-            "remote_kwargs": {"memory": 15 * 1024**3},
+            "remote_kwargs": {"memory": 15 * 1024**3, "resources": {"bolero": 10}},
         }
         return
 
@@ -90,7 +90,7 @@ class GenomeChunkDatasetGenerator:
         bw_class = GenomeBigWigDataset
         if prefix in self.uniform_dataset_dict:
             cur_prefix_dict = self.uniform_dataset_dict[prefix]
-            
+
             assert (
                 cur_prefix_dict["ds_class"] == bw_class
             ), f"Dataset with name {prefix} should be bigwig."
@@ -111,8 +111,13 @@ class GenomeChunkDatasetGenerator:
         else:
             self.uniform_dataset_dict[prefix] = {
                 "ds_class": bw_class,
-                "ds_kwargs": {name: str(path), "prefix": prefix, "sparse": sparse, "compress_level": compress_level},
-                "remote_kwargs": {"memory": 1 * 1024**3},
+                "ds_kwargs": {
+                    name: str(path),
+                    "prefix": prefix,
+                    "sparse": sparse,
+                    "compress_level": compress_level,
+                },
+                "remote_kwargs": {"memory": 1 * 1024**3, "resources": {"bolero": 10}},
             }
         return
 
@@ -138,7 +143,7 @@ class GenomeChunkDatasetGenerator:
                 "path": path,
                 "barcode_whitelist": barcode_whitelist,
             },
-            "remote_kwargs": {"memory": 15 * 1024**3},
+            "remote_kwargs": {"memory": 15 * 1024**3, "resources": {"bolero": 10}},
         }
         return
 
@@ -149,9 +154,9 @@ class GenomeChunkDatasetGenerator:
             _ds_kwargs = info_dict["ds_kwargs"]
             _remote_kwargs = info_dict["remote_kwargs"]
 
-
             @ray.remote(**_remote_kwargs)
             def _process_worker(prefix, ds_class, ds_kwargs, output_dir, regions_df):
+                print("Processing", prefix, ds_class)
                 # check success flag
                 success_flag_path = output_dir / f"{prefix}.success.flag"
                 if success_flag_path.exists():
@@ -262,14 +267,13 @@ class GenomeChunkDatasetGenerator:
         self._dump_row_names()
 
         # create success flag and record genome name
-        with open(success_flag_path, "w") as f:
-            config_dict = {
-                'genome': self.genome.name,
-                'window_size': self.window_size,
-                'step_size': self.step_size,
-                "num_rows_per_file": self.num_rows_per_file,
-            }
-            joblib.dump(config_dict, f)
+        config_dict = {
+            "genome": self.genome.name,
+            "window_size": self.window_size,
+            "step_size": self.step_size,
+            "num_rows_per_file": self.num_rows_per_file,
+        }
+        joblib.dump(config_dict, success_flag_path)
 
         # cleanup
         for chrom in self.genome_chunk_df["Chromosome"].unique():

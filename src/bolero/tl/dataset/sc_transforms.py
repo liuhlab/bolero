@@ -1,12 +1,14 @@
 import gzip
 from collections import defaultdict
+from copy import deepcopy
 from typing import Dict, List
-from copy import deepcopy, copy
+
 import numpy as np
-from scipy.sparse import csr_matrix, vstack
 import pandas as pd
+import ray
+from scipy.sparse import csr_matrix, vstack
+
 from bolero.tl.pseudobulk.generator import PseudobulkGenerator
-from bolero.utils import understand_regions
 
 
 def compressed_bytes_to_array(bytes: bytes, dtype: str) -> np.ndarray:
@@ -335,6 +337,7 @@ class CompressedBytesToTensor:
         return data_dict
 
     def __call__(self, data_dict: Dict[str, bytes]) -> Dict[str, np.ndarray]:
+        """Perform the transformation."""
         # for each raw data key in binary format:
         #     input data is stored in bytes
         #     this function turn all the bytes data into numpy array
@@ -353,19 +356,20 @@ class GeneratePseudobulk:
 
     def __init__(
         self,
-        pseuddobulker_and_names,
+        pseudobulker_and_names,
         n_pseudobulks=10,
         return_rows=False,
         inplace=False,
         bypass_keys=None,
     ):
-        
-        self.pseuddobulker_and_names: tuple[PseudobulkGenerator, str] = pseuddobulker_and_names
+        self.pseudobulker_and_names: list[tuple[PseudobulkGenerator, str]] = (
+            pseudobulker_and_names
+        )
         self.n_pseudobulks = n_pseudobulks
         self.return_rows = return_rows
         self.inplace = inplace
 
-        self.bypass_keys = ['region']
+        self.bypass_keys = ["region"]
         if bypass_keys is not None:
             if bypass_keys is str:
                 self.bypass_keys.append(bypass_keys)
@@ -374,13 +378,9 @@ class GeneratePseudobulk:
         self._input_prefix = set()
         return
 
-    def _get_pseudo_bulks(self, 
-                          data_dict, 
-                          output_prefix, 
-                          pseudobulker
-                          ):
+    def _get_pseudo_bulks(self, data_dict, output_prefix, pseudobulker):
         bulk_data_dict = {}
-        
+
         _per_prefix_bulk_data = defaultdict(list)
         embedding_data = []
         rows_col = []
@@ -404,7 +404,7 @@ class GeneratePseudobulk:
                 if found_n == 0:
                     continue
                 found_row_count += found_n
-                
+
                 # row_by_base is a csr_matrix of shape (n_rows, region_length)
                 row_by_base = data_dict.get(prefix, None)
                 if row_by_base is None:
@@ -413,7 +413,7 @@ class GeneratePseudobulk:
 
                 _bulk_values = csr_matrix(row_by_base[prefix_rows].sum(axis=0).A1)
                 _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
-            
+
             # check if all rows is found, otherwise print warning
             if found_row_count != len(rows):
                 example_rows = list(rows)[:5]
@@ -456,7 +456,7 @@ class GeneratePseudobulk:
             # only copy the region info
             bulk_data_col = {}
 
-        for pseudobulker, output_prefix in self.pseuddobulker_and_names:
+        for pseudobulker, output_prefix in self.pseudobulker_and_names:
             bulk_data_dict = self._get_pseudo_bulks(
                 data_dict=data_dict,
                 output_prefix=output_prefix,
@@ -476,7 +476,16 @@ class GeneratePseudobulk:
 
 
 class GenerateRegions:
-    def __init__(self, bed, meta_region_overlap, action_keys):
+    def __init__(
+        self,
+        bed,
+        meta_region_overlap,
+        action_keys,
+        cov_filter_key=None,
+        min_cov=10,
+        max_cov=100000,
+        low_cov_ratio=0.1,
+    ):
         self.meta_region_overlap = meta_region_overlap
 
         assert isinstance(bed, pd.DataFrame), "bed should be a pandas DataFrame"
@@ -484,29 +493,50 @@ class GenerateRegions:
         self.bed: pd.DataFrame = bed
 
         self.action_keys = action_keys
+        self.cov_filter_key = cov_filter_key
+        self.min_cov = min_cov
+        self.max_cov = max_cov
+        self.low_cov_ratio = low_cov_ratio
         return
-    
+
     def _select_relevant_regions(self, data_dict):
         dict_region = data_dict.pop("region")
         chrom, coords = dict_region.split(":")
         start, end = map(int, coords.split("-"))
 
         use_bed = self.bed[
-            (self.bed['Chromosome'] == chrom) & 
-            (self.bed['Start'] >= start) & 
-            (self.bed['Start'] <= end - self.meta_region_overlap) & 
-            (self.bed['End'] <= end)
+            (self.bed["Chromosome"] == chrom)
+            & (self.bed["Start"] >= start)
+            & (self.bed["Start"] <= end - self.meta_region_overlap)
+            & (self.bed["End"] <= end)
         ]
         offset = start
         return use_bed, offset
 
+    def _cov_filter(self, data_dict):
+        if self.cov_filter_key is None:
+            return data_dict
+
+        data = data_dict[self.cov_filter_key]
+        region_sum = data.sum(axis=-1)
+        use_rows = (region_sum > self.min_cov) & (region_sum < self.max_cov)
+        low_cov_rows = np.where(region_sum <= self.min_cov)[0]
+        choice_n = min(int(use_rows.sum() * self.low_cov_ratio), low_cov_rows.shape[0])
+        choice_rows = np.random.choice(low_cov_rows, choice_n, replace=False)
+        use_rows[choice_rows] = True
+
+        data_dict = {k: v[use_rows].copy() for k, v in data_dict.items()}
+
+        return data_dict
+
     def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
+        """Generate regions for each meta region."""
         use_bed, offset = self._select_relevant_regions(data_dict)
-        
+
         list_of_dicts = []
         for _, (chrom, start, end, *_) in use_bed.iterrows():
             data_col = {}
-            data_col['region'] = f"{chrom}:{start}-{end}"
+            data_col["region"] = f"{chrom}:{start}-{end}"
             for key, value in data_dict.items():
                 if key in self.action_keys:
                     rstart = start - offset
@@ -519,5 +549,63 @@ class GenerateRegions:
                     data_col[key] = rvalue
                 else:
                     data_col[key] = deepcopy(value)
+
+            # filter row by coverage
+            data_col = self._cov_filter(data_col)
             list_of_dicts.append(data_col)
         return list_of_dicts
+
+
+class FetchRegionOneHot:
+    """Fetch the one-hot encoded DNA sequence from the genome."""
+
+    def __init__(
+        self,
+        region_key: str = "region",
+        output_key: str = "dna_one_hot",
+        dtype: str = "float32",
+    ) -> None:
+        """
+        Initialize the FetchRegionOneHot transform.
+
+        Parameters
+        ----------
+        region_key : str, optional
+            The key to access the region name in the data dictionary. Defaults to "Name".
+        output_key : str, optional
+            The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
+        dtype : str, optional
+            The data type of the one-hot encoded DNA. Defaults to "float32".
+
+        """
+        self.region_key = region_key
+        self.output_key = output_key
+        self.dtype = dtype
+
+    def __call__(self, data: dict, remote_genome_one_hot) -> dict:
+        """
+        Apply the FetchRegionOneHot transform to the input data.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the one-hot encoded DNA.
+        """
+        genome_one_hot = ray.get(remote_genome_one_hot)
+        # shape: (batch, length, channel)
+        one_hot = genome_one_hot.get_regions_one_hot(data[self.region_key])
+        # change to (batch, channel, length)
+        data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
+        return data
+
+
+def drop_non_number_columns(data_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """
+    Drop non-number columns from the data dictionary.
+    """
+    return {k: v for k, v in data_dict.items() if np.issubdtype(v.dtype, np.number)}

@@ -8,6 +8,7 @@ import pandas as pd
 import pyranges as pr
 from pyarrow import ArrowInvalid
 from pyarrow.fs import FileSystem, LocalFileSystem
+from ray.train.torch import get_device
 
 import bolero
 
@@ -50,11 +51,8 @@ def try_gpu():
     """
     Try to use GPU if available.
     """
-    import torch
-
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+    device = get_device()
+    return device
 
 
 def understand_regions(regions, as_df=False, return_names=False):
@@ -174,9 +172,11 @@ def get_default_save_dir(save_dir):
     """
     if save_dir is None:
         home_dir = pathlib.Path.home()
-        _my_defaults = [pathlib.Path("/ref/bolero"), 
-                        pathlib.Path(f"{home_dir}/ref/bolero"),
-                        pathlib.Path(f"{home_dir}/data/bolero")]
+        _my_defaults = [
+            pathlib.Path("/ref/bolero"),
+            pathlib.Path(f"{home_dir}/ref/bolero"),
+            pathlib.Path(f"{home_dir}/data/bolero"),
+        ]
         save_dir = None
         for _default in _my_defaults:
             if _default.exists():

@@ -186,8 +186,10 @@ class PseudobulkGenerator:
 
         # check if all cells are in the dataset
         if found_cells != len(cells):
-            print(f"Not all cells are in the dataset! Pseudobulk size: {len(cells)}, Found cells: {found_cells}.")
-            
+            print(
+                f"Not all cells are in the dataset! Pseudobulk size: {len(cells)}, Found cells: {found_cells}."
+            )
+
         return prefix_to_rows
 
     def take(
@@ -273,8 +275,8 @@ class PseudobulkGenerator:
             Predefined pseudobulk data, by default None.
         standard_cov : int, optional
             The standard total pseudobulk coverage, by default 10e6.
-            Pseudobulk cells will be randowmly sampled to reach this coverage. 
-            If a predefined pseudobulk's total coverage is bellow this value, 
+            Pseudobulk cells will be randowmly sampled to reach this coverage.
+            If a predefined pseudobulk's total coverage is bellow this value,
             it will be discarded when adding predefined pseudobulks.
 
         Returns
@@ -311,3 +313,8 @@ class PseudobulkGenerator:
         # TODO: check pseudobulk prefix, cell barcode with the dataset's prefix and barcode
         # all pseudobulk cells should occured in the dataset
         return pseudobulker
+
+
+class SimplebulkGenerator:
+    def __init__(self):
+        pass

@@ -9,6 +9,7 @@ import pandas as pd
 import pyBigWig
 import pyfaidx
 import pyranges as pr
+import ray
 import xarray as xr
 import zarr
 from numcodecs import Zstd
@@ -239,6 +240,7 @@ class Genome:
         self.genome_one_hot_path = (
             self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
         )
+        self._remote_one_hot_obj = None
         return
 
     def __repr__(self):
@@ -249,6 +251,13 @@ class Genome:
         else:
             one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
         return f"{name_str}\n{fastq_path}\n{one_hot_zarr}"
+
+    @property
+    def remote_genome_one_hot(self):
+        """Return the ref id of remote one-hot object in ray's object store."""
+        if self._remote_one_hot_obj is None:
+            self._remote_one_hot_obj = ray.put(self.genome_one_hot)
+        return self._remote_one_hot_obj
 
     def download_genome_fasta(self):
         """Download a genome fasta file from UCSC"""
