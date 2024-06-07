@@ -1086,6 +1086,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
         chroms,
         region_bed_path,
         return_cells=False,
+        return_regions=False,
     ) -> None:
         work_ds = super()._get_processed_dataset(
             chroms=chroms,
@@ -1102,7 +1103,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             region_action_keys=[self.bias_column],
         )
 
-        work_ds = self._get_region_cropper(work_ds)
+        # work_ds = self._get_region_cropper(work_ds)
 
         if self.reverse_complement and self._dataset_mode == "train":
             work_ds = self._get_reverse_complement_region(work_ds)
@@ -1111,11 +1112,12 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             work_ds = self._get_add_region_embedding(work_ds)
 
         # remove region column
-        work_ds = work_ds.drop_columns(["region"])
+        if not return_regions:
+            work_ds = work_ds.drop_columns(["region"])
         return work_ds
 
     def get_dataloader(
-        self, chroms, region_bed_path, as_torch=True, **kwargs
+        self, chroms, region_bed_path, as_torch=True, return_regions=False, **kwargs
     ) -> Iterable[dict[str, Any]]:
         """
         Get the dataloader.
@@ -1147,11 +1149,15 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             work_ds = self._get_processed_dataset(
                 chroms=chroms,
                 region_bed_path=region_bed_path,
+                return_cells=False,
+                return_regions=return_regions,
             )
 
             _kwargs = {
                 "prefetch_batches": 3,
-                "local_shuffle_buffer_size": 5000,
+                "local_shuffle_buffer_size": 5000
+                if self._dataset_mode == "train"
+                else None,
                 "drop_last": True,
                 "batch_size": self.batch_size,
             }

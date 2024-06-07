@@ -13,6 +13,7 @@ from bolero import Genome
 from bolero.tl.dataset.sc_transforms import (
     CompressedBytesToTensor,
     FetchRegionOneHot,
+    FilterRegions,
     GeneratePseudobulk,
     GenerateRegions,
     scMetaRegionToBulkRegion,
@@ -388,15 +389,12 @@ class NewRayGenomeChunkDataset:
         low_cov_ratio,
         concurrency,
     ):
+        # generate region from bed file
         fn = GenerateRegions
         fn_constructor_kwargs = {
             "bed": understand_regions(bed_path, as_df=True),
             "meta_region_overlap": self.window_size - self.step_size,
             "action_keys": action_keys,
-            "cov_filter_key": cov_filter_key,
-            "min_cov": min_cov,
-            "max_cov": max_cov,
-            "low_cov_ratio": low_cov_ratio,
         }
 
         dataset = dataset.flat_map(
@@ -404,6 +402,23 @@ class NewRayGenomeChunkDataset:
             fn_constructor_kwargs=fn_constructor_kwargs,
             concurrency=concurrency,
         )
+
+        # filter coverage
+        if cov_filter_key is not None:
+            fn = FilterRegions
+            fn_constructor_kwargs = {
+                "cov_filter_key": cov_filter_key,
+                "min_cov": min_cov,
+                "max_cov": max_cov,
+                "low_cov_ratio": low_cov_ratio,
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=512,
+            )
+
         return dataset
 
     def _get_dna_one_hot(self, dataset, concurrency):
@@ -434,10 +449,10 @@ class NewRayGenomeChunkDataset:
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
-        compressed_bytes_to_tensor_concurrency = (2, 5)
-        generate_pseudobulk_concurrency = (2, 10)
-        generate_regions_concurrency = (2, 10)
-        fetch_region_one_hot_concurrency = (2, 5)
+        compressed_bytes_to_tensor_concurrency = (1, 8)
+        generate_pseudobulk_concurrency = (1, 64)
+        generate_regions_concurrency = (1, 8)
+        fetch_region_one_hot_concurrency = (1, 8)
 
         dataset = self._read_parquet(chroms=chroms)
 

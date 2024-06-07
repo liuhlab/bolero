@@ -1,3 +1,16 @@
+"""
+PredefinedPseudobulkGenerator
+-----------------------------
+Prepare:
+1. embedding data: prefix:cell_id as index
+2. cell coverage data: prefix:cell_id as index
+3. barcode order: prefix to cell_id index without prefix
+4. predefined pseudobulk data: dict of pseudobulk name to prefix:cell_id index
+
+Rule is that whenever data is not separated by prefix, it should be prefix:cell_id as index
+
+"""
+
 import pathlib
 from typing import Generator
 
@@ -93,8 +106,19 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         if isinstance(cell_coverage, (str, pathlib.Path)):
             cell_coverage = pd.read_feather(cell_coverage)
             cell_coverage = cell_coverage.set_index(cell_coverage.columns[0]).squeeze()
+            cell_coverage = cell_coverage.reindex(_embedding.index)
         else:
-            cell_coverage = cell_coverage.copy()
+            cell_coverage = cell_coverage.reindex(_embedding.index)
+
+        # check cell id format
+        cells = _embedding.index
+        assert (
+            cells.str.count(":").max() == 1
+        ), "cell id should be prefix:cell_id, no more ':' in prefix or cell_id is allowed."
+        # check embedding nan
+        assert not _embedding.isna().values.any(), "embedding contains nan values."
+        # check coverage nan
+        assert not cell_coverage.isna().values.any(), "coverage contains nan values."
 
         pseudobulker = cls(
             embedding=_embedding,
@@ -183,7 +207,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
 
         print(
             f"{len(use_pseudobulks)} predefined pseudobulks are used, "
-            f"standard pseudobulk coverage is {int(self.standard_cov)}, "
+            f"standard pseudobulk coverage is {self.standard_cov}, "
             f"standard cell is {self.standard_cell}."
         )
 
@@ -293,13 +317,9 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         -------
         dict[str, pd.Index]: The prefix to rows dictionary.
         """
-        prefix_to_cells_series = pd.Series(
-            cells.map(lambda x: x.split(":")[0], index=cells)
-        )
-        prefix_to_cells = {
-            k: v.index
-            for k, v in prefix_to_cells_series.groupby(prefix_to_cells_series)
-        }
+        # assume prefix:cell_id only have one ":"
+        cell_split = cells.str.split(":")
+        prefix_to_cells: dict[list] = cell_split.str[1].groupby(cell_split.str[0])
 
         prefix_to_rows = {}
         found_cells = 0

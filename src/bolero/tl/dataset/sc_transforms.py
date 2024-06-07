@@ -483,10 +483,6 @@ class GenerateRegions:
         bed,
         meta_region_overlap,
         action_keys,
-        cov_filter_key=None,
-        min_cov=10,
-        max_cov=100000,
-        low_cov_ratio=0.1,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -495,10 +491,6 @@ class GenerateRegions:
         self.bed: pd.DataFrame = bed
 
         self.action_keys = action_keys
-        self.cov_filter_key = cov_filter_key
-        self.min_cov = min_cov
-        self.max_cov = max_cov
-        self.low_cov_ratio = low_cov_ratio
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -514,22 +506,6 @@ class GenerateRegions:
         ]
         offset = start
         return use_bed, offset
-
-    def _cov_filter(self, data_dict):
-        if self.cov_filter_key is None:
-            return data_dict
-
-        data = data_dict[self.cov_filter_key]
-        region_sum = data.sum(axis=-1)
-        use_rows = (region_sum > self.min_cov) & (region_sum < self.max_cov)
-        low_cov_rows = np.where(region_sum <= self.min_cov)[0]
-        choice_n = min(int(use_rows.sum() * self.low_cov_ratio), low_cov_rows.shape[0])
-        choice_rows = np.random.choice(low_cov_rows, choice_n, replace=False)
-        use_rows[choice_rows] = True
-
-        data_dict = {k: v[use_rows].copy() for k, v in data_dict.items()}
-
-        return data_dict
 
     def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
         """Generate regions for each meta region."""
@@ -551,11 +527,39 @@ class GenerateRegions:
                     data_col[key] = rvalue
                 else:
                     data_col[key] = deepcopy(value)
-
-            # filter row by coverage
-            data_col = self._cov_filter(data_col)
             list_of_dicts.append(data_col)
         return list_of_dicts
+
+
+class FilterRegions:
+    def __init__(self, cov_filter_key, min_cov=10, max_cov=1e5, low_cov_ratio=0.1):
+        self.cov_filter_key = cov_filter_key
+        self.min_cov = min_cov
+        self.max_cov = max_cov
+        self.low_cov_ratio = low_cov_ratio
+        return
+
+    def __call__(self, batch: dict):
+        """Filter regions based on coverage."""
+        data = batch[self.cov_filter_key]
+
+        # sum over all dims except the first one
+        region_sum = data.sum(axis=tuple(range(1, data.ndim)))
+
+        use_rows = (region_sum > self.min_cov) & (region_sum < self.max_cov)
+
+        # add some low coverage regions as negative samples
+        low_cov_rows = np.where(region_sum <= self.min_cov)[0]
+        choice_n = min(int(use_rows.sum() * self.low_cov_ratio), low_cov_rows.shape[0])
+        choice_rows = np.random.choice(low_cov_rows, choice_n, replace=False)
+        use_rows[choice_rows] = True
+
+        if use_rows.sum() == 0:
+            # keep at least one region
+            use_rows[0] = True
+        # apply filter to all keys
+        batch = {k: v[use_rows, ...].copy() for k, v in batch.items()}
+        return batch
 
 
 class FetchRegionOneHot:
@@ -604,10 +608,3 @@ class FetchRegionOneHot:
         # change to (batch, channel, length)
         data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
         return data
-
-
-def drop_non_number_columns(data_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-    """
-    Drop non-number columns from the data dictionary.
-    """
-    return {k: v for k, v in data_dict.items() if np.issubdtype(v.dtype, np.number)}
