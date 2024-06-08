@@ -917,7 +917,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
     def create_from_config(
         cls,
         config: dict,
-    ) -> "scPrinterDataset":
+    ) -> "NewscPrinterDataset":
         """
         Create a scPrinterDataset object from the configuration.
         """

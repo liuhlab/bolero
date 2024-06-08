@@ -96,6 +96,7 @@ class scFootprintLoRATrainer:
             "use_prefix": None,
             "n_pseudobulk": 10,
             "standard_cov": 10e6,
+            "standard_cell": None,
             "min_cov": 10,
             "max_cov": 100000,
             "low_cov_ratio": 0.1,
@@ -141,7 +142,7 @@ class scFootprintLoRATrainer:
             return cls.default_config
 
     @classmethod
-    def make_config(cls, mode="init", **kwargs) -> dict:
+    def make_config(cls, **kwargs) -> dict:
         """
         Make a configuration dictionary.
 
@@ -152,10 +153,7 @@ class scFootprintLoRATrainer:
         -------
             dict: Configuration dictionary.
         """
-        if mode == "lora":
-            config = cls.lora_config.copy()
-        else:
-            config = cls.default_config.copy()
+        config = cls.lora_config.copy()
 
         config.update(kwargs)
         # check if all required fields are present
@@ -551,6 +549,8 @@ class scFootprintLoRATrainer:
 
         # dataset location and schema
         self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
+        self.config["dataset"] = self.dataset_dir
+        self.config["cov_filter_name"] = self.config["prefix"]
         self.read_parquet_kwargs = config["read_parquet_kwargs"]
         self.shuffle_files = config["shuffle_files"]
 
@@ -572,9 +572,9 @@ class scFootprintLoRATrainer:
         # genome
         self.genome = Genome(config["genome"])
         # trigger one hot loading
-        _ = self.genome.genome_one_hot
+        # _ = self.genome.genome_one_hot
+
         self.use_prefix = config["use_prefix"]
-        self.sample_regions = config["sample_regions"]
         self.n_pseudobulk = config["n_pseudobulk"]
         self.min_cov = config["min_cov"]
         self.max_cov = config["max_cov"]
@@ -589,13 +589,14 @@ class scFootprintLoRATrainer:
 
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
-            "cell_embedding_path": self.config["cell_embedding"],
-            "cell_coverage_path": self.config["cell_coverage"],
+            "cell_embedding": self.config["cell_embedding"],
+            "cell_coverage": self.config["cell_coverage"],
             "predefined_pseudobulk_path": self.config["pseudobulk_path"],
             "standard_cov": self.config["standard_cov"],
+            "standard_cell": self.config["standard_cell"],
         }
         dataset.add_pseudobulker(
-            name="predefined",
+            name=self.config["prefix"],
             cls=PredefinedPseudobulkGenerator,
             pseudobulker_kwargs=pseudobulker_params,
         )
