@@ -4,11 +4,11 @@
 
 resources:
   cloud: gcp
-  cpus: 24+
-  memory: 120+
-  region: us-central1
+  cpus: 12+
+  memory: 60+
+  region: {"us-central1", "us-east1"}
   disk_size: 256
-  accelerators: { "L4:1" }
+  accelerators: { "V100:1",  "L4:1", "T4:1", 'A100:1' }
   image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240430
 
 file_mounts:
