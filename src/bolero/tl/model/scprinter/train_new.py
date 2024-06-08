@@ -30,7 +30,7 @@ from bolero.utils import get_fs_and_path, try_gpu
 
 
 class scFootprintLoRATrainer:
-    """scFootprintBPNet model for training on pseudobulk ATAC data."""
+    """Train scFootprintBPNet model on pseudobulk single-cell ATAC data."""
 
     default_config = {
         "mode": "init",
@@ -105,6 +105,7 @@ class scFootprintLoRATrainer:
             "a_embedding": "REQUIRED",
             "b_embedding": "REQUIRED",
             "cell_coverage": "REQUIRED",
+            "prefix": "REQUIRED",
             "pseudobulk_path": None,
             "lora_dna_cnn": True,
             "lora_dilated_cnn": True,
@@ -424,7 +425,11 @@ class scFootprintLoRATrainer:
         cell_emb["_coverage"] = cell_coverage
 
         cell_emb = np.load(config["example_pseudobulk_embedding"])
-        region_emb = config["region_embedding"]
+        region_emb = (
+            config["region_embedding"]
+            if self.config["region_embedding"] is not None
+            else None
+        )
         if region_emb is not None:
             region_emb = pd.read_feather(region_emb)
             region_emb = region_emb.set_index(region_emb.columns[0])
@@ -564,20 +569,16 @@ class scFootprintLoRATrainer:
         self.randomize_block_order = config["randomize_block_order"]
 
         # single-cell dataset specfic parameters
-        # for LoRA fine tuning
-        if self.mode == "lora":
-            # genome
-            self.genome = Genome(config["genome"])
-            # trigger one hot loading
-            _ = self.genome.genome_one_hot
-            self.use_prefix = config["use_prefix"]
-            self.sample_regions = config["sample_regions"]
-            self.n_pseudobulk = config["n_pseudobulk"]
-            self.min_cov = config["min_cov"]
-            self.max_cov = config["max_cov"]
-            self.low_cov_ratio = config["low_cov_ratio"]
-        else:
-            self.columns = config["dataset_columns"]
+        # genome
+        self.genome = Genome(config["genome"])
+        # trigger one hot loading
+        _ = self.genome.genome_one_hot
+        self.use_prefix = config["use_prefix"]
+        self.sample_regions = config["sample_regions"]
+        self.n_pseudobulk = config["n_pseudobulk"]
+        self.min_cov = config["min_cov"]
+        self.max_cov = config["max_cov"]
+        self.low_cov_ratio = config["low_cov_ratio"]
 
         # create dataset
         self.dataset: NewscPrinterDataset = self._get_dataset()
@@ -600,7 +601,8 @@ class scFootprintLoRATrainer:
         )
 
         region_embedding_path = self.config["region_embedding"]
-        dataset.add_region_embedding(region_embedding_path)
+        if region_embedding_path is not None:
+            dataset.add_region_embedding(region_embedding_path)
         return dataset
 
     def get_train_dataloader(self):
@@ -719,12 +721,15 @@ class scFootprintLoRATrainer:
         # if val batches is None, use all batches in the dataset
         mode = self.mode
 
-        atac_key = "bulk_data"
+        prefix = self.config["prefix"]
+        atac_key = f"{prefix}:bulk_data"
         dna_key = "dna_one_hot"
         bias_key = "tn5_bias"
-        cell_embedding_key = "cell_embedding"
-        region_embedding_key = "region_embedding"
-        footprint_key = "bulk_data_footprint"
+        cell_embedding_key = f"{prefix}:cell_embedding"
+        region_embedding_key = (
+            "region_embedding" if self.config["region_embedding"] is not None else None
+        )
+        footprint_key = f"{prefix}:bulk_data_footprint"
         footprinter = self.footprinter
 
         size = 0
@@ -974,10 +979,11 @@ class scFootprintLoRATrainer:
 
         mode = self.mode
         # dataset related
-        atac_key = "bulk_data"
+        prefix = self.config["prefix"]
+        atac_key = f"{prefix}:bulk_data"
         dna_key = "dna_one_hot"
-        footprint_key = "bulk_data_footprint"
-        cell_embedding_key = "cell_embedding"
+        footprint_key = f"{prefix}:bulk_data_footprint"
+        cell_embedding_key = f"{prefix}:cell_embedding"
         region_embedding_key = "region_embedding"
 
         # backpropagation related

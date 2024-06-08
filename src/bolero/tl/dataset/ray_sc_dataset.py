@@ -449,7 +449,7 @@ class NewRayGenomeChunkDataset:
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
-        compressed_bytes_to_tensor_concurrency = (1, 8)
+        compressed_bytes_to_tensor_concurrency = (1, 4)
         generate_pseudobulk_concurrency = (1, 64)
         generate_regions_concurrency = (1, 8)
         fetch_region_one_hot_concurrency = (1, 8)

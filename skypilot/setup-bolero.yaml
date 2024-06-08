@@ -53,7 +53,7 @@ setup: |
 
   # ray
   conda create -n ray python=3.10 -y
-  mamba install -y -n ray nodejs nvtop
+  mamba install -y -n ray nodejs nvtop pre-commit
   conda activate ray
   npm install -g vtop
   pip install "ray[train]"
@@ -61,7 +61,7 @@ setup: |
   # torch
   mamba install -y -n ray pytorch torchvision torchaudio -c pytorch -c nvidia
   mamba install -y -n ray cupy macs2 macs3 gh pandas dask jupyterlab mallet tqdm ipywidgets transformers black gcsfs isort
-  pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit scipy==1.12 captum shap
+  pip install jupyterlab-code-formatter jupyterlab_execute_time wandb pre-commit scipy==1.12 captum shap pyinstrument py-spy
 
   # inhouse packages
   pip install git+https://github.com/lhqing/scmallet.git
