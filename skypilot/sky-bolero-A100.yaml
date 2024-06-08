@@ -1,0 +1,50 @@
+# sky launch -c bolero -r -y setup-bolero.yaml; sky autostop -y bolero -i TIME_IN_MINUTES
+# change image_id
+# if using filestore, change the IP address
+
+resources:
+  cloud: gcp
+  cpus: 12+
+  memory: 80+
+  region: "us-central1"
+  disk_size: 256
+  accelerators: { 'A100:1' }
+  image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240430
+
+file_mounts:
+  ~/.netrc: ~/.netrc  # for wandb
+  /data:
+    source: gs://hms-hanqing-analysis
+    mode: MOUNT
+  /ref:
+    source: gs://hms-hanqing-reference
+    mode: MOUNT
+  /wmb:
+    source: gs://hms-hanqing-wmb
+    mode: MOUNT
+  /tempdata:
+    source: gs://hms-hanqing-temp
+    mode: MOUNT
+
+setup: |
+  set -e  # Exit if any command failed.
+  conda activate ray
+  sudo mount 192.168.179.186:/filestore /mnt/filestore
+
+  if [ -f $HOME/.SKIPSETUP ]
+  then
+    echo "Skip setup"
+  else
+    # install inhouse packages
+    pip install wandb --upgrade
+    pip install git+https://github.com/lhqing/scmallet.git
+    pip install -e /mnt/filestore/pkg/bolero-process
+    pip install -e /mnt/filestore/pkg/bolero
+    pip install -e /mnt/filestore/pkg/scPrinter
+    touch $HOME/.SKIPSETUP
+  fi
+
+run: |
+  set -e  # Exit if any command failed.
+  conda activate ray
+  nohup jupyter-lab --LabApp.token='' --no-browser --port 9990 > ~/jupyter.log 2>&1 &
