@@ -424,7 +424,9 @@ class GeneratePseudobulk:
                     f"Rows in pseudobulk: {len(rows)}, Rows found: {found_row_count}, Example row ids: {example_rows}"
                 )
 
-        embedding_data = np.array(embedding_data)  # shape: n_pseudobulks x n_features
+        embedding_data = np.array(
+            embedding_data, dtype=np.float32
+        )  # shape: n_pseudobulks x n_features
         pseudobulk_ids = np.array(pseudobulk_ids)  # shape: n_pseudobulks
 
         # pseudobulks maybe less than self.n_pseudobulks

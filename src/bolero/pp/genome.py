@@ -257,6 +257,8 @@ class Genome:
         """Return the ref id of remote one-hot object in ray's object store."""
         if self._remote_one_hot_obj is None:
             self._remote_one_hot_obj = ray.put(self.genome_one_hot)
+            print(f"Created remote one-hot object at {self._remote_one_hot_obj}")
+            self._one_hot_obj = None  # since the remote one-hot object is created, set the local one-hot object to None
         return self._remote_one_hot_obj
 
     def download_genome_fasta(self):

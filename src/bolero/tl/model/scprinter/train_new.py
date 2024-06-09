@@ -582,7 +582,7 @@ class scFootprintLoRATrainer:
 
         # create dataset
         self.dataset: NewscPrinterDataset = self._get_dataset()
-        self.footprinter = self.dataset.get_footprinter()
+        self.footprinter = self.dataset.get_footprinter(prefix=self.config["prefix"])
 
     def _get_dataset(self):
         dataset = NewscPrinterDataset.create_from_config(self.config)
@@ -609,6 +609,7 @@ class scFootprintLoRATrainer:
     def get_train_dataloader(self):
         """Training dataloader."""
         use_chrom = np.random.choice(self.train_chroms)
+        print(f"Using chrom {use_chrom} for training.")
         dataloader = self.dataset.get_dataloader(
             chroms=[use_chrom],
             region_bed_path=self.config["region_bed_path"],
@@ -617,8 +618,10 @@ class scFootprintLoRATrainer:
 
     def get_valid_dataloader(self):
         """Validation dataset."""
+        use_chrom = np.random.choice(self.valid_chroms)
+        print(f"Using chrom {use_chrom} for validation.")
         dataloader = self.dataset.get_dataloader(
-            chroms=self.valid_chroms,
+            chroms=[use_chrom],
             region_bed_path=self.config["region_bed_path"],
         )
         return dataloader
@@ -726,7 +729,7 @@ class scFootprintLoRATrainer:
         atac_key = f"{prefix}:bulk_data"
         dna_key = "dna_one_hot"
         bias_key = "tn5_bias"
-        cell_embedding_key = f"{prefix}:cell_embedding"
+        cell_embedding_key = f"{prefix}:embedding_data"
         region_embedding_key = (
             "region_embedding" if self.config["region_embedding"] is not None else None
         )
@@ -747,7 +750,10 @@ class scFootprintLoRATrainer:
             X = batch[dna_key]
             if mode == "lora":
                 cell_embedding = batch[cell_embedding_key]
-                region_embedding = batch[region_embedding_key]
+                if region_embedding_key is None:
+                    region_embedding = None
+                else:
+                    region_embedding = batch[region_embedding_key]
             else:
                 cell_embedding = None
                 region_embedding = None
@@ -984,11 +990,13 @@ class scFootprintLoRATrainer:
         atac_key = f"{prefix}:bulk_data"
         dna_key = "dna_one_hot"
         footprint_key = f"{prefix}:bulk_data_footprint"
-        cell_embedding_key = f"{prefix}:cell_embedding"
-        region_embedding_key = "region_embedding"
+        cell_embedding_key = f"{prefix}:embedding_data"
+        region_embedding_key = (
+            "region_embedding" if self.config["region_embedding"] is not None else None
+        )
 
         # backpropagation related
-        footprinter = self.dataset.get_footprinter()
+        footprinter = self.footprinter
 
         scaler = self.scaler
         optimizer = self.optimizer
@@ -1052,7 +1060,7 @@ class scFootprintLoRATrainer:
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(':')[0],
+                        device_type=str(self.device).split(":")[0],
                         dtype=torch.bfloat16,
                         enabled=self.use_amp,
                     )
@@ -1060,7 +1068,7 @@ class scFootprintLoRATrainer:
                     # some GPU, such as T4 does not support bfloat16
                     print("bfloat16 autocast failed, using float16 instead.")
                     auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(':')[0],
+                        device_type=str(self.device).split(":")[0],
                         dtype=torch.float16,
                         enabled=self.use_amp,
                     )
@@ -1072,7 +1080,10 @@ class scFootprintLoRATrainer:
                     # LoRA embedding
                     if mode == "lora":
                         cell_embedding = batch[cell_embedding_key]
-                        region_embedding = batch[region_embedding_key]
+                        if region_embedding_key is None:
+                            region_embedding = None
+                        else:
+                            region_embedding = batch[region_embedding_key]
                     else:
                         cell_embedding = None
                         region_embedding = None

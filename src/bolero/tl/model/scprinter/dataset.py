@@ -1010,7 +1010,17 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             final_length=length_list,
             max_jitter=max_jitter,
         )
-        dataset = dataset.map_batches(_cropper)
+
+        def _cropper_squeeze(data):
+            data = _cropper(data)
+            for sig_col in signal_columns:
+                # also reduce single channel signals to 1D
+                _data = data[sig_col]
+                if _data.ndim == 3 and _data.shape[1] == 1:
+                    data[sig_col] = data[sig_col].squeeze(1)
+            return data
+
+        dataset = dataset.map_batches(_cropper_squeeze)
         return dataset
 
     def _get_reverse_complement_region(self, dataset) -> None:
@@ -1067,11 +1077,12 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
 
     def get_footprinter(
         self,
+        prefix: str,
     ) -> BatchFootPrint:
         """
         Get the footprint for a specific region and sample.
         """
-        atac_keys = [c for c in self.signal_columns if c != self.bias_column]
+        atac_keys = [f"{prefix}:bulk_data"]
 
         fn = BatchFootPrint
         fn_constructor_kwargs = {
@@ -1110,7 +1121,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             region_action_keys=[self.bias_column],
         )
 
-        # work_ds = self._get_region_cropper(work_ds)
+        work_ds = self._get_region_cropper(work_ds)
 
         if self.reverse_complement and self._dataset_mode == "train":
             work_ds = self._get_reverse_complement_region(work_ds)
@@ -1162,9 +1173,9 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
 
             _kwargs = {
                 "prefetch_batches": 3,
-                "local_shuffle_buffer_size": 5000
-                if self._dataset_mode == "train"
-                else None,
+                "local_shuffle_buffer_size": (
+                    3000 if self._dataset_mode == "train" else None
+                ),
                 "drop_last": True,
                 "batch_size": self.batch_size,
             }
@@ -1174,12 +1185,8 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
                 loader = work_ds.iter_torch_batches(**_kwargs)
             else:
                 loader = work_ds.iter_batches(**_kwargs)
-            footprinter = self.get_footprinter()
 
-            for batch in loader:
-                # add footprint
-                batch = footprinter(batch)
-                yield batch
+            yield from loader
 
         # the dataset and dataloader are created lazily, until __iter__ is called
         return _IterableFromIterator(_create_iterator)
