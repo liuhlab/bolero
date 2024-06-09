@@ -109,9 +109,16 @@ class BatchFootPrint(FootPrintModel):
         """
         modes = modes if modes is not None else self.modes
         bias_data = data[self.bias_key]
+        # if bias_data has 3 dims, drop the second dim (channels)
+        if bias_data.ndim == 3:
+            bias_data = bias_data.squeeze(1)
+
         for atac in self.atac_key:
             try:
                 atac_data = data[atac]
+                # if atac_data has 3 dims, drop the second dim (channels)
+                if atac_data.ndim == 3:
+                    atac_data = atac_data.squeeze(1)
             except KeyError:
                 continue
 
@@ -1074,7 +1081,7 @@ class NewscPrinterDataset(NewRayGenomeChunkDataset):
             "clip_max": self.clip_max,
             "return_pval": False,
             "smooth_radius": None,
-            "numpy": True,
+            "numpy": False,
             "device": None,
         }
 

@@ -70,7 +70,7 @@ class scFootprintLoRATrainer:
         "clip_min": -10,
         "clip_max": 10,
         "reverse_complement": True,
-        "local_shuffle_buffer_size": 5000,
+        "local_shuffle_buffer_size": 1000,
         "randomize_block_order": False,
         "plot_example_per_epoch": 9,
         "wandb_project": "scprinter",
@@ -1052,7 +1052,7 @@ class scFootprintLoRATrainer:
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
-                        device_type=str(self.device),
+                        device_type=str(self.device).split(':')[0],
                         dtype=torch.bfloat16,
                         enabled=self.use_amp,
                     )
@@ -1060,7 +1060,7 @@ class scFootprintLoRATrainer:
                     # some GPU, such as T4 does not support bfloat16
                     print("bfloat16 autocast failed, using float16 instead.")
                     auto_cast_context = torch.autocast(
-                        device_type=str(self.device),
+                        device_type=str(self.device).split(':')[0],
                         dtype=torch.float16,
                         enabled=self.use_amp,
                     )
