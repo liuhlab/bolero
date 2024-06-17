@@ -465,6 +465,7 @@ class scFootprintLoRATrainer:
         )
 
         acc_model.cuda()
+
         return acc_model
 
     def _update_state_dict(self):
