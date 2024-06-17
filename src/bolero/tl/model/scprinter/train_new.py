@@ -464,6 +464,7 @@ class scFootprintLoRATrainer:
             no_over_rank=config["no_over_rank"],
         )
         acc_model.cuda()
+
         return acc_model
 
     def _update_state_dict(self):
