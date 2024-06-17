@@ -463,7 +463,6 @@ class scFootprintLoRATrainer:
             output_layer_groups=config["lora_output_layer_groups"],
             no_over_rank=config["no_over_rank"],
         )
-        # main change
         acc_model.cuda()
 
         return acc_model
