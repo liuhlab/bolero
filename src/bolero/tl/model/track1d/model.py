@@ -11,7 +11,7 @@ class DialatedCNNTrack1DModel(nn.Module):
         "n_filters": 1024,
         "bottleneck_size": 1024,
         "dna_kernel_size": 21,
-        "hidden_kernel_size": 3,
+        "dia_kernel_size": 3,
         "output_kernel_size": 1,
         "input_channels": 4,
         "output_channels": 1,
@@ -43,7 +43,7 @@ class DialatedCNNTrack1DModel(nn.Module):
 
         dna_cnn_model = DNA_CNN(
             n_filters=config["n_filters"],
-            kernel_size=config["dna_kernel_size"],
+            dna_kernel_size=config["dna_kernel_size"],
             activation=activation,
             in_channels=config["input_channels"],
         )
@@ -54,7 +54,7 @@ class DialatedCNNTrack1DModel(nn.Module):
         hidden_layer_model = DilatedCNN(
             n_filters=config["n_filters"],
             bottleneck=config["bottleneck_size"],
-            kernel_size=config["hidden_kernel_size"],
+            dia_kernel_size=config["dia_kernel_size"],
             n_blocks=config["hidden_conv_blocks"],
             groups=config["conv_groups"],
             activation=activation,

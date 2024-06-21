@@ -12,7 +12,7 @@ Rule is that whenever data is not separated by prefix, it should be prefix:cell_
 """
 
 import pathlib
-from typing import Generator
+from typing import Generator, Union
 
 import joblib
 import numpy as np
@@ -63,7 +63,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         cell_coverage,
         barcode_order,
         predefined_pseudobulk_path=None,
-        standard_cov: int = 10e6,
+        standard_cov: int = 1e7,
         standard_cell: int = None,
     ) -> "PredefinedPseudobulkGenerator":
         """
@@ -81,7 +81,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         predefined_pseudobulk : Optional[dict], optional
             Predefined pseudobulk data, by default None.
         standard_cov : int, optional
-            The standard total pseudobulk coverage, by default 10e6.
+            The standard total pseudobulk coverage, by default 1e7.
             Pseudobulk cells will be randowmly sampled to reach this coverage.
             If a predefined pseudobulk's total coverage is bellow this value,
             it will be discarded when adding predefined pseudobulks.
@@ -130,8 +130,8 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         if predefined_pseudobulk_path is not None:
             if isinstance(predefined_pseudobulk_path, (str, pathlib.Path)):
                 predefined_pseudobulk_path = [predefined_pseudobulk_path]
-            for i, path in enumerate(predefined_pseudobulk_path):
-                _d = {f"{k}_{i}": v for k, v in joblib.load(path).items()}
+            for path in predefined_pseudobulk_path:
+                _d = joblib.load(path)
                 pseudobulker.add_predefined_pseudobulks(_d)
 
         if len(pseudobulker._predefined_pseudobulks) > 0:
@@ -143,7 +143,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         embedding: pd.DataFrame,
         barcode_order: dict[str, pd.Index],
         cell_coverage: pd.Series,
-        standard_cov: int = 10e6,
+        standard_cov: int = 1e7,
         standard_cell: int = None,
     ) -> None:
         """
@@ -154,7 +154,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         embedding (pd.DataFrame): The embedding data.
         barcode_order (dict[str, pd.Index]): The barcode order dictionary.
         cell_coverage (pd.Series): The cell coverage.
-        standard_cov (int): The standard total pseudobulk coverage. Default is 10e6.
+        standard_cov (int): The standard total pseudobulk coverage. Default is 1e7.
         standard_cell (int): The standard total pseudobulk cell number. Default is None.
 
         Returns
@@ -174,10 +174,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
             standard_cov and standard_cell
         ), "Only one of standard_cov and standard_cell can be set."
         self.barcode_order = barcode_order
-
-        self.scaler1 = RobustScaler(quantile_range=(5, 95))
-        self.scaler2 = StandardScaler()
-        self.example_embedding = None
+        self.scaler = EmbeddingScaler()
 
     def add_predefined_pseudobulks(self, pseudobulks: dict[str, pd.Index]) -> None:
         """
@@ -254,7 +251,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
 
         try:
             # Normalize the embedding
-            embedding = self._scaler(embedding)
+            embedding = self.scaler.transform(embedding)
         except NotFittedError:
             pass
         return embedding
@@ -373,26 +370,161 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         """
         Fit the scaler using predefined pseudobulks.
         """
-        col = []
+        rows = []
         for cells in self._predefined_pseudobulks:
             embedding = self.embedding.loc[cells.values].mean()
 
             if not self.standard_cov:
+                # for standard_cell mode, we need to select the correct cell number
+                # in order to make the coverage embedding dim consistent
+                #
                 # add the coverage log1p to the end of the embedding
                 _cells = np.random.choice(cells, self.standard_cell, replace=False)
                 embedding = np.append(embedding, self.get_pseudobulk_coverage(_cells))
 
-            col.append(embedding)
-        embedding = np.array(col)
+            rows.append(embedding)
+        example_embedding = pd.DataFrame(rows, index=self._predefined_pseudobulks_names)
+        self.scaler.fit(example_embedding)
+        return
+
+    def save_scaler(self, path):
+        """
+        Save the scaler to path.
+
+        Parameters
+        ----------
+        path (str): The path to save the scaler.
+        """
+        if not self.scaler.fitted:
+            raise NotFittedError("Scaler is not fitted yet.")
+
+        joblib.dump(self.scaler, path)
+        return
+
+    def save(self, path):
+        """
+        Save the pseudobulk generator to path.
+
+        Parameters
+        ----------
+        path (str): The path to save the pseudobulk generator.
+        """
+        joblib.dump(self, path)
+        return
+
+
+class EmbeddingScaler:
+    """
+    A class for scaling embeddings and
+    also save the fitting data as (scaled) example embedding.
+
+    Attributes
+    ----------
+    scaler1 : RobustScaler
+        The first scaler for robust scaling.
+    scaler2 : StandardScaler
+        The second scaler for standard scaling.
+    fitted : bool
+        Indicates whether the scaler has been fitted.
+    _example_embedding : pd.DataFrame or None
+        An example embedding used for scaling.
+
+    Methods
+    -------
+    example_embedding()
+        Get the example embedding.
+    fit(embedding)
+        Fit the scaler using the given embedding.
+    transform(embedding)
+        Transform the given embedding using the fitted scaler.
+    """
+
+    def __init__(self):
+        self.scaler1 = RobustScaler(quantile_range=(5, 95))
+        self.scaler2 = StandardScaler()
+        self.fitted = False
+        self._example_embedding = None
+
+    @property
+    def example_embedding(self) -> pd.DataFrame:
+        """
+        Get the example embedding.
+
+        Returns
+        -------
+        pd.DataFrame
+            The example embedding.
+        """
+        if not self.fitted:
+            raise NotFittedError
+        return self._example_embedding
+
+    def fit(self, embedding: Union[pd.DataFrame, np.ndarray]) -> "EmbeddingScaler":
+        """
+        Fit the scaler using the given embedding.
+
+        Parameters
+        ----------
+        embedding : pd.DataFrame or np.ndarray
+            The embedding to fit the scaler.
+
+        Returns
+        -------
+        EmbeddingScaler
+            The fitted scaler.
+        """
+        if isinstance(embedding, pd.DataFrame):
+            index = embedding.index
+            columns = embedding.columns
+            embedding = embedding.values
+        else:
+            index = None
+            columns = None
+
+        if self.fitted:
+            print(
+                "Warning: this EmbeddingScaler has already been fitted, "
+                "its state will be overwritten due to re-fit."
+            )
         embedding = np.clip(self.scaler1.fit_transform(embedding), -1, 1)
         embedding = self.scaler2.fit_transform(embedding.reshape((-1, 1))).reshape(
             embedding.shape
         )
+        self.fitted = True
 
-        self.example_embedding = embedding
-        return
+        if index is not None:
+            embedding = pd.DataFrame(embedding, index=index, columns=columns)
+        self._example_embedding = embedding
+        return self
 
-    def _scaler(self, embedding):
+    def transform(
+        self, embedding: Union[pd.DataFrame, pd.Series, np.ndarray]
+    ) -> Union[pd.DataFrame, pd.Series]:
+        """
+        Transform the given embedding using the fitted scaler.
+
+        Parameters
+        ----------
+        embedding : pd.DataFrame, pd.Series, or np.ndarray
+            The embedding to transform.
+
+        Returns
+        -------
+        Union[pd.DataFrame, pd.Series]
+            The transformed embedding.
+        """
+        if isinstance(embedding, pd.DataFrame):
+            index = embedding.index
+            columns = embedding.columns
+            embedding = embedding.values
+        if isinstance(embedding, pd.Series):
+            index = embedding.index
+            embedding = embedding.values
+            columns = None
+        else:
+            index = None
+            columns = None
+
         reshape = len(embedding.shape) == 1
         if reshape:
             embedding = embedding.reshape((1, -1))
@@ -402,4 +534,10 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         )
         if reshape:
             embedding = embedding[0]
+
+        if index is not None and columns is not None:
+            embedding = pd.DataFrame(embedding, index=index, columns=columns)
+        elif index is not None:
+            embedding = pd.Series(embedding, index=index)
+
         return embedding

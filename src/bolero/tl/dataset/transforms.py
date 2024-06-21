@@ -489,17 +489,6 @@ class AddChannels:
     def __call__(self, data: dict) -> dict:
         """
         Add channel dimension to the input data.
-
-        Parameters
-        ----------
-        data : dict
-            The input data dictionary.
-
-        Returns
-        -------
-        dict
-            The modified data dictionary with the added channel dimension.
-
         """
         for k in self.keys:
             data[k] = self.channel_func(data[k])

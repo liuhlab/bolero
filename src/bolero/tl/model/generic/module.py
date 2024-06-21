@@ -5,6 +5,81 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from bolero.tl.model.generic.train_helper import validate_config
+
+
+class GenericModule(nn.Module):
+    """Generic Module for all the models.
+
+    Attributes
+    ----------
+    default_config : dict
+        Default configuration for the module.
+
+    Methods
+    -------
+    get_default_config() -> dict
+        Get the default configuration for the module.
+    create_from_config(config: dict) -> GenericModule
+        Create an instance of the module from a configuration.
+    forward(*args, **kwargs) -> None
+        Forward pass of the module.
+    """
+
+    default_config: dict = {}
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """
+        Get the default configuration for the module.
+
+        Returns
+        -------
+        dict
+            The default configuration for the module.
+        """
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config: dict) -> "GenericModule":
+        """
+        Create an instance of the module from a configuration.
+
+        Parameters
+        ----------
+        config : dict
+            The configuration for the module.
+
+        Returns
+        -------
+        GenericModule
+            An instance of the module.
+        """
+        # remove additional keys in the configuration
+        config = {k: v for k, v in config.items() if k in cls.default_config}
+        validate_config(config, cls.default_config)
+        return cls(**config)
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, *args, **kwargs) -> None:
+        """
+        Forward pass of the module.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments.
+        **kwargs
+            Keyword arguments.
+
+        Returns
+        -------
+        None
+        """
+        raise NotImplementedError
+
 
 class GroupedLinear(nn.Module):
     """Use nn.Conv1D with kernel_size=1 to simulate nn.Linear,
@@ -63,7 +138,7 @@ class Conv1dWrapper(nn.Module):
         )
 
 
-class DNA_CNN(nn.Module):
+class DNA_CNN(GenericModule):
     """
     This class represents a DNA Convolutional Neural Network (CNN) module.
     It is used to extract DNA sequence features using a single CNN layer.
@@ -96,13 +171,19 @@ class DNA_CNN(nn.Module):
     -------
     forward(X, *args, **kwargs)
         Forward pass of the CNN module.
-
     """
+
+    default_config = {
+        "n_filters": 1024,
+        "dna_kernel_size": 21,
+        "activation": nn.GELU(),
+        "in_channels": 4,
+    }
 
     def __init__(
         self,
         n_filters: int = 1024,
-        kernel_size: int = 21,
+        dna_kernel_size: int = 21,
         activation: nn.Module = nn.GELU(),
         in_channels: int = 4,
     ):
@@ -125,13 +206,13 @@ class DNA_CNN(nn.Module):
 
         self.in_channels = in_channels
         self.n_filters = n_filters
-        self.kernel_size = kernel_size
+        self.dna_kernel_size = dna_kernel_size
 
-        self.conv = nn.Conv1d(
+        self.conv = Conv1dWrapper(
             in_channels=in_channels,
             out_channels=n_filters,
-            kernel_size=kernel_size,
-            padding=kernel_size // 2,
+            kernel_size=dna_kernel_size,
+            padding=dna_kernel_size // 2,
         )
         self.activation = copy.deepcopy(activation)
 
@@ -171,17 +252,30 @@ class Residual(nn.Module):
         return x + self.module(x, *args, **kwargs)
 
 
-class DilatedCNN(nn.Module):
+class DilatedCNN(GenericModule):
     """
     This part only takes into account the Dilated CNN stack
     """
+
+    default_config = {
+        "n_filters": 1024,
+        "bottleneck": 1024,
+        "n_blocks": 8,
+        "dia_kernel_size": 3,
+        "groups": 8,
+        "activation": nn.GELU(),
+        "batch_norm": True,
+        "batch_norm_momentum": 0.1,
+        "dilation_func": None,
+        "bipass_connect": False,
+    }
 
     def __init__(
         self,
         n_filters=1024,
         bottleneck=1024,
         n_blocks=8,
-        kernel_size=3,
+        dia_kernel_size=3,
         groups=8,
         activation=nn.GELU(),
         batch_norm=True,
@@ -192,11 +286,12 @@ class DilatedCNN(nn.Module):
         super().__init__()
         if dilation_func is None:
             dilation_func = lambda x: 2 ** (x + 1)
+        self.dilation_func = dilation_func
 
         self.n_filters = n_filters
         self.botleneck = bottleneck
         self.n_blocks = n_blocks
-        self.kernel_size = kernel_size
+        self.dia_kernel_size = dia_kernel_size
         self.groups = groups
         self.activation = activation
         self.batch_norm = batch_norm
@@ -208,8 +303,8 @@ class DilatedCNN(nn.Module):
                     ConvBlockModule(
                         n_filters=n_filters,
                         bottleneck=bottleneck,
-                        kernel_size=kernel_size,
-                        dilation=dilation_func(i),
+                        kernel_size=dia_kernel_size,
+                        dilation=self.dilation_func(i),
                         activation=activation,
                         batch_norm=batch_norm,
                         batch_norm_momentum=batch_norm_momentum,

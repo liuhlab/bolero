@@ -1,6 +1,8 @@
 import gc
 import json
 import pathlib
+import time
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -298,7 +300,7 @@ class TrainerDatasetMixin:
         return dataset
 
 
-class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
+class GenericTrainer(TrainerAttributesMixin):
     """Generic Trainer for training models."""
 
     trainer_config = {
@@ -321,7 +323,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "accumulate_grad": 1,
         "train_batches": 5000,
         "val_batches": 500,
-        "loss_tolerance": 0.003,
+        "loss_tolerance": 0.0,
     }
     dataset_class = GenericDataset
     model_class = GenericModel
@@ -375,7 +377,17 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         """Get default configuration combined from dataset, model and trainer."""
         dataset_config = cls.dataset_class.get_default_config()
         model_config = cls.model_class.get_default_config()
-        default_config = {**cls.trainer_config, **dataset_config, **model_config}
+
+        default_config = deepcopy(cls.trainer_config)
+        for k, v in dataset_config.items():
+            if k in default_config:
+                print(f'Warning: Overwriting key "{k}" with dataset default value.')
+            default_config[k] = v
+
+        for k, v in model_config.items():
+            if k in default_config:
+                print(f'Warning: Overwriting key "{k}" with model default value.')
+            default_config[k] = v
         return default_config
 
     @classmethod
@@ -413,13 +425,18 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         config = self.config
         wandb_run_info_path = self.wandb_run_info_path
 
+        from wandb.errors import CommError
+
         # load wandb run info file if exists
         if wandb_run_info_path.exists():
             with open(wandb_run_info_path) as f:
                 wandb_run_info = json.load(f)
 
             # check if the previous run has finished successfully on W & B API
-            success = check_wandb_success(wandb_run_info["path"])
+            try:
+                success = check_wandb_success(wandb_run_info["path"])
+            except CommError:
+                success = False
             same_config = compare_configs(wandb_run_info["config"], config)
             if same_config:
                 if success:
@@ -431,8 +448,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                     print(
                         f"Resuming W & B run with name: {wandb_run_info['name']} and id: {wandb_run_info['id']}."
                     )
-                    from wandb.errors import CommError
-
                     try:
                         wandb_run = wandb.init(
                             id=wandb_run_info["id"],
@@ -509,6 +524,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         return
 
     def _cleanup_env(self):
+        time.sleep(1)
         gc.collect()
         torch.cuda.empty_cache()
         return
@@ -569,7 +585,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.ema.load_state_dict(checkpoint["ema"])
 
         del checkpoint
-        torch.cuda.empty_cache()
+        self._cleanup_env()
         return
 
     def _get_ema(self):
@@ -601,38 +617,58 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         )
         return scheduler
 
-    def model_validation_step(self, model, dataset, val_batches, **kwargs):
+    def _setup_fit(self):
+        config = self.config
+
+        # epochs
+        self.max_epochs = config["max_epochs"]
+        self.patience = config["patience"]
+        self.loss_tolerance = config["loss_tolerance"]
+        self.train_batches = config["train_batches"]
+        self.val_batches = config["val_batches"]
+        self.early_stopping_counter = 0
+        self.early_stoped = False
+        self.best_val_loss = float("inf")
+        self.accumulate_grad = config["accumulate_grad"]
+        self.cur_epoch = 0
+
+        # scaler
+        if self.device == torch.device("cpu"):
+            self.use_amp = False
+        else:
+            self.use_amp = self.config["use_amp"]
+        self.scaler = self._get_scaler()
+
+        # optimizer
+        self.optimizer = self._get_optimizer()
+
+        # scheduler
+        if config["scheduler"]:
+            self.scheduler = self._get_scheduler(self.optimizer)
+        else:
+            self.scheduler = None
+
+        # EMA model
+        self.use_ema = config["use_ema"]
+        if self.use_ema:
+            self.ema = self._get_ema()
+        else:
+            self.ema = None
+
+        # plot
+        self.plot_example_per_epoch = config["plot_example_per_epoch"]
+        if not self.plot_example_per_epoch:
+            self.plot_example_per_epoch = 0
+
+        # update state dict if checkpoint exists
+        if self.checkpoint:
+            self._update_state_dict()
+        return
+
+    def _validation_step(self, *args, **kwargs):
         """Model specific validation step."""
         print("Implement model specific validation step here.")
         raise NotImplementedError
-
-    def _validation_step(self, testing=False, val_batches=None, **kwargs):
-        if testing:
-            _dataset = self.test_dataset
-        else:
-            _dataset = self.valid_dataset
-
-        if self.config["use_ema"]:
-            self.ema.eval()
-            self.ema.ema_model.eval()
-            val_results = self.model_validation_step(
-                model=self.ema.ema_model,
-                dataset=_dataset,
-                val_batches=val_batches,
-                **kwargs,
-            )
-            self.ema.train()
-            self.ema.ema_model.train()
-        else:
-            self.model.eval()
-            val_results = self.model_validation_step(
-                model=self.model,
-                dataset=_dataset,
-                val_batches=val_batches,
-                **kwargs,
-            )
-            self.model.train()
-        return val_results
 
     def _save_checkpint(self, update_best: bool):
         epoch_info = {
@@ -681,21 +717,5 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
     def train(self):
         """
         Model specific overall training steps.
-
-        # example
-        ```
-        wandb_run = self._setup_wandb()
-        if wandb_run is None:
-            return
-        with wandb_run:
-            self._setup_env()  # generic
-            self._setup_model()  # model specific
-            self._setup_dataset()  # model specific
-            self._setup_fit()  # model specific
-            self.fit(sample=sample, region=region)  # model specific
-            self._test(sample=sample, region=region)  # model specific
-            self._cleanup_env()  # generic
-            wandb.finish()
-        ```
         """
         raise NotImplementedError

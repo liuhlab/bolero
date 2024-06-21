@@ -9,5 +9,6 @@ __version__ = version("bolero")
 import warnings
 
 from .pp import Genome, Sequence
+from .utils import init
 
 warnings.filterwarnings("ignore", module="pyranges")

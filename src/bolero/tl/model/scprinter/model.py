@@ -30,20 +30,82 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from bolero.tl.model.generic.module import Conv1dWrapper
-from bolero.tl.model.scprinter.module import Conv1dMultiLoRA
+from bolero.tl.model.generic.module import DNA_CNN, Conv1dWrapper, DilatedCNN
+from bolero.tl.model.generic.train_helper import validate_config
+from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, FootprintsHead
 
 
 class scFootprintBPNet(nn.Module):
     """scFootprintBPNet bulk model."""
 
+    default_config = {
+        "dna_len": "auto",
+        "output_len": 800,
+    }
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """Get default configuration combined from dataset, model and trainer."""
+        dna_cnn_config = deepcopy(DNA_CNN.default_config)
+        hidden_layer_config = deepcopy(DilatedCNN.default_config)
+        output_config = deepcopy(FootprintsHead.default_config)
+        default_config = {
+            **cls.default_config,
+            **dna_cnn_config,
+            **hidden_layer_config,
+            **output_config,
+        }
+        return default_config
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        default_config = cls.get_default_config()
+        validate_config(config, default_config)
+        config = {k: v for k, v in config.items() if k in default_config}
+
+        activation = config["activation"]
+        if isinstance(activation, str):
+            if activation.lower() == "gelu":
+                activation = nn.GELU()
+            elif activation.lower() == "relu":
+                activation = nn.ReLU()
+            else:
+                raise ValueError(f"Invalid activation: {activation}")
+
+        dna_cnn_model = DNA_CNN.create_from_config(config)
+
+        hidden_layer_model = DilatedCNN.create_from_config(config)
+
+        output_model = FootprintsHead.create_from_config(config)
+
+        dna_len = config["dna_len"]
+        output_len = config["output_len"]
+        dia_kernel_size = hidden_layer_model.dia_kernel_size
+        hidden_conv_blocks = hidden_layer_model.n_blocks
+        if dna_len == "auto":
+            # calculate the dna_len to prevent the padding issue
+            dna_len = output_len + dna_cnn_model.conv.weight.shape[2] - 1
+            for i in range(hidden_conv_blocks):
+                dna_len = dna_len + 2 * (
+                    dia_kernel_size // 2
+                ) * hidden_layer_model.dilation_func(i)
+
+        return cls(
+            dna_cnn_model=dna_cnn_model,
+            hidden_layer_model=hidden_layer_model,
+            output_model=output_model,
+            dna_len=dna_len,
+            output_len=output_len,
+        )
+
     def __init__(
         self,
-        dna_cnn_model: nn.Module = None,
-        hidden_layer_model: nn.Module = None,
-        profile_cnn_model: nn.Module = None,
-        dna_len: int = 1840,
-        output_len: int = 1000,
+        dna_cnn_model,
+        hidden_layer_model,
+        output_model,
+        dna_len,
+        output_len,
     ):
         # ===============
         # Initialize the model
@@ -51,7 +113,7 @@ class scFootprintBPNet(nn.Module):
         super().__init__()
         self.dna_cnn_model = dna_cnn_model
         self.hidden_layer_model = hidden_layer_model
-        self.profile_cnn_model = profile_cnn_model
+        self.profile_cnn_model = output_model
         self.dna_len = dna_len
         self.output_len = output_len
 
@@ -87,13 +149,47 @@ class scFootprintBPNet(nn.Module):
 class scFootprintBPNetLoRA(nn.Module):
     """scFootprintBPNetLoRA model."""
 
+    default_config = {
+        "dna_cnn_model": None,
+        "hidden_layer_model": None,
+        "profile_cnn_model": None,
+        "dna_len": None,
+        "output_len": None,
+        "example_cell_embedding": None,
+        "example_region_embedding": None,
+        "a_embedding": "cell",
+        "b_embedding": "cell",
+        "lora_dna_cnn": True,
+        "lora_dilated_cnn": True,
+        "lora_pff_cnn": True,
+        "lora_output_cnn": True,
+        "lora_count_cnn": True,
+        "lora_rank": 8,
+        "n_lora_layers": 0,
+        "lora_hidden_dim": None,
+        "lora_output_layer_groups": 1,
+        "no_over_rank": False,
+    }
+
+    @classmethod
+    def get_default_config(cls):
+        """Get the default configuration for the model."""
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        validate_config(config, cls.get_default_config())
+        config = {k: v for k, v in config.items() if k in cls.default_config}
+        return cls(**config)
+
     def __init__(
         self,
-        dna_cnn_model: nn.Module = None,
-        hidden_layer_model: nn.Module = None,
-        profile_cnn_model: nn.Module = None,
+        dna_cnn_model: DNA_CNN,
+        hidden_layer_model: DilatedCNN,
+        profile_cnn_model: FootprintsHead,
         dna_len: int = 1840,
-        output_len: int = 1000,
+        output_len: int = 800,
         example_cell_embedding: Optional[np.ndarray] = None,
         example_region_embedding: Optional[np.ndarray] = None,
         a_embedding: str = "cell",
@@ -103,16 +199,15 @@ class scFootprintBPNetLoRA(nn.Module):
         lora_pff_cnn: bool = False,
         lora_output_cnn: bool = False,
         lora_count_cnn: bool = False,
-        rank: int = 8,
+        lora_rank: int = 8,
         n_lora_layers: int = 0,
-        hidden_dim: Optional[int] = None,
-        output_layer_groups: Optional[int] = 1,
+        lora_hidden_dim: Optional[int] = None,
+        lora_output_layer_groups: Optional[int] = 1,
         no_over_rank: bool = False,
     ):
         # ===============
         # Initialize the model
         # ===============
-
         super().__init__()
         self.dna_cnn_model = dna_cnn_model
         self.hidden_layer_model = hidden_layer_model
@@ -123,7 +218,6 @@ class scFootprintBPNetLoRA(nn.Module):
         # ===============
         # Prepare LoRA Layer Wrapper
         # ===============
-
         # will store the actual embedding dims
         self.A_embedding_dims = None
         self.B_embedding_dims = None
@@ -157,10 +251,10 @@ class scFootprintBPNetLoRA(nn.Module):
             Conv1dMultiLoRA,
             A_embedding_dims=self.A_embedding_dims,
             B_embedding_dims=self.B_embedding_dims,
-            hidden_dims=hidden_dim,
+            hidden_dims=lora_hidden_dim,
             n_layers=n_lora_layers,
             example_a_embedding=example_a_embedding,
-            output_layer_groups=output_layer_groups,
+            output_layer_groups=lora_output_layer_groups,
             no_over_rank=no_over_rank,
         )
 
@@ -170,7 +264,9 @@ class scFootprintBPNetLoRA(nn.Module):
 
         # DNA Model
         if lora_dna_cnn:
-            self.dna_cnn_model.conv = conv1d_lora(layer=self.dna_cnn_model.conv, r=rank)
+            self.dna_cnn_model.conv = conv1d_lora(
+                layer=self.dna_cnn_model.conv, r=lora_rank
+            )
 
         # Hidden Layer Model
         hidden_layers = self.hidden_layer_model.layers
@@ -178,30 +274,30 @@ class scFootprintBPNetLoRA(nn.Module):
             if lora_dilated_cnn:
                 hidden_layers[i].module.conv1 = conv1d_lora(
                     layer=hidden_layers[i].module.conv1,
-                    r=rank,
+                    r=lora_rank,
                 )
             if lora_pff_cnn:
                 hidden_layers[i].module.conv2 = conv1d_lora(
                     layer=hidden_layers[i].module.conv2,
-                    r=rank,
+                    r=lora_rank,
                 )
 
         # Profile Model
         if lora_output_cnn:
             self.profile_cnn_model.conv_layer = conv1d_lora(
                 layer=self.profile_cnn_model.conv_layer,
-                r=rank,
+                r=lora_rank,
             )
         if lora_count_cnn:
-            if isinstance(self.profile_cnn_model.linear, nn.Linear):
-                # translating linear into conv1d"
-                weight = self.profile_cnn_model.linear.weight.data
-                bias = self.profile_cnn_model.linear.bias.data
-                self.profile_cnn_model.linear = Conv1dWrapper(
-                    weight.shape[1], weight.shape[0], 1
-                )
-                self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-                self.profile_cnn_model.linear.conv.bias.data = bias
+            # if isinstance(self.profile_cnn_model.linear, nn.Linear):
+            #     # translating linear into conv1d"
+            #     weight = self.profile_cnn_model.linear.weight.data
+            #     bias = self.profile_cnn_model.linear.bias.data
+            #     self.profile_cnn_model.linear = Conv1dWrapper(
+            #         weight.shape[1], weight.shape[0], 1
+            #     )
+            #     self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
+            #     self.profile_cnn_model.linear.conv.bias.data = bias
             self.profile_cnn_model.linear = conv1d_lora(
                 layer=self.profile_cnn_model.linear,
                 r=1,

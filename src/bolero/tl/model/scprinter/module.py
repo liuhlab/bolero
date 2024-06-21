@@ -3,11 +3,12 @@ from functools import partial
 from typing import Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from bolero.tl.model.generic.module import Conv1dWrapper, GroupedLinear
+from bolero.tl.model.generic.module import Conv1dWrapper, GenericModule, GroupedLinear
 
 
 class EmbeddingMLP(nn.Module):
@@ -116,7 +117,7 @@ class EmbeddingMLP(nn.Module):
                 print("Skip zero weights and bias for layer", i, type(self.mlp[i]))
         return
 
-    def scale_weights(self, example_embedding):
+    def scale_weights(self, example_embedding: np.ndarray):
         """
         Scale the weights of the MLP's first layer based on the example embedding, use this in A embedding.
         """
@@ -133,7 +134,7 @@ class EmbeddingMLP(nn.Module):
             print(f"Embedding example mean: {mean}, std: {std}")
             rescale_factor = 1 / (std)
             self.rescale_factor = nn.Parameter(
-                torch.tensor(rescale_factor), requires_grad=False
+                rescale_factor.clone().detach(), requires_grad=False
             )
             # rescale the embedding matrix
         return
@@ -277,6 +278,9 @@ class Conv1dMultiLoRA(nn.Module):
         """
         Scale the weights of the A embedding based on the example embedding.
         """
+        if isinstance(example_embedding, pd.DataFrame):
+            example_embedding = example_embedding.values
+
         if example_embedding.shape[0] > max_sample:
             # random choice max_sample rows of example_embedding
             example_embedding = example_embedding[
@@ -668,3 +672,81 @@ class Conv1dLoRA(nn.Module):
             lora_x = lora_x.view(bs, self.layer_dim_out, -1)
             X = lora_x * self.scale + self.layer(X, modes=modes)
             return X
+
+
+class FootprintsHead(GenericModule):
+    """
+    This is the output head of the footprints model, predict the multi-scale footprints and region total coverage.
+    """
+
+    default_config = {
+        "n_filters": 1024,
+        "output_kernel_size": 1,
+        "output_scales": 99,
+        "per_peak_feats": 1,
+    }
+
+    def __init__(
+        self, n_filters=1024, output_kernel_size=1, output_scales=99, per_peak_feats=1
+    ):
+        """
+        Initialize the FootprintsHead module.
+
+        Parameters
+        ----------
+        n_filters: int
+            number of filters
+        kernel_size: int
+            kernel size
+        n_scales: int
+            number of footprints scales
+        per_peak_feats: int
+            number of features per peak (such as coverages)
+        """
+        super().__init__()
+        self.n_filters = n_filters
+        self.kernel_size = output_kernel_size
+        self.n_scales = output_scales
+        self.per_peak_feats = per_peak_feats
+
+        self.conv_layer = Conv1dWrapper(
+            in_channels=self.n_filters,
+            out_channels=self.n_scales,
+            kernel_size=self.kernel_size,
+            padding=self.kernel_size // 2,
+        )
+        self.linear = Conv1dWrapper(
+            in_channels=self.n_filters,
+            out_channels=self.per_peak_feats,
+            kernel_size=1,
+            padding=0,
+            bias=True,
+        )
+
+    def forward(self, X, *args, output_len=None, modes=None, **kwargs):
+        """Forward pass of the FootprintsHead module."""
+        X_bindingscore = self.conv_layer(X, *args, modes=modes, **kwargs)
+
+        if output_len is None:
+            trim = 0
+        else:
+            output_len_needed_in_X = int(output_len)
+            trim = (X_bindingscore.shape[-1] - output_len_needed_in_X) // 2
+
+        if trim > 0:
+            X_bindingscore = X_bindingscore[..., trim:-trim]
+
+        if isinstance(self.linear, nn.Linear):
+            X_count = self.linear(
+                X.detach().mean(dim=-1) if self.training else X.mean(dim=-1)
+            )[..., 0]
+        else:
+            X_count = self.linear(
+                (
+                    X.detach().mean(dim=-1, keepdims=True)
+                    if self.training
+                    else X.mean(dim=-1, keepdims=True)
+                ),
+                **kwargs,
+            )[..., 0, 0]
+        return X_bindingscore, X_count

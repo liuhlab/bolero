@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from bolero.pl.track1d import Track1DExamplePlotter
 from bolero.pl.utils import figure_to_array
-from bolero.tl.model.generic.train import GenericTrainer
+from bolero.tl.model.generic.train import GenericTrainer, TrainerDatasetMixin
 from bolero.tl.model.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
@@ -21,7 +21,7 @@ from bolero.tl.model.track1d.model import DialatedCNNTrack1DModel
 from .unet.model import UNetTrans
 
 
-class Track1DModelTrainer(GenericTrainer):
+class Track1DModelTrainer(GenericTrainer, TrainerDatasetMixin):
     """Train model for predicting 1-D genome tracks."""
 
     trainer_config = {
@@ -69,60 +69,36 @@ class Track1DModelTrainer(GenericTrainer):
         else:
             raise ValueError(f"Incorrect mode: {mode}.")
 
-        # collect some shortcuts post model setup
-        self.dna_len = self.model.dna_len
-        self.output_len = self.model.output_len
-
         self._set_total_params()
         return
 
-    def _setup_fit(self):
-        config = self.config
-
-        # epochs
-        self.max_epochs = config["max_epochs"]
-        self.patience = config["patience"]
-        self.loss_tolerance = config["loss_tolerance"]
-        self.train_batches = config["train_batches"]
-        self.val_batches = config["val_batches"]
-        self.early_stopping_counter = 0
-        self.early_stoped = False
-        self.best_val_loss = float("inf")
-        self.accumulate_grad = config["accumulate_grad"]
-        self.cur_epoch = 0
-
-        # scaler
-        if self.device == torch.device("cpu"):
-            self.use_amp = False
+    def _validation_step(self, testing=False, val_batches=None, **kwargs):
+        if testing:
+            _dataset = self.test_dataset
         else:
-            self.use_amp = self.config["use_amp"]
-        self.scaler = self._get_scaler()
+            _dataset = self.valid_dataset
 
-        # optimizer
-        self.optimizer = self._get_optimizer()
-
-        # scheduler
-        if config["scheduler"]:
-            self.scheduler = self._get_scheduler(self.optimizer)
+        if self.config["use_ema"]:
+            self.ema.eval()
+            self.ema.ema_model.eval()
+            val_results = self.model_validation_step(
+                model=self.ema.ema_model,
+                dataset=_dataset,
+                val_batches=val_batches,
+                **kwargs,
+            )
+            self.ema.train()
+            self.ema.ema_model.train()
         else:
-            self.scheduler = None
-
-        # EMA model
-        self.use_ema = config["use_ema"]
-        if self.use_ema:
-            self.ema = self._get_ema()
-        else:
-            self.ema = None
-
-        # plot
-        self.plot_example_per_epoch = config["plot_example_per_epoch"]
-        if not self.plot_example_per_epoch:
-            self.plot_example_per_epoch = 0
-
-        # update state dict if checkpoint exists
-        if self.checkpoint:
-            self._update_state_dict()
-        return
+            self.model.eval()
+            val_results = self.model_validation_step(
+                model=self.model,
+                dataset=_dataset,
+                val_batches=val_batches,
+                **kwargs,
+            )
+            self.model.train()
+        return val_results
 
     @torch.no_grad()
     def model_validation_step(

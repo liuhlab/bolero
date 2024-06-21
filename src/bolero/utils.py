@@ -6,9 +6,9 @@ from typing import Tuple, Union
 import numpy as np
 import pandas as pd
 import pyranges as pr
+import torch
 from pyarrow import ArrowInvalid
 from pyarrow.fs import FileSystem, LocalFileSystem
-from ray.train.torch import get_device
 
 import bolero
 
@@ -51,8 +51,9 @@ def try_gpu():
     """
     Try to use GPU if available.
     """
-    device = get_device()
-    return device
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
 
 
 def understand_regions(regions, as_df=False, return_names=False):
@@ -222,4 +223,92 @@ def download_file(url, local_path):
         raise RuntimeError("Neither wget nor curl found on system")
     # rename temp file to final file
     temp_path.rename(local_path)
+    return
+
+
+def init(
+    visible_devices: tuple[int] = None,
+    verbose=False,
+    object_spilling=True,
+    num_cpus=None,
+    object_store_memory_gb=None,
+    object_store_memory_ratio=0.5,
+    _enable_lineage_reconstruction=False,
+    _ray_max_errored_blocks=3,
+):
+    """
+    Set up the environment for bolero.
+
+    Parameters
+    ----------
+    visible_devices : tuple[int], optional
+        The visible GPU devices to use. Default is None.
+    verbose : bool, optional
+        If True, enable verbose output. Default is False.
+    object_spilling : bool, optional
+        If True, enable ray object spilling. Default is False.
+    num_cpus : int, optional
+        The number of CPUs to use in ray.init job. Default is None, which will use
+        `os.cpu_count() - 1`.
+    object_store_memory_gb : int, optional
+        The amount of memory in GBs to use for ray's object store. Default is None.
+    """
+    # CUDA
+    import os
+
+    if visible_devices is not None:
+        if isinstance(visible_devices, int):
+            visible_devices = (visible_devices,)
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, visible_devices))
+        if verbose:
+            print(
+                "Setting CUDA_VISIBLE_DEVICES to:", os.environ["CUDA_VISIBLE_DEVICES"]
+            )
+
+    import torch
+
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    if verbose:
+        print("Enabled torch cudnn")
+
+    import ray
+
+    # ray core
+    if not _enable_lineage_reconstruction:
+        # disable ray's lineage reconstruction, as this produces memory leaks
+        # https://github.com/ray-project/ray/issues/31421#issuecomment-1371865009
+        # Note that disable lineage reconstruction will disallow object fault tolerance
+        os.environ["RAY_lineage_pinning_enabled"] = "0"
+        # https://docs.ray.io/en/latest/ray-core/fault_tolerance/objects.html
+        os.environ["RAY_TASK_MAX_RETRIES"] = "0"
+        if verbose:
+            print("Disabled ray lineage reconstruction and task retries")
+
+    # get number of cpus
+    if num_cpus is None:
+        num_cpus = max(1, os.cpu_count() - 1)
+    # get system memory size
+    if object_store_memory_gb is None:
+        # in bytes
+        sys_memory = int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2)
+        object_store_memory = int(sys_memory * object_store_memory_ratio)
+    else:
+        object_store_memory = int(object_store_memory_gb * 1024**3)
+    ray.init(
+        num_cpus=num_cpus,
+        object_store_memory=object_store_memory,
+        ignore_reinit_error=True,
+        _system_config={
+            "automatic_object_spilling_enabled": object_spilling,
+        },
+        runtime_env={},
+    )
+
+    # ray data
+    from ray.data import DataContext
+
+    context = DataContext.get_current()
+    context.enable_progress_bars = verbose
+    context.max_errored_blocks = _ray_max_errored_blocks
     return

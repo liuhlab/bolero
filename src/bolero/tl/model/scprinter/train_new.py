@@ -1,7 +1,9 @@
 import gc
 import json
 import pathlib
+import time
 
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,7 +16,6 @@ from scprinter.seq.Modules import DNA_CNN, DilatedCNN, Footprints_head
 
 from bolero.pl.footprint import FootPrintExamplePlotter
 from bolero.pl.utils import figure_to_array
-from bolero.pp.genome import Genome
 from bolero.tl.model.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
@@ -23,7 +24,7 @@ from bolero.tl.model.generic.train_helper import (
     compare_configs,
     safe_save,
 )
-from bolero.tl.model.scprinter.dataset import NewscPrinterDataset
+from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.tl.model.scprinter.model import scFootprintBPNetLoRA
 from bolero.tl.pseudobulk.generator import PredefinedPseudobulkGenerator
 from bolero.utils import get_fs_and_path, try_gpu
@@ -61,7 +62,6 @@ class scFootprintLoRATrainer:
         "chrom_split": "REQUIRED",
         "dataset_path": "REQUIRED",
         "dataset_columns": "REQUIRED",
-        "read_parquet_kwargs": {},
         "batch_size": 64,
         "bias_name": "tn5_bias",
         "max_jitter": 128,
@@ -79,10 +79,10 @@ class scFootprintLoRATrainer:
         "sample": "REQUIRED",
         "region": "REQUIRED",
         "accumulate_grad": 1,
-        "train_batches": 5000,
-        "val_batches": 500,
+        "train_batches": 1000,
+        "val_batches": 250,
         "output_len": 800,
-        "loss_tolerance": 0.003,
+        "loss_tolerance": 0.0,
         "shuffle_files": False,
     }
 
@@ -94,7 +94,7 @@ class scFootprintLoRATrainer:
             "region_bed_path": "REQUIRED",
             "output_adjusted_model": None,
             "use_prefix": None,
-            "n_pseudobulk": 10,
+            "n_pseudobulks": 10,
             "standard_cov": 10e6,
             "standard_cell": None,
             "min_cov": 10,
@@ -199,13 +199,18 @@ class scFootprintLoRATrainer:
         self.savename = str(self.output_dir / savename)
         wandb_run_info_path = self.output_dir / f"{self.savename}.wandb_run_info.json"
 
+        from wandb.errors import CommError
+
         # load wandb run info file if exists
         if wandb_run_info_path.exists():
             with open(wandb_run_info_path) as f:
                 wandb_run_info = json.load(f)
 
             # check if the previous run has finished successfully on W & B API
-            success = check_wandb_success(wandb_run_info["path"])
+            try:
+                success = check_wandb_success(wandb_run_info["path"])
+            except CommError:
+                success = False
             same_config = compare_configs(wandb_run_info["config"], config)
             if same_config:
                 if success:
@@ -217,8 +222,6 @@ class scFootprintLoRATrainer:
                     print(
                         f"Resuming W & B run with name: {wandb_run_info['name']} and id: {wandb_run_info['id']}."
                     )
-                    from wandb.errors import CommError
-
                     try:
                         wandb_run = wandb.init(
                             id=wandb_run_info["id"],
@@ -274,7 +277,7 @@ class scFootprintLoRATrainer:
             json.dump(wandb_run_info, f, indent=4)
 
         self.run_name = wandb.run.name
-        self.config = wandb.run.config
+        # self.config = wandb.run.config
 
         return wandb_run
 
@@ -457,10 +460,10 @@ class scFootprintLoRATrainer:
             lora_pff_cnn=config["lora_pff_cnn"],
             lora_output_cnn=config["lora_output_cnn"],
             lora_count_cnn=config["lora_count_cnn"],
-            rank=config["lora_rank"],
+            lora_rank=config["lora_rank"],
             n_lora_layers=config["n_lora_layers"],
-            hidden_dim=config["lora_hidden_dim"],
-            output_layer_groups=config["lora_output_layer_groups"],
+            lora_hidden_dim=config["lora_hidden_dim"],
+            lora_output_layer_groups=config["lora_output_layer_groups"],
             no_over_rank=config["no_over_rank"],
         )
         acc_model.cuda()
@@ -540,7 +543,7 @@ class scFootprintLoRATrainer:
         output_len = config["output_len"]
         # The footprint function will trim 100bp from both ends of the signal to account for border effects
         # Therefore the signal window should be 200bp longer than the output length of the model
-        self.signal_window = output_len + 200
+        self.config["signal_window"] = output_len + 200
 
         # train, valid, test split by chromosome
         chrom_split = config["chrom_split"]
@@ -552,41 +555,13 @@ class scFootprintLoRATrainer:
         self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
         self.config["dataset"] = self.dataset_dir
         self.config["cov_filter_name"] = self.config["prefix"]
-        self.read_parquet_kwargs = config["read_parquet_kwargs"]
-        self.shuffle_files = config["shuffle_files"]
-
-        # preprocessing parameters
-        self.batch_size = config["batch_size"]
-        self.bias_name = config["bias_name"]
-        self.max_jitter = config["max_jitter"]
-        self.cov_min_q = config["cov_min_q"]
-        self.cov_max_q = config["cov_max_q"]
-        self.clip_min = config["clip_min"]
-        self.clip_max = config["clip_max"]
-        self.reverse_complement = config["reverse_complement"]
-
-        # dataloader
-        self.local_shuffle_buffer_size = config["local_shuffle_buffer_size"]
-        self.randomize_block_order = config["randomize_block_order"]
-
-        # single-cell dataset specfic parameters
-        # genome
-        self.genome = Genome(config["genome"])
-        # trigger one hot loading
-        # _ = self.genome.genome_one_hot
-
-        self.use_prefix = config["use_prefix"]
-        self.n_pseudobulk = config["n_pseudobulk"]
-        self.min_cov = config["min_cov"]
-        self.max_cov = config["max_cov"]
-        self.low_cov_ratio = config["low_cov_ratio"]
 
         # create dataset
-        self.dataset: NewscPrinterDataset = self._get_dataset()
+        self.dataset: scPrinterDataset = self._get_dataset()
         self.footprinter = self.dataset.get_footprinter(prefix=self.config["prefix"])
 
     def _get_dataset(self):
-        dataset = NewscPrinterDataset.create_from_config(self.config)
+        dataset = scPrinterDataset.create_from_config(self.config)
 
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
@@ -607,31 +582,43 @@ class scFootprintLoRATrainer:
             dataset.add_region_embedding(region_embedding_path)
         return dataset
 
-    def get_train_dataloader(self):
+    def get_train_dataloader(self, batches):
         """Training dataloader."""
-        use_chrom = np.random.choice(self.train_chroms)
+        # choose random chromosomes for training
+        n_chroms = max(2, int(self.train_batches // 750))
+        use_chrom = np.random.choice(self.train_chroms, n_chroms, replace=False)
         print(f"Using chrom {use_chrom} for training.")
+
+        self.dataset.train()
         dataloader = self.dataset.get_dataloader(
-            chroms=[use_chrom],
+            chroms=use_chrom,
             region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
         )
         return dataloader
 
-    def get_valid_dataloader(self):
+    def get_valid_dataloader(self, batches):
         """Validation dataset."""
-        use_chrom = np.random.choice(self.valid_chroms)
+        # choose random chromosomes for validation
+        n_chroms = max(2, int(self.val_batches // 750))
+        use_chrom = np.random.choice(self.valid_chroms, n_chroms, replace=False)
         print(f"Using chrom {use_chrom} for validation.")
+
+        self.dataset.eval()
         dataloader = self.dataset.get_dataloader(
-            chroms=[use_chrom],
+            chroms=use_chrom,
             region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
         )
         return dataloader
 
-    def get_test_dataloader(self):
+    def get_test_dataloader(self, batches):
         """Test dataset."""
+        self.dataset.eval()
         dataloader = self.dataset.get_dataloader(
             chroms=self.test_chroms,
             region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
         )
         return dataloader
 
@@ -718,10 +705,8 @@ class scFootprintLoRATrainer:
         self,
         model,
         dataloader,
-        val_batches=None,
+        val_batches,
     ):
-        if val_batches is None:
-            val_batches = self.val_batches
         print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
         mode = self.mode
@@ -818,9 +803,6 @@ class scFootprintLoRATrainer:
                 )
                 print(desc_str)
 
-            if batch_id >= val_batches:
-                break
-
         del dataloader
         self._cleanup_env()
         wandb_images = self._plot_example_footprints(
@@ -876,10 +858,11 @@ class scFootprintLoRATrainer:
         return wandb_images
 
     def _validation_step(self, sample, region, testing=False, val_batches=None):
+        val_batches = val_batches or self.val_batches
         if testing:
-            dataloader = self.get_test_dataloader()
+            dataloader = self.get_test_dataloader(batches=val_batches)
         else:
-            dataloader = self.get_valid_dataloader()
+            dataloader = self.get_valid_dataloader(batches=val_batches)
 
         with torch.inference_mode():
             if self.use_ema:
@@ -1037,6 +1020,15 @@ class scFootprintLoRATrainer:
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
         while self.cur_epoch < max_epochs and not stop_flag:
+            # one can manually create a stop flag file to stop the training
+            # path: f"{self.savename}.stop.flag"
+            if self._check_stage_flag("stop"):
+                print(
+                    f"Early stopping flag file found, stopping training at {self.cur_epoch}."
+                )
+                self.early_stoped = True
+                break
+
             print(
                 f"Current epoch: {self.cur_epoch}, max epochs: {max_epochs}, stop flag: {stop_flag}."
             )
@@ -1050,11 +1042,13 @@ class scFootprintLoRATrainer:
 
             # get train data loader
             print("Get data loader")
-            dataloader = self.get_train_dataloader()
+            dataloader = self.get_train_dataloader(batches=self.train_batches)
 
             # start train epochs
             moving_avg_fp_loss = 0
             moving_avg_cov_loss = 0
+            cur_cov_loss = 1e10
+            cur_fp_loss = 1e10
             nan_loss = False
 
             print_steps = max(5, self.train_batches // 50)
@@ -1157,19 +1151,30 @@ class scFootprintLoRATrainer:
                         scheduler.step()
 
                 if (batch_id + 1) % print_steps == 0:
+                    _fp_loss = moving_avg_fp_loss / (batch_id + 1)
+                    _cov_loss = moving_avg_cov_loss / (batch_id + 1)
                     desc_str = (
                         f" - (Training) {self.cur_epoch} {batch_id} "
-                        f"Footprint Loss: {moving_avg_fp_loss / (batch_id + 1):.4f} "
-                        f"Coverage Loss: {moving_avg_cov_loss / (batch_id + 1):.4f}"
+                        f"Footprint Loss: {_fp_loss:.4f} "
+                        f"Coverage Loss: {_cov_loss:.4f}"
                     )
-                    print(desc_str)
 
-                # early break batch loop
-                if batch_id >= self.train_batches:
-                    print(
-                        f"Stop training at batch {batch_id} due to self.train_batches={self.train_batches}."
-                    )
-                    break
+                    if (_fp_loss > (cur_fp_loss + 0.5)) or (
+                        _cov_loss > (cur_cov_loss + 0.5)
+                    ):
+                        batch["cur_fp_loss"] = _fp_loss
+                        batch["last_fp_loss"] = cur_fp_loss
+                        batch["cur_cov_loss"] = _cov_loss
+                        batch["last_cov_loss"] = cur_cov_loss
+                        print(f"Batch {batch_id} loss increased.")
+                        joblib.dump(
+                            batch,
+                            f"{self.savename}.epoch{self.cur_epoch}.batch{batch_id}.joblib",
+                        )
+
+                    cur_fp_loss = _fp_loss
+                    cur_cov_loss = _cov_loss
+                    print(desc_str)
 
             del dataloader
             self._cleanup_env()
@@ -1198,6 +1203,7 @@ class scFootprintLoRATrainer:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
                 break
+
         self._cleanup_env()
         return
 
@@ -1248,6 +1254,7 @@ class scFootprintLoRATrainer:
         return
 
     def _cleanup_env(self):
+        time.sleep(1)
         gc.collect()
         torch.cuda.empty_cache()
         return
