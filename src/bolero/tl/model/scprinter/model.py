@@ -61,8 +61,8 @@ class scFootprintBPNet(nn.Module):
     def create_from_config(cls, config: dict):
         """Create the model from a configuration dictionary."""
         default_config = cls.get_default_config()
-        config = {k: v for k, v in config.items() if k in default_config}
         validate_config(config, default_config)
+        config = {k: v for k, v in config.items() if k in default_config}
 
         activation = config["activation"]
         if isinstance(activation, str):
@@ -361,13 +361,9 @@ class scFootprintBPNetLoRA(nn.Module):
             raise ValueError(f"Invalid B embedding type: {b_embedding}")
         return
 
-    def return_origin(self, requires_grad: bool = True):
+    def return_origin(self):
         """
         Returns a clone of the model with original layers.
-
-        Parameters
-        ----------
-            requires_grad: Whether to require gradients.
 
         Returns
         -------
@@ -375,23 +371,20 @@ class scFootprintBPNetLoRA(nn.Module):
         """
         self = self.to("cpu")
         if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            raise NotImplementedError
-            # print("translating linear into conv1d")
-            # weight = self.profile_cnn_model.linear.weight.data
-            # print(weight.shape)
-            # bias = self.profile_cnn_model.linear.bias.data
-            # self.profile_cnn_model.linear = Conv1dWrapper(
-            #     weight.shape[1], weight.shape[0], 1
-            # )
-            # print(self.profile_cnn_model.linear.conv.weight.shape)
-            # self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-            # self.profile_cnn_model.linear.conv.bias.data = bias
+            print("translating linear into conv1d")
+            weight = self.profile_cnn_model.linear.weight.data
+            print(weight.shape)
+            bias = self.profile_cnn_model.linear.bias.data
+            self.profile_cnn_model.linear = Conv1dWrapper(
+                weight.shape[1], weight.shape[0], 1
+            )
+            print(self.profile_cnn_model.linear.conv.weight.shape)
+            self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
+            self.profile_cnn_model.linear.conv.bias.data = bias
 
         model_clone = deepcopy(self)
-        # DNA Input CNN
         if not isinstance(model_clone.dna_cnn_model.conv, Conv1dWrapper):
             model_clone.dna_cnn_model.conv = model_clone.dna_cnn_model.conv.layer
-        # Hidden Layer Dialated CNN
         if not isinstance(
             model_clone.hidden_layer_model.layers[0].module.conv1, Conv1dWrapper
         ):
@@ -402,7 +395,6 @@ class scFootprintBPNetLoRA(nn.Module):
         ):
             for layer in model_clone.hidden_layer_model.layers:
                 layer.module.conv2 = layer.module.conv2.layer
-        # Output Head
         if not isinstance(model_clone.profile_cnn_model.conv_layer, Conv1dWrapper):
             model_clone.profile_cnn_model.conv_layer = (
                 model_clone.profile_cnn_model.conv_layer.layer
@@ -411,20 +403,17 @@ class scFootprintBPNetLoRA(nn.Module):
             model_clone.profile_cnn_model.linear = (
                 model_clone.profile_cnn_model.linear.layer
             )
-        if requires_grad:
-            for p in model_clone.parameters():
-                p.requires_grad = True
+
         return model_clone
 
-    def collapse(self, cell_embedding=None, region_embedding=None, requires_grad=True):
+    def collapse(self, cell_embedding=None, region_embedding=None, turn_on_grads=True):
         """
         Returns a clone of the model with collapsed layers.
 
         Parameters
         ----------
-            cell_embedding: The cell embedding tensor.
-            region_embedding: The region embedding tensor.
-            requires_grad: Whether to require gradients.
+            cell: The cell parameter.
+            turn_on_grads (bool): Whether to turn on gradients.
 
         Returns
         -------
@@ -434,27 +423,24 @@ class scFootprintBPNetLoRA(nn.Module):
         B_embeddings = self.B_embedding_process(cell_embedding, region_embedding)
 
         if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            raise NotImplementedError
-            # print("translating linear into conv1d")
-            # weight = self.profile_cnn_model.linear.weight.data
-            # print(weight.shape)
-            # bias = self.profile_cnn_model.linear.bias.data
-            # self.profile_cnn_model.linear = Conv1dWrapper(
-            #     weight.shape[1], weight.shape[0], 1
-            # )
-            # print(self.profile_cnn_model.linear.conv.weight.shape)
-            # self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-            # self.profile_cnn_model.linear.conv.bias.data = bias
+            print("translating linear into conv1d")
+            weight = self.profile_cnn_model.linear.weight.data
+            print(weight.shape)
+            bias = self.profile_cnn_model.linear.bias.data
+            self.profile_cnn_model.linear = Conv1dWrapper(
+                weight.shape[1], weight.shape[0], 1
+            )
+            print(self.profile_cnn_model.linear.conv.weight.shape)
+            self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
+            self.profile_cnn_model.linear.conv.bias.data = bias
 
         model_clone = deepcopy(self)
-        # DNA Input CNN
         if not isinstance(model_clone.dna_cnn_model.conv, Conv1dWrapper):
             model_clone.dna_cnn_model.conv = (
                 model_clone.dna_cnn_model.conv.collapse_layer(
                     A_embeddings, B_embeddings
                 )
             )
-        # Hidden Layer Dialated CNN
         if not isinstance(
             model_clone.hidden_layer_model.layers[0].module.conv1, Conv1dWrapper
         ):
@@ -469,7 +455,6 @@ class scFootprintBPNetLoRA(nn.Module):
                 layer.module.conv2 = layer.module.conv2.collapse_layer(
                     A_embeddings, B_embeddings
                 )
-        # Output Head
         if not isinstance(model_clone.profile_cnn_model.conv_layer, Conv1dWrapper):
             model_clone.profile_cnn_model.conv_layer = (
                 model_clone.profile_cnn_model.conv_layer.collapse_layer(
@@ -482,7 +467,7 @@ class scFootprintBPNetLoRA(nn.Module):
                     A_embeddings, B_embeddings
                 )
             )
-        if requires_grad:
+        if turn_on_grads:
             for p in model_clone.parameters():
                 p.requires_grad = True
         return model_clone

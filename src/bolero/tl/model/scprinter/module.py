@@ -294,19 +294,10 @@ class Conv1dMultiLoRA(nn.Module):
         """
         Check if the embedding sizes are correct.
         """
-        if A_embeddings is None and B_embeddings is None:
-            raise ValueError(
-                "At least one of A_embeddings or B_embeddings must be provided"
-            )
-
         if B_embeddings is None:
             B_embeddings = A_embeddings
-        if A_embeddings is None:
-            A_embeddings = []
         if not isinstance(A_embeddings, list):
             A_embeddings = [A_embeddings]
-        if B_embeddings is None:
-            B_embeddings = []
         if not isinstance(B_embeddings, list):
             B_embeddings = [B_embeddings]
 
@@ -331,32 +322,6 @@ class Conv1dMultiLoRA(nn.Module):
             raise ValueError(
                 f"B embedding sizes {B_sizes} do not match the expected sizes of the B embedding layers {self.B_embedding_dims}"
             )
-
-        # To tensor
-        device = self.parameters().__next__().device
-        _l = []
-        for e in A_embeddings:
-            if isinstance(e, torch.Tensor):
-                _l.append(e.clone().detach().to(device))
-            else:
-                _l.append(torch.tensor(e, dtype=torch.float32, device=device))
-        A_embeddings = _l
-
-        _l = []
-        for e in B_embeddings:
-            if isinstance(e, torch.Tensor):
-                _l.append(e.clone().detach().to(device))
-            else:
-                _l.append(torch.tensor(e, dtype=torch.float32, device=device))
-        B_embeddings = _l
-
-        # add batch dimension if embedding is 1D
-        A_embeddings = [
-            e.unsqueeze(0) if len(e.shape) == 1 else e for e in A_embeddings
-        ]
-        B_embeddings = [
-            e.unsqueeze(0) if len(e.shape) == 1 else e for e in B_embeddings
-        ]
         return A_embeddings, B_embeddings
 
     def fix_parameters(self, layers=None):
@@ -423,7 +388,7 @@ class Conv1dMultiLoRA(nn.Module):
         )
 
         lora_weights = torch.zeros_like(self.layer.conv.weight.data)
-        for idx, (A_input, B_input) in enumerate(zip(A_embeddings, B_embeddings)):
+        for idx, A_input, B_input in enumerate(zip(A_embeddings, B_embeddings)):
             # collapse each individual LoRA layer
             weight_scaled = self._collapse_single_layer(idx, A_input, B_input)
             lora_weights = lora_weights + weight_scaled

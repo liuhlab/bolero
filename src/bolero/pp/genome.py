@@ -621,7 +621,7 @@ class Genome:
         # only keep regions that are in range
         chrom_sizes = self.chrom_sizes
         use_regions = []
-        for chrom, chrom_df in regions_bed.df.groupby("Chromosome", observed=True):
+        for chrom, chrom_df in regions_bed.df.groupby("Chromosome"):
             chrom_size = chrom_sizes[chrom]
             if boarder_strategy == "shift":
                 chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[

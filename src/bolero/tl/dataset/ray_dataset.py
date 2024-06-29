@@ -214,7 +214,7 @@ class RayRegionDataset(RayGenomeDataset):
 
     """
 
-    def __init__(self, bed, genome, standard_length):
+    def __init__(self, bed, genome, standard_length, **kwargs):
         if isinstance(genome, str):
             genome = Genome(genome)
 
@@ -228,34 +228,32 @@ class RayRegionDataset(RayGenomeDataset):
         )
         # ray data don't understand categorical dtype in pandas
         standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
-        standard_bed.rename(columns={"Name": "region"}, inplace=True)
         self.bed = standard_bed
 
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
+        # trigger loading of genome one hot
+        _ = self.genome.genome_one_hot
 
-    def _get_dna_one_hot(self, dataset, concurrency=1):
-        fn = FetchRegionOneHot
-        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+        self.dataset = ray.data.from_pandas(self.bed, **kwargs)
+        self._working_dataset = None
 
-        dataset = dataset.map_batches(
-            fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
+    def _fetch_dna_one_hot(self):
+        self._working_dataset = self._working_dataset.map_batches(
+            FetchRegionOneHot(self.genome, region_key="Name", output_key="dna_one_hot")
         )
-        self.dna_column = "dna_one_hot"
-        return dataset
+        return
 
-    def _select_one_hot_and_region_name(self, dataset):
-        keep_cols = ["region", "Original_Name", "dna_one_hot"]
-        dataset = dataset.select_columns(keep_cols)
-        return dataset
+    def _select_one_hot_and_region_name(self):
+        keep_cols = ["Name", "Original_Name", "dna_one_hot"]
+        self._working_dataset = self._working_dataset.select_columns(keep_cols)
+        return
 
-    def get_processed_dataset(self):
-        """Get the processed dataset."""
-        dataset = ray.data.from_pandas(self.bed)
-        dataset = self._get_dna_one_hot(dataset)
-        dataset = self._select_one_hot_and_region_name(dataset)
-        return dataset
+    def _dataset_preprocess(self):
+        self._fetch_dna_one_hot()
+        self._select_one_hot_and_region_name()
+        return
 
     def get_dataloader(self, batch_size: int = 64, **kwargs):
         """
@@ -270,6 +268,7 @@ class RayRegionDataset(RayGenomeDataset):
             DataLoader: The data loader.
 
         """
-        dataset = self.get_processed_dataset()
-        loader = dataset.iter_batches(batch_size=batch_size, **kwargs)
+        self._working_dataset = self.dataset
+        self._dataset_preprocess()
+        loader = self._working_dataset.iter_batches(batch_size=batch_size, **kwargs)
         return loader

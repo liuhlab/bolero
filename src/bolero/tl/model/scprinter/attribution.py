@@ -10,7 +10,7 @@ from scprinter.seq.attribution_wrapper import (
 )
 from scprinter.seq.attributions import calculate_attributions, projected_shap
 
-from bolero.tl.footprint.tfbs import AttrobutionScoreModel
+from bolero.utils import try_gpu
 
 
 class BatchAttribution:
@@ -24,7 +24,6 @@ class BatchAttribution:
         prefix: str,
         modes: range = range(0, 30),
         decay: float = 0.85,
-        tfbs_model: str = None,
     ):
         """
         Initialize the BatchAttribution class.
@@ -37,7 +36,8 @@ class BatchAttribution:
             modes (range, optional): The range of modes to be considered. Defaults to range(0, 30).
             decay (float, optional): The decay factor. Defaults to 0.85.
         """
-        self.device = next(model.parameters()).device
+        self.device = str(try_gpu())
+        self.use_cuda = self.device != "cpu"
         self.model = self._prepare_model(
             model=model, wrapper=wrapper, modes=modes, decay=decay
         )
@@ -53,13 +53,6 @@ class BatchAttribution:
         )
         # project channel-by-sequence 2D attributions to sequence 1D attributions
         self.projector = partial(projected_shap, bs=64, device="cpu")
-
-        if tfbs_model is not None:
-            self.tfbs_model = AttrobutionScoreModel(
-                score_type=tfbs_model, device=self.device
-            )
-        else:
-            self.tfbs_model = None
 
     def _prepare_model(
         self, model: torch.nn.Module, wrapper: str, modes: range, decay: float
@@ -77,7 +70,7 @@ class BatchAttribution:
         -------
             torch.nn.Module: The wrapped model.
         """
-        n_out = torch.from_numpy(np.array(modes)).to(self.device)
+        n_out = torch.from_numpy(np.array(modes))
         if wrapper == "classification":
             model = ProfileWrapperFootprintClass(
                 model,
@@ -108,6 +101,9 @@ class BatchAttribution:
             model = CountWrapper(model)
         else:
             raise ValueError(f"Unknown wrapper type {wrapper}")
+
+        if self.use_cuda:
+            model = model.cuda()
         return model
 
     def __call__(self, data: dict) -> dict:
@@ -124,18 +120,11 @@ class BatchAttribution:
         _one_hot = data["dna_one_hot"]
 
         if isinstance(_one_hot, np.ndarray):
-            # _one_hot input is on cpu, because some attributor step uses CPU only
-            _one_hot = torch.from_numpy(_one_hot).float().to("cpu")
+            _one_hot = torch.from_numpy(_one_hot).float()
+        _one_hot = _one_hot.cpu()
         attrs = self.attributor(X=_one_hot)
-        data[f"{self.prefix}:attributions"] = attrs.cpu().numpy()
+        data[f"{self.prefix}_attributions"] = attrs.cpu().numpy()
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
-        data[f"{self.prefix}:attributions_1d"] = attrs_1d
-
-        # Add tfbs
-        if self.tfbs_model is not None:
-            score_key = f"{self.prefix}:attributions_1d"
-            attr_score = data[score_key]
-            tfbs = self.tfbs_model(attr_score)
-            data[f"{score_key}:tfbs"] = tfbs
+        data[f"{self.prefix}_attributions_1d"] = attrs_1d
         return data

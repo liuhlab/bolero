@@ -5,6 +5,7 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+import ray
 from scipy.sparse import csr_matrix, vstack
 
 
@@ -187,7 +188,7 @@ class GeneratePseudobulk:
         bulk_data_dict[f"{output_prefix}:pseudobulk_ids"] = pseudobulk_ids
         if self.return_rows:
             bulk_data_dict[f"{output_prefix}:rows"] = rows_col
-        return bulk_data_dict, actual_n_pseudobulks
+        return bulk_data_dict
 
     def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
         """Generate pseudobulks for each output prefix."""
@@ -198,7 +199,7 @@ class GeneratePseudobulk:
             bulk_data_col = {}
 
         for output_prefix, pseudobulker in self.name_to_pseudobulker.items():
-            bulk_data_dict, actual_n_pseudobulks = self._get_pseudo_bulks(
+            bulk_data_dict = self._get_pseudo_bulks(
                 data_dict=data_dict,
                 output_prefix=output_prefix,
                 pseudobulker=pseudobulker,
@@ -206,7 +207,7 @@ class GeneratePseudobulk:
             bulk_data_col.update(bulk_data_dict)
 
         list_of_dicts = []
-        for i in range(actual_n_pseudobulks):
+        for i in range(self.n_pseudobulks):
             _dict = {k: v[i] for k, v in bulk_data_col.items()}
             for key in self.bypass_keys:
                 # repeat shared data for each output pseudobulk
@@ -299,3 +300,51 @@ class FilterRegions:
         # apply filter to all keys
         batch = {k: v[use_rows, ...].copy() for k, v in batch.items()}
         return batch
+
+
+class FetchRegionOneHot:
+    """Fetch the one-hot encoded DNA sequence from the genome."""
+
+    def __init__(
+        self,
+        region_key: str = "region",
+        output_key: str = "dna_one_hot",
+        dtype: str = "float32",
+    ) -> None:
+        """
+        Initialize the FetchRegionOneHot transform.
+
+        Parameters
+        ----------
+        region_key : str, optional
+            The key to access the region name in the data dictionary. Defaults to "Name".
+        output_key : str, optional
+            The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
+        dtype : str, optional
+            The data type of the one-hot encoded DNA. Defaults to "float32".
+
+        """
+        self.region_key = region_key
+        self.output_key = output_key
+        self.dtype = dtype
+
+    def __call__(self, data: dict, remote_genome_one_hot) -> dict:
+        """
+        Apply the FetchRegionOneHot transform to the input data.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the one-hot encoded DNA.
+        """
+        genome_one_hot = ray.get(remote_genome_one_hot)
+        # shape: (batch, length, channel)
+        one_hot = genome_one_hot.get_regions_one_hot(data[self.region_key])
+        # change to (batch, channel, length)
+        data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
+        return data
