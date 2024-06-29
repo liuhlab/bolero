@@ -23,7 +23,7 @@ def per_row_mse(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
 
 
 class Track1DExamplePlotter:
-    def __init__(self, target_key: str, predict_key: str):
+    def __init__(self, target_key: str, predict_key: str, data_mode="count"):
         """
         Initialize the Track1DExamplePlotter class.
 
@@ -34,6 +34,7 @@ class Track1DExamplePlotter:
         """
         self.target_key = target_key
         self.predict_key = predict_key
+        self.data_mode = data_mode
 
     def _select_example_by_corr(
         self,
@@ -57,10 +58,16 @@ class Track1DExamplePlotter:
         - tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: A tuple containing the selected target data,
           selected predicted data, correlation values, and mean squared error values.
         """
-        target_count = batch[self.target_key].cpu().numpy()[:, plot_channel, ...]
-        target = np.log1p(target_count)
-        predict = batch[self.predict_key].cpu().numpy()[:, plot_channel, ...]
-        predict_count = np.expm1(predict)
+        if self.data_mode == "count":
+            target_data = batch[self.target_key].cpu().numpy()[:, plot_channel, ...]
+            target = np.log1p(target_data)
+            predict = batch[self.predict_key].cpu().numpy()[:, plot_channel, ...]
+            predict_data = np.expm1(predict)
+        else:
+            target = batch[self.target_key].cpu().numpy()[:, plot_channel, ...]
+            target_data = target
+            predict = batch[self.predict_key].cpu().numpy()[:, plot_channel, ...]
+            predict_data = predict
 
         corr = per_row_pearsonr(target, predict)
         mse = per_row_mse(target, predict)
@@ -71,8 +78,8 @@ class Track1DExamplePlotter:
         bottom_example_idx = index_order[:bottom_example]
         example_idx = np.concatenate([top_example_idx, bottom_example_idx])
 
-        target_data = target_count[example_idx]
-        predict_data = predict_count[example_idx]
+        target_data = target_data[example_idx]
+        predict_data = predict_data[example_idx]
         corr_data = corr[example_idx]
         mse_data = mse[example_idx]
         return target_data, predict_data, corr_data, mse_data

@@ -48,9 +48,6 @@ class DialatedCNNTrack1DModel(nn.Module):
             in_channels=config["input_channels"],
         )
 
-        dilation_func = config["dilation_func"]
-        if dilation_func is None:
-            dilation_func = lambda x: 2 ** (x + 1)
         hidden_layer_model = DilatedCNN(
             n_filters=config["n_filters"],
             bottleneck=config["bottleneck_size"],
@@ -60,7 +57,7 @@ class DialatedCNNTrack1DModel(nn.Module):
             activation=activation,
             batch_norm=config["batch_norm"],
             batch_norm_momentum=config["batch_norm_momentum"],
-            dilation_func=dilation_func,
+            dilation_func=config["dilation_func"],
             bipass_connect=config["bipass_connect"],
         )
 
@@ -73,13 +70,14 @@ class DialatedCNNTrack1DModel(nn.Module):
 
         dna_len = config["dna_len"]
         output_len = config["output_len"]
-        hidden_kernel_size = config["hidden_kernel_size"]
-        hidden_conv_blocks = config["hidden_conv_blocks"]
+        dia_kernel_size = hidden_layer_model.dia_kernel_size
+        hidden_n_blocks = hidden_layer_model.n_blocks
+        dilation_func = hidden_layer_model.dilation_func
         if dna_len == "auto":
             # calculate the dna_len to prevent the padding issue
             dna_len = output_len + dna_cnn_model.conv.weight.shape[2] - 1
-            for i in range(hidden_conv_blocks):
-                dna_len = dna_len + 2 * (hidden_kernel_size // 2) * dilation_func(i)
+            for i in range(hidden_n_blocks):
+                dna_len = dna_len + 2 * (dia_kernel_size // 2) * dilation_func(i)
         return cls(
             dna_cnn_model=dna_cnn_model,
             hidden_layer_model=hidden_layer_model,

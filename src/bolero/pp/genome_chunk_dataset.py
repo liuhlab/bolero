@@ -446,18 +446,15 @@ class GenomeBigWigDataset:
         return pd.Index(self.bigwig_path_dict.keys())
 
 
-def _query_allc_region(allc_handle, chrom, start, end):
+def query_allc_region(allc_handle, chrom, start, end):
+    """Get region data from an ALLC file handle."""
     mc_values = np.zeros(end - start, dtype="float32")
     cov_values = np.zeros(end - start, dtype="float32")
-    for row in allc_handle.fetch(chrom, start, end):
+    for row in allc_handle.fetch(chrom, start + 1, end):
         _, pos, *_, mc, cov, _ = row.strip().split("\t")
-        try:
-            rel_pos = int(pos) - start
-            mc_values[rel_pos] = float(mc)
-            cov_values[rel_pos] = float(cov)
-        except IndexError:
-            # pysam fetch includes the last position, which is out of the region
-            continue
+        rel_pos = int(pos) - 1 - start
+        mc_values[rel_pos] = float(mc)
+        cov_values[rel_pos] = float(cov)
     return mc_values, cov_values
 
 
@@ -468,9 +465,7 @@ def _allc_values_worker(allc_path: str, regions: pd.DataFrame) -> list[csr_matri
     with pysam.TabixFile(allc_path) as allc:
         for _, (chrom, start, end, *_) in regions.iterrows():
             # query allc file for each region, get two numpy arrays for this region
-            mc_region_data, cov_region_data = _query_allc_region(
-                allc, chrom, start, end
-            )
+            mc_region_data, cov_region_data = query_allc_region(allc, chrom, start, end)
             mc_data.append(csr_matrix(mc_region_data))
             cov_data.append(csr_matrix(cov_region_data))
 

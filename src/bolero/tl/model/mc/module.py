@@ -31,7 +31,6 @@ class OutputHead(nn.Module):
     def forward(self, X, *args, output_len=None, modes=None, **kwargs):
         """Forward pass of the model."""
         X_score = self.conv_layer(X, *args, modes=modes, **kwargs)
-
         if output_len is None:
             trim = 0
         else:
@@ -39,5 +38,4 @@ class OutputHead(nn.Module):
             trim = (X_score.shape[-1] - output_len_needed_in_X) // 2
         if trim > 0:
             X_score = X_score[..., trim:-trim]
-
         return X_score

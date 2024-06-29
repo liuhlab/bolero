@@ -271,19 +271,29 @@ class GenerateRegions:
 
 
 class FilterRegions:
-    def __init__(self, cov_filter_key, min_cov=10, max_cov=1e5, low_cov_ratio=0.1):
+    def __init__(
+        self, cov_filter_key, min_cov=10, max_cov=1e5, low_cov_ratio=0.1, cov_func=None
+    ):
         self.cov_filter_key = cov_filter_key
         self.min_cov = min_cov
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
+        if cov_func is None:
+
+            def _sum_all(data):
+                # sum over all dims except the first one
+                return data.sum(axis=tuple(range(1, data.ndim)))
+
+            self.cov_func = _sum_all
+        else:
+            self.cov_func = cov_func
         return
 
     def __call__(self, batch: dict):
         """Filter regions based on coverage."""
         data = batch[self.cov_filter_key]
 
-        # sum over all dims except the first one
-        region_sum = data.sum(axis=tuple(range(1, data.ndim)))
+        region_sum = self.cov_func(data)
 
         use_rows = (region_sum > self.min_cov) & (region_sum < self.max_cov)
 
@@ -296,6 +306,10 @@ class FilterRegions:
         if use_rows.sum() == 0:
             # keep at least one region
             use_rows[0] = True
+
         # apply filter to all keys
-        batch = {k: v[use_rows, ...].copy() for k, v in batch.items()}
+        batch = {
+            k: v[use_rows, ...].copy()  # if v.ndim > 1 else v[use_rows]
+            for k, v in batch.items()
+        }
         return batch
