@@ -1,10 +1,6 @@
-import pathlib
-from copy import deepcopy
-
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn.functional as F
 import wandb
@@ -18,124 +14,40 @@ from bolero.tl.model.generic.train_helper import (
     batch_pearson_correlation,
 )
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
-from bolero.tl.model.scprinter.model import scFootprintBPNet, scFootprintBPNetLoRA
-from bolero.tl.pseudobulk.generator import PredefinedPseudobulkGenerator
+from bolero.tl.model.scprinter.model import scFootprintBPNet
+from bolero.tl.pseudobulk.generator import SinglePseudobulkGenerator
 from bolero.utils import get_fs_and_path
 
 
-class scFootprintLoRATrainer(GenericTrainer):
-    """Train scFootprintBPNet model on pseudobulk single-cell ATAC data."""
-
-    trainer_config = {
-        "mode": "lora",
-        "chrom_split": "REQUIRED",
-        "output_dir": "REQUIRED",
-        "savename": "REQUIRED",
-        "wandb_project": "REQUIRED",
-        "wandb_job_type": "REQUIRED",
-        "wandb_group": None,
-        "max_epochs": 100,
-        "patience": 10,
-        "use_amp": True,
-        "use_ema": True,
-        "scheduler": False,
-        "lr": 0.0003,
-        "weight_decay": 0.001,
-        "accumulate_grad": 8,
-        "train_batches": 2000,
-        "val_batches": 300,
-        "loss_tolerance": 0.0,
-        "plot_example_per_epoch": 9,
-        # Lora related files
-        "pretrained_model": "REQUIRED",
-        "output_adjusted_model": None,
-        "adjust_output_model": None,
-        "cell_embedding": "REQUIRED",
-        "region_embedding": None,
-        "cell_coverage": "REQUIRED",
-        "pseudobulk_path": "REQUIRED",
-        "prefix": "REQUIRED",
-        "standard_cov": 1e7,
-        "standard_cell": None,
-        # region file
-        "region_bed_path": "REQUIRED",
-    }
-
-    dataset_class = scPrinterDataset
-    model_class = scFootprintBPNetLoRA
+class scFootprintTrainerMixin(GenericTrainer):
+    trainer_config = GenericTrainer.trainer_config.copy()
+    trainer_config.update(
+        {
+            "max_epochs": 100,
+            "patience": 10,
+            "train_batches": 2000,
+            "val_batches": 300,
+            "train_epoch_chroms": 4,
+            # region file
+            "region_bed_path": "REQUIRED",
+        }
+    )
 
     def __init__(self, config):
         super().__init__(config)
 
-        self.model: torch.nn.Module = None
+        # the prefix of pseudobulk data in the batch dict
+        # this is the pseudobulker name passed to dataset
+        self.prefix = config["prefix"]
 
+        self.model: torch.nn.Module = None
         self._setup_env()
         self._setup_dataset()
         return
 
-    def _setup_pretrain_model_for_adjust_output(self):
-        pretrain_model_path = self.config["pretrained_model"]
-        acc_model: scFootprintBPNet = torch.load(pretrain_model_path)
-
-        # set all parameters to fixed, except the profile cnn's w&b
-        acc_model.to(self.device)
-        for p in acc_model.parameters():
-            p.requires_grad = False
-        acc_model.profile_cnn_model.conv_layer.weight.requires_grad = True
-        acc_model.profile_cnn_model.conv_layer.bias.requires_grad = True
-        acc_model.profile_cnn_model.linear.weight.requires_grad = True
-        acc_model.profile_cnn_model.linear.bias.requires_grad = True
-        return acc_model
-
-    def _setup_pretrain_model_for_lora(self):
-        config_for_lora = deepcopy(self.config)
-
-        # get example cell embedding from pseduobulk scaler
-        # this file should be created during dataset setup
-        scaler = joblib.load(f"{self.savename}.cell_embedding_scaler.joblib")
-        example_embedding = np.array(scaler.example_embedding)
-        config_for_lora["example_cell_embedding"] = example_embedding
-        if self.config["example_region_embedding"] is not None:
-            region_emb = pd.read_feather(self.config["example_region_embedding"])
-            region_emb = region_emb.set_index(region_emb.columns[0])
-            config_for_lora["example_region_embedding"] = region_emb
-
-        adj_output_model_path = self.config["output_adjusted_model"]
-        if adj_output_model_path is None:
-            # if not provided, use the best model from the adj_output stage
-            adj_output_model_path = f"{self.savename}.adj_output.best_model.pt"
-        # load output adjusted model and fix all parameters
-        acc_model: scFootprintBPNet = torch.load(adj_output_model_path)
-        for p in acc_model.parameters():
-            p.requires_grad = False
-        acc_model = acc_model.cpu()
-        _kwargs = {
-            "dna_cnn_model": acc_model.dna_cnn_model,
-            "hidden_layer_model": acc_model.hidden_layer_model,
-            "profile_cnn_model": acc_model.profile_cnn_model,
-            "dna_len": acc_model.dna_len,
-            "output_len": acc_model.output_len,
-        }
-        config_for_lora.update(_kwargs)
-
-        acc_model = scFootprintBPNetLoRA.create_from_config(config_for_lora)
-        acc_model.cuda()
-        return acc_model
-
-    def _setup_model(self):
-        mode = self.mode
-
-        if mode == "adj_output":
-            self.model = self._setup_pretrain_model_for_adjust_output()
-        elif mode == "lora":
-            self.model = self._setup_pretrain_model_for_lora()
-        else:
-            raise ValueError(
-                f"Incorrect mode: {mode}, should be 'adj_output' or 'lora'."
-            )
-
-        self._set_total_params()
-        return
+    # ======================
+    # Dataset and Dataloader
+    # ======================
 
     def _setup_dataset(self):
         config = self.config
@@ -149,46 +61,22 @@ class scFootprintLoRATrainer(GenericTrainer):
         # dataset location and schema
         self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
         self.config["dataset"] = self.dataset_dir
-        prefix = self.config["prefix"]
 
         # create dataset
         self.dataset: scPrinterDataset = self._get_dataset()
-        self.footprinter = self.dataset.get_footprinter(prefix=prefix)
+        self.footprinter = self.dataset.get_footprinter(prefix=self.prefix)
 
     def _get_dataset(self):
-        dataset = scPrinterDataset.create_from_config(self.config)
-
-        # setup pseudobulker params for sc dataset
-        pseudobulker_params = {
-            "cell_embedding": self.config["cell_embedding"],
-            "cell_coverage": self.config["cell_coverage"],
-            "predefined_pseudobulk_path": self.config["pseudobulk_path"],
-            "standard_cov": self.config["standard_cov"],
-            "standard_cell": self.config["standard_cell"],
-        }
-        dataset.add_pseudobulker(
-            name=self.config["prefix"],
-            cls=PredefinedPseudobulkGenerator,
-            pseudobulker_kwargs=pseudobulker_params,
-        )
-        # save pseudobulker scaler and example pseudobulk embedding
-        dataset.name_to_pseudobulker[self.config["prefix"]].save_scaler(
-            f"{self.savename}.cell_embedding_scaler.joblib"
-        )
-        # save pseudobulker
-        # dataset.name_to_pseudobulker[self.config["prefix"]].save(
-        #     f"{self.savename}.pseudobulker.joblib"
-        # )
-
-        region_embedding_path = self.config["region_embedding"]
-        if region_embedding_path is not None:
-            dataset.add_region_embedding(region_embedding_path)
-        return dataset
+        raise NotImplementedError
 
     def get_train_dataloader(self, batches):
         """Training dataloader."""
         # choose random chromosomes for training
-        n_chroms = min(4, len(self.train_chroms))
+        n_chroms = self.config["train_epoch_chroms"]
+        if n_chroms is None:
+            n_chroms = len(self.train_chroms)
+        else:
+            n_chroms = min(n_chroms, len(self.train_chroms))
         use_chrom = np.random.choice(self.train_chroms, n_chroms, replace=False)
         print(f"Using chrom {use_chrom} for training.")
 
@@ -225,14 +113,11 @@ class scFootprintLoRATrainer(GenericTrainer):
         )
         return dataloader
 
-    def _setup_fit(self):
-        super()._setup_fit()
-
-        # footprints specific setup
-        self.modes = np.arange(2, 101, 1)
-        self.modes_index = list(self.modes)
-        self.select_n_modes = 30
-        return
+    # =============================
+    # Model training and validation
+    # =============================
+    def _setup_model(self):
+        raise NotImplementedError
 
     @torch.no_grad()
     def _model_validation_step(
@@ -243,16 +128,10 @@ class scFootprintLoRATrainer(GenericTrainer):
     ):
         print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
-        mode = self.mode
 
-        prefix = self.config["prefix"]
+        prefix = self.prefix
         atac_key = f"{prefix}:bulk_data"
-        dna_key = "dna_one_hot"
         bias_key = "tn5_bias"
-        cell_embedding_key = f"{prefix}:embedding_data"
-        region_embedding_key = (
-            "region_embedding" if self.config["region_embedding"] is not None else None
-        )
         footprint_key = f"{prefix}:bulk_data_footprint"
         footprinter = self.footprinter
 
@@ -264,47 +143,19 @@ class scFootprintLoRATrainer(GenericTrainer):
 
         example_batches = []  # collect example batches for making images
         for batch_id, batch in enumerate(dataloader):
-            # ==========
-            # X
-            # ==========
-            X = batch[dna_key]
-            if mode == "lora":
-                cell_embedding = batch[cell_embedding_key]
-                if region_embedding_key is None:
-                    region_embedding = None
-                else:
-                    region_embedding = batch[region_embedding_key]
-            else:
-                cell_embedding = None
-                region_embedding = None
-
-            # ==========
-            # y_footprint, y_coverage
-            # ==========
-            batch = footprinter(data=batch)
-            y_footprint = batch[footprint_key]
+            y_footprint, y_coverage, pred_footprint, pred_coverage = (
+                self._model_forward_pass(model, batch)
+            )
             mask = ~torch.isnan(
                 y_footprint
             )  # footprint contains nan values, remove them when calculating loss
 
-            y_coverage = batch[atac_key].sum(dim=-1)
-            y_coverage = torch.log1p(y_coverage)
-
-            # ==========
-            # Forward and Loss
-            # ==========
-            if mode == "lora":
-                pred_score, pred_coverage = model(
-                    X, cell_embedding=cell_embedding, region_embedding=region_embedding
-                )
-            else:
-                pred_score, pred_coverage = model(X)
-            pred_score_img = pred_score.clone().detach().cpu().numpy()
+            pred_score_img = pred_footprint.clone().detach().cpu().numpy()
             y_footprint = torch.nan_to_num(y_footprint, nan=0)
             # as is in scPrinter
             # validation loss only has pred_score MSE, no coverage
-            loss_ = F.mse_loss(pred_score[mask], y_footprint[mask])
-            pred_score = pred_score.reshape((len(pred_score), -1))
+            loss_ = F.mse_loss(pred_footprint[mask], y_footprint[mask])
+            pred_footprint = pred_footprint.reshape((len(pred_footprint), -1))
             y_footprint = y_footprint.reshape((len(y_footprint), -1))
             val_loss[0] += loss_.item()
 
@@ -313,13 +164,13 @@ class scFootprintLoRATrainer(GenericTrainer):
             # ==========
             # within batch pearson
             corr = (
-                batch_pearson_correlation(pred_score, y_footprint)
+                batch_pearson_correlation(pred_footprint, y_footprint)
                 .detach()
                 .cpu()[:, None]
             )
             profile_pearson_counter.update(corr)
             # save for across batch pearson
-            across_batch_pearson_fp.update(pred_score, y_footprint)
+            across_batch_pearson_fp.update(pred_footprint, y_footprint)
             across_batch_pearson_cov.update(pred_coverage, y_coverage)
 
             size += 1
@@ -363,6 +214,9 @@ class scFootprintLoRATrainer(GenericTrainer):
             across_batch_pearson_cov.corr(),
         ]
         return val_loss, profile_pearson, across_corr, wandb_images
+
+    def _model_forward_pass(self, model, batch):
+        raise NotImplementedError
 
     def _plot_example_footprints(
         self, example_batches, footprinter, atac_key, bias_key, footprint_key
@@ -475,24 +329,20 @@ class scFootprintLoRATrainer(GenericTrainer):
         flag = self.early_stopping_counter >= self.patience
         return flag
 
+    def _setup_fit(self):
+        super()._setup_fit()
+
+        # footprints specific setup
+        self.modes = np.arange(2, 101, 1)
+        self.modes_index = list(self.modes)
+        self.select_n_modes = 30
+        return
+
     def _fit(self, max_epochs=None, valid_first=False):
         if max_epochs is None:
             max_epochs = self.max_epochs
 
-        mode = self.mode
         # dataset related
-        prefix = self.config["prefix"]
-        atac_key = f"{prefix}:bulk_data"
-        dna_key = "dna_one_hot"
-        footprint_key = f"{prefix}:bulk_data_footprint"
-        cell_embedding_key = f"{prefix}:embedding_data"
-        region_embedding_key = (
-            "region_embedding" if self.config["region_embedding"] is not None else None
-        )
-
-        # backpropagation related
-        footprinter = self.footprinter
-
         scaler = self.scaler
         optimizer = self.optimizer
         scheduler = self.scheduler
@@ -531,6 +381,15 @@ class scFootprintLoRATrainer(GenericTrainer):
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
         while self.cur_epoch < max_epochs and not stop_flag:
+            # one can manually create a stop flag file to stop the training
+            # path: f"{self.savename}.stop.flag"
+            if self._check_stage_flag("stop"):
+                print(
+                    f"Early stopping flag file found, stopping training at {self.cur_epoch}."
+                )
+                self.early_stoped = True
+                break
+
             print(
                 f"Current epoch: {self.cur_epoch}, max epochs: {max_epochs}, stop flag: {stop_flag}."
             )
@@ -570,55 +429,15 @@ class scFootprintLoRATrainer(GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    # ==========
-                    # X
-                    # ==========
-                    X = batch[dna_key]
-                    # LoRA embedding
-                    if mode == "lora":
-                        cell_embedding = batch[cell_embedding_key]
-                        if region_embedding_key is None:
-                            region_embedding = None
-                        else:
-                            region_embedding = batch[region_embedding_key]
-                    else:
-                        cell_embedding = None
-                        region_embedding = None
-
-                    # ==========
-                    # y_footprint, y_coverage
-                    # ==========
-                    random_modes = np.random.permutation(self.modes)[
-                        : self.select_n_modes
-                    ]
-                    select_index = torch.as_tensor(
-                        [self.modes_index.index(mode) for mode in random_modes]
+                    y_footprint, y_coverage, pred_footprint, pred_coverage = (
+                        self._model_forward_pass(self.model, batch)
                     )
-                    batch = footprinter(data=batch, modes=random_modes)
-                    y_footprint = batch[footprint_key]
+
                     mask = ~torch.isnan(
                         y_footprint
                     )  # footprint contains nan values, remove them when calculating loss
 
-                    y_coverage = batch[atac_key].sum(dim=-1)
-                    y_coverage = torch.log1p(y_coverage)
-
-                    # ==========
-                    # Forward and Loss
-                    # ==========
-                    if mode == "lora":
-                        pred_score, pred_coverage = self.model.forward(
-                            X,
-                            cell_embedding=cell_embedding,
-                            region_embedding=region_embedding,
-                            modes=select_index,
-                        )
-                    else:
-                        pred_score, pred_coverage = self.model.forward(
-                            X,
-                            modes=select_index,
-                        )
-                    loss_footprint = F.mse_loss(pred_score[mask], y_footprint[mask])
+                    loss_footprint = F.mse_loss(pred_footprint[mask], y_footprint[mask])
                     loss_coverage = F.mse_loss(y_coverage, pred_coverage)
                     loss = (loss_footprint + loss_coverage) / self.accumulate_grad
 
@@ -743,54 +562,153 @@ class scFootprintLoRATrainer(GenericTrainer):
         wandb.summary["success"] = True
         return
 
-    def _check_output_adjust_model(self):
-        output_adj_model_path = self.config["output_adjusted_model"]
-        if output_adj_model_path is None:
-            return False
-        elif pathlib.Path(output_adj_model_path).exists():
-            return True
-        else:
-            print(f"Output adjusted model path {output_adj_model_path} does not exist.")
-            return False
+    def train(self):
+        """Train function should be implemented in the subclass."""
+        raise NotImplementedError
 
-    def train(self, adj_output_only=False, valid_first=False) -> None:
+
+class scFootprintBaseTrainer(scFootprintTrainerMixin):
+    """Train scFootprintBPNet base model on pseudobulk single-cell ATAC data."""
+
+    trainer_config = scFootprintTrainerMixin.trainer_config.copy()
+    trainer_config.update(
+        {
+            "mode": "base",
+            "lr": 0.003,  # use 0.003 for base init, 0.0003 for fine-tune
+            # dataset related files
+            "pretrained_model": None,
+            "region_embedding": None,
+            "cells": "REQUIRED",
+            "cell_coverage": None,
+            "standard_cov": None,
+            "standard_cell": None,
+            "prefix": "bulk",
+            "train_epoch_chroms": 15,
+        }
+    )
+
+    dataset_class = scPrinterDataset
+    model_class = scFootprintBPNet
+
+    @classmethod
+    def make_config(cls, **config):
+        """Make config for the trainer."""
+        config["cov_filter_name"] = cls.trainer_config["prefix"]
+        config["n_pseudobulks"] = 1
+        config = super().make_config(**config)
+        return config
+
+    def _setup_model_from_config(self):
+        print("Setting up model from config")
+        model = scFootprintBPNet.create_from_config(self.config)
+        model.to(self.device)
+        return model
+
+    def _setup_model_from_pretrain(self):
+        # load model from path, set parameter to requires_grad, and model to train
+        model_path = self.config["pretrained_model"]
+        if model_path is None:
+            raise ValueError("Pretrained model path is required.")
+        print(f"Setting up model from pretrain model at {model_path}")
+
+        model = torch.load(model_path)
+        model.train()
+        for param in model.parameters():
+            param.requires_grad = True
+        return model
+
+    def _setup_model(self):
+        mode = self.mode
+
+        if mode == "finetune":
+            self.model = self._setup_model_from_pretrain()
+        elif mode == "base":
+            self.model = self._setup_model_from_config()
+        else:
+            raise ValueError(
+                f"Incorrect mode: {mode}, should be one of ['base', 'finetune']."
+            )
+
+        self._set_total_params()
+        return
+
+    def _get_dataset(self):
+        dataset = scPrinterDataset.create_from_config(self.config)
+
+        # setup pseudobulker params for sc dataset
+        pseudobulker_params = {
+            "cells": self.config["cells"],
+            "cell_coverage": self.config["cell_coverage"],
+            "standard_cov": self.config["standard_cov"],
+            "standard_cell": self.config["standard_cell"],
+        }
+        dataset.add_pseudobulker(
+            name=self.prefix,
+            cls=SinglePseudobulkGenerator,
+            pseudobulker_kwargs=pseudobulker_params,
+        )
+        return dataset
+
+    def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
+        prefix = self.prefix
+        atac_key = f"{prefix}:bulk_data"
+        dna_key = "dna_one_hot"
+        footprint_key = f"{prefix}:bulk_data_footprint"
+        footprinter = self.footprinter
+
+        # ==========
+        # X
+        # ==========
+        X = batch[dna_key]
+
+        # ==========
+        # y_footprint, y_coverage
+        # ==========
+        if model.training:
+            random_modes = np.random.permutation(self.modes)[: self.select_n_modes]
+            select_index = torch.as_tensor(
+                [self.modes_index.index(mode) for mode in random_modes]
+            )
+        else:
+            random_modes = None
+            select_index = None
+
+        batch = footprinter(data=batch, modes=random_modes)
+        y_footprint = batch[footprint_key]
+        y_coverage = batch[atac_key].sum(dim=-1)
+        y_coverage = torch.log1p(y_coverage)
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        pred_footprint, pred_coverage = model(X, modes=select_index)
+
+        return y_footprint, y_coverage, pred_footprint, pred_coverage
+
+    def train(self, valid_first=None) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return
 
+        if valid_first is None:
+            if self.mode == "finetune":
+                valid_first = True
+
         with wandb_run:
-            # Fit the pretrained model on the profile CNN only with pseudobulk data
-            if self._check_output_adjust_model():
-                print(
-                    f'Using pretrain output adjusted model at {self.config["output_adjusted_model"]}.'
-                )
-            else:
-                if self._check_stage_flag("adj_output"):
-                    print("Pretrain output exists, skipping pretrain.")
-                else:
-                    self.mode = "adj_output"
-                    self.checkpoint = self._has_last_checkpoint()
-                    self._setup_model()
-                    self._setup_fit()
-
-                    # only train for 10000 batches to adjust the output layer
-                    max_epochs = int(np.ceil(10000 / self.train_batches))
-                    self._fit(max_epochs=max_epochs, valid_first=valid_first)
-                    self._save_stage_flag("adj_output")
-                    self._cleanup_env()
-                    self.config["output_adjusted_model"] = (
-                        f"{self.savename}.adj_output.best_model.pt"
-                    )
-
-            self.mode = "lora"
-            if not adj_output_only:
-                # Fit LoRA
-                self.checkpoint = self._has_last_checkpoint()
-                self._setup_model()
-                self._setup_fit()
-                self._fit(valid_first=valid_first)
-                self._test()
+            # Fit LoRA
+            self.checkpoint = self._has_last_checkpoint()
+            self._setup_model()
+            self._setup_fit()
+            self._fit(valid_first=valid_first)
+            self._test()
             self._cleanup_env()
             wandb.finish()
         return
+
+
+class scFootprintFineTuneTrainer(scFootprintBaseTrainer):
+    # everything is the same as scFootprintBaseTrainer
+    # except for the mode and default learning rate
+    trainer_config = scFootprintBaseTrainer.trainer_config.copy()
+    trainer_config.update({"mode": "finetune", "lr": 0.0003})

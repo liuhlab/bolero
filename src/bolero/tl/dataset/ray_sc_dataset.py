@@ -8,11 +8,11 @@ import ray
 from bolero import Genome
 from bolero.tl.dataset.sc_transforms import (
     CompressedBytesToTensor,
-    FetchRegionOneHot,
     FilterRegions,
     GeneratePseudobulk,
     GenerateRegions,
 )
+from bolero.tl.dataset.transforms import FetchRegionOneHot
 from bolero.utils import understand_regions
 
 
@@ -128,6 +128,8 @@ class RayGenomeChunkDataset:
     def _compressed_bytes_to_tensor(self, dataset, concurrency):
         fn = CompressedBytesToTensor
         dataset = dataset.map(fn=fn, concurrency=concurrency)
+        # mast use the class, instead of class instance when trying to map an actor to a dataset
+        # dataset = dataset.map(fn=CompressedBytesToTensor(), concurrency=concurrency)
         return dataset
 
     def _generate_pseudobulk(
@@ -309,3 +311,163 @@ class RayGenomeChunkDataset:
         """
         self._dataset_mode = "eval"
         return
+
+
+class mCGenomeChunkDataset:
+    """Single cell dataset for cell-by-meta-region data."""
+
+    def __init__(
+        self,
+        dataset_path: str,
+        genome: Optional[Genome] = None,
+        shuffle_files=False,
+        read_parquet_kwargs: Optional[dict] = None,
+    ) -> None:
+        """
+        Initialize the RaySingleCellDataset.
+
+        Parameters
+        ----------
+        dataset_path : str
+            The path to the dataset.
+        use_prefixs : Optional[List[str]], optional
+            The list of prefixes to use, by default None.
+        chroms : Optional[Union[str, List[str]]], optional
+            The list of chromosomes to use, by default None.
+        shuffle_files : bool, optional
+            Whether to shuffle the files, by default False.
+        genome : str, optional
+            The genome, by default None, which will be read from genome.flag.
+        read_parquet_kwargs : Optional[dict], optional
+            The read_parquet kwargs passed to ray.data.read_parquet, by default None.
+
+        Returns
+        -------
+        None
+        """
+        self.dataset_path = dataset_path
+
+        if not shuffle_files:
+            print("File shuffle is disabled!!!")
+        _kwargs = {
+            "shuffle": "files" if shuffle_files else None,
+        }
+        if read_parquet_kwargs is not None:
+            _kwargs.update(read_parquet_kwargs)
+        self.read_parquet_kwargs = _kwargs
+
+        # get barcode order
+        self.barcode_order: dict[pd.Index] = joblib.load(
+            f"{dataset_path}/row_names.joblib"
+        )
+
+        # get genome and other metadata
+        config = joblib.load(f"{dataset_path}/config.joblib")
+
+        if genome is None:
+            genome = config["genome"]
+        if isinstance(genome, str):
+            self.genome = Genome(genome)
+        else:
+            self.genome = genome
+        # trigger one hot loading
+        _ = self.genome.genome_one_hot
+
+        self.window_size = config["window_size"]
+        self.step_size = config["step_size"]
+        self.num_rows_per_file = config["num_rows_per_file"]
+
+        self._dataset_mode = None
+
+        # slot for later processor
+        self.signal_columns = set()
+        self.dna_column = None
+
+    def _get_chroms_dir(self, chroms):
+        if chroms is None:
+            chrom_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("chr*")]
+        else:
+            if isinstance(chroms, str):
+                chroms = [chroms]
+            chrom_dirs = [f"{self.dataset_path}/{chrom}" for chrom in chroms]
+
+            # make sure all chrom_dir exists
+            chrom_dirs = [
+                chrom_dir
+                for chrom_dir in chrom_dirs
+                if pathlib.Path(chrom_dir).exists()
+            ]
+            assert (
+                len(chrom_dirs) > 0
+            ), f"None of the chroms {chroms} exists in {self.dataset_path}"
+        return chrom_dirs
+
+    def _read_parquet(self, chroms):
+        _dataset = ray.data.read_parquet(
+            self._get_chroms_dir(chroms),
+            file_extensions=["parquet"],
+            **self.read_parquet_kwargs,
+        )
+        return _dataset
+
+    def _filter_region_length(self, dataset):
+        standard_region_length = self.window_size
+
+        def region_length_filter(row):
+            region = row["region"]
+            coords = region.split(":")[1].split("-")
+            length = int(coords[1]) - int(coords[0])
+            return length == standard_region_length
+
+        dataset = dataset.filter(region_length_filter)
+        return dataset
+
+    def _compressed_bytes_to_tensor(self, dataset, concurrency):
+        fn = CompressedBytesToTensor
+        dataset = dataset.map(fn=fn, concurrency=concurrency)
+        # mast use the class, instead of class instance when trying to map an actor to a dataset
+        # dataset = dataset.map(fn=CompressedBytesToTensor(), concurrency=concurrency)
+        return dataset
+
+    def _get_dna_one_hot(self, dataset, concurrency):
+        fn = FetchRegionOneHot
+        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+
+        dataset = dataset.map_batches(
+            fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
+        )
+        self.dna_column = "dna_one_hot"
+        return dataset
+
+    def _get_processed_dataset(
+        self,
+        chroms,
+    ) -> None:
+        """
+        Preprocess the dataset to return pseudobulk region rows.
+        """
+        compressed_bytes_to_tensor_concurrency = (1, 4)
+        fetch_region_one_hot_concurrency = (1, 4)
+
+        dataset = self._read_parquet(chroms=chroms)
+
+        # filter meta region length equal to self.window_size
+        dataset = self._filter_region_length(dataset=dataset)
+
+        # from compressed bytes to tensor (cell/sample by meta-region matrix) and other information
+        dataset = self._compressed_bytes_to_tensor(
+            dataset=dataset,
+            concurrency=compressed_bytes_to_tensor_concurrency,
+        )
+
+        # add dna one hot
+        dataset = self._get_dna_one_hot(
+            dataset=dataset,
+            concurrency=fetch_region_one_hot_concurrency,
+        )
+        return dataset
+
+    def get_dataloader(self, chroms, batch_size):
+        """Dataloader for the dataset."""
+        work_ds = self._get_processed_dataset(chroms)
+        return work_ds.iter_batches(batch_size=batch_size)

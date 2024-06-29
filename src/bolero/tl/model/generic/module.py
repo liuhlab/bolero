@@ -138,6 +138,25 @@ class Conv1dWrapper(nn.Module):
         )
 
 
+def _get_activation(activation):
+    if not isinstance(activation, str):
+        return activation
+
+    activation = activation.lower()
+    if activation == "relu":
+        return nn.ReLU()
+    elif activation == "gelu":
+        return nn.GELU()
+    elif activation == "tanh":
+        return nn.Tanh()
+    elif activation == "sigmoid":
+        return nn.Sigmoid()
+    elif activation == "silu":
+        return nn.SiLU()
+    else:
+        raise ValueError(f"Unknown activation function: {activation}")
+
+
 class DNA_CNN(GenericModule):
     """
     This class represents a DNA Convolutional Neural Network (CNN) module.
@@ -176,7 +195,7 @@ class DNA_CNN(GenericModule):
     default_config = {
         "n_filters": 1024,
         "dna_kernel_size": 21,
-        "activation": nn.GELU(),
+        "activation": "gelu",
         "in_channels": 4,
     }
 
@@ -202,6 +221,8 @@ class DNA_CNN(GenericModule):
             Number of input channels. Default is 4.
 
         """
+        activation = _get_activation(activation)
+
         super().__init__()
 
         self.in_channels = in_channels
@@ -231,7 +252,7 @@ class DNA_CNN(GenericModule):
             Output tensor of shape (batch_size, n_filters, sequence_length).
 
         """
-        X = self.conv(X)
+        X = self.conv(X, *args, **kwargs)
         X = self.activation(X)
         return X
 
@@ -252,6 +273,10 @@ class Residual(nn.Module):
         return x + self.module(x, *args, **kwargs)
 
 
+def _default_dilation_func(x):
+    return 2 ** (x + 1)
+
+
 class DilatedCNN(GenericModule):
     """
     This part only takes into account the Dilated CNN stack
@@ -263,7 +288,7 @@ class DilatedCNN(GenericModule):
         "n_blocks": 8,
         "dia_kernel_size": 3,
         "groups": 8,
-        "activation": nn.GELU(),
+        "activation": "gelu",
         "batch_norm": True,
         "batch_norm_momentum": 0.1,
         "dilation_func": None,
@@ -283,9 +308,10 @@ class DilatedCNN(GenericModule):
         dilation_func=None,
         bipass_connect=False,
     ):
+        activation = _get_activation(activation)
         super().__init__()
         if dilation_func is None:
-            dilation_func = lambda x: 2 ** (x + 1)
+            dilation_func = _default_dilation_func
         self.dilation_func = dilation_func
 
         self.n_filters = n_filters
