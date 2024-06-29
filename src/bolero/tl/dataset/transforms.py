@@ -17,9 +17,9 @@ from typing import Union
 import numpy as np
 import pandas as pd
 import pyBigWig
+import ray
 import torch
 
-from bolero.pp.genome import Genome
 from bolero.tl.topic.region_embedding import RegionEmbedder
 from bolero.utils import try_gpu
 
@@ -263,56 +263,6 @@ class BatchToFloat:
         return data
 
 
-class FetchRegionOneHot:
-    """Fetch the one-hot encoded DNA sequence from the genome."""
-
-    def __init__(
-        self,
-        genome: str,
-        region_key: str = "Name",
-        output_key: str = "dna_one_hot",
-        dtype: str = "float32",
-    ) -> None:
-        """
-        Initialize the FetchRegionOneHot transform.
-
-        Parameters
-        ----------
-        genome : Genome
-            The genome object used for one-hot encoding.
-        region_key : str, optional
-            The key to access the region name in the data dictionary. Defaults to "Name".
-        output_key : str, optional
-            The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
-        dtype : str, optional
-            The data type of the one-hot encoded DNA. Defaults to "float32".
-        """
-        if isinstance(genome, str):
-            genome = Genome(genome)
-        self.genome = genome
-        self.region_key = region_key
-        self.output_key = output_key
-        self.dtype = dtype
-
-    def __call__(self, data: dict) -> dict:
-        """
-        Apply the FetchRegionOneHot transform to the input data.
-
-        Parameters
-        ----------
-        data : dict
-            The input data dictionary.
-
-        Returns
-        -------
-        dict
-            The modified data dictionary with the one-hot encoded DNA.
-        """
-        one_hot = self.genome.get_regions_one_hot(data[self.region_key])
-        data[self.output_key] = one_hot.astype(self.dtype)  # (batch, length, channel)
-        return data
-
-
 class BatchRegionBigWig:
     """Fetch the bigwig signal from the genome.
 
@@ -492,4 +442,52 @@ class AddChannels:
         """
         for k in self.keys:
             data[k] = self.channel_func(data[k])
+        return data
+
+
+class FetchRegionOneHot:
+    """Fetch the one-hot encoded DNA sequence from the genome."""
+
+    def __init__(
+        self,
+        region_key: str = "region",
+        output_key: str = "dna_one_hot",
+        dtype: str = "float32",
+    ) -> None:
+        """
+        Initialize the FetchRegionOneHot transform.
+
+        Parameters
+        ----------
+        region_key : str, optional
+            The key to access the region name in the data dictionary. Defaults to "Name".
+        output_key : str, optional
+            The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
+        dtype : str, optional
+            The data type of the one-hot encoded DNA. Defaults to "float32".
+
+        """
+        self.region_key = region_key
+        self.output_key = output_key
+        self.dtype = dtype
+
+    def __call__(self, data: dict, remote_genome_one_hot) -> dict:
+        """
+        Apply the FetchRegionOneHot transform to the input data.
+
+        Parameters
+        ----------
+        data : dict
+            The input data dictionary.
+
+        Returns
+        -------
+        dict
+            The modified data dictionary with the one-hot encoded DNA.
+        """
+        genome_one_hot = ray.get(remote_genome_one_hot)
+        # shape: (batch, length, channel)
+        one_hot = genome_one_hot.get_regions_one_hot(data[self.region_key])
+        # change to (batch, channel, length)
+        data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
         return data

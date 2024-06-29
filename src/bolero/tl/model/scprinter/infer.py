@@ -1,19 +1,14 @@
+import gc
 import pathlib
-import shutil
-from typing import Optional, Union
+import time
 
-import joblib
-import numpy as np
-import pandas as pd
-import pyranges as pr
 import torch
-import xarray as xr
-from tqdm import tqdm
 
 from bolero.pp.genome import Genome
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
-from bolero.tl.footprint.footprint import postprocess_footprint
+from bolero.tl.footprint.tfbs import FootPrintScoreModel
 from bolero.tl.model.scprinter.attribution import BatchAttribution
+from bolero.utils import try_gpu
 
 
 class BatchInference:
@@ -33,12 +28,26 @@ class BatchInference:
         A dictionary containing the input data along with the inferred results.
     """
 
-    def __init__(self, model: torch.nn.Module, postprocess: bool = True):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        tfbs: bool = True,
+        modes=range(2, 101, 1),
+    ):
         self.model = model
-        self.postprocess = postprocess
+        self.device = next(model.parameters()).device
+        if tfbs:
+            self.tfbs_model = FootPrintScoreModel(
+                modes=modes, device=self.device, load=True
+            )
+        else:
+            self.tfbs_model = None
 
-    def _get_tfbs(self, data: dict) -> dict:
-        return data
+    def _get_tfbs_from_footprint(self, footprint) -> dict:
+        score_dict = self.tfbs_model.get_all_scores(footprint)
+        # convert to numpy
+        score_dict = {k: v.cpu().numpy() for k, v in score_dict.items()}
+        return score_dict
 
     def __call__(self, data: dict) -> dict:
         """
@@ -55,12 +64,30 @@ class BatchInference:
             A dictionary containing the input data along with the inferred results.
         """
         one_hot = data["dna_one_hot"]
+        one_hot = torch.from_numpy(one_hot).float().to(self.device)
         with torch.inference_mode():
             footprint, coverage = self.model(one_hot)
-        if self.postprocess:
-            footprint = postprocess_footprint(footprint=footprint, smooth_radius=5)
-        data["footprint"] = footprint
-        data["coverage"] = coverage.cpu().numpy()
+        if self.tfbs_model is not None:
+            tfbs_scores = self._get_tfbs_from_footprint(footprint)
+            tfbs_scores = {f"pred_footprint:{k}": v for k, v in tfbs_scores.items()}
+            data.update(tfbs_scores)
+        data["pred_footprint"] = footprint.cpu().numpy()
+        data["pred_coverage"] = coverage.cpu().numpy()
+        return data
+
+
+class _BatchSlice:
+    def __init__(self, dna_len, output_len, keys):
+        self.radius = (dna_len - output_len) // 2
+        self.keys = keys
+
+    def __call__(self, data: dict):
+        """
+        Slice the DNA matrix to the output length.
+        """
+        for key in self.keys:
+            mat = data[key]
+            data[key] = mat[..., self.radius : -self.radius]
         return data
 
 
@@ -71,6 +98,7 @@ class scPrinterInferencer:
         self,
         model: object,
         genome: object,
+        batch_size: int = 64,
     ) -> None:
         """
         Initialize the scPrinterInferencer.
@@ -88,102 +116,20 @@ class scPrinterInferencer:
         """
         if isinstance(model, (str, pathlib.Path)):
             model = torch.load(model)
+        self.device = try_gpu()
+        model.to(self.device)
         self.model = model
         self.dna_len = model.dna_len
         self.output_len = model.output_len
 
         if isinstance(genome, str):
             genome = Genome(genome)
-            # trigger loading of genome one hot zarr
-            _ = genome.genome_one_hot
         self.genome = genome
+        self.batch_size = batch_size
 
-    def _slice_dna_to_output_len(
-        self, mat: Union[torch.Tensor, np.ndarray], as_numpy: bool = True
-    ) -> Union[torch.Tensor, np.ndarray]:
-        """
-        Slice the DNA matrix to the output length.
+        self._cleanup_env()
 
-        Parameters
-        ----------
-        mat : torch.Tensor or np.ndarray
-            The DNA matrix.
-        as_numpy : bool, optional
-            Flag indicating whether to return the result as a numpy array. Default is True.
-
-        Returns
-        -------
-        torch.Tensor or np.ndarray
-            The sliced DNA matrix.
-        """
-        if as_numpy:
-            if isinstance(mat, torch.Tensor):
-                mat = mat.cpu().numpy()
-        radius = (self.dna_len - self.output_len) // 2
-        return mat[..., radius:-radius]
-
-    def get_footprint_attributor(
-        self,
-        wrapper: str = "just_sum",
-        method: str = "shap_hypo",
-        modes: range = range(0, 30),
-        decay: float = 0.85,
-    ) -> BatchAttribution:
-        """
-        Get the attributor for analyzing the footprint.
-
-        Parameters
-        ----------
-        wrapper : str, optional
-            The wrapper type (default is "just_sum").
-        method : str, optional
-            The attribution method (default is "shap_hypo").
-        modes : range, optional
-            The range of modes (default is range(0, 30)).
-        decay : float, optional
-            The decay value (default is 0.85).
-
-        Returns
-        -------
-        BatchAttribution
-            The attributions dataset.
-        """
-        attributor = BatchAttribution(
-            model=self.model,
-            wrapper=wrapper,
-            method=method,
-            modes=modes,
-            decay=decay,
-            prefix="footprint",
-        )
-        return attributor
-
-    def get_coverage_attributor(
-        self,
-        wrapper: str = "count",
-        method: str = "shap_hypo",
-    ) -> BatchAttribution:
-        """
-        Get the attributor for analyzing the coverage.
-
-        Parameters
-        ----------
-        wrapper : str, optional
-            The wrapper type (default is "count").
-        method : str, optional
-            The attribution method (default is "shap_hypo").
-
-        Returns
-        -------
-        BatchAttribution
-            The attributions dataset.
-        """
-        attributor = BatchAttribution(
-            model=self.model, wrapper=wrapper, method=method, prefix="coverage"
-        )
-        return attributor
-
-    def get_inferencer(self, postprocess: bool = True) -> BatchInference:
+    def add_inferencer(self, dataset, tfbs=True) -> BatchInference:
         """
         Get the inferencer for the model.
 
@@ -197,22 +143,97 @@ class scPrinterInferencer:
         BatchInference
             The inferencer for the model.
         """
-        inferencer = BatchInference(model=self.model, postprocess=postprocess)
-        return inferencer
+        fn = BatchInference
+        fn_constructor_kwargs = {
+            "model": self.model,
+            "tfbs": tfbs,
+        }
+        dataset = dataset.map_batches(
+            fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            num_gpus=0.2,
+            batch_size=self.batch_size,
+            concurrency=1,
+        )
+        return dataset
+
+    def add_attributor(
+        self,
+        dataset,
+        prefix,
+        wrapper: str = "just_sum",
+        num_gpus: float = 0.2,
+        concurrency=1,
+    ):
+        """
+        Get the attributor for analyzing the footprint.
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be used for attribution.
+        prefix : str
+            The prefix to be used for the attribution input.
+        wrapper : str, optional
+            The wrapper type (default is "just_sum").
+        num_gpus : float, optional
+            The number of GPUs to be used.
+        concurrency : int, optional
+            The number of concurrent processes to be used.
+
+        Returns
+        -------
+        BatchAttribution
+            The attributions dataset.
+        """
+        fn = BatchAttribution
+        kwargs = {
+            "model": self.model,
+            "wrapper": wrapper,
+            "method": "shap_hypo",
+            "modes": range(0, 30),
+            "decay": 0.85,
+            "prefix": prefix,
+        }
+
+        dataset = dataset.map_batches(
+            fn,
+            fn_constructor_kwargs=kwargs,
+            num_gpus=num_gpus,
+            concurrency=concurrency,
+            batch_size=self.batch_size,
+        )
+        return dataset
+
+    def add_slice(self, dataset, keys):
+        """
+        Slice the dataset to the output length.
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be sliced.
+
+        Returns
+        -------
+        RayRegionDataset
+            The sliced dataset.
+        """
+        fn = _BatchSlice
+        kwargs = {"dna_len": self.dna_len, "output_len": self.output_len, "keys": keys}
+        dataset = dataset.map_batches(
+            fn=fn, fn_constructor_kwargs=kwargs, concurrency=1
+        )
+        return dataset
 
     def transform(
         self,
         bed: str,
-        inference: bool = True,
-        infer_postprocess: bool = True,
+        output_path: str = None,
+        footprint_tfbs: bool = True,
         footprint_attr: bool = True,
-        fp_attr_method: str = "shap_hypo",
-        fp_attr_modes: range = range(0, 30),
-        fp_attr_decay: float = 0.85,
         coverage_attr: bool = True,
-        cov_attr_method: str = "shap_hypo",
-        batch_size: int = 64,
-    ) -> xr.Dataset:
+    ):
         """
         Transform the dataset.
 
@@ -244,154 +265,48 @@ class scPrinterInferencer:
         xr.Dataset
             The transformed dataset.
         """
-        dataset = RayRegionDataset(
-            bed=bed, genome=self.genome, standard_length=self.model.dna_len
+        ray_ds = RayRegionDataset(
+            bed=bed, genome=self.genome, standard_length=self.dna_len
         )
+        dataset = ray_ds.get_processed_dataset()
+        key_to_slice = ["dna_one_hot"]
 
-        if inference:
-            inferencer = self.get_inferencer(postprocess=infer_postprocess)
-        else:
-            inferencer = None
+        dataset = self.add_inferencer(dataset, tfbs=footprint_tfbs)
+
         if footprint_attr:
-            footprint_attributor = self.get_footprint_attributor(
+            dataset = self.add_attributor(
+                dataset=dataset,
+                prefix="pred_footprint",
                 wrapper="just_sum",
-                method=fp_attr_method,
-                modes=fp_attr_modes,
-                decay=fp_attr_decay,
+                num_gpus=0.2,
             )
-        else:
-            footprint_attributor = None
+            key_to_slice += [
+                "pred_footprint:attributions",
+                "pred_footprint:attributions_1d",
+            ]
+
         if coverage_attr:
-            coverage_attributor = self.get_coverage_attributor(
-                wrapper="count", method=cov_attr_method
+            dataset = self.add_attributor(
+                dataset=dataset,
+                prefix="pred_coverage",
+                wrapper="count",
+                num_gpus=0.2,
             )
+            key_to_slice += [
+                "pred_coverage:attributions",
+                "pred_coverage:attributions_1d",
+            ]
+
+        dataset = self.add_slice(dataset, keys=key_to_slice)
+
+        if output_path is not None:
+            dataset.write_parquet(output_path)
+            return dataset
         else:
-            coverage_attributor = None
+            return dataset
 
-        loader = dataset.get_dataloader(batch_size=batch_size)
-
-        batch_ds_list = []
-        for batch in loader:
-            batch["dna_one_hot"] = torch.from_numpy(batch["dna_one_hot"]).to("cuda")
-            if inference:
-                batch = inferencer(batch)
-            if footprint_attr:
-                batch = footprint_attributor(batch)
-            if coverage_attr:
-                batch = coverage_attributor(batch)
-
-            batch_ds = self._batch_to_xarray(batch)
-            batch_ds_list.append(batch_ds)
-        total_ds = xr.concat(batch_ds_list, dim="region")
-        return total_ds
-
-    def _batch_to_xarray(
-        self, batch: dict, region_name: Optional[str] = None
-    ) -> xr.Dataset:
-        """
-        Convert the batch to xarray.
-
-        Parameters
-        ----------
-        batch : dict
-            The batch data.
-        region_name : str, optional
-            The name of the region. Default is None.
-
-        Returns
-        -------
-        xr.Dataset
-            The converted xarray dataset.
-        """
-        key_to_dims = {
-            "Name": ["region"],
-            "Original_Name": ["region"],
-            "dna_one_hot": ["region", "base", "pos"],
-            "footprint": ["region", "mode", "pos"],
-            "coverage": ["region"],
-            "footprint_attributions": ["region", "base", "pos"],
-            "footprint_attributions_1d": ["region", "pos"],
-            "coverage_attributions": ["region", "base", "pos"],
-            "coverage_attributions_1d": ["region", "pos"],
-        }
-        batch_clipped = {}
-        for k, v in batch.items():
-            if k == "dna_one_hot" or "attributions" in k:
-                v = self._slice_dna_to_output_len(v, as_numpy=True)
-
-            # change dtype while preventing overflow
-            drange = np.finfo("float16")
-            if np.issubdtype(v.dtype, np.floating):
-                v = np.clip(v, drange.min, drange.max).astype(np.float16)
-
-            batch_clipped[k] = (key_to_dims[k], v)
-        ds = xr.Dataset(batch_clipped)
-
-        regions = None
-        if region_name is None:
-            if "Original_Name" in batch:
-                regions = pd.Index(batch["Original_Name"], name="region")
-            elif "Name" in batch:
-                regions = pd.Index(batch["Name"], name="region")
-        if regions is not None:
-            ds.coords["region"] = regions
-        return ds
-
-    def offline_transform(self, bed_path: str, output_path: str, **kwargs) -> None:
-        """
-        Perform offline transformation.
-
-        Parameters
-        ----------
-        bed_path : str
-            The path to the bed file.
-        output_path : str
-            The output path.
-        chunk_size : int, optional
-            The size of each chunk. Default is 20.
-        **kwargs : dict
-            Additional keyword arguments pass to the transform method.
-
-        Returns
-        -------
-        None
-        """
-        bed = pr.read_bed(bed_path, as_df=True)
-        output_path = pathlib.Path(output_path.rstrip("/"))
-        output_path.mkdir(parents=True, exist_ok=True)
-        success_flag = output_path / ".success"
-        if success_flag.exists():
-            print(
-                f"Output path {output_path} already exists with a success flag. Skipping..."
-            )
-            return
-
-        batch_size = 64
-        chunk_size = int(5 * batch_size)
-
-        temp_dir = pathlib.Path(f"{output_path}_temp")
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        chunk_starts = list(range(0, len(bed), chunk_size))
-        for chunk_start in tqdm(chunk_starts, desc="Transforming regions"):
-            chunk_bed = bed.iloc[chunk_start : chunk_start + chunk_size]
-            chunk_out_path = temp_dir / f"chunk_{chunk_start}.joblib"
-
-            if pathlib.Path(chunk_out_path).exists():
-                continue
-            chunk_ds = self.transform(chunk_bed, batch_size=batch_size, **kwargs)
-            joblib.dump(chunk_ds, f"{chunk_out_path}.temp", compress=1)
-            pathlib.Path(f"{chunk_out_path}.temp").rename(chunk_out_path)
-
-        for chunk_start in tqdm(chunk_starts, desc="Merging chunks"):
-            chunk_out_path = temp_dir / f"chunk_{chunk_start}.joblib"
-            chunk_ds = joblib.load(chunk_out_path)
-            chunk_ds = chunk_ds.chunk(
-                {"region": chunk_size, "base": 4, "pos": self.output_len, "mode": 99}
-            )
-            if chunk_start == 0:
-                chunk_ds.to_zarr(output_path, mode="w")
-            else:
-                chunk_ds.to_zarr(output_path, append_dim="region")
-        success_flag.touch()
-        shutil.rmtree(temp_dir)
+    def _cleanup_env(self):
+        time.sleep(1)
+        gc.collect()
+        torch.cuda.empty_cache()
         return

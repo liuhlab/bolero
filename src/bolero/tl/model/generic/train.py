@@ -36,7 +36,7 @@ class GenericDataset:
         -------
             dict: The default configuration.
         """
-        return cls.default_config
+        return deepcopy(cls.default_config)
 
     @classmethod
     def create_from_config(cls, config: dict):
@@ -69,7 +69,7 @@ class GenericModel(nn.Module):
         -------
             dict: The default configuration.
         """
-        return cls.default_config
+        return deepcopy(cls.default_config)
 
     @classmethod
     def create_from_config(cls, config: dict):
@@ -304,26 +304,25 @@ class GenericTrainer(TrainerAttributesMixin):
     """Generic Trainer for training models."""
 
     trainer_config = {
-        "mode": "init",
+        "mode": "REQUIRED",
         "chrom_split": "REQUIRED",
-        "sample": "REQUIRED",
-        "region": "REQUIRED",
         "output_dir": "REQUIRED",
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
         "wandb_group": None,
-        "max_epochs": 100,
-        "patience": 5,
+        "max_epochs": "REQUIRED",
+        "patience": "REQUIRED",
         "use_amp": True,
         "use_ema": True,
         "scheduler": False,
-        "lr": 0.003,
+        "lr": "REQUIRED",
         "weight_decay": 0.001,
-        "accumulate_grad": 1,
-        "train_batches": 5000,
-        "val_batches": 500,
+        "train_batches": "REQUIRED",
+        "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
+        "plot_example_per_epoch": 9,
+        "accumulate_grad": 1,
     }
     dataset_class = GenericDataset
     model_class = GenericModel
@@ -381,12 +380,18 @@ class GenericTrainer(TrainerAttributesMixin):
         default_config = deepcopy(cls.trainer_config)
         for k, v in dataset_config.items():
             if k in default_config:
-                print(f'Warning: Overwriting key "{k}" with dataset default value.')
+                print(
+                    f"Warning: Overwriting key {k} value "
+                    f"{default_config[k]} with dataset default value {v}."
+                )
             default_config[k] = v
 
         for k, v in model_config.items():
             if k in default_config:
-                print(f'Warning: Overwriting key "{k}" with model default value.')
+                print(
+                    f"Warning: Overwriting key {k} value "
+                    f"{default_config[k]} with model default value {v}."
+                )
             default_config[k] = v
         return default_config
 

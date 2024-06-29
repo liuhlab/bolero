@@ -6,6 +6,7 @@ import ray
 
 from bolero.pp.genome import Genome
 from bolero.pp.genome_chunk_dataset import (
+    GenomeALLCDataset,
     GenomeBigWigDataset,
     SingleCellCutsiteDataset,
     SnapAnnDataDataset,
@@ -145,6 +146,56 @@ class GenomeChunkDatasetGenerator:
             },
             "remote_kwargs": {"memory": 15 * 1024**3, "resources": {"bolero": 10}},
         }
+        return
+
+    def add_allc(self, prefix, name, path, sparse=True, compress_level=5):
+        """
+        Add ALLC files. ALLC will be aggregated based on the prefix.
+
+        Parameters
+        ----------
+        prefix : str
+            The dataset name.
+        name : str
+            The name of the ALLC file.
+        path : str
+            The path to the ALLC file.
+        sparse : bool, optional
+            Whether the sample-by-pos matrix is sparse, by default True.
+
+        """
+        ds_class = GenomeALLCDataset
+        if prefix in self.uniform_dataset_dict:
+            cur_prefix_dict = self.uniform_dataset_dict[prefix]
+
+            assert (
+                cur_prefix_dict["ds_class"] == ds_class
+            ), f"Dataset with name {prefix} should be bigwig."
+            assert (
+                name not in cur_prefix_dict["ds_kwargs"]
+            ), f"BigWig with name {name} already exists for dataset {prefix}."
+            assert (
+                cur_prefix_dict["ds_kwargs"]["sparse"] == sparse
+            ), f"Sparse flag must be the same for dataset {prefix}."
+            assert (
+                cur_prefix_dict["ds_kwargs"]["compress_level"] == compress_level
+            ), f"Compress level must be the same for dataset {prefix}."
+
+            self.uniform_dataset_dict[prefix]["ds_kwargs"][name] = str(path)
+            self.uniform_dataset_dict[prefix]["remote_kwargs"]["memory"] += (
+                0.5 * 1024**3
+            )
+        else:
+            self.uniform_dataset_dict[prefix] = {
+                "ds_class": ds_class,
+                "ds_kwargs": {
+                    name: str(path),
+                    "prefix": prefix,
+                    "sparse": sparse,
+                    "compress_level": compress_level,
+                },
+                "remote_kwargs": {"memory": 1 * 1024**3, "resources": {"bolero": 10}},
+            }
         return
 
     def _process_each_prefix(self):

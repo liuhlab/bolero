@@ -1,10 +1,12 @@
 import gzip
 import pathlib
+from collections import OrderedDict
 from typing import Union
 
 import numpy as np
 import pandas as pd
 import pyBigWig
+import pysam
 import ray
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
 from scipy.sparse import csc_matrix, csr_matrix, vstack
@@ -302,7 +304,7 @@ class GenomeBigWigDataset:
         self.sparse = sparse
         self.compress_level = compress_level
 
-        self.bigwig_path_dict = {}
+        self.bigwig_path_dict = OrderedDict()
         self._add_bigwig(*args, **kwargs)
 
         self._opened_bigwigs = {}
@@ -361,7 +363,7 @@ class GenomeBigWigDataset:
     def get_regions_data(
         self,
         regions_df: pd.DataFrame,
-    ) -> dict[str, Union[np.ndarray, list[float]]]:
+    ) -> list[dict[str, Union[np.ndarray, list[float]]]]:
         """
         Get the data for multiple genomic regions.
 
@@ -442,6 +444,226 @@ class GenomeBigWigDataset:
         Get the row names of the csr_matrix.
         """
         return pd.Index(self.bigwig_path_dict.keys())
+
+
+def _query_allc_region(allc_handle, chrom, start, end):
+    mc_values = np.zeros(end - start, dtype="float32")
+    cov_values = np.zeros(end - start, dtype="float32")
+    for row in allc_handle.fetch(chrom, start, end):
+        _, pos, *_, mc, cov, _ = row.strip().split("\t")
+        try:
+            rel_pos = int(pos) - start
+            mc_values[rel_pos] = float(mc)
+            cov_values[rel_pos] = float(cov)
+        except IndexError:
+            # pysam fetch includes the last position, which is out of the region
+            continue
+    return mc_values, cov_values
+
+
+@ray.remote
+def _allc_values_worker(allc_path: str, regions: pd.DataFrame) -> list[csr_matrix]:
+    mc_data = []
+    cov_data = []
+    with pysam.TabixFile(allc_path) as allc:
+        for _, (chrom, start, end, *_) in regions.iterrows():
+            # query allc file for each region, get two numpy arrays for this region
+            mc_region_data, cov_region_data = _query_allc_region(
+                allc, chrom, start, end
+            )
+            mc_data.append(csr_matrix(mc_region_data))
+            cov_data.append(csr_matrix(cov_region_data))
+
+    return mc_data, cov_data
+
+
+@ray.remote
+def _remote_allc_values(allc_path, regions, fetch_chunks=5000) -> list[csr_matrix]:
+    regions["chunk_id"] = np.arange(len(regions)) // fetch_chunks
+
+    chunk_col = []
+    for _, chunk_df in regions.groupby("chunk_id"):
+        chunk_col.append(_allc_values_worker.remote(allc_path, chunk_df))
+
+    # In single ALLC file,
+    # list of mc csr_matrix for each region, the shape of csr_matrix is (1, region_length)
+    regions_mc_data = []
+    # list of cov csr_matrix for each region, the shape of csr_matrix is (1, region_length)
+    regions_cov_data = []
+    for _mc, _cov in ray.get(chunk_col):
+        regions_mc_data.extend(_mc)
+        regions_cov_data.extend(_cov)
+    return regions_mc_data, regions_cov_data
+
+
+class GenomeALLCDataset:
+    def __init__(
+        self,
+        *args: str,
+        prefix: str = "allc",
+        sparse: bool = True,
+        compress_level: int = 5,
+        **kwargs: str,
+    ) -> None:
+        """
+        Initialize the GenomeALLCDataset.
+        This dataset is a IO helper to create genome chunk parquet for ray.data.Dataset
+
+        Parameters
+        ----------
+        args : str
+            The paths to the ALLC files. Name of the ALLC file will be row name.
+        prefix : str, optional
+            The prefix for the ALLC dataset name in the compressed bytes dictionary. Default is "allc".
+        sparse : bool, optional
+            Whether to use sparse representation for the sample-by-base matrix. Default is True.
+        compress_level : int, optional
+            The compression level. Default is 5.
+        kwargs : str
+            Additional paths to the ALLC files. The keys will be used as the row names.
+        """
+        self.prefix = prefix
+        self.sparse = sparse
+        self.compress_level = compress_level
+
+        self.allc_path_dict = OrderedDict()
+        self._add_allc(*args, **kwargs)
+
+        self._opened_allcs = {}
+
+    def __repr__(self) -> str:
+        """
+        Return a string representation of the GenomeALLCDataset.
+        """
+        repr_str = f"GenomeALLCDataset ({len(self.allc_path_dict)} allc)\n"
+        for name, path in self.allc_path_dict.items():
+            repr_str += f"{name}: {path}\n"
+        return repr_str
+
+    def _add_allc(self, *args: str, **kwargs: str) -> None:
+        """
+        Add paths to the ALLC files.
+
+        Parameters
+        ----------
+        args : str
+            The paths to the ALLC files. The name of the ALLC file will be the row name.
+        kwargs : str
+            Additional paths to the ALLC files. The keys will be used as the row names.
+        """
+        for key, value in kwargs.items():
+            self.allc_path_dict[key] = str(value)
+        for arg in args:
+            name = pathlib.Path(arg).name
+            self.allc_path_dict[name] = str(arg)
+
+    def get_regions_data(
+        self, regions_df: pd.DataFrame
+    ) -> list[dict[str, Union[np.ndarray, list[float]]]]:
+        """
+        Get the data for the specified regions.
+
+        Parameters
+        ----------
+        regions_df : pd.DataFrame
+            The DataFrame containing the regions.
+
+        Returns
+        -------
+        list[dict[str, Union[np.ndarray, list[float]]]]
+            The list of data dictionaries for each region.
+        """
+        names = self.get_row_names()
+        tasks = []
+        for name in names:
+            path = self.allc_path_dict[name]
+            this_task = _remote_allc_values.remote(path, regions_df)
+            tasks.append(this_task)
+
+        for i, task in enumerate(tasks):
+            list_of_mc_csr, list_of_cov_csr = ray.get(task)
+            if i == 0:
+                list_of_mc_lists: list[list[csr_matrix]] = [
+                    [region_csr] for region_csr in list_of_mc_csr
+                ]
+                list_of_cov_lists: list[list[csr_matrix]] = [
+                    [region_csr] for region_csr in list_of_cov_csr
+                ]
+            else:
+                for idx, region_csr in enumerate(list_of_mc_csr):
+                    list_of_mc_lists[idx].append(region_csr)
+                for idx, region_csr in enumerate(list_of_cov_csr):
+                    list_of_cov_lists[idx].append(region_csr)
+
+        region_names = (
+            regions_df["Chromosome"]
+            + ":"
+            + regions_df["Start"].astype(str)
+            + "-"
+            + regions_df["End"].astype(str)
+        ).tolist()
+
+        def _rename_k(k, suffix):
+            prefix, data_info = k.split(":")
+            return f"{prefix}{suffix}:{data_info}"
+
+        @ray.remote
+        def _get_data_dict(
+            region_mc_csr_list: list[csr_matrix],
+            region_cov_csr_list: list[csr_matrix],
+            region: str,
+            sparse: bool,
+            prefix: str,
+            compress_level: int,
+        ) -> dict[str, Union[bytes, str]]:
+            data_dicts = []
+            for _suffix, _list_of_csr in zip(
+                ["_mc", "_cov"], [region_mc_csr_list, region_cov_csr_list]
+            ):
+                if sparse:
+                    data_dict = csr_matrix_to_compressed_bytes_dict(
+                        prefix=prefix, matrix=vstack(_list_of_csr), level=compress_level
+                    )
+                else:
+                    data_dict = array_to_compressed_bytes_dict(
+                        prefix=prefix,
+                        array=np.vstack([x.toarray() for x in _list_of_csr]),
+                        level=compress_level,
+                    )
+                data_dict = {_rename_k(k, _suffix): v for k, v in data_dict.items()}
+
+                data_dicts.append(data_dict)
+
+            final_data_dict = {}
+            for _d in data_dicts:
+                final_data_dict.update(_d)
+            final_data_dict["region"] = region
+            return final_data_dict
+
+        list_of_dicts = []
+        for region, _mc, _cov in zip(region_names, list_of_mc_lists, list_of_cov_lists):
+            task = _get_data_dict.remote(
+                region_mc_csr_list=_mc,
+                region_cov_csr_list=_cov,
+                region=region,
+                sparse=self.sparse,
+                prefix=self.prefix,
+                compress_level=self.compress_level,
+            )
+            list_of_dicts.append(task)
+        list_of_dicts = ray.get(list_of_dicts)
+        return list_of_dicts
+
+    def get_row_names(self) -> pd.Index:
+        """
+        Get the row names of the GenomeALLCDataset.
+
+        Returns
+        -------
+        pd.Index
+            The row names.
+        """
+        return pd.Index(self.allc_path_dict.keys())
 
 
 class SnapAnnDataDataset:
