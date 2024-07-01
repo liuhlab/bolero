@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from bolero.tl.model.generic.train_helper import validate_config
+from bolero.utils import validate_config
 
 
 class GenericModule(nn.Module):

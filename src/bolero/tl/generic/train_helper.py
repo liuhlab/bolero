@@ -489,34 +489,6 @@ def check_wandb_success(wandb_path):
     return run_success
 
 
-def validate_config(config, default_config, allow_extra_keys=True):
-    """
-    Validate the config dictionary against the default config dictionary.
-    """
-    error_msg = ""
-    required_missing = []
-    for k, v in default_config.items():
-        if v == "REQUIRED":
-            _v = config.get(k, "REQUIRED")
-            if _v == "REQUIRED":
-                required_missing.append(k)
-    if len(required_missing) > 0:
-        error_msg += f"Required fields missing from config: {required_missing}\n"
-
-    if not allow_extra_keys:
-        extra_keys = []
-        for k in config.keys():
-            if k not in default_config:
-                extra_keys.append(k)
-        if len(extra_keys) > 0:
-            error_msg += f"Extra keys found in config: {extra_keys}\n"
-
-    if len(error_msg) > 0:
-        raise ValueError(error_msg)
-
-    return True
-
-
 class FakeWandb:
     """
     A fake wandb context manager that does nothing.

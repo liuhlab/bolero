@@ -1,6 +1,6 @@
 from torch import nn
 
-from bolero.tl.model.generic.module import DNA_CNN, DilatedCNN
+from bolero.tl.generic.module import DNA_CNN, DilatedCNN
 from bolero.tl.model.track1d.module import OutputHead
 
 

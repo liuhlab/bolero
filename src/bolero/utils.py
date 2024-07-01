@@ -252,9 +252,17 @@ def init(
         `os.cpu_count() - 1`.
     object_store_memory_gb : int, optional
         The amount of memory in GBs to use for ray's object store. Default is None.
+        Provide either `object_store_memory_gb` or `object_store_memory_ratio`.
+    object_store_memory_ratio : float, optional
+        The ratio of system memory to use for ray's object store. Default is 0.5.
+        Provide either `object_store_memory_gb` or `object_store_memory_ratio`.
     """
-    # CUDA
+    # CUDA and Ray env variables
     import os
+
+    # set environment variable to ignore unhandled errors
+    # RAY_IGNORE_UNHANDLED_ERRORS = 1
+    # os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = str(RAY_IGNORE_UNHANDLED_ERRORS)
 
     if visible_devices is not None:
         if isinstance(visible_devices, int):
@@ -303,6 +311,7 @@ def init(
             "automatic_object_spilling_enabled": object_spilling,
         },
         runtime_env={},
+        resources={"bolero_dataset_gen": 100}
     )
 
     # ray data
@@ -312,3 +321,31 @@ def init(
     context.enable_progress_bars = verbose
     context.max_errored_blocks = _ray_max_errored_blocks
     return
+
+
+def validate_config(config, default_config, allow_extra_keys=True):
+    """
+    Validate the config dictionary against the default config dictionary.
+    """
+    error_msg = ""
+    required_missing = []
+    for k, v in default_config.items():
+        if v == "REQUIRED":
+            _v = config.get(k, "REQUIRED")
+            if _v == "REQUIRED":
+                required_missing.append(k)
+    if len(required_missing) > 0:
+        error_msg += f"Required fields missing from config: {required_missing}\n"
+
+    if not allow_extra_keys:
+        extra_keys = []
+        for k in config.keys():
+            if k not in default_config:
+                extra_keys.append(k)
+        if len(extra_keys) > 0:
+            error_msg += f"Extra keys found in config: {extra_keys}\n"
+
+    if len(error_msg) > 0:
+        raise ValueError(error_msg)
+
+    return True

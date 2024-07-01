@@ -104,7 +104,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         return
 
     def _get_dataset(self):
-        dataset = scPrinterDataset.create_from_config(self.config)
+        dataset = super()._get_dataset()
 
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {

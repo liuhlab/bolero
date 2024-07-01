@@ -1,34 +1,19 @@
 from collections import OrderedDict
-from typing import Any, Callable, Iterable, Iterator, TypeVar, Union
+from typing import Any, Iterable, Union
 
 import numpy as np
 
-from bolero.tl.dataset.ray_sc_dataset import (
+from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
 )
+from bolero.tl.dataset.sc_transforms import FilterRegions
 from bolero.tl.dataset.transforms import (
     BatchRegionEmbedding,
     CropLastAxisWithJitter,
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.tl.model.generic.train_helper import validate_config
-
-T = TypeVar("T")
-
-
-class _IterableFromIterator(Iterable[T]):
-    def __init__(self, iterator_gen: Callable[[], Iterator[T]]):
-        """Constructs an Iterable from an iterator generator.
-
-        Args:
-            iterator_gen: A function that returns an iterator each time it
-                is called. For example, this can be a generator function.
-        """
-        self.iterator_gen = iterator_gen
-
-    def __iter__(self):
-        return self.iterator_gen()
+from bolero.utils import validate_config
 
 
 class BatchFootPrint(FootPrintModel):
@@ -346,26 +331,92 @@ class scPrinterDataset(RayGenomeChunkDataset):
         footprinter = fn(**fn_constructor_kwargs)
         return footprinter
 
-    def _get_processed_dataset(
+    def _filter_bed_regions(
         self,
-        chroms,
-        region_bed_path,
-        return_cells=False,
-        return_regions=False,
+        dataset,
+        cov_filter_key,
+        min_cov,
+        max_cov,
+        low_cov_ratio,
+        batch_size,
+        concurrency,
+    ):
+        fn = FilterRegions
+        fn_constructor_kwargs = {
+            "cov_filter_key": cov_filter_key,
+            "min_cov": min_cov,
+            "max_cov": max_cov,
+            "low_cov_ratio": low_cov_ratio,
+        }
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def get_processed_dataset(
+        self,
+        chroms: list[str],
+        region_bed_path: str,
+        return_cells: bool = False,
+        return_regions: bool = False,
     ) -> None:
+        """
+        Process the dataset and return the processed dataset.
+
+        Parameters
+        ----------
+        - chroms (list): List of chromosomes to include in the dataset.
+        - region_bed_path (str): Path to the BED file containing the regions.
+        - return_cells (bool): Whether to return the cells in the dataset. Default is False.
+        - return_regions (bool): Whether to return the regions in the dataset. Default is False.
+
+        Returns
+        -------
+        - work_ds (Dataset): The processed dataset.
+
+        """
+        standard_length = max(self.dna_window, self.signal_window) + self.max_jitter * 2 + 200
+        standard_length = int(standard_length)
+        region_bed = self.standard_region_length(region_bed_path, standard_length)
+
         work_ds = super()._get_processed_dataset(
             chroms=chroms,
-            region_bed_path=region_bed_path,
+            region_bed=region_bed,
             name_to_pseudobulker=self.name_to_pseudobulker,
             bypass_keys=[self.bias_column],
             n_pseudobulks=self.n_pseudobulks,
-            min_cov=self.min_cov,
-            max_cov=self.max_cov,
-            low_cov_ratio=self.low_cov_ratio,
-            cov_filter_name=self.cov_filter_name,
             return_rows=return_cells,
             inplace=False,
             region_action_keys=[self.bias_column],
+        )
+
+        min_cov = self.min_cov
+        max_cov = self.max_cov
+        low_cov_ratio = self.low_cov_ratio
+        cov_filter_name = self.cov_filter_name
+        # filter coverage
+        if cov_filter_name is not None:
+            cov_filter_key = f"{cov_filter_name}:bulk_data"
+            assert (
+                cov_filter_key in self.signal_columns
+            ), f"cov_filter_key {cov_filter_key} not in {self.signal_columns}"
+            work_ds = self._filter_bed_regions(
+                dataset=work_ds,
+                cov_filter_key=cov_filter_key,
+                min_cov=min_cov,
+                max_cov=max_cov,
+                low_cov_ratio=low_cov_ratio,
+                batch_size=512,
+                concurrency=1,
+            )
+
+        # add dna one hot
+        work_ds = self._get_dna_one_hot(
+            dataset=work_ds,
+            concurrency=1,
         )
 
         work_ds = self._get_region_cropper(work_ds)
@@ -387,8 +438,9 @@ class scPrinterDataset(RayGenomeChunkDataset):
         region_bed_path,
         as_torch=True,
         return_regions=False,
+        return_cells=False,
         n_batches=None,
-        **kwargs,
+        **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
         Get the dataloader.
@@ -405,7 +457,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
             The device to use, by default None.
         return_cells : bool, optional
             Whether to return the cell ids, by default False.
-        **kwargs
+        **dataloader_kwargs
             Additional keyword arguments pass to ray.data.Dataset.iter_batches.
 
         Returns
@@ -413,41 +465,24 @@ class scPrinterDataset(RayGenomeChunkDataset):
         DataLoader
             The dataloader.
         """
+        shuffle_rows = int(500 * (self.n_pseudobulks + 1))
+        shuffle_rows = min(shuffle_rows, 5000)
 
-        # this is adapted from the ray.data.iterator.DataIterator.iter_batches
-        # https://github.com/ray-project/ray/blob/master/python/ray/data/iterator.py#L106
-        def _create_iterator():
-            print(f"Get dataloader with {self._dataset_mode} mode")
+        # dataset_kwargs will be passed to self.get_processed_dataset method
+        dataset_kwargs = {
+            "chroms": chroms,
+            "region_bed_path": region_bed_path,
+            "return_cells": return_cells,
+            "return_regions": return_regions,
+        }
+        data_iter_kwargs = dataloader_kwargs
 
-            work_ds = self._get_processed_dataset(
-                chroms=chroms,
-                region_bed_path=region_bed_path,
-                return_cells=False,
-                return_regions=return_regions,
-            )
-
-            if n_batches is not None:
-                n_rows = (n_batches + 1) * self.batch_size
-                work_ds = work_ds.limit(n_rows)
-
-            _shuffle_rows = int(500 * self.n_pseudobulks)
-            _kwargs = {
-                "prefetch_batches": 3,
-                "local_shuffle_buffer_size": (
-                    _shuffle_rows if self._dataset_mode == "train" else None
-                ),
-                "drop_last": True,
-                "batch_size": self.batch_size,
-            }
-            _kwargs.update(kwargs)
-            print("data loader kwargs", _kwargs)
-
-            if as_torch:
-                loader = work_ds.iter_torch_batches(**_kwargs)
-            else:
-                loader = work_ds.iter_batches(**_kwargs)
-
-            yield from loader
-
-        # the dataset and dataloader are created lazily, until __iter__ is called
-        return _IterableFromIterator(_create_iterator)
+        loader = self._get_dataloader_with_wrapper(
+            dataset_kwargs=dataset_kwargs,
+            data_iter_kwargs=data_iter_kwargs,
+            as_torch=as_torch,
+            shuffle_rows=shuffle_rows,
+            n_batches=n_batches,
+            batch_size=self.batch_size,
+        )
+        return loader

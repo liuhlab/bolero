@@ -136,7 +136,7 @@ lint.ignore = [
 ]
 extend-include = ["*.ipynb"]
 exclude = [
-  "src/bolero/tl/model/generic/ema.py",
+  "src/bolero/tl/generic/ema.py",
   "tests/"
 ]
 

@@ -7,15 +7,14 @@ import wandb
 
 from bolero.pl.track1d import Track1DExamplePlotter
 from bolero.pl.utils import figure_to_array
-from bolero.tl.model.generic.train import GenericTrainer
-from bolero.tl.model.generic.train_helper import (
+from bolero.tl.generic.train import GenericTrainer
+from bolero.tl.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,
 )
-from bolero.tl.model.mc.dataset import mCGenomeChunkDataset
+from bolero.tl.model.mc.dataset import mCTrackDataset
 from bolero.tl.model.mc.model import MultiTrackmCModel
-from bolero.utils import get_fs_and_path
 
 
 class mCTrainerMixin(GenericTrainer):
@@ -55,59 +54,6 @@ class mCTrainerMixin(GenericTrainer):
         self._setup_env()
         self._setup_dataset()
         return
-
-    # ======================
-    # Dataset and Dataloader
-    # ======================
-
-    def _setup_dataset(self):
-        config = self.config
-
-        # train, valid, test split by chromosome
-        chrom_split = config["chrom_split"]
-        self.train_chroms = chrom_split["train"]
-        self.valid_chroms = chrom_split["valid"]
-        self.test_chroms = chrom_split["test"]
-
-        # dataset location and schema
-        self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
-        self.config["dataset"] = self.dataset_dir
-
-        # create dataset
-        self.dataset: mCGenomeChunkDataset = self._get_dataset()
-
-    def _get_dataset(self):
-        raise NotImplementedError
-
-    def get_train_dataloader(self, batches):
-        """Training dataloader."""
-        self.dataset.train()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.train_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
-
-    def get_valid_dataloader(self, batches):
-        """Validation dataset."""
-        self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.valid_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
-
-    def get_test_dataloader(self, batches):
-        """Test dataset."""
-        self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.test_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
 
     # =============================
     # Model training and validation
@@ -176,7 +122,7 @@ class mCTrainerMixin(GenericTrainer):
             if ((batch_id + 1) % print_step) == 0:
                 desc_str = (
                     f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
-                    f"Footprint Loss: {val_loss/size:.3f}; "
+                    f"Loss: {val_loss/size:.3f}; "
                     f"Within batch Pearson: {single_batch_pearson_counter.mean():.3f}; "
                     f"Across batch Pearson: {across_batch_pearson_counter.corr():.3f}; "
                 )
@@ -237,38 +183,6 @@ class mCTrainerMixin(GenericTrainer):
                 )
             )
         return wandb_images
-
-    def _validation_step(self, testing=False, val_batches=None):
-        val_batches = val_batches or self.val_batches
-        if testing:
-            dataloader = self.get_test_dataloader(batches=val_batches)
-        else:
-            dataloader = self.get_valid_dataloader(batches=val_batches)
-
-        with torch.inference_mode():
-            if self.use_ema:
-                self.ema.eval()
-                self.ema.ema_model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.ema.ema_model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
-                )
-                self.ema.train()
-                self.ema.ema_model.train()
-            else:
-                self.model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
-                )
-                self.model.train()
-        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
     def _log_save_and_check_stop(self):
         epoch = self.cur_epoch
@@ -345,7 +259,7 @@ class mCTrainerMixin(GenericTrainer):
                     "val/val_loss": self.val_loss,
                     "val/single_batch_pearson": self.single_batch_pearson,
                     "val/across_batch_pearson": self.across_batch_pearson,
-                    "val_example/example_footprints": wandb_images,
+                    "val_example/example_images": wandb_images,
                 }
             )
 
@@ -376,7 +290,6 @@ class mCTrainerMixin(GenericTrainer):
                 break
 
             # get train data loader
-            print("Get data loader")
             dataloader = self.get_train_dataloader(batches=self.train_batches)
 
             # start train epochs
@@ -523,7 +436,7 @@ class mCTrainerMixin(GenericTrainer):
 
 
 class mCBaseTrainer(mCTrainerMixin):
-    """Train scFootprintBPNet base model on pseudobulk single-cell ATAC data."""
+    """Train MultiTrackmCModel base model on pseudobulk single-cell ATAC data."""
 
     trainer_config = mCTrainerMixin.trainer_config.copy()
     trainer_config.update(
@@ -535,7 +448,7 @@ class mCBaseTrainer(mCTrainerMixin):
         }
     )
 
-    dataset_class = mCGenomeChunkDataset
+    dataset_class = mCTrackDataset
     model_class = MultiTrackmCModel
 
     def __init__(self, config):
@@ -578,10 +491,6 @@ class mCBaseTrainer(mCTrainerMixin):
         self._set_total_params()
         return
 
-    def _get_dataset(self):
-        dataset = mCGenomeChunkDataset.create_from_config(self.config)
-        return dataset
-
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         prefix = self.prefix
         mc_frac_key = f"{prefix}_mc_frac"
@@ -613,7 +522,7 @@ class mCBaseTrainer(mCTrainerMixin):
         return y_mc_frac, pred_mc_frac, mask
 
     def train(self, valid_first=None) -> None:
-        """Train the scFootprintTrainer model on LoRA mode."""
+        """Train the MultiTrackmCModel model."""
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return
@@ -623,7 +532,6 @@ class mCBaseTrainer(mCTrainerMixin):
                 valid_first = True
 
         with wandb_run:
-            # Fit LoRA
             self.checkpoint = self._has_last_checkpoint()
             self._setup_model()
             self._setup_fit()
@@ -632,12 +540,3 @@ class mCBaseTrainer(mCTrainerMixin):
             self._cleanup_env()
             wandb.finish()
         return
-
-
-class mCFineTuneTrainer(mCBaseTrainer):
-    # everything is the same as scFootprintBaseTrainer
-    # except for the mode and default learning rate
-    trainer_config = mCBaseTrainer.trainer_config.copy()
-    trainer_config.update(
-        {"mode": "finetune", "lr": 0.0003, "pretrained_model": "REQUIRED"}
-    )

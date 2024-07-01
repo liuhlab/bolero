@@ -9,48 +9,15 @@ import torch
 import wandb
 from torch import nn
 
-from bolero.tl.model.generic.ema import EMA
-from bolero.tl.model.generic.train_helper import (
+from bolero.tl.generic.dataset import GenericDataset
+from bolero.tl.generic.ema import EMA
+from bolero.tl.generic.train_helper import (
     FakeWandb,
     check_wandb_success,
     compare_configs,
     safe_save,
-    validate_config,
 )
-from bolero.utils import get_fs_and_path, try_gpu
-
-
-class GenericDataset:
-    """
-    Generic dataset class.
-    """
-
-    default_config: dict = {}
-
-    @classmethod
-    def get_default_config(cls) -> dict:
-        """
-        Get the default configuration for the dataset.
-
-        Returns
-        -------
-            dict: The default configuration.
-        """
-        return deepcopy(cls.default_config)
-
-    @classmethod
-    def create_from_config(cls, config: dict):
-        """
-        Create a dataset instance from a configuration.
-
-        Args:
-            config (dict): The configuration.
-
-        Returns
-        -------
-            GenericDataset: The dataset instance.
-        """
-        return cls(**config)
+from bolero.utils import get_fs_and_path, try_gpu, validate_config
 
 
 class GenericModel(nn.Module):
@@ -182,14 +149,7 @@ class TrainerDatasetMixin:
 
     """
 
-    dataset_class: type
-    train_dataset: GenericDataset
-    valid_dataset: GenericDataset
-    test_dataset: GenericDataset
-    train_chroms: list[str]
-    valid_chroms: list[str]
-    test_chroms: list[str]
-    config: dict
+    dataset_class: GenericDataset
 
     def _setup_dataset(self):
         """
@@ -209,6 +169,9 @@ class TrainerDatasetMixin:
         self._train_dataset = None
         self._valid_dataset = None
         self._test_dataset = None
+
+        # create dataset
+        self.dataset: GenericDataset = self._get_dataset()
 
     def _get_dataset_paths(self, _chroms):
         """
@@ -232,53 +195,7 @@ class TrainerDatasetMixin:
                 dataset_paths.append(path)
         return dataset_paths
 
-    @property
-    def train_dataset(self):
-        """
-        Training dataset.
-
-        Returns
-        -------
-            GenericDataset: The training dataset.
-
-        """
-        if self._train_dataset is None:
-            dataset = self._get_dataset(self.train_chroms)
-            dataset.train()
-            self._train_dataset = dataset
-        return self._train_dataset
-
-    @property
-    def valid_dataset(self):
-        """
-        Validation dataset.
-
-        Returns
-        -------
-            GenericDataset: The validation dataset.
-
-        """
-        if self._valid_dataset is None:
-            self._valid_dataset = self._get_dataset(self.valid_chroms)
-            self._valid_dataset.eval()
-        return self._valid_dataset
-
-    @property
-    def test_dataset(self):
-        """
-        Test dataset.
-
-        Returns
-        -------
-            GenericDataset: The test dataset.
-
-        """
-        if self._test_dataset is None:
-            self._test_dataset = self._get_dataset(self.test_chroms)
-            self._test_dataset.eval()
-        return self._test_dataset
-
-    def _get_dataset(self, chroms):
+    def _get_dataset(self):
         """
         Get the dataset object for the given chromosomes.
 
@@ -290,17 +207,41 @@ class TrainerDatasetMixin:
             GenericDataset: The dataset object.
 
         """
-        dataset_paths = self._get_dataset_paths(chroms)
-        config = self.config.copy()
-        config["dataset_path"] = dataset_paths
-        validate_config(
-            config, self.dataset_class.default_config, allow_extra_keys=True
-        )
-        dataset = self.dataset_class.create_from_config(config)
+        dataset = self.dataset_class.create_from_config(self.config)
         return dataset
 
+    def get_train_dataloader(self, batches):
+        """Training dataloader."""
+        self.dataset.train()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.train_chroms,
+            region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
+        )
+        return dataloader
 
-class GenericTrainer(TrainerAttributesMixin):
+    def get_valid_dataloader(self, batches):
+        """Validation dataset."""
+        self.dataset.eval()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.valid_chroms,
+            region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
+        )
+        return dataloader
+
+    def get_test_dataloader(self, batches):
+        """Test dataset."""
+        self.dataset.eval()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.test_chroms,
+            region_bed_path=self.config["region_bed_path"],
+            n_batches=batches,
+        )
+        return dataloader
+
+
+class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
     """Generic Trainer for training models."""
 
     trainer_config = {
@@ -353,6 +294,8 @@ class GenericTrainer(TrainerAttributesMixin):
         self.cur_epoch: int = 0
         self.early_stopping_counter: int = 0
         self.best_val_loss: float = np.Inf
+        self.train_batches: int = None
+        self.val_batches: int = None
 
         # path and file names
         self.output_dir = pathlib.Path(config["output_dir"]).absolute().resolve()
@@ -670,10 +613,43 @@ class GenericTrainer(TrainerAttributesMixin):
             self._update_state_dict()
         return
 
-    def _validation_step(self, *args, **kwargs):
+    def _model_validation_step(self, *args, **kwargs):
         """Model specific validation step."""
         print("Implement model specific validation step here.")
         raise NotImplementedError
+
+    def _validation_step(self, testing=False, val_batches=None):
+        """Generic validation step."""
+        val_batches = val_batches or self.val_batches
+        if testing:
+            dataloader = self.get_test_dataloader(batches=val_batches)
+        else:
+            dataloader = self.get_valid_dataloader(batches=val_batches)
+
+        with torch.inference_mode():
+            if self.use_ema:
+                self.ema.eval()
+                self.ema.ema_model.eval()
+                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.ema.ema_model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
+                )
+                self.ema.train()
+                self.ema.ema_model.train()
+            else:
+                self.model.eval()
+                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
+                )
+                self.model.train()
+        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
     def _save_checkpint(self, update_best: bool):
         epoch_info = {

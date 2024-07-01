@@ -10,5 +10,6 @@ import warnings
 
 from .pp import Genome, Sequence
 from .utils import init
+from .tl.generic.train_helper import mm10_splits, hg38_splits
 
 warnings.filterwarnings("ignore", module="pyranges")

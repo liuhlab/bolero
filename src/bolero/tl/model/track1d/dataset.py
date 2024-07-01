@@ -1,410 +1,336 @@
-from typing import Iterable, Optional, Union
+from typing import Optional, Union
 
-import numpy as np
-
-from bolero.tl.dataset.filters import RowSumFilter
-from bolero.tl.dataset.ray_dataset import RayGenomeDataset
-from bolero.tl.dataset.transforms import (
-    AddChannels,
-    BatchToFloat,
-    CropRegionsWithJitter,
-    ReverseComplement,
-)
-from bolero.tl.model.generic.train_helper import validate_config
+from bolero.tl.dataset.ray_dataset import RayGenomeChunkDataset
+from bolero.tl.dataset.sc_transforms import FilterRegions
+from bolero.tl.dataset.transforms import CropLastAxisWithJitter, ReverseComplement
 
 
-class Track1DDataset(RayGenomeDataset):
+class Track1DDataset(RayGenomeChunkDataset):
     """
-    RayDataset class for working with bulk 1-D track model.
+    Track1DDataset class for working with bulk 1-D track model.
 
     Parameters
     ----------
-    dataset : ray.data.Dataset
-        The Ray dataset.
-    dna_window : int, optional
-        The size of the DNA window.
-    signal_window : int, optional
-        The size of the signal window.
-    max_jitter : int, optional
-        The maximum jitter value.
-    reverse_complement : bool, optional
-        Whether to use reverse complement.
+    dataset_path : Union[str, list[str]]
+        The path(s) to the dataset file(s).
+    prefix : str
+        The prefix used for the signal column in the dataset. Currently only one signal column is supported.
+    genome : Optional[str], default=None
+        The genome used for the dataset.
+    max_jitter : int, default=128
+        The maximum jitter value for cropping the regions.
+    dna_length : int, default=1840
+        The length of the DNA sequences.
+    signal_length : int, default=1000
+        The length of the signal sequences.
+    min_cov : int, default=50
+        The minimum coverage value for filtering regions.
+    max_cov : int, default=100000
+        The maximum coverage value for filtering regions.
+    low_cov_ratio : float, default=0.1
+        The low coverage ratio for filtering regions.
+        Low coverage regions will be spiked in the dataset with this ratio as negative examples.
+    batch_size : int, default=64
+        The batch size for the dataloader.
+    shuffle_files : bool, default=False
+        Whether to shuffle the dataset files.
+    read_parquet_kwargs : dict, optional
+        Additional keyword arguments for reading the dataset files.
 
     Attributes
     ----------
-    _working_dataset : ray.data.Dataset
-        The working dataset used for filter and map operations.
-    dna_name : str
-        The name of the DNA.
-    region_ids_name : str
-        The name of the region IDs.
-    min_counts : int
-        The minimum counts value.
-    max_counts : int
-        The maximum counts value.
+    prefix : str
+        The prefix used for the signal columns in the dataset.
+    batch_size : int
+        The batch size for the dataloader.
+    max_jitter : int
+        The maximum jitter value for cropping the regions.
+    dna_length : int
+        The length of the DNA sequences.
+    signal_length : int
+        The length of the signal sequences.
+    min_cov : int
+        The minimum coverage value for filtering regions.
+    max_cov : int
+        The maximum coverage value for filtering regions.
+    low_cov_ratio : float
+        The low coverage ratio for filtering regions.
+    signal_columns : list[str]
+        The names of the signal columns in the dataset.
 
     Methods
     -------
-    set_min_max_counts_cutoff(column: str) -> None:
-        Set the minimum and maximum counts cutoff based on the given column.
-    _filter_by_coverage(column: str) -> None:
-        Filter the working dataset based on the coverage of the given column.
-    dna_to_float() -> None:
-        Convert the DNA data to float.
-    crop_regions() -> None:
-        Crop the regions in the working dataset.
-    reverse_complement() -> None:
-        Reverse complement the DNA sequences.
+    _filter_regions(dataset, concurrency=1)
+        Filter the regions in the dataset based on coverage.
+    _get_region_cropper(dataset)
+        Crop the regions in the dataset.
+    _get_reverse_complement_region(dataset)
+        Reverse complement the DNA sequences in the dataset.
+    get_processed_dataset(chroms, region_bed_path)
+        Get the processed dataset with various operators applied.
+    get_dataloader(chroms, region_bed_path, n_batches, shuffle_rows=2000, as_torch=True)
+        Get the dataloader for the dataset.
     """
 
     default_config = {
         "dataset_path": "REQUIRED",
-        "dataset_columns": None,
-        "batch_size": 64,
-        "dna_window": 1840,
-        "signal_window": 1000,
+        "prefix": "REQUIRED",
+        "genome": "REQUIRED",
         "max_jitter": 128,
-        "cov_min_q": 0.0001,
-        "cov_max_q": 0.9999,
-        "local_shuffle_buffer_size": 5000,
-        "reverse_complement": True,
+        "dna_length": 1840,
+        "signal_length": 1000,
+        "min_cov": 50,
+        "max_cov": 100000,
+        "low_cov_ratio": 0.1,
+        "batch_size": 64,
+        "shuffle_files": False,
+        "read_parquet_kwargs": None,
     }
-
-    @classmethod
-    def get_default_config(cls) -> dict:
-        """
-        Get the default configuration.
-
-        Returns
-        -------
-        dict
-            The default configuration.
-        """
-        return cls.default_config
-
-    @classmethod
-    def create_from_config(
-        cls,
-        config: dict,
-    ) -> "Track1DDataset":
-        """
-        Create a Bulk1DTrackDataset object from the configuration.
-
-        Parameters
-        ----------
-        config : dict
-            The configuration.
-        remove_additional_keys : bool, optional
-            Whether to remove additional keys in the configuration (default is True).
-
-        Returns
-        -------
-        Bulk1DTrackDataset
-            The Bulk1DTrackDataset object.
-        """
-        validate_config(config, cls.default_config)
-        # remove additional keys in the configuration
-        config = {k: v for k, v in config.items() if k in cls.default_config}
-        return cls(**config)
 
     def __init__(
         self,
         dataset_path: Union[str, list[str]],
-        dataset_columns: Optional[list[str]] = None,
-        batch_size: int = 64,
-        dna_window: int = 1840,
-        signal_window: int = 1000,
+        prefix: str,
+        genome: Optional[str] = None,
         max_jitter: int = 128,
-        cov_min_q: float = 0.0001,
-        cov_max_q: float = 0.9999,
-        local_shuffle_buffer_size: int = 5000,
-        reverse_complement: bool = True,
-        **kwargs,
+        dna_length: int = 1840,
+        signal_length: int = 1000,
+        min_cov: int = 50,
+        max_cov: int = 100000,
+        low_cov_ratio: float = 0.1,
+        batch_size: int = 64,
+        shuffle_files: bool = False,
+        read_parquet_kwargs: Optional[dict] = None,
     ) -> None:
         """
-        Initialize a Bulk1DTrackDataset object.
+        Initialize a Track1DDataset object.
 
         Parameters
         ----------
-        dataset : Dataset
-            The Ray dataset.
-        columns : Optional[List[str]], optional
-            The list of columns to select, if None, all columns are selected (default is None).
-        batch_size : int, optional
-            The batch size (default is 64).
-        dna_window : int, optional
-            The size of the DNA window (default is 1840).
-        signal_window : int, optional
-            The size of the signal window (default is 1000).
-        max_jitter : int, optional
-            The maximum jitter value (default is 128).
-        cov_min_q : float, optional
-            The minimum quantile value for coverage (default is 0.0001).
-        cov_max_q : float, optional
-            The maximum quantile value for coverage (default is 0.9999).
-        reverse_complement : bool, optional
-            Whether to use reverse complement (default is True).
-        **kwargs
-            Additional keyword arguments passed to the ray.data.read_parquet.
-
-        Returns
-        -------
-        None
+        dataset_path : Union[str, list[str]]
+            The path(s) to the dataset file(s).
+        prefix : str
+            The prefix used for the signal columns in the dataset.
+        genome : Optional[str], default=None
+            The genome used for the dataset.
+        max_jitter : int, default=128
+            The maximum jitter value for cropping the regions.
+        dna_length : int, default=1840
+            The length of the DNA sequences.
+        signal_length : int, default=1000
+            The length of the signal sequences.
+        min_cov : int, default=50
+            The minimum coverage value for filtering regions.
+        max_cov : int, default=100000
+            The maximum coverage value for filtering regions.
+        low_cov_ratio : float, default=0.1
+            The low coverage ratio for filtering regions.
+            Low coverage regions will be spiked in the dataset with this ratio as negative examples.
+        batch_size : int, default=64
+            The batch size for the dataloader.
+        shuffle_files : bool, default=False
+            Whether to shuffle the dataset files.
+        read_parquet_kwargs : dict, optional
+            Additional keyword arguments for reading the dataset files.
         """
-        super().__init__(dataset_path, columns=dataset_columns, **kwargs)
-
+        self.prefix = prefix
         self.batch_size = batch_size
-        # region properties
-        self.dna_window = dna_window
-        self.signal_window = signal_window
         self.max_jitter = max_jitter
-        self.min_counts = 10
-        self.max_counts = 1e16
-        self.cov_min_q = cov_min_q
-        self.cov_max_q = cov_max_q
-        self.reverse_complement = reverse_complement
+        self.dna_length = dna_length
+        self.signal_length = signal_length
+        self.min_cov = min_cov
+        self.max_cov = max_cov
+        self.low_cov_ratio = low_cov_ratio
 
-        # data loader
-        self.local_shuffle_buffer_size = local_shuffle_buffer_size
+        super().__init__(
+            dataset_path=dataset_path,
+            genome=genome,
+            shuffle_files=shuffle_files,
+            read_parquet_kwargs=read_parquet_kwargs,
+        )
+
+        self._cov_filter_key = self.prefix
+        self.signal_columns = [self.prefix]
         return
 
-    def __repr__(self) -> str:
-        _super_str = super().__repr__()
-        _str = (
-            f"BulkGenomeDataset for {len(self)} regions.\n"
-            f"DNA window: {self.dna_window}, Signal window: {self.signal_window},\n"
-            f"Max jitter: {self.max_jitter}, Batch size: {self.batch_size},\n"
-            f"DNA name: {self.dna_name},\n"
-            f"Regions: {self.regions},\nSamples: {self.samples}\n" + _super_str
-        )
-        return _str
-
-    def _dataset_preprocess(self, dataset, column) -> None:
+    def _filter_regions(self, dataset, cov_func, concurrency=1):
         """
-        Preprocess the dataset.
-
-        Returns
-        -------
-        None
-        """
-        # row operations
-        if column is not None:
-            dataset = self._filter_by_coverage(dataset, column)
-        if self.reverse_complement and self._dataset_mode == "train":
-            dataset = self._reverse_complement_region(dataset)
-        dataset = self._crop_regions(dataset)
-        # batch operations
-        dataset = self._dna_to_float(dataset)
-        dataset = self._add_channels(dataset)
-        return dataset
-
-    def set_min_max_counts_cutoff(self, column: str) -> None:
-        """
-        Set the minimum and maximum counts cutoff based on the given column.
+        Filter the regions in the dataset based on coverage.
 
         Parameters
         ----------
-        column : str
-            The column name.
+        dataset : RayDataset
+            The input dataset.
+        concurrency : int, default=1
+            The number of concurrent processes to use.
 
         Returns
         -------
-        None
+        RayDataset
+            The filtered dataset.
         """
-        _stats = self.summary_stats[column]
+        # filter coverage
+        fn = FilterRegions
+        fn_constructor_kwargs = {
+            "cov_filter_key": self._cov_filter_key,
+            "min_cov": self.min_cov,
+            "max_cov": self.max_cov,
+            "low_cov_ratio": self.low_cov_ratio,
+            "cov_func": cov_func,
+        }
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+            batch_size=512,
+        )
+        return dataset
 
-        min_ = np.quantile(_stats, self.cov_min_q)
-        self.min_counts = max(self.min_counts, min_)
-
-        max_ = np.quantile(_stats, self.cov_max_q)
-        self.max_counts = min(self.max_counts, max_)
-        return
-
-    def get_dna_and_signal_columns(self) -> tuple[list[str], list[str]]:
+    def _get_region_cropper(self, dataset) -> None:
         """
-        Get the DNA and signal columns from the dataset.
-
-        Returns
-        -------
-        Tuple[List[str], List[str]]
-            A tuple containing the DNA columns and signal columns.
-        """
-        dna_columns = []
-        signal_columns = []
-        for column in self.columns:
-            try:
-                _, sample = column.split("|")
-            except ValueError:
-                continue
-            if sample == self.dna_name:
-                dna_columns.append(column)
-            else:
-                signal_columns.append(column)
-        return dna_columns, signal_columns
-
-    def _filter_by_coverage(self, dataset, column: str) -> None:
-        """
-        Filter the working dataset based on the coverage of the given column.
+        Crop the regions in the dataset.
 
         Parameters
         ----------
-        column : str
-            The column name.
+        dataset : RayDataset
+            The input dataset.
 
         Returns
         -------
-        None
+        RayDataset
+            The cropped dataset.
         """
-        self.set_min_max_counts_cutoff(column)
-        _filter = RowSumFilter(column, self.min_counts, self.max_counts)
-        dataset = dataset.filter(_filter)
-        return dataset
-
-    def _dna_to_float(self, dataset) -> None:
-        """
-        Convert the DNA data to float.
-
-        Returns
-        -------
-        None
-        """
-        dna_columns, _ = self.get_dna_and_signal_columns()
-        _map = BatchToFloat(dna_columns)
-        dataset = dataset.map_batches(_map)
-        return dataset
-
-    def _reverse_complement_region(self, dataset, *args, **kwargs) -> None:
-        """
-        Reverse complement the DNA sequences by 50% probability.
-
-        Returns
-        -------
-        None
-        """
-        dna_columns, signal_columns = self.get_dna_and_signal_columns()
-        _rc = ReverseComplement(
-            dna_key=dna_columns, signal_key=signal_columns, input_type="row"
-        )
-        dataset = dataset.map(_rc, *args, **kwargs)
-        return dataset
-
-    def _crop_regions(self, dataset, *args, **kwargs) -> None:
-        """
-        Crop the regions in the working dataset.
-
-        Returns
-        -------
-        None
-        """
-        if self._dataset_mode != "train":
+        if self.dataset_mode != "train":
             max_jitter = 0
         else:
             max_jitter = self.max_jitter
 
-        dna_columns, signal_columns = self.get_dna_and_signal_columns()
-        key_list = dna_columns + signal_columns
-        length_list = [self.dna_window] * len(dna_columns) + [self.signal_window] * len(
-            signal_columns
+        key_list = [self.dna_column] + self.signal_columns
+        final_length_list = [self.dna_length] + [self.signal_length] * len(
+            self.signal_columns
         )
 
-        _cropper = CropRegionsWithJitter(
+        _cropper = CropLastAxisWithJitter(
             key=key_list,
-            final_length=length_list,
+            final_length=final_length_list,
             max_jitter=max_jitter,
-            crop_axis=0,
         )
-        dataset = dataset.map(_cropper, *args, **kwargs)
+
+        dataset = dataset.map_batches(_cropper)
         return dataset
 
-    def _add_channels(self, dataset, *args, **kwargs) -> None:
+    def _get_reverse_complement_region(self, dataset) -> None:
         """
-        Add channels to the dataset.
+        Reverse complement the DNA sequences in the dataset.
+
+        Parameters
+        ----------
+        dataset : RayDataset
+            The input dataset.
 
         Returns
         -------
-        None
+        RayDataset
+            The dataset with reverse complemented DNA sequences.
         """
-        _, signal_columns = self.get_dna_and_signal_columns()
-        channel_func = lambda x: np.expand_dims(x, 1)
-        _map = AddChannels(signal_columns, channel_func=channel_func)
-        dataset = dataset.map_batches(_map, *args, **kwargs)
+        _rc = ReverseComplement(
+            dna_key=self.dna_column,
+            signal_key=self.signal_columns,
+        )
+        dataset = dataset.map_batches(_rc)
+        return dataset
+
+    def get_processed_dataset(self, chroms, region_bed_path, cov_func=None) -> None:
+        """
+        Get the processed dataset with various operators applied.
+
+        Parameters
+        ----------
+        chroms : list[str]
+            The list of chromosomes to include in the dataset.
+        region_bed_path : str
+            The path to the region BED file.
+
+        Returns
+        -------
+        RayDataset
+            The processed dataset.
+        """
+        standard_length = max(self.dna_length, self.signal_length) + 500
+        region_bed = self.standard_region_length(region_bed_path, standard_length)
+
+        dataset = super()._get_processed_dataset(
+            chroms=chroms,
+            region_bed=region_bed,
+            name_to_pseudobulker={},
+            region_action_keys=self.signal_columns,
+        )
+
+        # filter regions
+        # sum sites within sample, and than take the mean across samples
+        if cov_func is None:
+            def cov_func(data):
+                return data.sum(axis=(-1, -2))
+        dataset = self._filter_regions(dataset=dataset, cov_func=cov_func)
+
+        # add dna one hot
+        dataset = self._get_dna_one_hot(
+            dataset=dataset,
+            concurrency=1,
+        )
+        
+        # crop the regions
+        dataset = self._get_region_cropper(dataset)
+
+        if self.dataset_mode == "train":
+            # reverse complement the regions
+            dataset = self._get_reverse_complement_region(dataset)
+
+        dataset = dataset.drop_columns(["region"])
         return dataset
 
     def get_dataloader(
         self,
-        sample: Optional[str] = None,
-        region: Optional[str] = None,
+        chroms,
+        region_bed_path,
+        n_batches,
+        shuffle_rows=2000,
         as_torch=True,
-        **kwargs,
-    ) -> Iterable:
+    ):
         """
-        Get a PyTorch DataLoader for the specified sample and region.
+        Get the dataloader for the dataset.
 
         Parameters
         ----------
-        sample : str, optional
-            The name of the sample (default is None).
-        region : str, optional
-            The name of the region (default is None).
-        local_shuffle_buffer_size : int, optional
-            The size of the local shuffle buffer (default is 5000).
-        as_torch : bool, optional
-            Whether to return a iterator with batches data in torch tensor format (default is True).
-        **kwargs
-            Additional keyword arguments passed to the DataLoader.
+        chroms : list[str]
+            The list of chromosomes to include in the dataset.
+        region_bed_path : str
+            The path to the region BED file.
+        n_batches : int
+            The number of batches to generate.
+        shuffle_rows : int, default=2000
+            The number of rows to shuffle within each batch.
+        as_torch : bool, default=True
+            Whether to return the dataloader whoes data will be in torch tensors.
 
         Returns
         -------
-        Iterable
-            Batch iterator similar to PyTorch DataLoader.
+        DataLoader
+            The dataloader for the dataset.
         """
-        _working_dataset = self.dataset
-
-        if self._dataset_mode is None:
-            raise ValueError(
-                "Set .train() or .eval() first before calling .get_dataloader()"
-            )
-
-        if sample is None:
-            if len(self.samples) == 1:
-                sample = self.samples[0]
-        if region is None:
-            if len(self.regions) == 1:
-                region = self.regions[0]
-        if sample is None or region is None:
-            filter_column = None
-        else:
-            filter_column = f"{region}|{sample}"
-
-        if as_torch:
-            # the torch iterator can only handle float, int, and bool columns to torch tensors
-            use_columns = []
-            possible_dtypes = ("float", "int", "bool")
-            for column in self.columns:
-                column_schema = self.schema[column]
-                try:
-                    dtype = str(column_schema.scalar_type)
-                except AttributeError:
-                    dtype = str(column_schema)
-                for possible_dtype in possible_dtypes:
-                    if possible_dtype in dtype:
-                        use_columns.append(column)
-                        break
-            _working_dataset = _working_dataset.select_columns(use_columns)
-
-        # preprocess dataset
-        _working_dataset = self._dataset_preprocess(_working_dataset, filter_column)
-
-        # get data loader
-        default_kwargs = {
-            "drop_last": True if self._dataset_mode == "train" else False,
-            "local_shuffle_buffer_size": self.local_shuffle_buffer_size,
+        # dataset_kwargs will be passed to self.get_processed_dataset method
+        dataset_kwargs = {
+            "chroms": chroms,
+            "region_bed_path": region_bed_path,
         }
-        kwargs = {**default_kwargs, **kwargs}
-        if as_torch:
-            loader = _working_dataset.iter_torch_batches(
-                batch_size=self.batch_size, **kwargs
-            )
-        else:
-            loader = _working_dataset.iter_batches(batch_size=self.batch_size, **kwargs)
+        data_iter_kwargs = {}
+
+        loader = self._get_dataloader_with_wrapper(
+            dataset_kwargs=dataset_kwargs,
+            data_iter_kwargs=data_iter_kwargs,
+            as_torch=as_torch,
+            shuffle_rows=shuffle_rows,
+            n_batches=n_batches,
+            batch_size=self.batch_size,
+        )
         return loader

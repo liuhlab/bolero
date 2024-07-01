@@ -30,9 +30,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from bolero.tl.model.generic.module import DNA_CNN, Conv1dWrapper, DilatedCNN
-from bolero.tl.model.generic.train_helper import validate_config
+from bolero.tl.generic.module import DNA_CNN, Conv1dWrapper, DilatedCNN
 from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, FootprintsHead
+from bolero.utils import validate_config
 
 
 class scFootprintBPNet(nn.Module):

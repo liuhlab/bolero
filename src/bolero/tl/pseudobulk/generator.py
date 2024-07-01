@@ -20,7 +20,7 @@ import pandas as pd
 from sklearn.exceptions import NotFittedError
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
-from bolero.tl.model.generic.train_helper import validate_config
+from bolero.utils import validate_config
 
 
 class PseudobulkGenerator:

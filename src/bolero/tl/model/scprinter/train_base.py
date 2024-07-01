@@ -7,8 +7,8 @@ import wandb
 
 from bolero.pl.footprint import FootPrintExamplePlotter
 from bolero.pl.utils import figure_to_array
-from bolero.tl.model.generic.train import GenericTrainer
-from bolero.tl.model.generic.train_helper import (
+from bolero.tl.generic.train import GenericTrainer
+from bolero.tl.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,
@@ -16,7 +16,6 @@ from bolero.tl.model.generic.train_helper import (
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.tl.model.scprinter.model import scFootprintBPNet
 from bolero.tl.pseudobulk.generator import SinglePseudobulkGenerator
-from bolero.utils import get_fs_and_path
 
 
 class scFootprintTrainerMixin(GenericTrainer):
@@ -50,24 +49,8 @@ class scFootprintTrainerMixin(GenericTrainer):
     # ======================
 
     def _setup_dataset(self):
-        config = self.config
-
-        # train, valid, test split by chromosome
-        chrom_split = config["chrom_split"]
-        self.train_chroms = chrom_split["train"]
-        self.valid_chroms = chrom_split["valid"]
-        self.test_chroms = chrom_split["test"]
-
-        # dataset location and schema
-        self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
-        self.config["dataset"] = self.dataset_dir
-
-        # create dataset
-        self.dataset: scPrinterDataset = self._get_dataset()
+        super()._setup_dataset()
         self.footprinter = self.dataset.get_footprinter(prefix=self.prefix)
-
-    def _get_dataset(self):
-        raise NotImplementedError
 
     def get_train_dataloader(self, batches):
         """Training dataloader."""
@@ -83,31 +66,6 @@ class scFootprintTrainerMixin(GenericTrainer):
         self.dataset.train()
         dataloader = self.dataset.get_dataloader(
             chroms=use_chrom,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
-
-    def get_valid_dataloader(self, batches):
-        """Validation dataset."""
-        # choose random chromosomes for validation
-        n_chroms = min(3, len(self.valid_chroms))
-        use_chrom = np.random.choice(self.valid_chroms, n_chroms, replace=False)
-        print(f"Using chrom {use_chrom} for validation.")
-
-        self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=use_chrom,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
-
-    def get_test_dataloader(self, batches):
-        """Test dataset."""
-        self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.test_chroms,
             region_bed_path=self.config["region_bed_path"],
             n_batches=batches,
         )
@@ -246,38 +204,6 @@ class scFootprintTrainerMixin(GenericTrainer):
             )
         return wandb_images
 
-    def _validation_step(self, testing=False, val_batches=None):
-        val_batches = val_batches or self.val_batches
-        if testing:
-            dataloader = self.get_test_dataloader(batches=val_batches)
-        else:
-            dataloader = self.get_valid_dataloader(batches=val_batches)
-
-        with torch.inference_mode():
-            if self.use_ema:
-                self.ema.eval()
-                self.ema.ema_model.eval()
-                val_loss, profile_pearson, across_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.ema.ema_model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
-                )
-                self.ema.train()
-                self.ema.ema_model.train()
-            else:
-                self.model.eval()
-                val_loss, profile_pearson, across_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
-                )
-                self.model.train()
-        return val_loss, profile_pearson, across_pearson, wandb_images
-
     def _log_save_and_check_stop(self, example_images):
         epoch = self.cur_epoch
         train_fp_loss = self.train_fp_loss
@@ -402,7 +328,6 @@ class scFootprintTrainerMixin(GenericTrainer):
                 break
 
             # get train data loader
-            print("Get data loader")
             dataloader = self.get_train_dataloader(batches=self.train_batches)
 
             # start train epochs
@@ -633,7 +558,7 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
         return
 
     def _get_dataset(self):
-        dataset = scPrinterDataset.create_from_config(self.config)
+        dataset = super()._get_dataset()
 
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {

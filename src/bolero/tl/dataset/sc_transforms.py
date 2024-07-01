@@ -270,20 +270,18 @@ class GenerateRegions:
         return list_of_dicts
 
 
+def _sum_all(data):
+    # sum over all dims except the first one
+    return data.sum(axis=tuple(range(1, data.ndim)))
+
+
 class FilterRegions:
-    def __init__(
-        self, cov_filter_key, min_cov=10, max_cov=1e5, low_cov_ratio=0.1, cov_func=None
-    ):
+    def __init__(self, cov_filter_key, min_cov, max_cov, low_cov_ratio, cov_func=None):
         self.cov_filter_key = cov_filter_key
         self.min_cov = min_cov
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
         if cov_func is None:
-
-            def _sum_all(data):
-                # sum over all dims except the first one
-                return data.sum(axis=tuple(range(1, data.ndim)))
-
             self.cov_func = _sum_all
         else:
             self.cov_func = cov_func
