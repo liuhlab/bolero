@@ -85,7 +85,7 @@ class PseudobulkGenerator:
         if self.standard_cov:
             if isinstance(self.cell_coverage, int):
                 # cell coverage is a constant number
-                n_cells = self.standard_cov // self.cell_coverage
+                n_cells = int(self.standard_cov // self.cell_coverage)
                 cells = pd.Index(np.random.choice(cells, n_cells, replace=replace))
             else:
                 # select random cells to reach the standard coverage
