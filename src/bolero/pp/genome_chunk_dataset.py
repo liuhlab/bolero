@@ -457,7 +457,6 @@ def query_allc_region(allc_handle, chrom, start, end):
         cov_values[rel_pos] = float(cov)
     return mc_values, cov_values
 
-
 @ray.remote
 def _allc_values_worker(allc_path: str, regions: pd.DataFrame) -> list[csr_matrix]:
     mc_data = []
@@ -659,7 +658,6 @@ class GenomeALLCDataset:
             The row names.
         """
         return pd.Index(self.allc_path_dict.keys())
-
 
 class SnapAnnDataDataset:
     def __init__(self, name, path, barcode_whitelist=None):

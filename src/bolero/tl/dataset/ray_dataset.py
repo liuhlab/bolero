@@ -328,6 +328,9 @@ class RayGenomeChunkDataset(GenericDataset):
                 loader = work_ds.iter_batches(**_kwargs)
 
             yield from loader
+            # for batch in loader:
+            #     batch['dna'] = self.genome.get_regions_one_hot()
+            #     yield batch
 
         # the dataset and dataloader are created lazily, until __iter__ is called
         return _IterableFromIterator(_create_iterator)
