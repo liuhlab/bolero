@@ -315,6 +315,13 @@ class GenomeChunkDatasetGenerator:
         """
         Generate the ray dataset.
         """
+        # make sure bolero.init is runed and resources are available
+        msg = "Please run bolero.init() before create dataset generator."
+        try:
+            assert "bolero_dataset_gen" in ray.cluster_resources(), msg
+        except ray.exceptions.RaySystemError as e:
+            raise AssertionError(msg) from e
+
         output_dir = self.output_dir
         success_flag_path = output_dir / "config.joblib"
         if success_flag_path.exists():
