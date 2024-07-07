@@ -75,7 +75,10 @@ class GenomeChunkDatasetGenerator:
                 "zarr_path": path,
                 "barcode_whitelist": barcode_whitelist,
             },
-            "remote_kwargs": {"memory": 15 * 1024**3, "resources": {"bolero_dataset_gen": 10}},
+            "remote_kwargs": {
+                "memory": 15 * 1024**3,
+                "resources": {"bolero_dataset_gen": 10},
+            },
         }
         return
 
@@ -118,7 +121,10 @@ class GenomeChunkDatasetGenerator:
                     "sparse": sparse,
                     "compress_level": compress_level,
                 },
-                "remote_kwargs": {"memory": 1 * 1024**3, "resources": {"bolero_dataset_gen": 10}},
+                "remote_kwargs": {
+                    "memory": 1 * 1024**3,
+                    "resources": {"bolero_dataset_gen": 10},
+                },
             }
         return
 
@@ -144,7 +150,10 @@ class GenomeChunkDatasetGenerator:
                 "path": path,
                 "barcode_whitelist": barcode_whitelist,
             },
-            "remote_kwargs": {"memory": 15 * 1024**3, "resources": {"bolero_dataset_gen": 10}},
+            "remote_kwargs": {
+                "memory": 15 * 1024**3,
+                "resources": {"bolero_dataset_gen": 10},
+            },
         }
         return
 
@@ -194,7 +203,10 @@ class GenomeChunkDatasetGenerator:
                     "sparse": sparse,
                     "compress_level": compress_level,
                 },
-                "remote_kwargs": {"memory": 1 * 1024**3, "resources": {"bolero_dataset_gen": 10}},
+                "remote_kwargs": {
+                    "memory": 1 * 1024**3,
+                    "resources": {"bolero_dataset_gen": 10},
+                },
             }
         return
 

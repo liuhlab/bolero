@@ -257,7 +257,7 @@ class FootPrintScoreModel:
 class AttrobutionScoreModel:
     """Calculate the TFBS score for the given 1-D projected attribution."""
 
-    def __init__(self, score_type="attr_fp", device=None):
+    def __init__(self, score_type="attr_fp", device=None, with_motif=False):
         if device is None:
             device = try_gpu()
         self.device = device
@@ -271,35 +271,25 @@ class AttrobutionScoreModel:
                 f"Invalid score_type: {score_type}, needs to be one of 'attr_fp', 'attr_cov'."
             )
         self.tfbs_model = self.tfbs_model.to(self.device)
+        self.tfbs_model.with_motif = with_motif
 
-    def __call__(
-        self, attr_score: torch.Tensor, numpy: bool = False
-    ) -> Union[torch.Tensor, np.ndarray]:
+    def __call__(self, attr_score: torch.Tensor) -> torch.Tensor:
         """
         Get the TFBS score for the given model.
 
         Parameters
         ----------
-        model : Model
-            The model used for scoring.
-        mode_idx : int
-            The index of the mode to be used for TFBS score.
-            This index is generated along with the model, user should not provide it.
-        fp : torch.Tensor
-            The raw footprint tensor generated from ATAC insertion track and Tn5 bias OR from model prediction.
-            The value should be z-score, and modes are the same as self.modes.
-        numpy : bool, optional
-            Whether to return the score as a numpy array, by default False.
+        attr_score : torch.Tensor
+            The 1-D projected attribution score.
 
         Returns
         -------
-        Union[torch.Tensor, np.ndarray]
+        torch.Tensor
             The TFBS score.
 
         """
-        # post process fp for the score prediction
+        # post process attr_score for the score prediction
         with torch.inference_mode():
+            attr_score = attr_score.to(self.device)
             tfbs_score = self.tfbs_model(attr_score)
-        if numpy:
-            tfbs_score = tfbs_score.cpu().numpy()
         return tfbs_score

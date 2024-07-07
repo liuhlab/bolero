@@ -31,9 +31,10 @@ class mCTrackDataset(Track1DDataset):
         """
         Get the processed dataset with many oprators applied.
         """
+
         def _cov_func(data):
             return data.sum(-1).mean(-1)
-        
+
         dataset = super().get_processed_dataset(
             chroms=chroms, region_bed_path=region_bed_path, cov_func=_cov_func
         )

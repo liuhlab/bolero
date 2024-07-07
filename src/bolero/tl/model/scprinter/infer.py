@@ -1,14 +1,17 @@
 import gc
 import pathlib
 import time
+from copy import deepcopy
 
+import joblib
+import pandas as pd
 import torch
 
 from bolero.pp.genome import Genome
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.footprint.tfbs import FootPrintScoreModel
 from bolero.tl.model.scprinter.attribution import BatchAttribution
-from bolero.utils import try_gpu
+from bolero.utils import try_gpu, validate_config
 
 
 class BatchInference:
@@ -91,8 +94,119 @@ class _BatchSlice:
         return data
 
 
-class scPrinterInferencer:
+class TrainedLoraModel:
+    """
+    TrainedLoraModel class represents a trained Lora model.
+
+    Parameters
+    ----------
+        model (Union[str, pathlib.Path, torch.nn.Module]): The trained Lora model.
+        embedding (Union[str, pathlib.Path, pd.DataFrame]): The cell embedding data.
+        pseudobulks (Union[str, pathlib.Path, Dict[str, List[str]]]): The pseudobulk data.
+        embedding_scaler (Union[str, pathlib.Path, Any]): The embedding scaler.
+
+    Attributes
+    ----------
+        model (torch.nn.Module): The trained Lora model.
+        _cell_embedding (pd.DataFrame): The cell embedding data.
+        _pseudobulk_to_cells (Dict[str, List[str]]): The pseudobulk data.
+        _embedding_scaler (Any): The embedding scaler.
+        pseudobulk_embedding (pd.DataFrame): The scaled pseudobulk embedding.
+        pseudobulk_names (List[str]): The names of the pseudobulks.
+
+    Methods
+    -------
+        _get_pseudobulk_embedding(): Get the scaled pseudobulk embedding.
+        get_collapsed_model(key: str) -> torch.nn.Module: Get the collapsed model for a given key.
+
+    """
+
+    default_config = {
+        "model": "REQUIRED",
+        "embedding": "REQUIRED",
+        "pseudobulks": "REQUIRED",
+        "embedding_scaler": "REQUIRED",
+    }
+
+    def __init__(self, model, embedding, pseudobulks, embedding_scaler):
+        if isinstance(model, (str, pathlib.Path)):
+            model = torch.load(model, map_location="cpu").eval()
+        self.model = model
+
+        if isinstance(embedding, (str, pathlib.Path)):
+            embedding = pd.read_feather(embedding)
+            embedding = embedding.set_index(embedding.columns[0])
+        self._cell_embedding = embedding
+
+        if isinstance(pseudobulks, (str, pathlib.Path)):
+            pseudobulks = joblib.load(pseudobulks)
+        self._pseudobulk_to_cells = pseudobulks
+
+        if isinstance(embedding_scaler, (str, pathlib.Path)):
+            embedding_scaler = joblib.load(embedding_scaler)
+        self._embedding_scaler = embedding_scaler
+
+        self.pseudobulk_embedding = self._get_pseudobulk_embedding()
+        self.pseudobulk_names = list(self.pseudobulk_embedding.index)
+
+    def _get_pseudobulk_embedding(self):
+        """
+        Get the scaled pseudobulk embedding.
+
+        Returns
+        -------
+            pd.DataFrame: The scaled pseudobulk embedding.
+
+        """
+        bulk_emb = {}
+        for key, cells in self._pseudobulk_to_cells.items():
+            _emb = self._cell_embedding.loc[cells].mean(axis=0)
+            bulk_emb[key] = _emb
+        bulk_emb = pd.DataFrame(bulk_emb).T
+
+        scale_bulk_emb = pd.DataFrame(
+            self._embedding_scaler.transform(bulk_emb),
+            index=bulk_emb.index,
+            columns=bulk_emb.columns,
+        )
+        return scale_bulk_emb
+
+    @torch.no_grad()
+    def get_collapsed_model(self, key: str) -> torch.nn.Module:
+        """
+        Get the collapsed model for a given key.
+
+        Parameters
+        ----------
+            key (str): The key for the pseudobulk.
+
+        Returns
+        -------
+            torch.nn.Module: The collapsed model.
+
+        Raises
+        ------
+            ValueError: If the key is not found in the pseudobulk embedding.
+
+        """
+        if key not in self.pseudobulk_embedding.index:
+            raise ValueError(f"Key {key} not found in pseudobulk embedding")
+
+        emb = torch.Tensor(self.pseudobulk_embedding.loc[key].values)
+        _model = self.model.collapse(
+            cell_embedding=emb, region_embedding=None, requires_grad=False
+        )
+        return _model
+
+
+class BaseFootprintInferencer:
     """Class for getting the inference or attribution dataset for scPrinter model."""
+
+    default_config = {
+        "model": "REQUIRED",
+        "genome": "REQUIRED",
+        "batch_size": 64,
+    }
 
     def __init__(
         self,
@@ -164,6 +278,7 @@ class scPrinterInferencer:
         wrapper: str = "just_sum",
         num_gpus: float = 0.2,
         concurrency=1,
+        tfbs_model_type=None,
     ):
         """
         Get the attributor for analyzing the footprint.
@@ -191,9 +306,10 @@ class scPrinterInferencer:
             "model": self.model,
             "wrapper": wrapper,
             "method": "shap_hypo",
+            "prefix": prefix,
             "modes": range(0, 30),
             "decay": 0.85,
-            "prefix": prefix,
+            "tfbs_model": tfbs_model_type,
         }
 
         dataset = dataset.map_batches(
@@ -266,7 +382,7 @@ class scPrinterInferencer:
             The transformed dataset.
         """
         ray_ds = RayRegionDataset(
-            bed=bed, genome=self.genome, standard_length=self.dna_len
+            bed=bed, genome=self.genome, standard_length=self.dna_len, dna=True
         )
         dataset = ray_ds.get_processed_dataset()
         key_to_slice = ["dna_one_hot"]
@@ -279,6 +395,7 @@ class scPrinterInferencer:
                 prefix="pred_footprint",
                 wrapper="just_sum",
                 num_gpus=0.2,
+                tfbs_model_type="attr_fp",
             )
             key_to_slice += [
                 "pred_footprint:attributions",
@@ -291,6 +408,7 @@ class scPrinterInferencer:
                 prefix="pred_coverage",
                 wrapper="count",
                 num_gpus=0.2,
+                tfbs_model_type="attr_cov",
             )
             key_to_slice += [
                 "pred_coverage:attributions",
@@ -310,3 +428,117 @@ class scPrinterInferencer:
         gc.collect()
         torch.cuda.empty_cache()
         return
+
+
+class scPrinterPseudobulkInferencer:
+    """
+    Class for performing pseudobulk inference using scPrinter model.
+
+    Attributes
+    ----------
+        model_class (type): The class representing the trained Lora model.
+        infer_class (type): The class representing the base footprint inferencer.
+        default_config (dict): The default configuration for the inferencer.
+
+    Methods
+    -------
+        get_default_config(): Get the default configuration for the inferencer.
+        create_from_config(config: dict): Create an instance of the inferencer from a given configuration.
+        make_config(**kwargs): Create a configuration for the inferencer with the given keyword arguments.
+        __init__(config: dict): Initialize the inferencer with the given configuration.
+        transform(collapse_key: str, bed: str, output_path: str = None, **kwargs): Perform pseudobulk inference and transform the dataset.
+
+    """
+
+    model_class: type = TrainedLoraModel
+    infer_class: type = BaseFootprintInferencer
+    default_config: dict = {**infer_class.default_config, **model_class.default_config}
+
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """
+        Get the default configuration for the inferencer.
+
+        Returns
+        -------
+            dict: The default configuration for the inferencer.
+        """
+        return deepcopy(cls.default_config)
+
+    @classmethod
+    def create_from_config(cls, config: dict) -> "scPrinterPseudobulkInferencer":
+        """
+        Create an instance of the inferencer from a given configuration.
+
+        Parameters
+        ----------
+            config (dict): The configuration for the inferencer.
+
+        Returns
+        -------
+            scPrinterPseudobulkInferencer: An instance of the inferencer.
+        """
+        validate_config(config, cls.default_config)
+        return cls(config)
+
+    @classmethod
+    def make_config(cls, **kwargs) -> dict:
+        """
+        Create a configuration for the inferencer with the given keyword arguments.
+
+        Parameters
+        ----------
+            **kwargs: The keyword arguments for the inferencer configuration.
+
+        Returns
+        -------
+            dict: The configuration for the inferencer.
+        """
+        config = deepcopy(cls.default_config)
+        config.update(kwargs)
+        return config
+
+    def __init__(self, config: dict) -> None:
+        """
+        Initialize the inferencer with the given configuration.
+
+        Parameters
+        ----------
+            config (dict): The configuration for the inferencer.
+        """
+        model_config = {
+            k: v for k, v in config.items() if k in self.model_class.default_config
+        }
+        self.model = self.model_class(**model_config)
+        config["model"] = self.model
+
+        infer_config = {
+            k: v for k, v in config.items() if k in self.infer_class.default_config
+        }
+        self.infer_config = infer_config
+        return
+
+    def transform(self, collapse_key: str, bed_path: str, output_path: str, **kwargs):
+        """
+        Perform pseudobulk inference and transform the dataset.
+
+        Parameters
+        ----------
+            collapse_key (str): The key for the collapsed model.
+            bed (str): The bed file.
+            output_path (str): The output path for the transformed dataset.
+            **kwargs: Additional keyword arguments for the transformation.
+
+        Returns
+        -------
+            ray.data.Dataset: The transformed dataset.
+        """
+        _config = self.infer_config.copy()
+        _config["model"] = self.model.get_collapsed_model(collapse_key)
+        inferencer = self.infer_class(**_config)
+        return inferencer.transform(bed_path, output_path=output_path, **kwargs)
+
+    @property
+    def pseudobulk_names(self):
+        """Get the possible names of the pseudobulks."""
+        return self.model.pseudobulk_names

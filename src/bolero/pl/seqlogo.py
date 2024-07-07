@@ -4,11 +4,22 @@ This module is a modified version of the motif_plotter module from the motif_plo
 https://github.com/const-ae/motif_plotter/tree/master
 """
 
+from typing import Union
+
 import matplotlib.patches as patches
 import numpy as np
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
+
+from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, one_hot_decoding
+
+DEFAULT_BASE_COLOR = (
+    "#006f3c",
+    "#264b96",
+    "#bf212f",
+    "#f9a73e",
+)  # Green, Blue, Red, Yellow for A, C, G, T
 
 
 def approximate_error(motif):
@@ -106,6 +117,7 @@ def make_text_elements(
     color="blue",
     edgecolor="black",
     font=FontProperties(family="monospace"),
+    approximate=False,
 ):
     """
     Create text elements as patches for visualization.
@@ -128,6 +140,8 @@ def make_text_elements(
         The edge color of the text element. Default is "black".
     font : FontProperties, optional
         The font properties of the text element. Default is FontProperties(family="monospace").
+    approximate : bool, optional
+        Whether to approximate the text element as a rectangle. Default is False.
 
     Returns
     -------
@@ -135,6 +149,16 @@ def make_text_elements(
         A PathPatch object representing the text element.
 
     """
+    if approximate:
+        return make_rectangle_elements(
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            color=color,
+            edgecolor=edgecolor,
+        )
+
     tp = TextPath((0.0, 0.0), text, size=1, prop=font)
     bbox = tp.get_extents()
     bwidth = bbox.x1 - bbox.x0
@@ -145,6 +169,43 @@ def make_text_elements(
     trafo.translate(x, y)
     tp = tp.transformed(trafo)
     return patches.PathPatch(tp, facecolor=color, edgecolor=edgecolor)
+
+
+def make_rectangle_elements(
+    x=0.0,
+    y=0.0,
+    width=1.0,
+    height=1.0,
+    color="blue",
+    edgecolor="black",
+):
+    """
+    Create rectangle elements as patches for visualization.
+
+    Parameters
+    ----------
+    x : float, optional
+        The x-coordinate of the rectangle element's position. Default is 0.0.
+    y : float, optional
+        The y-coordinate of the rectangle element's position. Default is 0.0.
+    width : float, optional
+        The width of the rectangle element. Default is 1.0.
+    height : float, optional
+        The height of the rectangle element. Default is 1.0.
+    color : str, optional
+        The color of the rectangle element. Default is "blue".
+    edgecolor : str, optional
+        The edge color of the rectangle element. Default is "black".
+
+    Returns
+    -------
+    patches.Rectangle
+        A Rectangle object representing the rectangle element.
+
+    """
+    return patches.Rectangle(
+        (x, y), width, height, facecolor=color, edgecolor=edgecolor
+    )
 
 
 def make_bar_plot(axes, texts, heights, width=0.8, colors=None):
@@ -223,7 +284,9 @@ def make_single_sequence_spectrum(
     make_bar_plot(axis, sequence, score_sequence, colors=color_sequence)
 
 
-def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
+def make_stacked_bar_plot(
+    axes, texts, heights, width=0.8, colors=None, rectangle_cutoff=0, rasterize=False
+):
     """
     Makes a stackedbar plot but each bar is not just a rectangle but an element from the texts list.
 
@@ -239,6 +302,10 @@ def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
         The width of the bar. Default: 0.8
     colors : list of list of str, optional
         A list of list of colors, a list with a single entry or None. Default: None, which is plotted as blue
+    rectangle_cutoff : float, optional
+        The cutoff value for approximating the text elements as rectangles. Default: 0
+    rasterize : bool, optional
+        Whether to rasterize the patches. Default: False
     """
     if colors is None:
         colors = [["blue"] * len(text) for text in texts]
@@ -251,6 +318,7 @@ def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
         y_stack_pos = 0
         y_stack_neg = 0
         for _, (t, h, c) in enumerate(zip(text, height, color)):
+            approximate_as_rectangle = abs(h) < rectangle_cutoff
             if h > 0:
                 text_shape = make_text_elements(
                     t,
@@ -260,6 +328,7 @@ def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
                     height=h,
                     color=c,
                     edgecolor=c,
+                    approximate=approximate_as_rectangle,
                 )
                 y_stack_pos += h
                 axes.add_patch(text_shape)
@@ -272,12 +341,15 @@ def make_stacked_bar_plot(axes, texts, heights, width=0.8, colors=None):
                     height=h,
                     color=c,
                     edgecolor=c,
+                    approximate=approximate_as_rectangle,
                 )
                 y_stack_neg += h
                 axes.add_patch(text_shape)
 
     axes.autoscale()
     axes.set_xlim(0, len(texts))
+    if rasterize:
+        axes.set_rasterized(True)
 
 
 class ConsensusMotifPlotter:
@@ -292,7 +364,7 @@ class ConsensusMotifPlotter:
 
     Methods
     -------
-    - from_scores(scores, base_order="ACGT"): Creates a ConsensusMotifPlotter object from scores.
+    - from_scores(scores, base_order=DEFAULT_ONE_HOT_ORDER): Creates a ConsensusMotifPlotter object from scores.
     - plot(axes): Adds the motif to an axes object.
 
     """
@@ -304,7 +376,9 @@ class ConsensusMotifPlotter:
         self.weights = weights
 
     @classmethod
-    def from_scores(cls, scores, base_order="ACGT"):
+    def from_scores(
+        cls, scores, base_order=DEFAULT_ONE_HOT_ORDER, colors=DEFAULT_BASE_COLOR
+    ):
         """
         Creates a ConsensusMotifPlotter object from scores.
 
@@ -319,7 +393,7 @@ class ConsensusMotifPlotter:
 
         """
         nucleotides = [list(base_order)] * len(scores)
-        colors = [["#008000", "#0000cc", "#cc0000", "#ffb300"]] * len(scores)
+        colors = [colors] * len(scores)
         sorted_nucleotides = np.array(nucleotides)
         sorted_scores = np.array(scores)
         sorted_colors = np.array(colors)
@@ -330,19 +404,66 @@ class ConsensusMotifPlotter:
             sorted_colors[i, :] = sorted_colors[i, _order]
         return cls(sorted_nucleotides, sorted_scores, sorted_colors)
 
-    def plot(self, axes):
+    @classmethod
+    def from_scores_1d(
+        cls, scores, sequence: Union[str, np.ndarray], colors=DEFAULT_BASE_COLOR
+    ):
+        """
+        Creates a ConsensusMotifPlotter object from scores and a sequence.
+
+        Parameters
+        ----------
+        - scores (list): A list of scores representing the motif scores.
+        - sequence (str or np.ndarray): The sequence of the motif.
+        - colors (list, optional): A list of colors for the elements. Use default color if not specified.
+
+        Returns
+        -------
+        - ConsensusMotifPlotter: A ConsensusMotifPlotter object.
+        """
+        if isinstance(sequence, np.ndarray):
+            # sequence is one-hot encoded
+            assert (
+                sequence.shape[1] == 4
+            ), "Sequence must be one-hot encoded and last dimension must be 4."
+            sequence = one_hot_decoding(sequence)
+        nucleotides = list(sequence)
+
+        # check score shape
+        if scores.ndim == 1:
+            scores = scores.reshape(-1, 1)
+        assert scores.shape == (len(nucleotides), 1)
+
+        # make colors
+        list_of_colors = []
+        for nuc in nucleotides:
+            if nuc not in ["A", "C", "G", "T"]:
+                raise ValueError("Sequence must be a DNA sequence")
+            list_of_colors.append([colors[DEFAULT_ONE_HOT_ORDER.index(nuc)]])
+        return cls(nucleotides, scores, list_of_colors)
+
+    def plot(self, axes, rectangle_ratio=0.98, rasterize=False):
         """
         Adds the motif to an axes object.
 
         Parameters
         ----------
         - axes: The axes object to which the motif will be added.
+        - rectangle_ratio: The ratio of the weights below which the elements are approximated as rectangles.
+        - rasterize: Whether to rasterize the patches.
 
         Returns
         -------
         - None
 
         """
+        rectangle_cutoff = np.quantile(np.abs(self.weights), rectangle_ratio)
         make_stacked_bar_plot(
-            axes, self.elements, self.weights, width=1, colors=self.colors
+            axes,
+            self.elements,
+            self.weights,
+            width=1,
+            colors=self.colors,
+            rectangle_cutoff=rectangle_cutoff,
+            rasterize=rasterize,
         )

@@ -269,8 +269,10 @@ class Track1DDataset(RayGenomeChunkDataset):
         # filter regions
         # sum sites within sample, and than take the mean across samples
         if cov_func is None:
+
             def cov_func(data):
                 return data.sum(axis=(-1, -2))
+
         dataset = self._filter_regions(dataset=dataset, cov_func=cov_func)
 
         # add dna one hot
@@ -278,7 +280,7 @@ class Track1DDataset(RayGenomeChunkDataset):
             dataset=dataset,
             concurrency=1,
         )
-        
+
         # crop the regions
         dataset = self._get_region_cropper(dataset)
 

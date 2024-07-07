@@ -9,7 +9,7 @@ __version__ = version("bolero")
 import warnings
 
 from .pp import Genome, Sequence
+from .tl.generic.train_helper import hg38_splits, mm10_splits
 from .utils import init
-from .tl.generic.train_helper import mm10_splits, hg38_splits
 
 warnings.filterwarnings("ignore", module="pyranges")

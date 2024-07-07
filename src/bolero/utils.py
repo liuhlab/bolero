@@ -261,8 +261,8 @@ def init(
     import os
 
     # set environment variable to ignore unhandled errors
-    # RAY_IGNORE_UNHANDLED_ERRORS = 1
-    # os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = str(RAY_IGNORE_UNHANDLED_ERRORS)
+    RAY_IGNORE_UNHANDLED_ERRORS = 1
+    os.environ["RAY_IGNORE_UNHANDLED_ERRORS"] = str(RAY_IGNORE_UNHANDLED_ERRORS)
 
     if visible_devices is not None:
         if isinstance(visible_devices, int):
@@ -311,7 +311,7 @@ def init(
             "automatic_object_spilling_enabled": object_spilling,
         },
         runtime_env={},
-        resources={"bolero_dataset_gen": 100}
+        resources={"bolero_dataset_gen": 100},
     )
 
     # ray data

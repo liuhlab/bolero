@@ -142,6 +142,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "low_cov_ratio": 0.1,
         "reverse_complement": True,
         "shuffle_files": False,
+        "read_parquet_kwargs": None,
     }
 
     @classmethod
@@ -182,11 +183,13 @@ class scPrinterDataset(RayGenomeChunkDataset):
         cov_filter_name: str = None,
         reverse_complement: bool = True,
         shuffle_files=False,
+        read_parquet_kwargs=None,
     ):
         super().__init__(
             dataset_path=dataset_path,
             genome=genome,
             shuffle_files=shuffle_files,
+            read_parquet_kwargs=read_parquet_kwargs,
         )
         self.batch_size = batch_size
 
@@ -378,7 +381,9 @@ class scPrinterDataset(RayGenomeChunkDataset):
         - work_ds (Dataset): The processed dataset.
 
         """
-        standard_length = max(self.dna_window, self.signal_window) + self.max_jitter * 2 + 200
+        standard_length = (
+            max(self.dna_window, self.signal_window) + self.max_jitter * 2 + 200
+        )
         standard_length = int(standard_length)
         region_bed = self.standard_region_length(region_bed_path, standard_length)
 

@@ -136,6 +136,12 @@ class BatchAttribution:
         if self.tfbs_model is not None:
             score_key = f"{self.prefix}:attributions_1d"
             attr_score = data[score_key]
+
+            if isinstance(attr_score, np.ndarray):
+                attr_score = torch.as_tensor(attr_score, device=self.device)
+            # attr_1d_score.shape = (batch_size, seq_len), add a channel dimension below
+            attr_score = attr_score.unsqueeze(1)
+
             tfbs = self.tfbs_model(attr_score)
-            data[f"{score_key}:tfbs"] = tfbs
+            data[f"{score_key}:tfbs"] = tfbs.cpu().numpy()
         return data
