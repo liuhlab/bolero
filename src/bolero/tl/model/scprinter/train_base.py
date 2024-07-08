@@ -1,3 +1,5 @@
+import pathlib
+
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -612,6 +614,12 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
 
     def train(self, valid_first=None) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
+        flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
+
+        if flag.exists():
+            print(f"Training already finished, found flag file: {flag}.")
+            return
+
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return
@@ -629,6 +637,7 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             self._test()
             self._cleanup_env()
             wandb.finish()
+        flag.touch()
         return
 
 

@@ -225,6 +225,11 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
                     )
 
             self.mode = "lora"
+
+            flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
+            if flag.exists():
+                print(f"Training already finished, found flag file: {flag}.")
+                return
             if not adj_output_only:
                 # Fit LoRA
                 self.checkpoint = self._has_last_checkpoint()
@@ -234,4 +239,5 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
                 self._test()
             self._cleanup_env()
             wandb.finish()
+            flag.touch()
         return
