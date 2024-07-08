@@ -22,6 +22,7 @@ dependencies = [
     "beartype",
     "biopython",
     "bolero_process",
+    "click",
     "deeptools",
     "gensim",
     "geosketch",
@@ -39,6 +40,9 @@ dependencies = [
     # "ray", # do not add ray as a dependency, install it separately otherwise skypilot will have issue
     "zarr",
 ]
+
+[project.scripts]
+mysbatch = "sbatch.main:submitter"
 
 [project.optional-dependencies]
 dev = ["pre-commit", "twine>=4.0.2"]

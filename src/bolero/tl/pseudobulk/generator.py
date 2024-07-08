@@ -335,7 +335,12 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
                     # cell coverage is a constant number
                     total_coverage = self.cell_coverage * len(cells)
                 else:
-                    total_coverage = self.cell_coverage.loc[cells.values].sum()
+                    try:
+                        total_coverage = self.cell_coverage.loc[cells.values].sum()
+                    except KeyError as e:
+                        print("cells.values", cells.values)
+                        print("self.cell_coverage.index", self.cell_coverage.index)
+                        raise e
                 if total_coverage >= self.standard_cov:
                     use_pseudobulks[k] = cells
             else:

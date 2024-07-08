@@ -1,16 +1,17 @@
 import pathlib
 from typing import Any, Dict, List, Union
 
+import cooler
+import h5py
 import numpy as np
 import pysam
-import h5py
-import cooler
+from cooler.api import matrix
 from cooler.core import (
     RangeSelector2D,
     region_to_extent,
 )
-from cooler.api import matrix
 from cooler.util import parse_region
+
 from bolero.pp.genome_chunk_dataset import query_allc_region
 from bolero.utils import understand_regions
 
@@ -19,9 +20,11 @@ def _open_allc(allc_path):
     handle = pysam.TabixFile(allc_path, mode="r")
     return handle
 
+
 def _open_cool(cool_path):
     handle = cooler.Cooler(cool_path, mode="r")
     return handle
+
 
 class FetchRegionALLCs:
     def __init__(
@@ -144,21 +147,25 @@ class FetchRegionCools:
         if isinstance(region_, str):
             region_ = [region_]
         regions = understand_regions(region_, as_df=True)
-        regions['Start'] = regions['Start'] // resolution * resolution
-        regions['End'] = ((regions['End'] - 1) // resolution + 1) * resolution
+        regions["Start"] = regions["Start"] // resolution * resolution
+        regions["End"] = ((regions["End"] - 1) // resolution + 1) * resolution
         assert (regions["End"] - regions["Start"]).unique().shape[
             0
         ] == 1, "Regions must have the same length."
 
         n_regions = len(region_)
-        region_length = (regions["End"].iloc[0] - regions["Start"].iloc[0]) // resolution
+        region_length = (
+            regions["End"].iloc[0] - regions["Start"].iloc[0]
+        ) // resolution
         n_cool = len(self.cool_paths)
 
         total_values = np.zeros(
             shape=(n_regions, n_cool, region_length, region_length), dtype=np.float32
         )
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
-            for idy, (cool_handle, cool_object) in enumerate(zip(self.cool_handles, self.cool_objects)):
+            for idy, (cool_handle, cool_object) in enumerate(
+                zip(self.cool_handles, self.cool_objects)
+            ):
                 temp_values = self.query_cool_region(
                     cool_handle, cool_object, chrom, start, end
                 )
@@ -170,7 +177,11 @@ class FetchRegionCools:
         """Get region data from an COOL file handle."""
         # bin_start = start // resolution
         # bin_end = (end-1) // resolution + 1
-        data = self.matrix(h5=cool_handle, cool=cool_object).fetch(f'{chrom}:{start}-{end}').astype('float32')
+        data = (
+            self.matrix(h5=cool_handle, cool=cool_object)
+            .fetch(f"{chrom}:{start}-{end}")
+            .astype("float32")
+        )
         return data
 
     def matrix(
@@ -248,6 +259,7 @@ class FetchRegionCools:
             return i0, i1, j0, j1
 
         return RangeSelector2D(field, _slice, _fetch, (cool._info["nbins"],) * 2)
+
 
 # old code, temp save here
 # class NotRayBatchRegionBigWig:
