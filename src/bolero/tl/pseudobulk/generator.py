@@ -63,18 +63,18 @@ class PseudobulkGenerator:
 
         prefix_to_rows = {}
         found_cells = 0
-        for prefix, cells in prefix_to_cells.items():
+        for _prefix, _cells in prefix_to_cells.items():
             try:
-                barcode_orders = self.barcode_order[prefix]
-                bool_index = barcode_orders.isin(cells)
+                barcode_orders = self.barcode_order[_prefix]
+                bool_index = barcode_orders.isin(_cells)
                 found_cells += bool_index.sum()
-                prefix_to_rows[prefix] = bool_index
+                prefix_to_rows[_prefix] = bool_index
             except KeyError:
                 continue
 
         # check if all cells are in the dataset
         if found_cells != len(cells):
-            print(
+            raise ValueError(
                 f"Cell number doesn't match between pseudobulk and dataset! "
                 f"Pseudobulk size: {len(cells)}, Found cells: {found_cells}."
             )
