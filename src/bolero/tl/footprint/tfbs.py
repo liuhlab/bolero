@@ -21,9 +21,9 @@ TFBS_MODEL_CLASS1_PATH = f"{SCPRINTER_DATA}/footprint_to_TFBS_class1_conv_model.
 # model trained on nucleosome data
 NUCLEOSOME_MODEL_PATH = f"{SCPRINTER_DATA}/footprint_to_nucleosome_conv_model.pt"
 # model trained on all TF chip data, using projected footprint attribution score as input.
-ATTR_FP_TFBS_MODEL_PATH = f"{SCPRINTER_DATA}/TFBS_0_conv_v2.pt"
+ATTR_FP_TFBS_MODEL_PATH = f"{SCPRINTER_DATA}/TFBS_1_conv_v2.pt"
 # model trained on all TF chip data, using projected coverage attribution score as input.
-ATTR_COV_TFBS_MODEL_PATH = f"{SCPRINTER_DATA}/TFBS_1_conv_v2.pt"
+ATTR_COV_TFBS_MODEL_PATH = f"{SCPRINTER_DATA}/TFBS_0_conv_v2.pt"
 
 
 def get_footprint_to_tfbs_model(model) -> torch.nn.Module:

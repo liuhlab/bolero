@@ -24,6 +24,7 @@ class BatchAttribution:
         prefix: str,
         modes: range = range(0, 30),
         decay: float = 0.85,
+        score_norm: tuple = None,
         tfbs_model: str = None,
     ):
         """
@@ -55,10 +56,15 @@ class BatchAttribution:
         self.projector = partial(projected_shap, bs=64, device="cpu")
 
         if tfbs_model is not None:
+            self.score_nrom = score_norm
+            assert (
+                self.score_nrom is not None
+            ), "score_norm (vmin, vmid, vmax) is required for tfbs_model"
             self.tfbs_model = AttrobutionScoreModel(
                 score_type=tfbs_model, device=self.device
             )
         else:
+            self.score_nrom = None
             self.tfbs_model = None
 
     def _prepare_model(
@@ -130,6 +136,10 @@ class BatchAttribution:
         data[f"{self.prefix}:attributions"] = attrs.cpu().numpy()
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
+
+        if self.score_nrom is not None:
+            vmin, vmid, vmax = self.score_nrom
+            attrs_1d = (attrs_1d - vmid) / (vmax - vmin)
         data[f"{self.prefix}:attributions_1d"] = attrs_1d
 
         # Add tfbs

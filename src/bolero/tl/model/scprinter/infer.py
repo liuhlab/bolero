@@ -4,7 +4,9 @@ import time
 from copy import deepcopy
 
 import joblib
+import numpy as np
 import pandas as pd
+import pyranges as pr
 import torch
 
 from bolero.pp.genome import Genome
@@ -160,6 +162,8 @@ class TrainedLoraModel:
         """
         bulk_emb = {}
         for key, cells in self._pseudobulk_to_cells.items():
+            if isinstance(cells, set):
+                cells = pd.Index(cells)
             _emb = self._cell_embedding.loc[cells].mean(axis=0)
             bulk_emb[key] = _emb
         bulk_emb = pd.DataFrame(bulk_emb).T
@@ -241,6 +245,9 @@ class BaseFootprintInferencer:
         self.genome = genome
         self.batch_size = batch_size
 
+        self.fp_attr_norm = None
+        self.cov_attr_norm = None
+
         self._cleanup_env()
 
     def add_inferencer(self, dataset, tfbs=True) -> BatchInference:
@@ -278,6 +285,7 @@ class BaseFootprintInferencer:
         wrapper: str = "just_sum",
         num_gpus: float = 0.2,
         concurrency=1,
+        score_norm=None,
         tfbs_model_type=None,
     ):
         """
@@ -309,6 +317,7 @@ class BaseFootprintInferencer:
             "prefix": prefix,
             "modes": range(0, 30),
             "decay": 0.85,
+            "score_norm": score_norm,
             "tfbs_model": tfbs_model_type,
         }
 
@@ -349,6 +358,8 @@ class BaseFootprintInferencer:
         footprint_tfbs: bool = True,
         footprint_attr: bool = True,
         coverage_attr: bool = True,
+        attr_tfbs: bool = True,
+        _pre_run: bool = False,
     ):
         """
         Transform the dataset.
@@ -390,12 +401,14 @@ class BaseFootprintInferencer:
         dataset = self.add_inferencer(dataset, tfbs=footprint_tfbs)
 
         if footprint_attr:
+            tfbs_model_type = "attr_fp" if attr_tfbs else None
             dataset = self.add_attributor(
                 dataset=dataset,
                 prefix="pred_footprint",
                 wrapper="just_sum",
                 num_gpus=0.2,
-                tfbs_model_type="attr_fp",
+                score_norm=self.fp_attr_norm,
+                tfbs_model_type=None if _pre_run else tfbs_model_type,
             )
             key_to_slice += [
                 "pred_footprint:attributions",
@@ -403,23 +416,32 @@ class BaseFootprintInferencer:
             ]
 
         if coverage_attr:
+            tfbs_model_type = "attr_cov" if attr_tfbs else None
             dataset = self.add_attributor(
                 dataset=dataset,
                 prefix="pred_coverage",
                 wrapper="count",
                 num_gpus=0.2,
-                tfbs_model_type="attr_cov",
+                score_norm=self.cov_attr_norm,
+                tfbs_model_type=None if _pre_run else tfbs_model_type,
             )
             key_to_slice += [
                 "pred_coverage:attributions",
                 "pred_coverage:attributions_1d",
             ]
 
-        dataset = self.add_slice(dataset, keys=key_to_slice)
+        if not _pre_run:
+            dataset = self.add_slice(dataset, keys=key_to_slice)
+        else:
+            fp_norms, cov_norms = _estimate_attr_norm(
+                dataset, fp=footprint_attr, cov=coverage_attr, clip=520, batch_size=512
+            )
+            self.fp_attr_norm = fp_norms
+            self.cov_attr_norm = cov_norms
 
         if output_path is not None:
             dataset.write_parquet(output_path)
-            return dataset
+            return
         else:
             return dataset
 
@@ -428,6 +450,29 @@ class BaseFootprintInferencer:
         gc.collect()
         torch.cuda.empty_cache()
         return
+
+
+def _estimate_attr_norm(dataset, fp=True, cov=True, clip=520, batch_size=512):
+    fp_attrs = []
+    cov_attrs = []
+    for batch in dataset.iter_batches(batch_size=batch_size):
+        if fp:
+            _data = batch["pred_footprint:attributions_1d"][..., clip:-clip]
+            fp_attrs.append(_data.ravel())
+        if cov:
+            _data = batch["pred_coverage:attributions_1d"][..., clip:-clip]
+            cov_attrs.append(_data.ravel())
+
+    if len(fp_attrs) > 0:
+        fp_norms = np.quantile(np.concatenate(fp_attrs), (0.05, 0.5, 0.95))
+    else:
+        fp_norms = None
+
+    if len(cov_attrs) > 0:
+        cov_norms = np.quantile(np.concatenate(cov_attrs), (0.05, 0.5, 0.95))
+    else:
+        cov_norms = None
+    return fp_norms, cov_norms
 
 
 class scPrinterPseudobulkInferencer:
@@ -536,7 +581,25 @@ class scPrinterPseudobulkInferencer:
         _config = self.infer_config.copy()
         _config["model"] = self.model.get_collapsed_model(collapse_key)
         inferencer = self.infer_class(**_config)
-        return inferencer.transform(bed_path, output_path=output_path, **kwargs)
+
+        attr_tfbs = kwargs.get("attr_tfbs", True)
+        if attr_tfbs:
+            # prerun to estimate the attr nromalization
+            sample_n = 1000
+            print(
+                f"Pre-run attribution on {sample_n} regions to estimate the attr score normalization"
+            )
+            _bed = pr.read_bed(bed_path)
+            if len(_bed) < sample_n:
+                sample_bed = _bed
+            else:
+                sample_bed = _bed.sample(sample_n)
+            inferencer.transform(sample_bed, _pre_run=True, output_path=None, **kwargs)
+
+        inferencer.transform(
+            bed_path, output_path=output_path, _pre_run=False, **kwargs
+        )
+        return
 
     @property
     def pseudobulk_names(self):
