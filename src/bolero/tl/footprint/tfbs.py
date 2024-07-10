@@ -161,7 +161,7 @@ class FootPrintScoreModel:
         with torch.inference_mode():
             score = model(final)
         if numpy:
-            score = score.cpu().numpy()
+            score = score.cpu().numpy().astype(np.float32)
         return score
 
     def get_tfbs_score_all_tf(
@@ -257,10 +257,26 @@ class FootPrintScoreModel:
 class AttrobutionScoreModel:
     """Calculate the TFBS score for the given 1-D projected attribution."""
 
-    def __init__(self, score_type="attr_fp", device=None, with_motif=False):
+    def __init__(self, score_type, device=None, with_motif=False, sigmoid=True):
+        """
+        Initialize the model.
+
+        Parameters
+        ----------
+        score_type : str, optional
+            The type of score to be used, choose from 'attr_fp', 'attr_cov'.
+        device : torch.device, optional
+            The device to be used, by default None.
+        with_motif : bool, optional
+            Whether the input contains three motif feathers, by default False.
+        sigmoid : bool, optional
+            Whether to apply sigmoid to the output, by default True.
+        """
         if device is None:
             device = try_gpu()
         self.device = device
+
+        self.sigmoid = sigmoid
 
         if score_type == "attr_fp":
             self.tfbs_model = get_footprint_to_tfbs_model("attr_fp")
@@ -292,4 +308,6 @@ class AttrobutionScoreModel:
         with torch.inference_mode():
             attr_score = attr_score.to(self.device)
             tfbs_score = self.tfbs_model(attr_score)
+            if self.sigmoid:
+                tfbs_score = torch.sigmoid(tfbs_score)
         return tfbs_score

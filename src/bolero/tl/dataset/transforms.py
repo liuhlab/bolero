@@ -214,57 +214,6 @@ class ReverseComplement:
         return data
 
 
-class BatchToFloat:
-    """
-    Convert the specified key(s) in the data dictionary to float type.
-
-    Parameters
-    ----------
-    key : Union[str, list[str]]
-        The key(s) of the data to be converted to float type.
-    swapaxes : bool, optional
-        For torch conv1d, the input shape should be (batch, channel, length).
-        The genome one-hot encoding has shape (batch, length, channel).
-        Set swapaxes to true to move the channel axis to the second position.
-        Defaults to True.
-
-    Returns
-    -------
-    dict
-        The modified data dictionary with the specified key(s) converted to float type.
-    """
-
-    def __init__(self, key: Union[str, list[str]], swapaxes=True):
-        if isinstance(key, str):
-            key = [key]
-        self.key = key
-        self.swapaxes = swapaxes
-
-    def __call__(self, data: dict) -> dict:
-        """
-        Convert the specified key(s) in the data dictionary to float type.
-
-        Parameters
-        ----------
-        data : dict
-            The input data dictionary.
-
-        Returns
-        -------
-        dict
-            The modified data dictionary with the specified key(s) converted to float type.
-        """
-        for k in self.key:
-            if isinstance(data[k], np.ndarray):
-                _data = data[k].astype(np.float32)
-            else:
-                _data = data[k].float()
-            if self.swapaxes:
-                _data = _data.swapaxes(-1, -2)
-            data[k] = _data
-        return data
-
-
 class BatchRegionEmbedding:
     """Embed the region information in the data dictionary."""
 

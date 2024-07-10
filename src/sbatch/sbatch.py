@@ -106,7 +106,10 @@ class SlurmManager:
             script += f"#SBATCH --{key}={value}\n"
 
         script += f"cd {self.config['chdir']}\n"
+        # execute cmd with timer
+        script += "date\n"
         script += f"{self.command}\n"
+        script += "date\n"
         # save a sbatch level success flag
         script += f"echo $? > {self._finish_flag}\n"
 

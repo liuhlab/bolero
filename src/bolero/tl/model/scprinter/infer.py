@@ -1,5 +1,6 @@
 import gc
 import pathlib
+import shutil
 import time
 from copy import deepcopy
 
@@ -13,7 +14,7 @@ from bolero.pp.genome import Genome
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.footprint.tfbs import FootPrintScoreModel
 from bolero.tl.model.scprinter.attribution import BatchAttribution
-from bolero.utils import try_gpu, validate_config
+from bolero.utils import try_gpu, understand_regions, validate_config
 
 
 class BatchInference:
@@ -82,8 +83,8 @@ class BatchInference:
 
 
 class _BatchSlice:
-    def __init__(self, dna_len, output_len, keys):
-        self.radius = (dna_len - output_len) // 2
+    def __init__(self, output_len, keys):
+        self.output_len = output_len
         self.keys = keys
 
     def __call__(self, data: dict):
@@ -91,8 +92,12 @@ class _BatchSlice:
         Slice the DNA matrix to the output length.
         """
         for key in self.keys:
-            mat = data[key]
-            data[key] = mat[..., self.radius : -self.radius]
+            try:
+                mat = data.pop(key)
+            except KeyError:
+                continue
+            radius = (mat.shape[-1] - self.output_len) // 2
+            data[key] = mat[..., radius:-radius]
         return data
 
 
@@ -345,7 +350,7 @@ class BaseFootprintInferencer:
             The sliced dataset.
         """
         fn = _BatchSlice
-        kwargs = {"dna_len": self.dna_len, "output_len": self.output_len, "keys": keys}
+        kwargs = {"output_len": self.output_len, "keys": keys}
         dataset = dataset.map_batches(
             fn=fn, fn_constructor_kwargs=kwargs, concurrency=1
         )
@@ -360,6 +365,8 @@ class BaseFootprintInferencer:
         coverage_attr: bool = True,
         attr_tfbs: bool = True,
         _pre_run: bool = False,
+        _save_columns=None,
+        **write_parquet_kwargs,
     ):
         """
         Transform the dataset.
@@ -386,12 +393,32 @@ class BaseFootprintInferencer:
             The attribution method for coverage. Default is "shap_hypo".
         batch_size : int, optional
             The batch size. Default is 64.
+        _pre_run : bool, optional
+            Flag indicating whether to perform a pre-run to estimate the attribution normalization. Default is False.
+        _save_columns : list, optional
+            The columns to be saved in the transformed dataset. Default is None, all columns are saved.
+        write_parquet_kwargs : dict, optional
+            Additional keyword arguments for writing the dataset to parquet.
 
         Returns
         -------
         xr.Dataset
             The transformed dataset.
         """
+        if output_path is not None:
+            output_path = pathlib.Path(output_path).absolute().resolve()
+
+            if output_path.exists():
+                success_flag = output_path / ".success"
+                if success_flag.exists():
+                    print(
+                        f"Output path has success flag {output_path}/.success. Skipping."
+                    )
+                    return
+                else:
+                    # delete the output_path in case its incomplete
+                    shutil.rmtree(output_path)
+
         ray_ds = RayRegionDataset(
             bed=bed, genome=self.genome, standard_length=self.dna_len, dna=True
         )
@@ -402,32 +429,36 @@ class BaseFootprintInferencer:
 
         if footprint_attr:
             tfbs_model_type = "attr_fp" if attr_tfbs else None
+            tfbs_model_type = None if _pre_run else tfbs_model_type
             dataset = self.add_attributor(
                 dataset=dataset,
                 prefix="pred_footprint",
                 wrapper="just_sum",
                 num_gpus=0.2,
                 score_norm=self.fp_attr_norm,
-                tfbs_model_type=None if _pre_run else tfbs_model_type,
+                tfbs_model_type=tfbs_model_type,
             )
             key_to_slice += [
                 "pred_footprint:attributions",
                 "pred_footprint:attributions_1d",
+                "pred_footprint:attributions_1d:tfbs",
             ]
 
         if coverage_attr:
             tfbs_model_type = "attr_cov" if attr_tfbs else None
+            tfbs_model_type = None if _pre_run else tfbs_model_type
             dataset = self.add_attributor(
                 dataset=dataset,
                 prefix="pred_coverage",
                 wrapper="count",
                 num_gpus=0.2,
                 score_norm=self.cov_attr_norm,
-                tfbs_model_type=None if _pre_run else tfbs_model_type,
+                tfbs_model_type=tfbs_model_type,
             )
             key_to_slice += [
                 "pred_coverage:attributions",
                 "pred_coverage:attributions_1d",
+                "pred_coverage:attributions_1d:tfbs",
             ]
 
         if not _pre_run:
@@ -439,8 +470,12 @@ class BaseFootprintInferencer:
             self.fp_attr_norm = fp_norms
             self.cov_attr_norm = cov_norms
 
+        if _save_columns is not None:
+            dataset = dataset.select_columns(_save_columns)
+
         if output_path is not None:
-            dataset.write_parquet(output_path)
+            dataset.write_parquet(output_path, **write_parquet_kwargs)
+            success_flag.touch()
             return
         else:
             return dataset
@@ -563,7 +598,19 @@ class scPrinterPseudobulkInferencer:
         self.infer_config = infer_config
         return
 
-    def transform(self, collapse_key: str, bed_path: str, output_path: str, **kwargs):
+    def transform(
+        self,
+        collapse_key: str,
+        bed_path: str,
+        output_path: str,
+        footprint_tfbs: bool = True,
+        footprint_attr: bool = True,
+        coverage_attr: bool = True,
+        attr_tfbs: bool = True,
+        _chunk_size=5000,
+        _save_columns=None,
+        **write_parquet_kwargs,
+    ):
         """
         Perform pseudobulk inference and transform the dataset.
 
@@ -572,34 +619,115 @@ class scPrinterPseudobulkInferencer:
             collapse_key (str): The key for the collapsed model.
             bed (str): The bed file.
             output_path (str): The output path for the transformed dataset.
+            footprint_tfbs (bool, optional): Flag indicating whether to compute footprint TFBS. Default is True.
+            footprint_attr (bool, optional): Flag indicating whether to compute footprint attributions. Default is True.
+            coverage_attr (bool, optional): Flag indicating whether to compute coverage attributions. Default is True.
+            attr_tfbs (bool, optional): Flag indicating whether to compute attribution TFBS. Default is True.
+            _chunk_size (int, optional): The chunk size for processing the bed file. Default is 5000.
+            _save_columns (list, optional): The columns to be saved in the transformed dataset.
+                Default is None, all columns are saved.
             **kwargs: Additional keyword arguments for the transformation.
 
         Returns
         -------
             ray.data.Dataset: The transformed dataset.
         """
+        output_path = pathlib.Path(output_path).absolute().resolve()
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        success_flag = output_path / ".success"
+        if success_flag.exists():
+            print(f"Output path has success flag {output_path}/.success. Skipping.")
+            return
+
         _config = self.infer_config.copy()
         _config["model"] = self.model.get_collapsed_model(collapse_key)
         inferencer = self.infer_class(**_config)
 
-        attr_tfbs = kwargs.get("attr_tfbs", True)
+        # if attr_tfbs needed, run the attribution on a sample to estimate the attr normalization
+        # save the normalization value in output_path
         if attr_tfbs:
-            # prerun to estimate the attr nromalization
-            sample_n = 1000
-            print(
-                f"Pre-run attribution on {sample_n} regions to estimate the attr score normalization"
+            self._prerun_transform(
+                inferencer=inferencer,
+                output_path=output_path,
+                bed_path=bed_path,
+                footprint_attr=footprint_attr,
+                coverage_attr=coverage_attr,
             )
-            _bed = pr.read_bed(bed_path)
-            if len(_bed) < sample_n:
-                sample_bed = _bed
-            else:
-                sample_bed = _bed.sample(sample_n)
-            inferencer.transform(sample_bed, _pre_run=True, output_path=None, **kwargs)
 
-        inferencer.transform(
-            bed_path, output_path=output_path, _pre_run=False, **kwargs
-        )
+        bed = understand_regions(bed_path, as_df=True)
+        if bed.shape[0] > _chunk_size:
+            for chunk_id, chunk_start in enumerate(range(0, bed.shape[0], _chunk_size)):
+                _bed = bed.iloc[chunk_start : chunk_start + _chunk_size]
+                _chunk_output_path = output_path / f"chunk_{chunk_id}"
+                inferencer.transform(
+                    _bed,
+                    output_path=_chunk_output_path,
+                    _pre_run=False,
+                    footprint_tfbs=footprint_tfbs,
+                    footprint_attr=footprint_attr,
+                    coverage_attr=coverage_attr,
+                    attr_tfbs=attr_tfbs,
+                    _save_columns=_save_columns,
+                    **write_parquet_kwargs,
+                )
+        else:
+            inferencer.transform(
+                bed,
+                output_path=output_path,
+                _pre_run=False,
+                footprint_tfbs=footprint_tfbs,
+                footprint_attr=footprint_attr,
+                coverage_attr=coverage_attr,
+                attr_tfbs=attr_tfbs,
+                _save_columns=_save_columns,
+                **write_parquet_kwargs,
+            )
+
+        success_flag.touch()
         return
+
+    @staticmethod
+    def _prerun_transform(
+        inferencer: BaseFootprintInferencer,
+        output_path: str,
+        bed_path: str,
+        footprint_attr: bool,
+        coverage_attr: bool,
+    ):
+        norm_path = output_path / "attr_norm.joblib"
+        if norm_path.exists():
+            norm_dict = joblib.load(norm_path)
+            inferencer.fp_attr_norm = norm_dict["fp_attr_norm"]
+            inferencer.cov_attr_norm = norm_dict["cov_attr_norm"]
+            return
+
+        sample_n = 1000
+        print(
+            f"Pre-run attribution on {sample_n} regions to estimate the attr score normalization"
+        )
+        _bed = pr.read_bed(bed_path)
+        if len(_bed) < sample_n:
+            sample_bed = _bed
+        else:
+            sample_bed = _bed.sample(sample_n)
+        inferencer.transform(
+            sample_bed,
+            _pre_run=True,
+            output_path=None,
+            footprint_tfbs=False,
+            footprint_attr=footprint_attr,
+            coverage_attr=coverage_attr,
+            attr_tfbs=False,
+        )
+
+        # save norm value
+        norm_dict = {
+            "fp_attr_norm": inferencer.fp_attr_norm,
+            "cov_attr_norm": inferencer.cov_attr_norm,
+        }
+        joblib.dump(norm_dict, norm_path)
+        return norm_path
 
     @property
     def pseudobulk_names(self):

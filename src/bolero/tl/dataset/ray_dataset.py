@@ -388,8 +388,9 @@ class RayRegionDataset(GenericDataset):
     ):
         if isinstance(genome, str):
             genome = Genome(genome)
+        self.genome = genome
 
-        standard_bed = genome.standard_region_length(
+        standard_bed = self.genome.standard_region_length(
             bed,
             length=standard_length,
             boarder_strategy="drop",
@@ -403,12 +404,6 @@ class RayRegionDataset(GenericDataset):
         self.bed = standard_bed
 
         self.dna = dna
-        if isinstance(genome, str):
-            genome = Genome(genome)
-        self.genome = genome
-        if self.dna:
-            _ = genome.genome_one_hot
-
         self._block_size = _block_size
         self._max_blocks = _max_blocks
         self.n_blocks = min(len(self.bed) // self._block_size, self._max_blocks)
