@@ -22,6 +22,7 @@ dependencies = [
     "beartype",
     "biopython",
     "bolero_process",
+    "cooler",
     "click",
     "deeptools",
     "gensim",

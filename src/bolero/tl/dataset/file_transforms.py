@@ -110,6 +110,7 @@ class FetchRegionCools:
         resolution: int,
         region_key: str = "region",
         balance: bool = False,
+        data_key="values",
     ) -> None:
         """
         Initialize FetchRegionALLCs.
@@ -128,9 +129,15 @@ class FetchRegionCools:
         self.cool_paths = cool_paths
         self.region_key = region_key
         self.resolution = resolution
-        self.cool_handles = [h5py.File(path.split('::')[0])['/'+path.split('::')[1]] if '::' in path else h5py.File(path) for path in cool_paths]
+        self.cool_handles = [
+            h5py.File(path.split("::")[0])["/" + path.split("::")[1]]
+            if "::" in path
+            else h5py.File(path)
+            for path in cool_paths
+        ]
         self.cool_objects = [cooler.Cooler(path) for path in cool_paths]
         self.balance = balance
+        self.data_key = data_key
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -173,10 +180,12 @@ class FetchRegionCools:
                     cool_handle, cool_object, chrom, start, end, balance
                 )
                 total_values[idx, idy, ...] = temp_values
-        data_dict["values"] = total_values
+        data_dict[self.data_key] = total_values
         return data_dict
 
-    def query_cool_region(self, cool_handle, cool_object, chrom, start, end, balance=False):
+    def query_cool_region(
+        self, cool_handle, cool_object, chrom, start, end, balance=False
+    ):
         """Get region data from an COOL file handle."""
         # bin_start = start // resolution
         # bin_end = (end-1) // resolution + 1
@@ -232,7 +241,7 @@ class FetchRegionCools:
         """
         sparse = False
         as_pixels = False
-        chunksize = 10000000       
+        chunksize = 10000000
         join = True
         ignore_index = True
         divisive_weights = False

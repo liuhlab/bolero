@@ -384,6 +384,8 @@ class RayRegionDataset(GenericDataset):
         genome,
         standard_length,
         dna=True,
+        boarder_strategy="drop",
+        remove_blacklist=True,
         _block_size=20,
         _max_blocks=200,
     ):
@@ -394,8 +396,8 @@ class RayRegionDataset(GenericDataset):
         standard_bed = self.genome.standard_region_length(
             bed,
             length=standard_length,
-            boarder_strategy="drop",
-            remove_blacklist=True,
+            boarder_strategy=boarder_strategy,
+            remove_blacklist=remove_blacklist,
             as_df=True,
             keep_original=True,
         )
@@ -431,17 +433,19 @@ class RayRegionDataset(GenericDataset):
         if chroms is None:
             bedfilter = np.ones(self.bed.shape[0]).astype(bool)
         else:
-            bedfilter = (self.bed['Chromosome'].isin(chroms))
+            bedfilter = self.bed["Chromosome"].isin(chroms)
 
         dataset = (
-            ray.data.from_pandas(self.bed.loc[bedfilter]).repartition(self.n_blocks).materialize()
+            ray.data.from_pandas(self.bed.loc[bedfilter])
+            .repartition(self.n_blocks)
+            .materialize()
         )
         if self.dna:
             dataset = self._get_dna_one_hot(dataset)
         dataset = self._select_columns(dataset)
         return dataset
 
-    def get_dataloader(self, chroms = None, batch_size: int = 64, **kwargs):
+    def get_dataloader(self, chroms=None, batch_size: int = 64, **kwargs):
         """
         Get a data loader for iterating over batches of the dataset.
 
