@@ -2,6 +2,7 @@ import pathlib
 from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar
 
 import joblib
+import numpy as np
 import pandas as pd
 import ray
 
@@ -425,17 +426,22 @@ class RayRegionDataset(GenericDataset):
         dataset = dataset.select_columns(keep_cols)
         return dataset
 
-    def get_processed_dataset(self):
+    def get_processed_dataset(self, chroms=None):
         """Get the processed dataset."""
+        if chroms is None:
+            bedfilter = np.ones(self.bed.shape[0]).astype(bool)
+        else:
+            bedfilter = (self.bed['Chromosome'].isin(chroms))
+
         dataset = (
-            ray.data.from_pandas(self.bed).repartition(self.n_blocks).materialize()
+            ray.data.from_pandas(self.bed.loc[bedfilter]).repartition(self.n_blocks).materialize()
         )
         if self.dna:
             dataset = self._get_dna_one_hot(dataset)
         dataset = self._select_columns(dataset)
         return dataset
 
-    def get_dataloader(self, batch_size: int = 64, **kwargs):
+    def get_dataloader(self, chroms = None, batch_size: int = 64, **kwargs):
         """
         Get a data loader for iterating over batches of the dataset.
 
@@ -447,6 +453,6 @@ class RayRegionDataset(GenericDataset):
         -------
             DataLoader: The data loader.
         """
-        dataset = self.get_processed_dataset()
+        dataset = self.get_processed_dataset(chroms=chroms)
         loader = dataset.iter_batches(batch_size=batch_size, **kwargs)
         return loader

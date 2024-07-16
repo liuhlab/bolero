@@ -109,6 +109,7 @@ class FetchRegionCools:
         cool_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
         resolution: int,
         region_key: str = "region",
+        balance: bool = False,
     ) -> None:
         """
         Initialize FetchRegionALLCs.
@@ -127,8 +128,9 @@ class FetchRegionCools:
         self.cool_paths = cool_paths
         self.region_key = region_key
         self.resolution = resolution
-        self.cool_handles = [h5py.File(path) for path in cool_paths]
+        self.cool_handles = [h5py.File(path.split('::')[0])['/'+path.split('::')[1]] if '::' in path else h5py.File(path) for path in cool_paths]
         self.cool_objects = [cooler.Cooler(path) for path in cool_paths]
+        self.balance = balance
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -144,6 +146,7 @@ class FetchRegionCools:
         """
         region_ = data_dict[self.region_key]
         resolution = self.resolution
+        balance = self.balance
         if isinstance(region_, str):
             region_ = [region_]
         regions = understand_regions(region_, as_df=True)
@@ -167,18 +170,18 @@ class FetchRegionCools:
                 zip(self.cool_handles, self.cool_objects)
             ):
                 temp_values = self.query_cool_region(
-                    cool_handle, cool_object, chrom, start, end
+                    cool_handle, cool_object, chrom, start, end, balance
                 )
                 total_values[idx, idy, ...] = temp_values
         data_dict["values"] = total_values
         return data_dict
 
-    def query_cool_region(self, cool_handle, cool_object, chrom, start, end):
+    def query_cool_region(self, cool_handle, cool_object, chrom, start, end, balance=False):
         """Get region data from an COOL file handle."""
         # bin_start = start // resolution
         # bin_end = (end-1) // resolution + 1
         data = (
-            self.matrix(h5=cool_handle, cool=cool_object)
+            self.matrix(h5=cool_handle, cool=cool_object, balance=balance)
             .fetch(f"{chrom}:{start}-{end}")
             .astype("float32")
         )
@@ -188,9 +191,7 @@ class FetchRegionCools:
         self,
         h5: h5py.File,
         cool: cooler.Cooler,
-        sparse: bool = False,
-        as_pixels: bool = False,
-        chunksize: int = 10000000,
+        balance: bool = False,
     ) -> RangeSelector2D:
         """
         Contact matrix selector
@@ -201,6 +202,12 @@ class FetchRegionCools:
             The h5py file handle.
         cool : cooler.Cooler
             The cooler object.
+        balance : bool, optional
+            Whether to apply pre-calculated matrix balancing weights to the
+            selection. Default is True and uses a column named 'weight'.
+            Alternatively, pass the name of the bin table column containing
+            the desired balancing weights. Set to False to return untransformed
+            counts.
         sparse : bool, optional
             Return a scipy.sparse.coo_matrix instead of a dense 2D numpy array.
             Default is False.
@@ -223,7 +230,9 @@ class FetchRegionCools:
         `as_pixels=False`, those missing non-zero elements will
         automatically be filled in.
         """
-        balance = False
+        sparse = False
+        as_pixels = False
+        chunksize = 10000000       
         join = True
         ignore_index = True
         divisive_weights = False
