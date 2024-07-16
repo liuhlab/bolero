@@ -408,8 +408,8 @@ class BaseFootprintInferencer:
         if output_path is not None:
             output_path = pathlib.Path(output_path).absolute().resolve()
 
+            success_flag = output_path / ".success"
             if output_path.exists():
-                success_flag = output_path / ".success"
                 if success_flag.exists():
                     print(
                         f"Output path has success flag {output_path}/.success. Skipping."
