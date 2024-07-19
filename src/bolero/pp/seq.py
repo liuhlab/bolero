@@ -25,7 +25,9 @@ def one_hot_decoding(one_hot: np.ndarray, order=DEFAULT_ONE_HOT_ORDER) -> str:
     return seq
 
 
-def one_hot_encoding(seq: str, order: str, dtype: np.dtype) -> np.ndarray:
+def one_hot_encoding(
+    seq: str, order: str = DEFAULT_ONE_HOT_ORDER, dtype: np.dtype = np.int8
+) -> np.ndarray:
     """
     One-hot encoding of a DNA sequence string. Output is a numpy array of shape (len(seq), 4).
 

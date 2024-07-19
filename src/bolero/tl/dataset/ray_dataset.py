@@ -266,12 +266,13 @@ class RayGenomeChunkDataset(GenericDataset):
             region_action_keys = list(set(region_action_keys))
             self.signal_columns = region_action_keys
 
-        dataset = self._generate_regions(
-            dataset=dataset,
-            bed=region_bed,
-            action_keys=region_action_keys,
-            concurrency=generate_regions_concurrency,
-        )
+        if region_bed is not None:
+            dataset = self._generate_regions(
+                dataset=dataset,
+                bed=region_bed,
+                action_keys=region_action_keys,
+                concurrency=generate_regions_concurrency,
+            )
         return dataset
 
     def get_processed_dataset(
@@ -428,15 +429,21 @@ class RayRegionDataset(GenericDataset):
         dataset = dataset.select_columns(keep_cols)
         return dataset
 
-    def get_processed_dataset(self, chroms=None):
+    def get_processed_dataset(self, chroms=None, shuffle_bed=False):
         """Get the processed dataset."""
-        if chroms is None:
-            bedfilter = np.ones(self.bed.shape[0]).astype(bool)
+        if self._dataset_mode == "train" and shuffle_bed:
+            # self.bed is dataframe
+            _bed = self.bed.sample(frac=1, replace=False)
         else:
-            bedfilter = self.bed["Chromosome"].isin(chroms)
+            _bed = self.bed
+
+        if chroms is None:
+            bedfilter = np.ones(_bed.shape[0]).astype(bool)
+        else:
+            bedfilter = _bed["Chromosome"].isin(chroms)
 
         dataset = (
-            ray.data.from_pandas(self.bed.loc[bedfilter])
+            ray.data.from_pandas(_bed.loc[bedfilter])
             .repartition(self.n_blocks)
             .materialize()
         )
