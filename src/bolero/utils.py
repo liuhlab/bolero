@@ -311,7 +311,7 @@ def init(
             "automatic_object_spilling_enabled": object_spilling,
         },
         runtime_env={},
-        resources={"bolero_dataset_gen": 100},
+        resources={"bolero_dataset_gen": 100, "bolero_100": 100},
     )
 
     # ray data
