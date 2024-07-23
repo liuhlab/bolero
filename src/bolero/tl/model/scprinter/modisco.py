@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 
 import h5py
 import numpy as np
@@ -6,12 +7,14 @@ import pandas as pd
 import pyranges as pr
 import ray
 
-MODISCO_PIPELINE_TEMPLATE = """
 from bolero import Genome
 
+MODISCO_PIPELINE_TEMPLATE = """
+genome = "{GENOME}"
 
-genome = Genome("{GENOME}")
 sample_to_dataset_path_dict = {SAMPLE_TO_DATASET_PATH_DICT}
+samples = list(sample_to_dataset_path_dict.keys())
+
 tfbs_cutoff = {TFBS_CUTOFF}
 modisco_n = {MODISCO_N}
 attr_type = "{ATTR_TYPE}"
@@ -23,84 +26,84 @@ finemo_width=800
 
 rule all:
     input:
-        expand("modisco/{sample}/modisco.h5", sample=samples),
-        expand("modisco/{sample}/modisco_report/motifs.html", sample=samples),
-        expand("modisco/{sample}/finemo_hits/hits.tsv", sample=samples)
+        expand("modisco/{{sample}}/modisco.h5", sample=samples),
+        expand("modisco/{{sample}}/modisco_report/motifs.html", sample=samples),
+        expand("modisco/{{sample}}/finemo_hits/hits.tsv", sample=samples)
 
 rule dump_npz:
     input:
-        path=sample_to_dataset_path_dict["{sample}"],
+        path=lambda wildcards: sample_to_dataset_path_dict[wildcards.sample],
     output:
-        dna_path="modisco/{sample}/dna.npz",
-        attr_path="modisco/{sample}/attr.npz",
-        tfbs_path="modisco/{sample}/tfbs.npz",
-        region_path="modisco/{sample}/region.bed"
+        dna_path="modisco/{{sample}}/dna.npz",
+        attr_path="modisco/{{sample}}/attr.npz",
+        tfbs_path="modisco/{{sample}}/tfbs.npz",
+        region_path="modisco/{{sample}}/region.bed"
     params:
         tfbs_cutoff=tfbs_cutoff,
-        output_dir="modisco/{sample}",
+        output_dir="modisco/{{sample}}",
         attr_type=attr_type
-    python:
+    run:
         from bolero.tl.model.scprinter.modisco import dump_npz_from_parquet
         dump_npz_from_parquet(genome, input.path, params.output_dir, tfbs_cutoff=params.tfbs_cutoff, attr_type=params.attr_type)
 
 rule modisco:
     input:
-        dna_path="modisco/{sample}/dna.npz",
-        attr_path="modisco/{sample}/attr.npz",
+        dna_path="modisco/{{sample}}/dna.npz",
+        attr_path="modisco/{{sample}}/attr.npz",
     output:
-        modisco_h5_path="modisco/{sample}/modisco.h5"
+        modisco_h5_path="modisco/{{sample}}/modisco.h5"
     params:
         modisco_n=modisco_n
     shell:
         "modisco motifs "
-        "-s {input.dna_path} "
-        "-a {input.attr_path} "
-        "-n {params.modisco_n} "
-        "-o {output.modisco_h5_path}"
+        "-s {{input.dna_path}} "
+        "-a {{input.attr_path}} "
+        "-n {{params.modisco_n}} "
+        "-o {{output.modisco_h5_path}}"
 
 rule modisco_report:
     input:
-        modisco_h5_path="modisco/{sample}/modisco.h5"
+        modisco_h5_path="modisco/{{sample}}/modisco.h5"
     output:
-        modisco_report="modisco/{sample}/modisco_report/motifs.html"
+        modisco_report="modisco/{{sample}}/modisco_report/motifs.html"
     params:
-        jaspar_meme_path=f"-m {jaspar_meme_path}" if jaspar_meme_path is not None else "",
-        modisco_report_dir=lambda wildcards: f"modisco/{wildcards.sample}/modisco_report"
+        jaspar_meme_path=f"-m {{jaspar_meme_path}}" if jaspar_meme_path is not None else "",
+        modisco_report_dir=lambda wildcards: f"modisco/{{wildcards.sample}}/modisco_report"
     shell:
         "modisco report "
-        "-i {input.modisco_h5_path} "
-        "-o {params.modisco_report_dir} "
-        "-t {params.jaspar_meme_path}"
+        "-i {{input.modisco_h5_path}} "
+        "-o {{params.modisco_report_dir}} "
+        "-t {{params.jaspar_meme_path}}"
 
 rule finemo_dump:
     input:
-        dna_path="modisco/{sample}/dna.npz",
-        attr_path="modisco/{sample}/attr.npz",
+        dna_path="modisco/{{sample}}/dna.npz",
+        attr_path="modisco/{{sample}}/attr.npz",
     output:
-        finemo_path=temp("modisco/{sample}/finemo_input.npz")
+        finemo_path=temp("modisco/{{sample}}/finemo_input.npz")
     params:
         finemo_width=finemo_width
     shell:
         "finemo extract-regions-modisco-fmt "
-        "-s {input.dna_path} "
-        "-a {input.attr_path} "
-        "-o {output.finemo_path} "
-        "-w {params.finemo_width}"
+        "-s {{input.dna_path}} "
+        "-a {{input.attr_path}} "
+        "-o {{output.finemo_path}} "
+        "-w {{params.finemo_width}}"
 
 rule finemo:
     input:
-        finemo_path="modisco/{sample}/finemo_input.npz",
-        modisco_h5_path="modisco/{sample}/modisco.h5",
+        finemo_path="modisco/{{sample}}/finemo_input.npz",
+        modisco_h5_path="modisco/{{sample}}/modisco.h5",
     output:
-        finemo_output_path="modisco/{sample}/finemo_hits/hits.tsv"
+        finemo_output_path="modisco/{{sample}}/finemo_hits/hits.tsv"
     params:
-        output_dir="modisco/{sample}/finemo_hits"
+        output_dir="modisco/{{sample}}/finemo_hits"
     shell:
         "finemo call-hits "
         "-M pp "
-        "-r {input.finemo_path} "
-        "-m {input.modisco_h5_path} "
-        "-o {params.output_dir} "
+        "-r {{input.finemo_path}} "
+        "-m {{input.modisco_h5_path}} "
+        "-o {{params.output_dir}} "
         "-d cpu"
 """
 
@@ -109,6 +112,8 @@ def dump_npz_from_parquet(
     genome, path, output_dir, tfbs_cutoff=0.2, attr_type="footprint"
 ):
     """Dump npz files from inference parquet dataset for modisco input."""
+    if isinstance(genome, str):
+        genome = Genome(genome)
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -123,7 +128,7 @@ def dump_npz_from_parquet(
     all_attr = []
     all_tfbs = []
     all_region = []
-    for batch in dataset.limit(1500).iter_batches(batch_size=500):
+    for batch in dataset.iter_batches(batch_size=500):
         dna = batch["dna_one_hot"]
         _attr = batch[f"pred_{attr_type}:attributions"]
         _tfbs = batch[f"pred_{attr_type}:attributions_1d:tfbs"]
@@ -147,6 +152,72 @@ def dump_npz_from_parquet(
     np.savez_compressed(attr_path, all_attr.astype("float32"))
     np.savez_compressed(tfbs_path, all_tfbs.astype("float32"))
     genome.standard_region_length(all_region, all_attr.shape[-1]).to_bed(region_path)
+    return
+
+
+def run_modisco_pipeline(
+    genome: str,
+    sample_to_dataset_path_dict: dict[str, str],
+    output_dir: str = "./",
+    tfbs_cutoff: float = 0.2,
+    modisco_n: int = 1000000,
+    attr_type: str = "footprint",
+    jaspar_meme_path: str = None,
+    cpu: int = 16,
+) -> None:
+    """
+    Run modisco and finemo pipeline.
+
+    Parameters
+    ----------
+    genome : str
+        The genome to use for the pipeline.
+    sample_to_dataset_path_dict : Dict[str, str]
+        A dictionary mapping sample names to dataset paths.
+    output_dir : str, optional
+        The output directory for the pipeline (default is './').
+    tfbs_cutoff : float, optional
+        The cutoff value for TFBS (default is 0.2).
+    modisco_n : int, optional
+        The number of modisco iterations (default is 1000000).
+    attr_type : str, optional
+        The attribute type for modisco (default is 'footprint').
+    jaspar_meme_path : str, optional
+        The path to the JASPAR MEME file (default is None).
+    cpu : int, optional
+        The number of CPUs to use for the pipeline (default is 16).
+
+    Returns
+    -------
+    None
+    """
+    snakefile_path = pathlib.Path(output_dir) / "Snakefile"
+    if not snakefile_path.exists():
+        pipeline = MODISCO_PIPELINE_TEMPLATE.format(
+            GENOME=genome,
+            SAMPLE_TO_DATASET_PATH_DICT=sample_to_dataset_path_dict,
+            TFBS_CUTOFF=tfbs_cutoff,
+            MODISCO_N=modisco_n,
+            ATTR_TYPE=attr_type,
+            JASPAR_MEME_PATH=jaspar_meme_path,
+        )
+        with open("Snakefile", "w") as f:
+            f.write(pipeline)
+    else:
+        print("Snakefile already exists. Skipping writing Snakefile.")
+
+    subprocess.run(
+        [
+            "snakemake",
+            "-s",
+            snakefile_path,
+            "-j",
+            str(cpu),
+            "-d",
+            output_dir,
+            "--keep-going",
+        ]
+    )
     return
 
 
