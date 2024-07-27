@@ -111,7 +111,7 @@ def parse_region_names(names, as_df=True):
     bed_record = []
     for name in names:
         c, se = name.split(":")
-        s, e = se.split("-")
+        s, e = map(int, se.split("-"))
         bed_record.append([c, s, e, name])
 
     bed = pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])

@@ -599,13 +599,15 @@ class Genome:
         """
         regions_bed_df = understand_regions(regions, as_df=True)
         # standardize columns
-        regions_bed_df.columns[:3] = ["Chromosome", "Start", "End"]
+        _columns = regions_bed_df.columns.tolist()
+        _columns[:3] = ["Chromosome", "Start", "End"]
+        regions_bed_df.columns = _columns
 
         if keep_original:
             if "Name" in regions_bed_df:
                 regions_bed_df["Original_Name"] = regions_bed_df["Name"]
             else:
-                regions_bed_df["Name"] = (
+                regions_bed_df["Original_Name"] = (
                     regions_bed_df["Chromosome"].astype(str)
                     + ":"
                     + regions_bed_df["Start"].astype(str)
@@ -996,8 +998,8 @@ class Genome:
         [100 200 300 1100 1200 1300]
         """
         return get_global_coords(
-            chrom_offsets=self.chrom_offsets
-            if chrom_offsets is None
-            else chrom_offsets,
+            chrom_offsets=(
+                self.chrom_offsets if chrom_offsets is None else chrom_offsets
+            ),
             region_bed_df=understand_regions(region_bed, as_df=True),
         )
