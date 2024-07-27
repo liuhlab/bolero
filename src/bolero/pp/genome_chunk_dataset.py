@@ -11,7 +11,7 @@ import ray
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
 from scipy.sparse import csc_matrix, csr_matrix, vstack
 
-from bolero.pp.utils import get_global_coords
+from bolero.utils import get_global_coords
 
 
 class GenericGenomeChunkDataset:

@@ -10,8 +10,7 @@ import xarray as xr
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
 from scipy.sparse import csr_matrix, vstack
 
-from bolero.pp.utils import get_global_coords
-from bolero.utils import parse_region_name, parse_region_names
+from bolero.utils import get_global_coords, parse_region_name, parse_region_names
 
 from .genome_chunk_dataset import (
     array_to_compressed_bytes,
@@ -498,9 +497,13 @@ class GenomeOneHotZarr(GenomePositionZarr):
         elif isinstance(regions, pr.PyRanges):
             regions = regions.df[["Chromosome", "Start", "End"]]
         elif isinstance(regions, str):
-            regions = parse_region_names([regions]).df[["Chromosome", "Start", "End"]]
+            regions = parse_region_names([regions], as_df=True)[
+                ["Chromosome", "Start", "End"]
+            ]
         else:
-            regions = parse_region_names(regions).df[["Chromosome", "Start", "End"]]
+            regions = parse_region_names(regions, as_df=True)[
+                ["Chromosome", "Start", "End"]
+            ]
         global_coords = get_global_coords(
             chrom_offsets=self.offsets, region_bed_df=regions
         )

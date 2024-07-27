@@ -65,7 +65,7 @@ class FetchRegionALLCs:
         region_ = data_dict[self.region_key]
         if isinstance(region_, str):
             region_ = [region_]
-        regions = understand_regions(region_)
+        regions = understand_regions(region_, as_df=True)
         assert (regions["End"] - regions["Start"]).unique().shape[
             0
         ] == 1, "Regions must have the same length."

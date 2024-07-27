@@ -28,6 +28,7 @@ dependencies = [
     "gensim",
     "geosketch",
     "joblib",
+    "openTSNE",
     "pyfaidx",
     "pynndescent",
     "pyranges",

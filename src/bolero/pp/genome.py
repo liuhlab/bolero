@@ -18,10 +18,10 @@ from tqdm import tqdm
 
 from bolero.pp.genome_dataset import GenomeOneHotZarr
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
-from bolero.pp.utils import get_global_coords
 from bolero.utils import (
     download_file,
     get_default_save_dir,
+    get_global_coords,
     get_package_dir,
     understand_regions,
 )
@@ -557,7 +557,7 @@ class Genome:
         length,
         remove_blacklist=False,
         boarder_strategy="shift",
-        as_df=False,
+        as_df=True,
         keep_original=False,
     ):
         """
@@ -577,7 +577,7 @@ class Genome:
             If 'drop', the region overlapping with the boarder will be dropped. The number of output regions may be less than the input regions.
             Default is 'shift'.
         as_df : bool, optional
-            Whether to return the adjusted regions as a DataFrame. Default is False.
+            Whether to return the adjusted regions as a DataFrame. Default is True.
 
         Returns
         -------
@@ -597,10 +597,11 @@ class Genome:
         - The method updates the 'Name' column of the regions to reflect the adjusted positions.
 
         """
-        regions_bed = understand_regions(regions)
+        regions_bed_df = understand_regions(regions, as_df=True)
+        # standardize columns
+        regions_bed_df.columns[:3] = ["Chromosome", "Start", "End"]
 
         if keep_original:
-            regions_bed_df = regions_bed.df
             if "Name" in regions_bed_df:
                 regions_bed_df["Original_Name"] = regions_bed_df["Name"]
             else:
@@ -611,17 +612,16 @@ class Genome:
                     + "-"
                     + regions_bed_df["End"].astype(str)
                 )
-            regions_bed = pr.PyRanges(regions_bed_df)
 
         # make sure all regions have the same size
-        regions_center = (regions_bed.Start + regions_bed.End) // 2
-        regions_bed.Start = regions_center - length // 2
-        regions_bed.End = regions_center + length // 2
+        regions_center = (regions_bed_df["Start"] + regions_bed_df["End"]) // 2
+        regions_bed_df["Start"] = regions_center - length // 2
+        regions_bed_df["End"] = regions_center + length // 2
         # make sure for each chrom, start and end are not out of range
         # only keep regions that are in range
         chrom_sizes = self.chrom_sizes
         use_regions = []
-        for chrom, chrom_df in regions_bed.df.groupby("Chromosome", observed=True):
+        for chrom, chrom_df in regions_bed_df.groupby("Chromosome", observed=True):
             chrom_size = chrom_sizes[chrom]
             if boarder_strategy == "shift":
                 chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
@@ -650,20 +650,30 @@ class Genome:
         use_cols = ["Chromosome", "Start", "End", "Name"]
         if keep_original:
             use_cols.append("Original_Name")
-        regions_bed = pr.PyRanges(use_regions[use_cols])
+
+        use_regions = use_regions[use_cols].copy()
 
         if remove_blacklist and self.blacklist_bed is not None:
+            use_regions["_RowOrder"] = np.arange(len(use_regions))
+
+            regions_bed = pr.PyRanges(use_regions)
             regions_bed = self._remove_blacklist(regions_bed)
             # region length may change after removing blacklist
-            use_regions = regions_bed.df["End"] - regions_bed.df["Start"] == length
-            regions_bed = regions_bed[use_regions].copy()
+            _sel_regions = regions_bed.df["End"] - regions_bed.df["Start"] == length
+            regions_bed = regions_bed[_sel_regions].copy()
 
-        if len(regions_bed) == 0:
+            use_regions = regions_bed.df.sort_values("_RowOrder")
+            use_regions = use_regions.drop(columns="_RowOrder")
+
+        if len(use_regions) == 0:
             raise pd.errors.EmptyDataError("No regions left after processing")
 
         if as_df:
-            return regions_bed.df
-        return regions_bed
+            return use_regions
+        else:
+            print("Converting bed to PyRanges might cause region order to change.")
+            use_regions["RowOrder"] = np.arange(len(use_regions))
+            return pr.PyRanges(use_regions)
 
     @property
     def genome_one_hot(self):
@@ -986,6 +996,8 @@ class Genome:
         [100 200 300 1100 1200 1300]
         """
         return get_global_coords(
-            chrom_offsets=self.chrom_offsets,
+            chrom_offsets=self.chrom_offsets
+            if chrom_offsets is None
+            else chrom_offsets,
             region_bed_df=understand_regions(region_bed, as_df=True),
         )

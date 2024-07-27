@@ -133,13 +133,17 @@ class BatchAttribution:
             # _one_hot input is on cpu, because some attributor step uses CPU only
             _one_hot = torch.from_numpy(_one_hot).float().to("cpu")
         attrs = self.attributor(X=_one_hot)
-        data[f"{self.prefix}:attributions"] = attrs.cpu().numpy()
 
         attrs_1d: np.array = self.projector(attributions=attrs, seqs=_one_hot)
 
         if self.score_nrom is not None:
             vmin, vmid, vmax = self.score_nrom
+            attrs = (attrs - vmid) / (vmax - vmin)
+            attrs = attrs.cpu().numpy()
             attrs_1d = (attrs_1d - vmid) / (vmax - vmin)
+        else:
+            attrs = attrs.cpu().numpy()
+        data[f"{self.prefix}:attributions"] = attrs
         data[f"{self.prefix}:attributions_1d"] = attrs_1d
 
         # Add tfbs

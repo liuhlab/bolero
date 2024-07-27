@@ -1,59 +1,42 @@
 import pathlib
-import subprocess
 
 import h5py
 import numpy as np
 import pandas as pd
 import pyranges as pr
 import ray
+from modiscolite.core import Seqlet
 
 from bolero import Genome
 
 MODISCO_PIPELINE_TEMPLATE = """
 genome = "{GENOME}"
 
-sample_to_dataset_path_dict = {SAMPLE_TO_DATASET_PATH_DICT}
-samples = list(sample_to_dataset_path_dict.keys())
+sample_dirs = {SAMPLE_DIRS}
 
 tfbs_cutoff = {TFBS_CUTOFF}
 modisco_n = {MODISCO_N}
-attr_type = "{ATTR_TYPE}"
 jaspar_meme_path = "{JASPAR_MEME_PATH}"
 if jaspar_meme_path == "None":
     jaspar_meme_path = None
 finemo_width=800
 
-
 rule all:
     input:
-        expand("modisco/{{sample}}/modisco.h5", sample=samples),
-        expand("modisco/{{sample}}/modisco_report/motifs.html", sample=samples),
-        expand("modisco/{{sample}}/finemo_hits/hits.tsv", sample=samples)
-
-rule dump_npz:
-    input:
-        path=lambda wildcards: sample_to_dataset_path_dict[wildcards.sample],
-    output:
-        dna_path="modisco/{{sample}}/dna.npz",
-        attr_path="modisco/{{sample}}/attr.npz",
-        tfbs_path="modisco/{{sample}}/tfbs.npz",
-        region_path="modisco/{{sample}}/region.bed"
-    params:
-        tfbs_cutoff=tfbs_cutoff,
-        output_dir="modisco/{{sample}}",
-        attr_type=attr_type
-    run:
-        from bolero.tl.model.scprinter.modisco import dump_npz_from_parquet
-        dump_npz_from_parquet(genome, input.path, params.output_dir, tfbs_cutoff=params.tfbs_cutoff, attr_type=params.attr_type)
+        expand("{{sample_dir}}/modisco.h5", sample_dir=sample_dirs),
+        expand("{{sample_dir}}/modisco_report/motifs.html", sample_dir=sample_dirs),
+        expand("{{sample_dir}}/finemo_hits/hits.tsv", sample_dir=sample_dirs)
 
 rule modisco:
     input:
-        dna_path="modisco/{{sample}}/dna.npz",
-        attr_path="modisco/{{sample}}/attr.npz",
+        dna_path="{{sample_dir}}/dna.npz",
+        attr_path="{{sample_dir}}/attr.npz",
     output:
-        modisco_h5_path="modisco/{{sample}}/modisco.h5"
+        modisco_h5_path="{{sample_dir}}/modisco.h5"
     params:
         modisco_n=modisco_n
+    threads:
+        5
     shell:
         "modisco motifs "
         "-s {{input.dna_path}} "
@@ -63,12 +46,12 @@ rule modisco:
 
 rule modisco_report:
     input:
-        modisco_h5_path="modisco/{{sample}}/modisco.h5"
+        modisco_h5_path="{{sample_dir}}/modisco.h5"
     output:
-        modisco_report="modisco/{{sample}}/modisco_report/motifs.html"
+        modisco_report="{{sample_dir}}/modisco_report/motifs.html"
     params:
         jaspar_meme_path=f"-m {{jaspar_meme_path}}" if jaspar_meme_path is not None else "",
-        modisco_report_dir=lambda wildcards: f"modisco/{{wildcards.sample}}/modisco_report"
+        modisco_report_dir=lambda wildcards: f"{{wildcards.sample_dir}}/modisco_report"
     shell:
         "modisco report "
         "-i {{input.modisco_h5_path}} "
@@ -77,10 +60,10 @@ rule modisco_report:
 
 rule finemo_dump:
     input:
-        dna_path="modisco/{{sample}}/dna.npz",
-        attr_path="modisco/{{sample}}/attr.npz",
+        dna_path="{{sample_dir}}/dna.npz",
+        attr_path="{{sample_dir}}/attr.npz",
     output:
-        finemo_path=temp("modisco/{{sample}}/finemo_input.npz")
+        finemo_path=temp("{{sample_dir}}/finemo_input.npz")
     params:
         finemo_width=finemo_width
     shell:
@@ -92,12 +75,12 @@ rule finemo_dump:
 
 rule finemo:
     input:
-        finemo_path="modisco/{{sample}}/finemo_input.npz",
-        modisco_h5_path="modisco/{{sample}}/modisco.h5",
+        finemo_path="{{sample_dir}}/finemo_input.npz",
+        modisco_h5_path="{{sample_dir}}/modisco.h5",
     output:
-        finemo_output_path="modisco/{{sample}}/finemo_hits/hits.tsv"
+        finemo_output_path="{{sample_dir}}/finemo_hits/hits.tsv"
     params:
-        output_dir="modisco/{{sample}}/finemo_hits"
+        output_dir="{{sample_dir}}/finemo_hits"
     shell:
         "finemo call-hits "
         "-M pp "
@@ -109,7 +92,7 @@ rule finemo:
 
 
 def dump_npz_from_parquet(
-    genome, path, output_dir, tfbs_cutoff=0.2, attr_type="footprint"
+    genome, path, output_dir, tfbs_cutoff=0.2, attr_type="footprint", concurrency=1
 ):
     """Dump npz files from inference parquet dataset for modisco input."""
     if isinstance(genome, str):
@@ -122,7 +105,9 @@ def dump_npz_from_parquet(
     tfbs_path = output_dir / "tfbs"
     region_path = output_dir / "region.bed"
 
-    dataset = ray.data.read_parquet(path, file_extensions=["parquet"], concurrency=1)
+    dataset = ray.data.read_parquet(
+        path, file_extensions=["parquet"], concurrency=concurrency
+    )
     # prepare modisco input
     all_dna = []
     all_attr = []
@@ -152,36 +137,35 @@ def dump_npz_from_parquet(
     np.savez_compressed(attr_path, all_attr.astype("float32"))
     np.savez_compressed(tfbs_path, all_tfbs.astype("float32"))
     genome.standard_region_length(all_region, all_attr.shape[-1]).to_bed(region_path)
+
+    print(f"Saved data for {len(all_region)} regions.")
     return
 
 
-def run_modisco_pipeline(
+def prepare_modisco_pipeline(
     genome: str,
-    sample_to_dataset_path_dict: dict[str, str],
+    sample_dirs: list[str],
     output_dir: str = "./",
     tfbs_cutoff: float = 0.2,
     modisco_n: int = 1000000,
-    attr_type: str = "footprint",
     jaspar_meme_path: str = None,
     cpu: int = 16,
 ) -> None:
     """
-    Run modisco and finemo pipeline.
+    Prepare modisco and finemo pipeline.
 
     Parameters
     ----------
     genome : str
         The genome to use for the pipeline.
-    sample_to_dataset_path_dict : Dict[str, str]
-        A dictionary mapping sample names to dataset paths.
+    sample_dirs : list[str]
+        A list of sample_dir containing modisco input npz files extracted by dump_npz_from_parquet
     output_dir : str, optional
         The output directory for the pipeline (default is './').
     tfbs_cutoff : float, optional
         The cutoff value for TFBS (default is 0.2).
     modisco_n : int, optional
         The number of modisco iterations (default is 1000000).
-    attr_type : str, optional
-        The attribute type for modisco (default is 'footprint').
     jaspar_meme_path : str, optional
         The path to the JASPAR MEME file (default is None).
     cpu : int, optional
@@ -191,34 +175,25 @@ def run_modisco_pipeline(
     -------
     None
     """
-    snakefile_path = pathlib.Path(output_dir) / "Snakefile"
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    snakefile_path = output_dir / "Snakefile"
     if not snakefile_path.exists():
         pipeline = MODISCO_PIPELINE_TEMPLATE.format(
             GENOME=genome,
-            SAMPLE_TO_DATASET_PATH_DICT=sample_to_dataset_path_dict,
+            SAMPLE_DIRS=[str(path) for path in sample_dirs],
             TFBS_CUTOFF=tfbs_cutoff,
             MODISCO_N=modisco_n,
-            ATTR_TYPE=attr_type,
             JASPAR_MEME_PATH=jaspar_meme_path,
         )
-        with open("Snakefile", "w") as f:
+        with open(snakefile_path, "w") as f:
             f.write(pipeline)
     else:
         print("Snakefile already exists. Skipping writing Snakefile.")
 
-    subprocess.run(
-        [
-            "snakemake",
-            "-s",
-            snakefile_path,
-            "-j",
-            str(cpu),
-            "-d",
-            output_dir,
-            "--keep-going",
-        ]
-    )
-    return
+    cmd = f"snakemake -s {snakefile_path} -j {cpu} -d {output_dir} --keep-going"
+    return cmd
 
 
 def parse_finemo_results(output_dir):
@@ -229,10 +204,11 @@ def parse_finemo_results(output_dir):
 
     use_bed = region_bed.reindex(finemo_hits["peak_id"].values).reset_index(drop=True)
     finemo_hits["chr"] = use_bed["Chromosome"]
-    finemo_hits["start"] += use_bed["Start"]
-    finemo_hits["end"] += use_bed["Start"]
+    finemo_hits["Start"] = finemo_hits["start"] + use_bed["Start"]
+    finemo_hits["End"] = finemo_hits["end"] + use_bed["Start"]
     finemo_hits.rename(
-        columns={"chr": "Chromosome", "start": "Start", "end": "End"}, inplace=True
+        columns={"chr": "Chromosome", "start": "rel_start", "end": "rel_end"},
+        inplace=True,
     )
     finemo_hits["start_untrimmed"] += use_bed["Start"]
     finemo_hits["end_untrimmed"] += use_bed["Start"]
@@ -242,6 +218,26 @@ def parse_finemo_results(output_dir):
         output_dir / "finemo_hits.bed.gz", sep="\t", index=False, header=True
     )
     return finemo_hits
+
+
+class ModiscoSeqlet(Seqlet):
+    def __init__(
+        self,
+        name,
+        example_idx,
+        start,
+        end,
+        is_revcomp,
+        sequence=None,
+        contrib_scores=None,
+        hypothetical_contribs=None,
+    ):
+        self.name = name
+        super().__init__(example_idx, start, end, is_revcomp)
+
+        self.sequence = sequence
+        self.contrib_scores = contrib_scores
+        self.hypothetical_contribs = hypothetical_contribs
 
 
 class ModiscoPattern:
@@ -277,6 +273,19 @@ class ModiscoPattern:
         self.subpatterns: list["ModiscoPattern"] = subpatterns
         self.tomtom_df: pd.DataFrame = tomtom_df
 
+    def to_seqlet(self):
+        """Return a modisco compatible seqlet object"""
+        return ModiscoSeqlet(
+            name=self.name,
+            example_idx=None,
+            start=None,
+            end=None,
+            is_revcomp=False,
+            sequence=self.sequence,
+            contrib_scores=self.contrib_scores,
+            hypothetical_contribs=self.hypothetical_contribs,
+        )
+
     @classmethod
     def from_modisco_group(cls, name, h5_group, tomtom_path):
         """
@@ -291,7 +300,7 @@ class ModiscoPattern:
         -------
             ModiscoPattern: The created ModiscoPattern object.
         """
-        sequence = np.array(h5_group["sequence"], dtype=np.bool)
+        sequence = np.array(h5_group["sequence"])
         contrib_scores = np.array(h5_group["contrib_scores"], dtype=np.float32)
         hypothetical_contribs = np.array(
             h5_group["hypothetical_contribs"], dtype=np.float32
@@ -302,7 +311,9 @@ class ModiscoPattern:
         for subpattern_name, subpattern_group in h5_group.items():
             if subpattern_name.startswith("subpattern_"):
                 subpatterns.append(
-                    cls.from_modisco_group(subpattern_name, subpattern_group)
+                    cls.from_modisco_group(
+                        subpattern_name, subpattern_group, tomtom_path=None
+                    )
                 )
 
         tomtom = (
@@ -327,8 +338,8 @@ class ModiscoResults:
     Attributes
     ----------
         output_dir (str): The output directory of the analysis.
-        pos_patterns (list[ModiscoPattern]): The positive patterns identified in the analysis.
-        neg_patterns (list[ModiscoPattern]): The negative patterns identified in the analysis.
+        _pos_patterns (list[ModiscoPattern]): The positive patterns identified in the analysis.
+        _neg_patterns (list[ModiscoPattern]): The negative patterns identified in the analysis.
         _dna_one_hot (np.ndarray): The one-hot encoded DNA sequences.
         _attr (np.ndarray): The attribute scores.
         _attr_1d (np.ndarray): The 1D attribute scores.
@@ -337,24 +348,16 @@ class ModiscoResults:
         _hits (pd.DataFrame): The motif hits.
     """
 
-    def __init__(
-        self,
-        output_dir: str,
-        pos_patterns: list["ModiscoPattern"],
-        neg_patterns: list["ModiscoPattern"],
-    ):
+    def __init__(self, output_dir: str):
         """
         Initialize ModiscoResults.
 
         Args:
             output_dir (str): The output directory of the analysis.
-            pos_patterns (list[ModiscoPattern]): The positive patterns identified in the analysis.
-            neg_patterns (list[ModiscoPattern]): The negative patterns identified in the analysis.
         """
         self.output_dir: str = output_dir
-        self.pos_patterns: list["ModiscoPattern"] = pos_patterns
-        self.neg_patterns: list["ModiscoPattern"] = neg_patterns
-
+        self._pos_patterns: list["ModiscoPattern"] = None
+        self._neg_patterns: list["ModiscoPattern"] = None
         self._dna_one_hot: np.ndarray = None
         self._attr: np.ndarray = None
         self._attr_1d: np.ndarray = None
@@ -363,19 +366,8 @@ class ModiscoResults:
         self._hits: pd.DataFrame = None
         return
 
-    @classmethod
-    def from_modisco_h5(cls, output_dir: str) -> "ModiscoResults":
-        """
-        Create a ModiscoResults object from a modisco.h5 file.
-
-        Args:
-            output_dir (str): The output directory of the analysis.
-
-        Returns
-        -------
-            ModiscoResults: The created ModiscoResults object.
-        """
-        output_dir = pathlib.Path(output_dir)
+    def _get_patterns_from_h5(self):
+        output_dir = pathlib.Path(self.output_dir)
         h5_path = output_dir / "modisco.h5"
         report_dir = output_dir / "modisco_report"
 
@@ -400,7 +392,21 @@ class ModiscoResults:
                     pos_patterns = _patterns
                 elif type_name == "neg_patterns":
                     neg_patterns = _patterns
-        return cls(output_dir, pos_patterns, neg_patterns)
+        return pos_patterns, neg_patterns
+
+    @property
+    def neg_patterns(self):
+        """Modisco patterns with negative attribution scores."""
+        if self._neg_patterns is None:
+            self._pos_patterns, self._neg_patterns = self._get_patterns_from_h5()
+        return self._neg_patterns
+
+    @property
+    def pos_patterns(self):
+        """Modisco patterns with positive attribution scores."""
+        if self._pos_patterns is None:
+            self._pos_patterns, self._neg_patterns = self._get_patterns_from_h5()
+        return self._pos_patterns
 
     @property
     def dna_one_hot(self) -> np.ndarray:
@@ -464,11 +470,10 @@ class ModiscoResults:
             pd.DataFrame: The region information.
         """
         if self._region is None:
-            self._region = pr.read_bed(self.output_dir / "region.bed", as_df=True)
+            self._region = pr.read_bed(str(self.output_dir / "region.bed"), as_df=True)
         return self._region
 
-    @property
-    def motif_hits(self) -> pd.DataFrame:
+    def get_motif_hits(self, tfbs=False, attr_1d=False, slop=30) -> pd.DataFrame:
         """
         Get the motif hits.
 
@@ -477,5 +482,34 @@ class ModiscoResults:
             pd.DataFrame: The motif hits.
         """
         if self._hits is None:
-            self._hits = pr.read_bed(self.output_dir / "finemo_hits.bed.gz", as_df=True)
+            self._hits = parse_finemo_results(self.output_dir)
+            if tfbs:
+                self._annotate_score_to_hits(slop=slop, score="tfbs", reduce="max")
+            if attr_1d:
+                self._annotate_score_to_hits(slop=slop, score="attr_1d", reduce="mean")
         return self._hits
+
+    def _annotate_score_to_hits(self, slop=30, score="tfbs", reduce="max"):
+        """Add max tfbs scores to hit regions."""
+        if score == "tfbs":
+            _score = self.tfbs
+        elif score == "attr_1d":
+            _score = self.attr_1d
+
+        max_len = _score.shape[1]
+        motif_score_col = []
+        for _, (peak_id, rstart, rend) in self._hits[
+            ["peak_id", "rel_start", "rel_end"]
+        ].iterrows():
+            motif_scores = _score[
+                peak_id, max(rstart - slop, 0) : min(rend + slop, max_len)
+            ]
+            if reduce == "max":
+                motif_scores = motif_scores.max()
+            elif reduce == "mean":
+                motif_scores = motif_scores.mean()
+            elif reduce == "min":
+                motif_scores = motif_scores.min()
+            motif_score_col.append(motif_scores)
+        self._hits[f"motif_{score}_{reduce}"] = motif_score_col
+        return

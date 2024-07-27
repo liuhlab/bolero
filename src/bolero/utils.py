@@ -56,35 +56,53 @@ def try_gpu():
     return "cpu"
 
 
-def understand_regions(regions, as_df=False, return_names=False):
+def understand_regions(regions, as_df=True) -> Union[pr.PyRanges, pd.DataFrame]:
     """
     From various inputs, return a clear output. Return pyranges by default.
+
+    Parameters
+    ----------
+    regions : PyRanges, DataFrame, str, Path, list, tuple, Index, ndarray, Series
+        The input regions to parse.
+    as_df : bool, optional
+        If True, return the output as a DataFrame. Default is True.
+
+    Returns
+    -------
+    PyRanges or DataFrame
+        A PyRanges object representing the parsed regions, or a DataFrame if `as_df` is True.
     """
-    if isinstance(regions, pr.PyRanges):
+    if isinstance(regions, Union[pr.PyRanges, pd.DataFrame]):
         pass
-    elif isinstance(regions, pd.DataFrame):
-        regions = pr.PyRanges(regions)
     elif isinstance(regions, Union[str, pathlib.Path]):
-        regions = pr.read_bed(regions)
+        regions = pd.read_csv(regions, header=None, sep="\t")
     elif isinstance(regions, Union[list, tuple, pd.Index, np.ndarray, pd.Series]):
-        regions = parse_region_names(regions)
+        regions = parse_region_names(regions, as_df=True)
     else:
         raise ValueError("bed must be a PyRanges, DataFrame, str or Path")
-    if as_df:
-        return regions.df
-    if return_names:
-        return regions.Name.to_list()
-    return regions
+
+    if isinstance(regions, pd.DataFrame):
+        if as_df:
+            return regions
+        else:
+            print("Converting bed to PyRanges might cause region order to change.")
+            regions["RowOrder"] = np.arange(len(regions))
+            return pr.PyRanges(regions)
+    else:
+        if as_df:
+            return regions.df
+        else:
+            return regions
 
 
-def parse_region_names(names, as_df=False):
+def parse_region_names(names, as_df=True):
     """
     Parse a list of region names into a PyRanges object or a DataFrame.
 
     Parameters
     ----------
         names (list): A list of region names in the format "chromosome:start-end".
-        as_df (bool, optional): If True, return the result as a DataFrame. Default is False.
+        as_df (bool, optional): If True, return the result as a DataFrame. Default is True.
 
     Returns
     -------
@@ -95,12 +113,17 @@ def parse_region_names(names, as_df=False):
         c, se = name.split(":")
         s, e = se.split("-")
         bed_record.append([c, s, e, name])
-    bed = pr.PyRanges(
-        pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
-    )
+
+    bed = pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
     if as_df:
-        return bed.df
-    return bed
+        return bed
+    else:
+        print(
+            "Converting to PyRanges might cause region order to change, the RowOrder records the original order."
+        )
+        bed["RowOrder"] = np.arange(len(bed))
+        bed = pr.PyRanges(bed)
+        return bed
 
 
 def parse_region_name(name):
@@ -349,3 +372,52 @@ def validate_config(config, default_config, allow_extra_keys=True):
         raise ValueError(error_msg)
 
     return True
+
+
+def get_global_coords(
+    chrom_offsets: pd.DataFrame, region_bed_df: pd.DataFrame
+) -> np.ndarray:
+    """
+    Calculate the global coordinates of regions in a DataFrame.
+
+    Parameters
+    ----------
+        chrom_offsets (pd.DataFrame): A dictionary mapping chromosome names to their global offsets.
+            Index: Chromosome names.
+            Columns: ["global_start", "global_end", "size"]
+        region_bed_df (pd.DataFrame): A DataFrame containing region information.
+
+    Returns
+    -------
+        np.ndarray: An array of global coordinates for each region.
+
+    """
+    global_start = (
+        region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+    )
+    start = region_bed_df["Start"] + global_start
+
+    global_ends = (
+        region_bed_df["Chromosome"].map(chrom_offsets["global_end"]).astype(int)
+    )
+    _raw_end = region_bed_df["End"] + global_start
+    end = _raw_end.where(_raw_end <= global_ends, global_ends)
+    global_coords = np.hstack([start.values[:, None], end.values[:, None]])
+    return global_coords
+
+
+def parse_global_coords(
+    chrom_offsets: pd.DataFrame, global_coords: np.ndarray
+) -> pd.DataFrame:
+    """
+    Parse global coordinates into a region bed DataFrame.
+
+    Parameters
+    ----------
+        chrom_offsets (pd.DataFrame): A dictionary mapping chromosome names to their global offsets.
+            Index: Chromosome names.
+            Columns: ["global_start", "global_end", "size"]
+        global_coords (np.ndarray): An array of global coordinates for each region.
+    """
+    # make a bin boarder array for pd.cut
+    pass

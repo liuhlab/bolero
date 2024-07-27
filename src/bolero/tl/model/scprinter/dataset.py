@@ -13,7 +13,7 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.utils import validate_config
+from bolero.utils import get_global_coords, validate_config
 
 
 class BatchFootPrint(FootPrintModel):
@@ -359,6 +359,24 @@ class scPrinterDataset(RayGenomeChunkDataset):
         )
         return dataset
 
+    def _process_region_columns(self, dataset, keep_regions=False):
+        """
+        Keep the regions by converting them to global coordinates OR remove the region columns.
+        """
+        if keep_regions:
+            chrom_offsets = self.genome.chrom_offsets.copy()
+
+            def _region_to_global_coords(batch):
+                global_coords = get_global_coords(
+                    chrom_offsets=chrom_offsets,
+                    region_bed_df=batch.pop("region"),
+                )
+                batch["region"] = global_coords
+
+            dataset = dataset.map_batches(_region_to_global_coords)
+        else:
+            dataset = dataset.drop_columns(["region"])
+
     def get_processed_dataset(
         self,
         chroms: list[str],
@@ -432,9 +450,10 @@ class scPrinterDataset(RayGenomeChunkDataset):
         if self.region_embedding is not None:
             work_ds = self._get_add_region_embedding(work_ds)
 
-        # remove region column
-        if not return_regions:
-            work_ds = work_ds.drop_columns(["region"])
+        # remove region column OR turn it into global coordinates (str to numbers)
+        work_ds = self._process_region_columns(
+            self, dataset=work_ds, keep_regions=return_regions
+        )
         return work_ds
 
     def get_dataloader(
