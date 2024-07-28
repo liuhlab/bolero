@@ -19,16 +19,13 @@ You need to have Python 3.10 or newer installed on your system. If you don't hav
 Python installed, we recommend installing [Miniforge](https://github.com/conda-forge/miniforge).
 
 ```bash
-# 1. Download the environment YAML file
-wget https://raw.githubusercontent.com/lhqing/commons/main/envs/bolero_env.yaml
-
-# 2. Create a environment named bolero
-mamba env create -f bolero_env.yaml
+# 1. Create a environment named bolero
+mamba env create -f environment.yaml
 # OR if you use conda
-# conda env create -f bolero_env.yaml
+# conda env create -f environment.yaml
 # Note that conda can be very slow in solving complex dependencies
 
-# 3. Install this package
+# 2. Install this package
 pip install bolero
 
 # or install the package with dev mode

@@ -10,8 +10,10 @@ from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import (
     CumulativeCounter,
+    CumulativeCounterPerChannel,
     CumulativePearson,
     batch_pearson_correlation,
+    batch_pearson_correlation_per_channel,
 )
 from bolero.tl.model.track1d.dataset import Track1DDataset
 from bolero.tl.model.track1d.model import DialatedCNNTrack1DModel
@@ -75,6 +77,7 @@ class Track1DTrainerMixin(GenericTrainer):
         val_loss = 0
         single_batch_pearson_counter = CumulativeCounter()
         across_batch_pearson_counter = CumulativePearson()
+        single_batch_pearson_per_channel_counter = CumulativeCounterPerChannel()
 
         example_batches = []  # collect example batches for making images
         for batch_id, batch in enumerate(dataloader):
@@ -89,9 +92,14 @@ class Track1DTrainerMixin(GenericTrainer):
             # ==========
             # within batch pearson
             corr = batch_pearson_correlation(pred_y, y).detach().cpu()[:, None]
+            cell_type_corr = (
+                batch_pearson_correlation_per_channel(pred_y, y).detach().cpu()
+            )
+
             single_batch_pearson_counter.update(corr)
             # save for across batch pearson
             across_batch_pearson_counter.update(pred_y, y)
+            single_batch_pearson_per_channel_counter.update(cell_type_corr)
 
             size += 1
             if batch_id < self.plot_example_per_epoch:
@@ -104,6 +112,7 @@ class Track1DTrainerMixin(GenericTrainer):
                     f"Loss: {val_loss/size:.3f}; "
                     f"Within batch Pearson: {single_batch_pearson_counter.mean():.3f}; "
                     f"Across batch Pearson: {across_batch_pearson_counter.corr():.3f}; "
+                    f"Within Batch Per channel Pearson: {single_batch_pearson_per_channel_counter.mean()};"
                 )
                 print(desc_str)
 
@@ -128,7 +137,67 @@ class Track1DTrainerMixin(GenericTrainer):
         # Across batch pearson
         # ==========
         across_batch_pearson = across_batch_pearson_counter.corr()
-        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
+
+        # ==========
+        # Per channel pearson
+        # ==========
+        single_batch_pearson_per_channel = (
+            single_batch_pearson_per_channel_counter.mean()
+        )
+        return (
+            val_loss,
+            single_batch_pearson,
+            across_batch_pearson,
+            single_batch_pearson_per_channel,
+            wandb_images,
+        )
+
+    def _validation_step(self, testing=False, val_batches=None):
+        """Overwriting the validation step to return pearson correlation per cell"""
+        val_batches = val_batches or self.val_batches
+        if testing:
+            dataloader = self.get_test_dataloader(batches=val_batches)
+        else:
+            dataloader = self.get_valid_dataloader(batches=val_batches)
+
+        with torch.inference_mode():
+            if self.use_ema:
+                self.ema.eval()
+                self.ema.ema_model.eval()
+                (
+                    val_loss,
+                    single_batch_pearson,
+                    across_batch_pearson,
+                    single_batch_pearson_per_channel,
+                    wandb_images,
+                ) = self._model_validation_step(
+                    model=self.ema.ema_model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
+                )
+                self.ema.train()
+                self.ema.ema_model.train()
+            else:
+                self.model.eval()
+                (
+                    val_loss,
+                    single_batch_pearson,
+                    across_batch_pearson,
+                    single_batch_pearson_per_channel,
+                    wandb_images,
+                ) = self._model_validation_step(
+                    model=self.model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
+                )
+                self.model.train()
+        return (
+            val_loss,
+            single_batch_pearson,
+            across_batch_pearson,
+            single_batch_pearson_per_channel,
+            wandb_images,
+        )
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
@@ -171,6 +240,7 @@ class Track1DTrainerMixin(GenericTrainer):
         val_loss = self.val_loss
         single_batch_pearson = self.single_batch_pearson
         across_batch_pearson = self.across_batch_pearson
+        single_batch_pearson_per_channel = self.single_batch_pearson_per_channel
         example_images = self.example_wandb_images
 
         print(
@@ -179,6 +249,9 @@ class Track1DTrainerMixin(GenericTrainer):
         print(f" - (Validation) {epoch} Loss: {val_loss:.3f}")
         print(f"Single Batch Pearson Corr.: {single_batch_pearson:.3f}")
         print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
+        print(
+            f"Single Batch Per Channel Pearson Corr.: {single_batch_pearson_per_channel}"
+        )
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
@@ -206,6 +279,7 @@ class Track1DTrainerMixin(GenericTrainer):
                     "val/early_stopping_counter": self.early_stopping_counter,
                     "val/single_batch_pearson": single_batch_pearson,
                     "val/across_batch_pearson": across_batch_pearson,
+                    "val/single_batch_per_channel_pearson": single_batch_pearson_per_channel,
                     "val_example/example_predictions": example_images,
                 }
             )
@@ -229,16 +303,21 @@ class Track1DTrainerMixin(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.single_batch_pearson_per_channel,
                 wandb_images,
             ) = self._validation_step()
             print(f"Validation loss before training: {self.val_loss:.4f}")
             print(f"Validation Singe Batch pearson: {self.single_batch_pearson:.3f}")
             print(f"Validation Across Batch pearson: {self.across_batch_pearson:.3f}.")
+            print(
+                f"Validation Single Batch Per Channel Pearson: {self.single_batch_pearson_per_channel}"
+            )
             wandb.log(
                 {
                     "val/val_loss": self.val_loss,
                     "val/single_batch_pearson": self.single_batch_pearson,
                     "val/across_batch_pearson": self.across_batch_pearson,
+                    "val/single_batch_per_channel_pearson": self.single_batch_pearson_per_channel,
                     "val_example/example_images": wandb_images,
                 }
             )
@@ -357,6 +436,7 @@ class Track1DTrainerMixin(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.single_batch_pearson_per_channel,
                 self.example_wandb_images,
             ) = self._validation_step()
 
@@ -380,21 +460,27 @@ class Track1DTrainerMixin(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.single_batch_pearson_per_channel,
                 _,
             ) = self._validation_step(val_batches=1500)
         (
             self.test_loss,
             self.test_single_batch_pearson,
             self.test_across_batch_pearson,
+            self.test_single_batch_pearson_per_channel,
             wandb_images,
         ) = self._validation_step(testing=True, val_batches=1500)
 
         wandb.summary["final_valid_loss"] = self.val_loss
         wandb.summary["final_valid_within"] = self.single_batch_pearson
         wandb.summary["final_valid_across"] = self.across_batch_pearson
+        wandb.summary["final_valid_per_channel"] = self.single_batch_pearson_per_channel
         wandb.summary["final_test_loss"] = self.test_loss
         wandb.summary["final_test_within"] = self.test_single_batch_pearson
         wandb.summary["final_test_across"] = self.test_across_batch_pearson
+        wandb.summary["final_test_per_channel"] = (
+            self.test_single_batch_pearson_per_channel
+        )
         wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished

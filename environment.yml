@@ -5,6 +5,7 @@ channels:
   - pytorch
   - defaults
 dependencies:
+  - python=3.10
   - pip
   - bedtools
   - biopython
@@ -20,9 +21,11 @@ dependencies:
   - samtools
   - scikit-learn
   - seaborn
+  - snakemake
   - torchvision
   - xarray
   - zarr
+  - scikit-image
   - pip:
       - black
       - isort

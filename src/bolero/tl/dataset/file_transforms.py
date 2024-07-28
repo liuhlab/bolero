@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Union
 import cooler
 import h5py
 import numpy as np
+import pyBigWig
 import pysam
 from cooler.api import matrix
 from cooler.core import (
@@ -113,12 +114,15 @@ class FetchRegionCools:
         data_key="values",
     ) -> None:
         """
-        Initialize FetchRegionALLCs.
+        Initialize FetchRegionCools.
 
         Parameters
         ----------
-        - allc_paths: Path(s) to the allc file(s).
+        - cool_paths: Path(s) to the cool file(s).
+        - resolution: Resolution of the cool file.
         - region_key: Key in the data_dict that represents the region.
+        - balance: Whether to balance the cool matrix.
+        - data_key: Key in the data_dict to store the fetched data.
 
         Returns
         -------
@@ -130,9 +134,11 @@ class FetchRegionCools:
         self.region_key = region_key
         self.resolution = resolution
         self.cool_handles = [
-            h5py.File(path.split("::")[0])["/" + path.split("::")[1]]
-            if "::" in path
-            else h5py.File(path)
+            (
+                h5py.File(path.split("::")[0])["/" + path.split("::")[1]]
+                if "::" in path
+                else h5py.File(path)
+            )
             for path in cool_paths
         ]
         self.cool_objects = [cooler.Cooler(path) for path in cool_paths]
@@ -277,6 +283,70 @@ class FetchRegionCools:
             return i0, i1, j0, j1
 
         return RangeSelector2D(field, _slice, _fetch, (cool._info["nbins"],) * 2)
+
+
+class FetchRegionBigWigs:
+    def __init__(
+        self,
+        bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_key="bw_values",
+    ):
+        """
+        Initialize FetchRegionBigWigs.
+
+        Parameters
+        ----------
+        - bw_paths: Path(s) to the allc file(s).
+        - region_key: Key in the data_dict that represents the region.
+        - data_key: Key in the data_dict to store the fetched data.
+
+        Returns
+        -------
+        None
+        """
+        if isinstance(bw_paths, (str, pathlib.Path)):
+            bw_paths = [bw_paths]
+        self.bw_paths = bw_paths
+        self.region_key = region_key
+        self.bw_handles = [pyBigWig.open(path) for path in bw_paths]
+        self.data_key = data_key
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch region BigWigs.
+        """
+        # region is an array of strings np.array["chr1:100-200", "chr2:300-400"]
+        region_ = data_dict[self.region_key]
+
+        if isinstance(region_, str):
+            region_ = [region_]
+        regions = understand_regions(region_, as_df=True)
+        assert (regions["End"] - regions["Start"]).unique().shape[
+            0
+        ] == 1, "Regions must have the same length."
+        # regions is a bed dataframe with columns ["Chromosome", "Start", "End"]
+
+        n_regions = len(region_)
+        region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
+        n_bw = len(self.bw_paths)
+
+        total_values = np.zeros(
+            shape=(n_regions, n_bw, region_length), dtype=np.float32
+        )
+        for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
+            for idy, bw_handle in enumerate(self.bw_handles):
+                temp_values = self.query_bw_region(bw_handle, chrom, start, end)
+                total_values[idx, idy, :] = temp_values
+        data_dict[self.data_key] = total_values
+        return data_dict
+
+    def query_bw_region(self, bw_handle, chrom, start, end):
+        """Get region data from an bigwig file handle."""
+        data = bw_handle.values(chrom, start, end, numpy=True)
+        # fill the nan value with 0
+        data = np.nan_to_num(data)
+        return data
 
 
 # old code, temp save here

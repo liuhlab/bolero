@@ -32,3 +32,8 @@ __pycache__/
 /.vscode/
 .ipynb_checkpoints/
 tests/check.ipynb
+
+rune/*
+**/wandb/
+**/*.json
+**/*.pt

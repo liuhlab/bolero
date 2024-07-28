@@ -355,7 +355,7 @@ def validate_config(config, default_config, allow_extra_keys=True):
     for k, v in default_config.items():
         if v == "REQUIRED":
             _v = config.get(k, "REQUIRED")
-            if _v == "REQUIRED":
+            if isinstance(_v, str) and _v == "REQUIRED":
                 required_missing.append(k)
     if len(required_missing) > 0:
         error_msg += f"Required fields missing from config: {required_missing}\n"

@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -292,16 +293,41 @@ class Genome:
             subprocess.check_call(["gunzip", fasta_gz_file])
         return fasta_file, chrom_sizes_file
 
-    def make_windows(self, window_size, step, as_df=False):
+    def make_windows(
+        self,
+        window_size: int,
+        step: int,
+        as_df: bool = False,
+        force_length: bool = True,
+    ) -> Union[pr.PyRanges, pd.DataFrame]:
         """
         Create windows across the genome, mimicking bedtools makewindows
+
+        Parameters
+        ----------
+        window_size : int
+            Size of the window
+        step : int
+            Step size between window start positions
+        as_df : bool, optional
+            If True, will return a DataFrame, else will return a PyRanges object
+        force_length : bool, optional
+            If True, will force the windows to be the same length and drop the last window if it is shorter
+
+        Returns
+        -------
+        windows : PyRanges or DataFrame
+            Windows across the genome
         """
         records = []
         for chrom, size in self.chrom_sizes.items():
             for start in range(0, size, step):
                 end = min(size, start + window_size)
+                if force_length and end - start < window_size:
+                    continue
                 records.append([chrom, start, end])
         bed = pd.DataFrame(records, columns=["Chromosome", "Start", "End"])
+
         if not as_df:
             bed = pr.PyRanges(bed)
         return bed

@@ -355,7 +355,6 @@ class RayRegionDataset(GenericDataset):
     A dataset class for working with genomic regions using Ray.
 
     Args:
-        bed (pd.DataFrame or pr.PyRanges or str): The genomic regions in BED format.
         genome (Genome or str): The genome reference or its name.
         standard_length (int): The standard length of the regions.
         **kwargs: Additional keyword arguments for ray.data.from_pandas.
@@ -373,10 +372,13 @@ class RayRegionDataset(GenericDataset):
     """
 
     default_config = {
-        "bed": "REQUIRED",
+        "bed": None,
         "genome": "REQUIRED",
+        "window_size": None,
+        "step": None,
         "standard_length": "REQUIRED",
         "dna": True,
+        "batch_size": "REQUIRED",
     }
 
     def __init__(
@@ -384,6 +386,9 @@ class RayRegionDataset(GenericDataset):
         bed,
         genome,
         standard_length,
+        batch_size,
+        window_size=None,
+        step=None,
         dna=True,
         boarder_strategy="drop",
         remove_blacklist=True,
@@ -394,19 +399,41 @@ class RayRegionDataset(GenericDataset):
             genome = Genome(genome)
         self.genome = genome
 
-        standard_bed = self.genome.standard_region_length(
-            bed,
-            length=standard_length,
-            boarder_strategy=boarder_strategy,
-            remove_blacklist=remove_blacklist,
-            as_df=True,
-            keep_original=True,
-        )
-        # ray data don't understand categorical dtype in pandas
-        standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
-        standard_bed.rename(columns={"Name": "region"}, inplace=True)
-        self.bed = standard_bed
+        if bed is None:
+            # make a genome windows
+            assert window_size is not None, "window_size is required when bed is None"
+            bins = genome.make_windows(
+                window_size=window_size, step=step, as_df=True, force_length=True
+            )
+            # HL: why do you need to remove chrX and chrY? if this is hic specific, then it should be in the hic dataset
+            # I moved this to the hic dataset, confirm the deletion here
+            # remove_chrom = ['chrX', 'chrY']
+            # bins = bins.loc[~bins['Chromosome'].isin(remove_chrom)]
+            bins["region"] = (
+                bins["Chromosome"]
+                + ":"
+                + bins["Start"].astype(str)
+                + "-"
+                + bins["End"].astype(str)
+            )
+            bins["Original_Name"] = bins["region"].copy()
+            self.bed = bins
+        else:
+            # standardize the region length to standard_length size
+            standard_bed = self.genome.standard_region_length(
+                bed,
+                length=standard_length,
+                boarder_strategy=boarder_strategy,
+                remove_blacklist=remove_blacklist,
+                as_df=True,
+                keep_original=True,
+            )
+            # ray data don't understand categorical dtype in pandas
+            standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
+            standard_bed.rename(columns={"Name": "region"}, inplace=True)
+            self.bed = standard_bed
 
+        self.batch_size = batch_size
         self.dna = dna
         self._block_size = _block_size
         self._max_blocks = _max_blocks
@@ -429,41 +456,83 @@ class RayRegionDataset(GenericDataset):
         dataset = dataset.select_columns(keep_cols)
         return dataset
 
-    def get_processed_dataset(self, chroms=None, shuffle_bed=False):
+    def get_processed_dataset(self, chroms=None, shuffle_bed=False, bed=None):
         """Get the processed dataset."""
+        if bed is None:
+            bed = self.bed.copy()
+
         if self._dataset_mode == "train" and shuffle_bed:
             # self.bed is dataframe
-            _bed = self.bed.sample(frac=1, replace=False)
-        else:
-            _bed = self.bed
+            bed = bed.sample(frac=1, replace=False)
 
         if chroms is None:
-            bedfilter = np.ones(_bed.shape[0]).astype(bool)
+            bedfilter = np.ones(bed.shape[0]).astype(bool)
         else:
-            bedfilter = _bed["Chromosome"].isin(chroms)
+            bedfilter = bed["Chromosome"].isin(chroms)
 
         dataset = (
-            ray.data.from_pandas(_bed.loc[bedfilter])
+            ray.data.from_pandas(bed.loc[bedfilter])
             .repartition(self.n_blocks)
             .materialize()
         )
-        if self.dna:
-            dataset = self._get_dna_one_hot(dataset)
-        dataset = self._select_columns(dataset)
         return dataset
 
-    def get_dataloader(self, chroms=None, batch_size: int = 64, **kwargs):
+    # HL: I still need this method, because RayRegionDataset is also used elsewhere.
+    # HiC dataset can implement a different get_data_loader method
+    def get_dataloader(self, chroms=None, shuffle_bed=False, **kwargs):
         """
         Get a data loader for iterating over batches of the dataset.
 
         Args:
-            batch_size (int): The batch size.
-            **kwargs: Additional keyword arguments.
+            chroms (list[str]): The list of chromosomes to include in the dataset.
+            shuffle_bed (bool): Whether to shuffle the bed file.
+            **kwargs: Additional keyword arguments for the iter_batches method.
 
         Returns
         -------
             DataLoader: The data loader.
         """
-        dataset = self.get_processed_dataset(chroms=chroms)
-        loader = dataset.iter_batches(batch_size=batch_size, **kwargs)
+        dataset = self.get_processed_dataset(chroms=chroms, shuffle_bed=shuffle_bed)
+        loader = dataset.iter_batches(**kwargs)
         return loader
+
+    def _get_dataloader_with_wrapper(
+        self,
+        dataset_kwargs: dict,
+        data_iter_kwargs: dict,
+        batch_size=8,
+        n_batches=None,
+        as_torch=False,
+    ) -> Iterable[dict[str, Any]]:
+        """
+        Get the dataloader generator.
+
+        The dataset will be init only when entering the __iter__ method.
+        """
+
+        # this is adapted from the ray.data.iterator.DataIterator.iter_batches
+        # https://github.com/ray-project/ray/blob/master/python/ray/data/iterator.py#L106
+        def _create_iterator():
+            work_ds = self.get_processed_dataset(**dataset_kwargs)
+
+            if n_batches is not None:
+                n_rows = (n_batches + 1) * batch_size
+                work_ds = work_ds.limit(n_rows)
+
+            _kwargs = {
+                "batch_size": batch_size,
+                "prefetch_batches": 3,
+                "drop_last": True,  # helps to avoid the last batch with less than batch_size
+            }
+            _kwargs.update(data_iter_kwargs)
+            print("Data loader kwargs", _kwargs)
+
+            if as_torch:
+                loader = work_ds.iter_torch_batches(**_kwargs)
+            else:
+                loader = work_ds.iter_batches(**_kwargs)
+
+            yield from loader
+
+        # the dataset and dataloader are created lazily, until __iter__ is called
+        return _IterableFromIterator(_create_iterator)

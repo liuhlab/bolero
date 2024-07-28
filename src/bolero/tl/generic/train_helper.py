@@ -318,6 +318,42 @@ class CumulativeCounter:
         return self.total
 
 
+class CumulativeCounterPerChannel:
+    """Cumulative counter for calculating mean values for an array along the dimension 1."""
+
+    def __init__(self):
+        self.sum_array = None
+        self.count = 0
+
+    def update(self, value: torch.Tensor) -> None:
+        """
+        Update the cumulative counter with a new value.
+
+        Parameters
+        ----------
+            value (torch.Tensor): The value to be added to the counter.
+        """
+        if self.sum_array is None:
+            self.sum_array = torch.sum(value, dim=1)[None, :]
+        else:
+            self.sum_array += torch.sum(value, dim=1)[None, :]
+
+        # both numpy and torch will work
+        self.count += value.shape[1]  # batch size
+
+    def mean(self) -> float:
+        """
+        Calculate the mean of the values in the counter.
+
+        Returns
+        -------
+            float: The mean value.
+        """
+        if self.count == 0:
+            return 0
+        return (self.sum_array / self.count).detach().cpu().tolist()
+
+
 class CumulativePearson:
     """Cumulative pearson counter for calculating the pearson correlation coefficient."""
 
@@ -417,6 +453,49 @@ def batch_pearson_correlation(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         torch.sqrt(variance_x * variance_y) + 1e-8
     )  # Adding small value for numerical stability
     return correlation
+
+
+def batch_pearson_correlation_per_channel(
+    x: torch.Tensor, y: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute the batch Pearson correlation coefficient between two tensors along the 2nd dimension
+
+    Parameters
+    ----------
+        x (Tensor): The input tensor x of shape (batch_size, features).
+        y (Tensor): The input tensor y of shape (batch_size, features).
+
+    Returns
+    -------
+        Tensor: The batch Pearson correlation coefficients of shape (batch_size,).
+
+    Notes
+    -----
+        The Pearson correlation coefficient measures the linear relationship between two variables.
+        It is computed as the covariance of x and y divided by the product of their standard deviations.
+
+    """
+    # Assuming your data tensor has shape [64, 9, 1000]
+    _, num_cell_types, _ = x.shape
+
+    # Initialize a dictionary to store correlations for each cell type
+    correlations_lst = []
+
+    for cell_type_idx in range(num_cell_types):
+        # Extract data for this cell type
+        x_cell_type = x[:, cell_type_idx, :]  # Shape: [64, 1000]
+        y_cell_type = y[:, cell_type_idx, :]  # Shape: [64, 1000]
+
+        # Compute Pearson correlation for this cell type
+        corr_cell_type = batch_pearson_correlation(x_cell_type, y_cell_type)
+
+        # Store the correlation coefficient
+        correlations_lst.append(corr_cell_type[None, :])
+
+    cell_type_correlation = torch.cat(correlations_lst, dim=0)  # Shape: [9, 64]
+
+    return cell_type_correlation
 
 
 def safe_save(obj: torch.Tensor, path: str) -> None:

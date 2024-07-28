@@ -17,7 +17,8 @@ from bolero.tl.generic.train_helper import (
     compare_configs,
     safe_save,
 )
-from bolero.utils import get_fs_and_path, try_gpu, validate_config
+from bolero.tl.model.hic.dataset import HiCTrackDataset
+from bolero.utils import try_gpu, validate_config
 
 
 class GenericModel(nn.Module):
@@ -164,7 +165,6 @@ class TrainerDatasetMixin:
         self.test_chroms = chrom_split["test"]
 
         # dataset location and schema
-        self.fs, self.dataset_dir = get_fs_and_path(config["dataset_path"].rstrip("/"))
         # create dataset slots
         self._train_dataset = None
         self._valid_dataset = None
@@ -213,32 +213,53 @@ class TrainerDatasetMixin:
     def get_train_dataloader(self, batches):
         """Training dataloader."""
         self.dataset.train()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.train_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
+        if self.dataset_class == HiCTrackDataset:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.train_chroms,
+                n_batches=batches,
+                batch_size=self.config["batch_size"],
+            )
+        else:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.train_chroms,
+                region_bed_path=self.config["region_bed_path"],
+                n_batches=batches,
+            )
         return dataloader
 
     def get_valid_dataloader(self, batches):
         """Validation dataset."""
         self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.valid_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
+        if self.dataset_class == HiCTrackDataset:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.train_chroms,
+                n_batches=batches,
+                batch_size=self.config["batch_size"],
+            )
+        else:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.valid_chroms,
+                region_bed_path=self.config["region_bed_path"],
+                n_batches=batches,
+            )
         return dataloader
 
     def get_test_dataloader(self, batches):
         """Test dataset."""
         self.dataset.eval()
-        dataloader = self.dataset.get_dataloader(
-            chroms=self.test_chroms,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
+        if self.dataset_class == HiCTrackDataset:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.train_chroms,
+                n_batches=batches,
+                batch_size=self.config["batch_size"],
+            )
+        else:
+            dataloader = self.dataset.get_dataloader(
+                chroms=self.test_chroms,
+                region_bed_path=self.config["region_bed_path"],
+                n_batches=batches,
+            )
+            return dataloader
 
 
 class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
