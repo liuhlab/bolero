@@ -143,6 +143,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "reverse_complement": True,
         "shuffle_files": False,
         "read_parquet_kwargs": None,
+        "max_regions_per_genome_chunk": 100,
     }
 
     @classmethod
@@ -184,12 +185,14 @@ class scPrinterDataset(RayGenomeChunkDataset):
         reverse_complement: bool = True,
         shuffle_files=False,
         read_parquet_kwargs=None,
+        max_regions_per_genome_chunk: int = 100,
     ):
         super().__init__(
             dataset_path=dataset_path,
             genome=genome,
             shuffle_files=shuffle_files,
             read_parquet_kwargs=read_parquet_kwargs,
+            max_regions_per_genome_chunk=max_regions_per_genome_chunk,
         )
         self.batch_size = batch_size
 
@@ -207,6 +210,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         self.max_cov = max_cov
         self.low_cov_ratio = low_cov_ratio
         self.cov_filter_name = cov_filter_name
+        self.max_regions_per_genome_chunk = max_regions_per_genome_chunk
 
         self.bias_column = "tn5_bias"
 
@@ -376,6 +380,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
             dataset = dataset.map_batches(_region_to_global_coords)
         else:
             dataset = dataset.drop_columns(["region"])
+        return dataset
 
     def get_processed_dataset(
         self,
@@ -452,7 +457,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
 
         # remove region column OR turn it into global coordinates (str to numbers)
         work_ds = self._process_region_columns(
-            self, dataset=work_ds, keep_regions=return_regions
+            dataset=work_ds, keep_regions=return_regions
         )
         return work_ds
 
@@ -490,7 +495,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
             The dataloader.
         """
         shuffle_rows = int(500 * (self.n_pseudobulks + 1))
-        shuffle_rows = min(shuffle_rows, 5000)
+        shuffle_rows = max(shuffle_rows, 5000)
 
         # dataset_kwargs will be passed to self.get_processed_dataset method
         dataset_kwargs = {

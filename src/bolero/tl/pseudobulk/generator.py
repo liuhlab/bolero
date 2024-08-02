@@ -12,7 +12,7 @@ Rule is that whenever data is not separated by prefix, it should be prefix:cell_
 """
 
 import pathlib
-from typing import Generator, Union
+from typing import Union
 
 import joblib
 import numpy as np
@@ -95,11 +95,15 @@ class PseudobulkGenerator:
                     .cumsum()
                 )
                 cells = random_cumsum[random_cumsum < self.standard_cov].index
-        else:
+        elif self.standard_cell:
             # select random cells to reach the standard cell number
             cells = pd.Index(
                 np.random.choice(cells, self.standard_cell, replace=replace)
             )
+        else:
+            # neither standard_cov nor standard_cell is set
+            # use all predefined pseudobulks
+            cells = pd.Index(cells)
         return cells
 
 
@@ -343,10 +347,14 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
                         raise e
                 if total_coverage >= self.standard_cov:
                     use_pseudobulks[k] = cells
-            else:
+            elif self.standard_cell:
                 # cell mode
                 if len(cells) >= self.standard_cell:
                     use_pseudobulks[k] = cells
+            else:
+                # neither standard_cov nor standard_cell is set
+                # use all predefined pseudobulks
+                use_pseudobulks[k] = cells
 
         print(
             f"{len(use_pseudobulks)} predefined pseudobulks are used, "
@@ -392,7 +400,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
             raise ValueError(f"Unknown method {method}")
 
         # if cell mode, add the pseudobulk coverage log1p to the end
-        if not self.standard_cov:
+        if not self.standard_cov and self.standard_cell:
             embedding = np.append(embedding, self.get_pseudobulk_coverage(cells))
 
         try:
@@ -420,13 +428,13 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
             return np.log10(self.cell_coverage.loc[cells].sum() + 1)
 
     def take_predefined_pseudobulk(
-        self,
-    ) -> Generator[tuple[dict[str, pd.Index], np.ndarray], None, None]:
+        self, n=1
+    ) -> tuple[pd.Index, dict[str, pd.Index], np.ndarray, int]:
         """
         Take one predefined pseudobulk.
 
-        Yields
-        ------
+        Returns
+        -------
         Tuple[dict[str, pd.Index], np.ndarray]: A tuple of prefix to rows dictionary and pseudobulk centroids.
         """
         if self.predefined_pseudobulks is None:
@@ -434,13 +442,19 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
 
         n_defined = len(self.predefined_pseudobulks)
 
-        idx = np.random.choice(n_defined)
-        cells = pd.Index(self.predefined_pseudobulks[idx])
-        cells = self._select_cells(cells)
+        idx_sel = np.random.choice(
+            n_defined, n, replace=True if n > n_defined else False
+        )
 
-        prefix_to_rows = self._cells_to_prefix_dict(cells)
-        embeddings = self.get_pseudobulk_centriods(cells)
-        return cells, prefix_to_rows, embeddings, idx
+        records = []
+        for idx in idx_sel:
+            cells = pd.Index(self.predefined_pseudobulks[idx])
+            cells = self._select_cells(cells)
+
+            prefix_to_rows = self._cells_to_prefix_dict(cells)
+            embeddings = self.get_pseudobulk_centriods(cells)
+            records.append((cells, prefix_to_rows, embeddings, idx))
+        return records
 
     def take(
         self,
@@ -460,13 +474,11 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         Tuple[pd.Index, dict[pd.Index], np.ndarray, int]: A tuple of four objects,
         containing cell index, prefix_to_rows, embeddings, pseudobulk idx
         """
-        records = []
         n = min(n, len(self.predefined_pseudobulks))
-        for _ in range(n):
-            if mode == "predefined":
-                records.append(self.take_predefined_pseudobulk())
-            else:
-                raise NotImplementedError(f"Unknown mode {mode}")
+        if mode == "predefined":
+            records = self.take_predefined_pseudobulk(n)
+        else:
+            raise NotImplementedError(f"Unknown mode {mode}")
         return records
 
     def _pseudobulk_id_to_name(self, idx):
@@ -482,7 +494,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         for cells in self.predefined_pseudobulks:
             embedding = self.embedding.loc[cells.values].mean()
 
-            if not self.standard_cov:
+            if not self.standard_cov and self.standard_cell:
                 # for standard_cell mode, we need to select the correct cell number
                 # in order to make the coverage embedding dim consistent
                 #

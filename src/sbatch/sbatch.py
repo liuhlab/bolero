@@ -159,12 +159,18 @@ class SlurmManager:
 
             # sbatch and get the job id
             # sbatch output is like "Submitted batch job 12345678"
-            process = subprocess.run(
-                ["sbatch", self._script_path],
-                capture_output=True,
-                text=True,
-            )
-            print(process.stdout)
+            try:
+                process = subprocess.run(
+                    ["sbatch", self._script_path],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to submit job: {e}")
+                print(e.stderr)
+                raise e
+
             job_id = re.search(r"\d+", process.stdout).group()
 
             with open(self._job_id_path, "w") as f:

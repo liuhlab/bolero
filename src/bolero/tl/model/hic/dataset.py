@@ -17,7 +17,6 @@ class HiCTrackDataset(RayRegionDataset):
         "genome": "REQUIRED",
         "window_size": 5000000,
         "step": 1000000,
-        "dna": True,
         "batch_size": "REQUIRED",
     }
 
@@ -33,7 +32,6 @@ class HiCTrackDataset(RayRegionDataset):
         cool_names=None,
         bigwig_names=None,
         balance=False,
-        dna=False,
         boarder_strategy="drop",
         remove_blacklist=False,
     ) -> None:
@@ -50,7 +48,7 @@ class HiCTrackDataset(RayRegionDataset):
             window_size=window_size,
             step=step,
             batch_size=batch_size,
-            dna=dna,
+            dna=False,  # do not load dna_one_hot from the RayRegionDataset, we will do it later after loading the cool and bigwig data
             boarder_strategy=boarder_strategy,
             remove_blacklist=remove_blacklist,
         )

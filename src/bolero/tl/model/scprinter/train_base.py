@@ -28,7 +28,7 @@ class scFootprintTrainerMixin(GenericTrainer):
             "patience": 10,
             "train_batches": 2000,
             "val_batches": 300,
-            "train_epoch_chroms": 4,
+            "train_epoch_chroms": 15,
             # region file
             "region_bed_path": "REQUIRED",
         }
@@ -349,7 +349,6 @@ class scFootprintTrainerMixin(GenericTrainer):
                     )
                 except RuntimeError:
                     # some GPU, such as T4 does not support bfloat16
-                    print("bfloat16 autocast failed, using float16 instead.")
                     auto_cast_context = torch.autocast(
                         device_type=str(self.device).split(":")[0],
                         dtype=torch.float16,
@@ -384,9 +383,9 @@ class scFootprintTrainerMixin(GenericTrainer):
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)
                 # however, with larger batch size, the GPU memory usage will be higher
                 if (batch_id + 1) % self.accumulate_grad == 0:
-                    scaler.unscale_(
-                        optimizer
-                    )  # Unscale gradients for clipping without inf/nan gradients affecting the model
+                    # scaler.unscale_(
+                    #     optimizer
+                    # )  # Unscale gradients for clipping without inf/nan gradients affecting the model
 
                     scaler.step(optimizer)
                     scaler.update()
@@ -403,8 +402,10 @@ class scFootprintTrainerMixin(GenericTrainer):
                     _cov_loss = moving_avg_cov_loss / (batch_id + 1)
                     desc_str = (
                         f" - (Training) {self.cur_epoch} {batch_id} "
-                        f"Footprint Loss: {_fp_loss:.4f} "
-                        f"Coverage Loss: {_cov_loss:.4f}"
+                        f"Ave FP Loss: {_fp_loss:.4f} "
+                        f"Ave Cov Loss: {_cov_loss:.4f} "
+                        f"Last FP Loss: {loss_footprint.item():.4f} "
+                        f"Last Cov Loss: {loss_coverage.item():.4f}"
                     )
 
                     if (_fp_loss > (cur_fp_loss + 0.5)) or (

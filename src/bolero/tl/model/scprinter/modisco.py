@@ -136,7 +136,9 @@ def dump_npz_from_parquet(
     np.savez_compressed(dna_path, all_dna.astype("bool"))
     np.savez_compressed(attr_path, all_attr.astype("float32"))
     np.savez_compressed(tfbs_path, all_tfbs.astype("float32"))
-    genome.standard_region_length(all_region, all_attr.shape[-1]).to_bed(region_path)
+
+    bed_df = genome.standard_region_length(all_region, all_attr.shape[-1])
+    bed_df.to_csv(region_path, sep="\t", index=False, header=False)
 
     print(f"Saved data for {len(all_region)} regions.")
     return
@@ -287,7 +289,9 @@ class ModiscoPattern:
         )
 
     @classmethod
-    def from_modisco_group(cls, name, h5_group, tomtom_path):
+    def from_modisco_group(
+        cls, name, h5_group, tomtom_path, load_subpatterns=False, load_seqlets=False
+    ):
         """
         Create a ModiscoPattern object from a modisco group.
 
@@ -295,6 +299,7 @@ class ModiscoPattern:
             name (str): The name of the pattern.
             h5_group: The modisco group.
             tomtom_path (str): The path to the TOMTOM file.
+            load_subpatterns (bool): Whether to load subpatterns.
 
         Returns
         -------
@@ -305,16 +310,24 @@ class ModiscoPattern:
         hypothetical_contribs = np.array(
             h5_group["hypothetical_contribs"], dtype=np.float32
         )
-        seqlets = {k: np.array(v) for k, v in h5_group["seqlets"].items()}
+        if load_seqlets:
+            seqlets = {k: np.array(v) for k, v in h5_group["seqlets"].items()}
+        else:
+            seqlets = {}
 
         subpatterns = []
-        for subpattern_name, subpattern_group in h5_group.items():
-            if subpattern_name.startswith("subpattern_"):
-                subpatterns.append(
-                    cls.from_modisco_group(
-                        subpattern_name, subpattern_group, tomtom_path=None
+        if load_subpatterns:
+            for subpattern_name, subpattern_group in h5_group.items():
+                if subpattern_name.startswith("subpattern_"):
+                    subpatterns.append(
+                        cls.from_modisco_group(
+                            subpattern_name,
+                            subpattern_group,
+                            tomtom_path=None,
+                            load_subpatterns=False,
+                            load_seqlets=load_seqlets,
+                        )
                     )
-                )
 
         tomtom = (
             pd.read_table(tomtom_path, comment="#") if tomtom_path is not None else None
@@ -348,7 +361,9 @@ class ModiscoResults:
         _hits (pd.DataFrame): The motif hits.
     """
 
-    def __init__(self, output_dir: str):
+    def __init__(
+        self, output_dir: str, load_h5_subpatterns=False, load_h5_seqlets=False
+    ):
         """
         Initialize ModiscoResults.
 
@@ -364,6 +379,8 @@ class ModiscoResults:
         self._tfbs: np.ndarray = None
         self._region: pd.DataFrame = None
         self._hits: pd.DataFrame = None
+        self._load_h5_subpatterns = load_h5_subpatterns
+        self._load_h5_seqlets = load_h5_seqlets
         return
 
     def _get_patterns_from_h5(self):
@@ -385,7 +402,11 @@ class ModiscoResults:
 
                         _patterns.append(
                             ModiscoPattern.from_modisco_group(
-                                name, pattern_group, tomtom_path
+                                name,
+                                pattern_group,
+                                tomtom_path,
+                                self._load_h5_subpatterns,
+                                self._load_h5_seqlets,
                             )
                         )
                 if type_name == "pos_patterns":

@@ -2,6 +2,7 @@ import gc
 import pathlib
 import shutil
 import time
+from collections import defaultdict
 from copy import deepcopy
 
 import joblib
@@ -138,6 +139,7 @@ class TrainedLoraModel:
     def __init__(self, model, embedding, pseudobulks, embedding_scaler):
         if isinstance(model, (str, pathlib.Path)):
             model = torch.load(model, map_location="cpu").eval()
+        print(type(model), "model loaded")
         self.model = model
 
         if isinstance(embedding, (str, pathlib.Path)):
@@ -356,6 +358,30 @@ class BaseFootprintInferencer:
         )
         return dataset
 
+    def get_dataset(self, bed: str):
+        """
+        Get the dataset from the bed file.
+
+        Parameters
+        ----------
+        bed : str
+            The bed file.
+
+        Returns
+        -------
+        RayRegionDataset
+            The dataset.
+        """
+        ray_ds = RayRegionDataset(
+            bed=bed,
+            genome=self.genome,
+            standard_length=self.dna_len,
+            dna=True,
+            batch_size=self.batch_size,
+        )
+        dataset = ray_ds.get_processed_dataset()
+        return dataset
+
     def transform(
         self,
         bed: str,
@@ -366,6 +392,7 @@ class BaseFootprintInferencer:
         attr_tfbs: bool = True,
         _pre_run: bool = False,
         _save_columns=None,
+        save_format="parquet",
         **write_parquet_kwargs,
     ):
         """
@@ -397,6 +424,8 @@ class BaseFootprintInferencer:
             Flag indicating whether to perform a pre-run to estimate the attribution normalization. Default is False.
         _save_columns : list, optional
             The columns to be saved in the transformed dataset. Default is None, all columns are saved.
+        save_format : str, optional
+            The format for saving the dataset, choose from "parquet" or "npz". Default is "parquet".
         write_parquet_kwargs : dict, optional
             Additional keyword arguments for writing the dataset to parquet.
 
@@ -419,10 +448,7 @@ class BaseFootprintInferencer:
                     # delete the output_path in case its incomplete
                     shutil.rmtree(output_path)
 
-        ray_ds = RayRegionDataset(
-            bed=bed, genome=self.genome, standard_length=self.dna_len, dna=True
-        )
-        dataset = ray_ds.get_processed_dataset()
+        dataset = self.get_dataset(bed)
         key_to_slice = ["dna_one_hot"]
 
         dataset = self.add_inferencer(dataset, tfbs=footprint_tfbs)
@@ -474,7 +500,19 @@ class BaseFootprintInferencer:
             dataset = dataset.select_columns(_save_columns)
 
         if output_path is not None:
-            dataset.write_parquet(output_path, **write_parquet_kwargs)
+            if save_format == "parquet":
+                dataset.write_parquet(output_path, **write_parquet_kwargs)
+            elif save_format == "npz":
+                pathlib.Path(output_path).mkdir(parents=True, exist_ok=True)
+
+                total_data = defaultdict(list)
+                for batch in dataset.iter_batches(batch_size=500):
+                    for k, v in batch.items():
+                        total_data[k].append(v)
+                total_data = {k: np.concatenate(v) for k, v in total_data.items()}
+                np.savez_compressed(output_path / "infer", **total_data)
+            else:
+                raise ValueError(f"Unknown save format {save_format}")
             success_flag.touch()
             return
         else:
@@ -609,6 +647,7 @@ class scPrinterPseudobulkInferencer:
         attr_tfbs: bool = True,
         _chunk_size=5000,
         _save_columns=None,
+        save_format="parquet",
         **write_parquet_kwargs,
     ):
         """
@@ -644,9 +683,9 @@ class scPrinterPseudobulkInferencer:
         _config["model"] = self.model.get_collapsed_model(collapse_key)
         inferencer = self.infer_class(**_config)
 
-        # if attr_tfbs needed, run the attribution on a sample to estimate the attr normalization
+        # if footprint_attr, coverage_attr or attr_tfbs needed, run the attribution on a sample to estimate the attr normalization
         # save the normalization value in output_path
-        if attr_tfbs:
+        if any([footprint_attr, coverage_attr, attr_tfbs]):
             self._prerun_transform(
                 inferencer=inferencer,
                 output_path=output_path,
@@ -669,6 +708,7 @@ class scPrinterPseudobulkInferencer:
                     coverage_attr=coverage_attr,
                     attr_tfbs=attr_tfbs,
                     _save_columns=_save_columns,
+                    save_format=save_format,
                     **write_parquet_kwargs,
                 )
         else:
@@ -681,6 +721,7 @@ class scPrinterPseudobulkInferencer:
                 coverage_attr=coverage_attr,
                 attr_tfbs=attr_tfbs,
                 _save_columns=_save_columns,
+                save_format=save_format,
                 **write_parquet_kwargs,
             )
 
@@ -706,7 +747,7 @@ class scPrinterPseudobulkInferencer:
         print(
             f"Pre-run attribution on {sample_n} regions to estimate the attr score normalization"
         )
-        _bed = pr.read_bed(bed_path)
+        _bed = pr.read_bed(bed_path, as_df=True)
         if len(_bed) < sample_n:
             sample_bed = _bed
         else:
@@ -727,7 +768,7 @@ class scPrinterPseudobulkInferencer:
             "cov_attr_norm": inferencer.cov_attr_norm,
         }
         joblib.dump(norm_dict, norm_path)
-        return norm_path
+        return
 
     @property
     def pseudobulk_names(self):

@@ -1,5 +1,4 @@
 import pathlib
-from collections import defaultdict
 from copy import deepcopy
 
 import joblib
@@ -7,7 +6,6 @@ import numpy as np
 import pandas as pd
 import torch
 import wandb
-from torch.nn import functional as F
 
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.tl.model.scprinter.model import scFootprintBPNet, scFootprintBPNetLoRA
@@ -243,69 +241,3 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             wandb.finish()
             flag.touch()
         return
-
-
-class scFootprintLoRATester(scFootprintTrainerMixin):
-    @torch.no_grad()
-    def _model_validation_step(
-        self,
-        model,
-        dataloader,
-    ):
-        result_col = defaultdict(list)
-        for batch in dataloader:
-            # TODO: need to get region coords as well
-
-            y_footprint, y_coverage, pred_footprint, pred_coverage = (
-                self._model_forward_pass(model, batch)
-            )
-            mask = ~torch.isnan(
-                y_footprint
-            )  # footprint contains nan values, remove them when calculating loss
-
-            y_footprint = torch.nan_to_num(y_footprint, nan=0)
-            # as is in scPrinter
-            # validation loss only has pred_score MSE, no coverage
-            loss_fp = F.mse_loss(pred_footprint[mask], y_footprint[mask])
-            loss_cov = F.mse_loss(pred_coverage, y_coverage)
-
-            result_col["y_footprint"].append(y_footprint)
-            result_col["pred_footprint"].append(pred_footprint)
-            result_col["y_coverage"].append(y_coverage)
-            result_col["pred_coverage"].append(pred_coverage)
-            result_col["loss_fp"].append(loss_fp)
-            result_col["loss_cov"].append(loss_cov)
-        del dataloader
-
-        result_col = {k: torch.cat(v) for k, v in result_col.items()}
-        self._cleanup_env()
-        return result_col
-
-    def _test(self, val_batches):
-        """Generic validation step."""
-        val_batches = val_batches or self.val_batches
-        dataloader = self.get_test_dataloader(batches=val_batches)
-
-        with torch.inference_mode():
-            if self.model:
-                result_col = self._model_validation_step(
-                    model=self.model,
-                    dataloader=dataloader,
-                )
-        return result_col
-
-    def _setup_model(self):
-        self.model = self._setup_pretrain_model()
-        self._set_total_params()
-        return
-
-    def _setup_pretrain_model(self):
-        model_path = self.config["pretrained_model"]
-        model = torch.load(model_path)
-
-        # make a parameter untrainable
-        for p in model.parameters():
-            p.requires_grad = False
-
-        model.eval()
-        return model

@@ -2,8 +2,8 @@ import pathlib
 from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar
 
 import joblib
-import numpy as np
 import pandas as pd
+import pyranges as pr
 import ray
 
 from bolero import Genome
@@ -43,6 +43,7 @@ class RayGenomeChunkDataset(GenericDataset):
         "genome": "REQUIRED",
         "shuffle_files": False,
         "read_parquet_kwargs": None,
+        "max_regions_per_genome_chunk": None,
     }
 
     def __init__(
@@ -51,6 +52,7 @@ class RayGenomeChunkDataset(GenericDataset):
         genome: Optional[Genome] = None,
         shuffle_files=False,
         read_parquet_kwargs: Optional[dict] = None,
+        max_regions_per_genome_chunk=None,
     ) -> None:
         """
         Initialize the RaySingleCellDataset.
@@ -59,16 +61,14 @@ class RayGenomeChunkDataset(GenericDataset):
         ----------
         dataset_path : str
             The path to the dataset.
-        use_prefixs : Optional[List[str]], optional
-            The list of prefixes to use, by default None.
-        chroms : Optional[Union[str, List[str]]], optional
-            The list of chromosomes to use, by default None.
-        shuffle_files : bool, optional
-            Whether to shuffle the files, by default False.
         genome : str, optional
             The genome, by default None, which will be read from genome.flag.
+        shuffle_files : bool, optional
+            Whether to shuffle the files, by default False.
         read_parquet_kwargs : Optional[dict], optional
             The read_parquet kwargs passed to ray.data.read_parquet, by default None.
+        max_regions_per_genome_chunk : int, optional
+            The maximum number of regions to generate from each genome chunk, by default None.
 
         Returns
         -------
@@ -105,6 +105,8 @@ class RayGenomeChunkDataset(GenericDataset):
         self.window_size = config["window_size"]
         self.step_size = config["step_size"]
         self.num_rows_per_file = config["num_rows_per_file"]
+
+        self.max_regions_per_genome_chunk = max_regions_per_genome_chunk
 
         # slot for later processor
         self.signal_columns = set()
@@ -189,6 +191,7 @@ class RayGenomeChunkDataset(GenericDataset):
         dataset,
         bed,
         action_keys,
+        max_regions,
         concurrency,
     ):
         # generate region from bed file
@@ -197,6 +200,7 @@ class RayGenomeChunkDataset(GenericDataset):
             "bed": understand_regions(bed, as_df=True),
             "meta_region_overlap": self.window_size - self.step_size,
             "action_keys": action_keys,
+            "max_regions": max_regions,
         }
         dataset = dataset.flat_map(
             fn=fn,
@@ -226,7 +230,7 @@ class RayGenomeChunkDataset(GenericDataset):
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
-        compressed_bytes_to_tensor_concurrency = (1, 4)
+        compressed_bytes_to_tensor_concurrency = (1, 1)
         generate_pseudobulk_concurrency = (1, 16)
         generate_regions_concurrency = (1, 4)
 
@@ -271,6 +275,7 @@ class RayGenomeChunkDataset(GenericDataset):
                 dataset=dataset,
                 bed=region_bed,
                 action_keys=region_action_keys,
+                max_regions=self.max_regions_per_genome_chunk,
                 concurrency=generate_regions_concurrency,
             )
         return dataset
@@ -329,10 +334,12 @@ class RayGenomeChunkDataset(GenericDataset):
             else:
                 loader = work_ds.iter_batches(**_kwargs)
 
-            yield from loader
-            # for batch in loader:
-            #     batch['dna'] = self.genome.get_regions_one_hot()
-            #     yield batch
+            print("skip first 100 batches")
+            for idx, batch in enumerate(loader):
+                if idx < 100:
+                    continue
+                yield batch
+            # yield from loader
 
         # the dataset and dataloader are created lazily, until __iter__ is called
         return _IterableFromIterator(_create_iterator)
@@ -395,6 +402,23 @@ class RayRegionDataset(GenericDataset):
         _block_size=20,
         _max_blocks=200,
     ):
+        """
+        Initialize the RayRegionDataset.
+
+        Parameters
+        ----------
+        bed (str or pd.DataFrame): The bed file or the bed dataframe.
+        genome (Genome or str): The genome reference or its name.
+        standard_length (int): The standard length of the regions.
+        batch_size (int): The batch size.
+        window_size (int): The window size for making windows.
+        step (int): The step size for making windows.
+        dna (bool): Whether to include DNA one-hot encoding in the processed dataset.
+        boarder_strategy (str): The strategy for handling the boarder regions.
+        remove_blacklist (bool): Whether to remove the blacklist regions.
+        _block_size (int): The block size for the dataset.
+        _max_blocks (int): The maximum number of blocks for the dataset.
+        """
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
@@ -437,7 +461,6 @@ class RayRegionDataset(GenericDataset):
         self.dna = dna
         self._block_size = _block_size
         self._max_blocks = _max_blocks
-        self.n_blocks = min(len(self.bed) // self._block_size, self._max_blocks)
 
     def _get_dna_one_hot(self, dataset, concurrency=1):
         fn = FetchRegionOneHot
@@ -461,24 +484,27 @@ class RayRegionDataset(GenericDataset):
         if bed is None:
             bed = self.bed.copy()
 
+        if isinstance(bed, pr.PyRanges):
+            bed = bed.df
+
         if self._dataset_mode == "train" and shuffle_bed:
             # self.bed is dataframe
             bed = bed.sample(frac=1, replace=False)
 
-        if chroms is None:
-            bedfilter = np.ones(bed.shape[0]).astype(bool)
-        else:
+        if chroms is not None:
             bedfilter = bed["Chromosome"].isin(chroms)
+            bed = bed.loc[bedfilter].copy()
+        assert bed.shape[0] > 0, "No regions found in the bed file."
 
-        dataset = (
-            ray.data.from_pandas(bed.loc[bedfilter])
-            .repartition(self.n_blocks)
-            .materialize()
-        )
+        n_blocks = min(len(bed) // self._block_size + 1, self._max_blocks)
+        dataset = ray.data.from_pandas(bed).repartition(n_blocks).materialize()
+
+        if self.dna:
+            dataset = self._get_dna_one_hot(dataset)
+
+        dataset = self._select_columns(dataset)
         return dataset
 
-    # HL: I still need this method, because RayRegionDataset is also used elsewhere.
-    # HiC dataset can implement a different get_data_loader method
     def get_dataloader(self, chroms=None, shuffle_bed=False, **kwargs):
         """
         Get a data loader for iterating over batches of the dataset.

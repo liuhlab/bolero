@@ -420,4 +420,24 @@ def parse_global_coords(
         global_coords (np.ndarray): An array of global coordinates for each region.
     """
     # make a bin boarder array for pd.cut
-    pass
+    bins = chrom_offsets["global_start"].tolist() + [
+        chrom_offsets["global_end"].iloc[-1]
+    ]
+    global_coords = pd.DataFrame(global_coords, columns=["Start", "End"])
+    global_coords["Chromosome"] = pd.cut(
+        global_coords.loc[:, "Start"],
+        bins=bins,
+        right=False,
+        labels=chrom_offsets.index,
+    )
+    global_coords["Start"] -= chrom_offsets.reindex(global_coords["Chromosome"])[
+        "global_start"
+    ].values
+    global_coords["End"] -= chrom_offsets.reindex(global_coords["Chromosome"])[
+        "global_start"
+    ].values
+    global_coords = global_coords[["Chromosome", "Start", "End"]].copy()
+    global_coords["Name"] = global_coords.apply(
+        lambda x: f"{x['Chromosome']}:{x['Start']}-{x['End']}", axis=1
+    )
+    return global_coords

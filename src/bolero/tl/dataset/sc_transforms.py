@@ -222,6 +222,7 @@ class GenerateRegions:
         bed,
         meta_region_overlap,
         action_keys,
+        max_regions=None,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -230,6 +231,7 @@ class GenerateRegions:
         self.bed: pd.DataFrame = bed
 
         self.action_keys = action_keys
+        self.max_regions = max_regions
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -243,6 +245,9 @@ class GenerateRegions:
             & (self.bed["Start"] <= end - self.meta_region_overlap)
             & (self.bed["End"] <= end)
         ]
+        if self.max_regions:
+            if use_bed.shape[0] > self.max_regions:
+                use_bed = use_bed.sample(self.max_regions, replace=False)
         offset = start
         return use_bed, offset
 
