@@ -200,6 +200,8 @@ class HiCTrackDataset(RayRegionDataset):
         """
         Randomly shift the bed region.
         """
+        bed = bed.copy()
+
         max_shift_bins = self.step // self.resolution // 2
 
         shift = np.random.randint(-max_shift_bins, max_shift_bins) * self.resolution
@@ -209,7 +211,9 @@ class HiCTrackDataset(RayRegionDataset):
         # need to confirm region is still valid:
         # start > 0, end < chromosome length
         start_judge = bed["Start"] > 0
-        end_judge = bed["End"] < bed["Chromosome"].map(self.genome.chrom_sizes)
+        end_judge = bed["End"] < (
+            bed["Chromosome"].map(self.genome.chrom_sizes) - self.resolution * 1.01
+        )
         bed = bed.loc[start_judge & end_judge].copy()
         return bed
 
