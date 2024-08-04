@@ -481,16 +481,17 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         genome = self.dataset.genome
         dna_one_hot = genome.get_regions_one_hot(batch["region"])
         curr_dna_length = dna_one_hot.shape[1]
-        if self.expected_dna_length and self.expected_dna_length > curr_dna_length:
-            raise ValueError(
-                f"Expected DNA length {self.expected_dna_length} is longer than current DNA length {curr_dna_length}."
-            )
-        else:
-            radius = (curr_dna_length - self.expected_dna_length) // 2
-            dna_one_hot = dna_one_hot[:, radius:-radius, :].astype(np.float32)
-            batch["bw_values"] = batch["bw_values"][:, radius:-radius].astype(
-                np.float32
-            )
+        if self.expected_dna_length:
+            if self.expected_dna_length >= curr_dna_length:
+                raise ValueError(
+                    f"Expected DNA length {self.expected_dna_length} is longer than current DNA length {curr_dna_length}."
+                )
+            else:
+                radius = (curr_dna_length - self.expected_dna_length) // 2
+                dna_one_hot = dna_one_hot[:, radius:-radius, :].astype(np.float32)
+                batch["bw_values"] = batch["bw_values"][:, radius:-radius].astype(
+                    np.float32
+                )
 
         batch["values"] = batch["values"][:, 0, :, :]
         batch["values"] = resize(
