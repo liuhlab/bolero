@@ -13,6 +13,10 @@ from bolero.pp.genome_chunk_dataset import (
 )
 
 
+def _path_exists(path):
+    return pathlib.Path(path).exists()
+
+
 class GenomeChunkDatasetGenerator:
     """
     A generator class for creating genome-chunk ray dataset for single-cell or bulk data.
@@ -66,6 +70,7 @@ class GenomeChunkDatasetGenerator:
             The dataset name and the path to the Zarr file.
 
         """
+        assert _path_exists(path)
         if prefix in self.uniform_dataset_dict:
             raise ValueError(f"Dataset with name {prefix} already exists.")
         self.uniform_dataset_dict[prefix] = {
@@ -91,6 +96,8 @@ class GenomeChunkDatasetGenerator:
         kwargs : Dict[str, str]
             The dataset name and the path to the BigWig file.
         """
+        assert _path_exists(path)
+
         bw_class = GenomeBigWigDataset
         if prefix in self.uniform_dataset_dict:
             cur_prefix_dict = self.uniform_dataset_dict[prefix]
@@ -141,6 +148,7 @@ class GenomeChunkDatasetGenerator:
         barcode_whitelist : List[str], optional
             The list of barcodes to include in the dataset, by default None.
         """
+        assert _path_exists(path)
         if prefix in self.uniform_dataset_dict:
             raise ValueError(f"Dataset with name {prefix} already exists.")
         self.uniform_dataset_dict[prefix] = {
@@ -173,6 +181,7 @@ class GenomeChunkDatasetGenerator:
             Whether the sample-by-pos matrix is sparse, by default True.
 
         """
+        assert _path_exists(path)
         ds_class = GenomeALLCDataset
         if prefix in self.uniform_dataset_dict:
             cur_prefix_dict = self.uniform_dataset_dict[prefix]

@@ -257,11 +257,15 @@ class SingleCellCutsiteDataset:
 @ray.remote
 def _bw_values_worker(bw_path, regions):
     regions_data = []
-    with pyBigWig.open(bw_path) as bw:
-        for _, (chrom, start, end, *_) in regions.iterrows():
-            _data = bw.values(chrom, start, end, numpy=True)
-            _data = np.nan_to_num(_data).astype("float32")
-            regions_data.append(csr_matrix(_data))
+    try:
+        with pyBigWig.open(str(bw_path)) as bw:
+            for _, (chrom, start, end, *_) in regions.iterrows():
+                _data = bw.values(chrom, start, end, numpy=True)
+                _data = np.nan_to_num(_data).astype("float32")
+                regions_data.append(csr_matrix(_data))
+    except RuntimeError as e:
+        print(f'Error when reading BigWig file "{bw_path}"')
+        raise e
     return regions_data
 
 
