@@ -505,7 +505,7 @@ class RayRegionDataset(GenericDataset):
         dataset = self._select_columns(dataset)
         return dataset
 
-    def get_dataloader(self, chroms=None, shuffle_bed=False, **kwargs):
+    def get_dataloader(self, chroms=None, shuffle_bed=False, as_torch=False, **kwargs):
         """
         Get a data loader for iterating over batches of the dataset.
 
@@ -519,7 +519,11 @@ class RayRegionDataset(GenericDataset):
             DataLoader: The data loader.
         """
         dataset = self.get_processed_dataset(chroms=chroms, shuffle_bed=shuffle_bed)
-        loader = dataset.iter_batches(**kwargs)
+
+        if as_torch:
+            loader = dataset.iter_torch_batches(**kwargs)
+        else:
+            loader = dataset.iter_batches(**kwargs)
         return loader
 
     def _get_dataloader_with_wrapper(

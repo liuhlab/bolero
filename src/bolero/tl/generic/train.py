@@ -9,6 +9,7 @@ import torch
 import wandb
 from torch import nn
 
+from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.generic.ema import EMA
 from bolero.tl.generic.train_helper import (
@@ -17,7 +18,6 @@ from bolero.tl.generic.train_helper import (
     compare_configs,
     safe_save,
 )
-from bolero.tl.model.hic.dataset import HiCTrackDataset
 from bolero.utils import try_gpu, validate_config
 
 
@@ -210,54 +210,60 @@ class TrainerDatasetMixin:
         dataset = self.dataset_class.create_from_config(self.config)
         return dataset
 
-    def get_train_dataloader(self, batches):
+    def get_train_dataloader(self, batches, **kwargs):
         """Training dataloader."""
         self.dataset.train()
-        if self.dataset_class == HiCTrackDataset:
+        if isinstance(self.dataset, RayRegionDataset):
             dataloader = self.dataset.get_dataloader(
                 chroms=self.train_chroms,
                 n_batches=batches,
                 batch_size=self.config["batch_size"],
+                **kwargs,
             )
         else:
             dataloader = self.dataset.get_dataloader(
                 chroms=self.train_chroms,
                 region_bed_path=self.config["region_bed_path"],
                 n_batches=batches,
+                **kwargs,
             )
         return dataloader
 
-    def get_valid_dataloader(self, batches):
+    def get_valid_dataloader(self, batches, **kwargs):
         """Validation dataset."""
         self.dataset.eval()
-        if self.dataset_class == HiCTrackDataset:
+        if isinstance(self.dataset, RayRegionDataset):
             dataloader = self.dataset.get_dataloader(
                 chroms=self.train_chroms,
                 n_batches=batches,
                 batch_size=self.config["batch_size"],
+                **kwargs,
             )
         else:
             dataloader = self.dataset.get_dataloader(
                 chroms=self.valid_chroms,
                 region_bed_path=self.config["region_bed_path"],
                 n_batches=batches,
+                **kwargs,
             )
         return dataloader
 
-    def get_test_dataloader(self, batches):
+    def get_test_dataloader(self, batches, **kwargs):
         """Test dataset."""
         self.dataset.eval()
-        if self.dataset_class == HiCTrackDataset:
+        if isinstance(self.dataset, RayRegionDataset):
             dataloader = self.dataset.get_dataloader(
                 chroms=self.train_chroms,
                 n_batches=batches,
                 batch_size=self.config["batch_size"],
+                **kwargs,
             )
         else:
             dataloader = self.dataset.get_dataloader(
                 chroms=self.test_chroms,
                 region_bed_path=self.config["region_bed_path"],
                 n_batches=batches,
+                **kwargs,
             )
             return dataloader
 

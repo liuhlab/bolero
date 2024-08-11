@@ -26,12 +26,14 @@ def _open_cool(cool_path):
     handle = cooler.Cooler(cool_path, mode="r")
     return handle
 
-
 class FetchRegionALLCs:
     def __init__(
         self,
         allc_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
         region_key: str = "region",
+        data_prefix: str = "",
+        data_suffix: str = "",
+        mode: str = "bp",
     ) -> None:
         """
         Initialize FetchRegionALLCs.
@@ -49,7 +51,10 @@ class FetchRegionALLCs:
             allc_paths = [allc_paths]
         self.allc_paths = allc_paths
         self.region_key = region_key
+        self.data_prefix = data_prefix
+        self.data_suffix = data_suffix
         self.allc_handles = [_open_allc(path) for path in allc_paths]
+        self.mode = mode
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -67,29 +72,44 @@ class FetchRegionALLCs:
         if isinstance(region_, str):
             region_ = [region_]
         regions = understand_regions(region_, as_df=True)
-        assert (regions["End"] - regions["Start"]).unique().shape[
-            0
-        ] == 1, "Regions must have the same length."
 
         n_regions = len(region_)
-        region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
         n_allc = len(self.allc_paths)
 
-        total_mc_values = np.zeros(
-            shape=(n_regions, n_allc, region_length), dtype=np.float32
-        )
-        total_cov_values = np.zeros(
-            shape=(n_regions, n_allc, region_length), dtype=np.float32
-        )
+        if self.mode=='bp':
+            assert (regions["End"] - regions["Start"]).unique().shape[
+                0
+            ] == 1, "Regions must have the same length."
+            region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
+
+            total_mc_values = np.zeros(
+                shape=(n_regions, n_allc, region_length), dtype=np.float32
+            )
+            total_cov_values = np.zeros(
+                shape=(n_regions, n_allc, region_length), dtype=np.float32
+            )
+        elif self.mode=='region':
+            total_mc_values = np.zeros(
+                shape=(n_regions, n_allc, 1), dtype=np.float32
+            )
+            total_cov_values = np.zeros(
+                shape=(n_regions, n_allc, 1), dtype=np.float32
+            )
+
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
             for idy, allc_handle in enumerate(self.allc_handles):
                 mc_values, cov_values = query_allc_region(
                     allc_handle, chrom, start, end
                 )
-                total_mc_values[idx, idy, :] = mc_values
-                total_cov_values[idx, idy, :] = cov_values
-        data_dict["mc_values"] = total_mc_values
-        data_dict["cov_values"] = total_cov_values
+                if self.mode=='bp':
+                    total_mc_values[idx, idy, :] = mc_values
+                    total_cov_values[idx, idy, :] = cov_values
+                elif self.mode=='region':
+                    total_mc_values[idx, idy, 0] = mc_values.sum()
+                    total_cov_values[idx, idy, 0] = cov_values.sum()
+
+        data_dict[f"{self.data_prefix}mc{self.data_suffix}"] = total_mc_values
+        data_dict[f"{self.data_prefix}cov{self.data_suffix}"] = total_cov_values
         return data_dict
 
     def close(self) -> None:
