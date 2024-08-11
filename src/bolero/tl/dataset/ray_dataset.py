@@ -300,12 +300,15 @@ class RayGenomeChunkDataset(GenericDataset):
         shuffle_rows=1000,
         n_batches=None,
         batch_size=64,
+        skip_first=20,
     ) -> Iterable[dict[str, Any]]:
         """
         Get the dataloader generator.
 
         The dataset will be init only when entering the __iter__ method.
         """
+        if n_batches is not None:
+            n_batches += skip_first
 
         # this is adapted from the ray.data.iterator.DataIterator.iter_batches
         # https://github.com/ray-project/ray/blob/master/python/ray/data/iterator.py#L106
@@ -334,9 +337,9 @@ class RayGenomeChunkDataset(GenericDataset):
             else:
                 loader = work_ds.iter_batches(**_kwargs)
 
-            print("skip first 100 batches")
+            print(f"skip first {skip_first} batches")
             for idx, batch in enumerate(loader):
-                if idx < 100:
+                if idx < skip_first:
                     continue
                 yield batch
             # yield from loader
