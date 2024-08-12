@@ -1,5 +1,5 @@
 import pathlib
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import cooler
 import h5py
@@ -12,6 +12,7 @@ from cooler.core import (
     region_to_extent,
 )
 from cooler.util import parse_region
+from skimage.transform import resize
 
 from bolero.pp.genome_chunk_dataset import query_allc_region
 from bolero.utils import understand_regions
@@ -25,6 +26,7 @@ def _open_allc(allc_path):
 def _open_cool(cool_path):
     handle = cooler.Cooler(cool_path, mode="r")
     return handle
+
 
 class FetchRegionALLCs:
     def __init__(
@@ -76,7 +78,7 @@ class FetchRegionALLCs:
         n_regions = len(region_)
         n_allc = len(self.allc_paths)
 
-        if self.mode=='bp':
+        if self.mode == "bp":
             assert (regions["End"] - regions["Start"]).unique().shape[
                 0
             ] == 1, "Regions must have the same length."
@@ -88,23 +90,19 @@ class FetchRegionALLCs:
             total_cov_values = np.zeros(
                 shape=(n_regions, n_allc, region_length), dtype=np.float32
             )
-        elif self.mode=='region':
-            total_mc_values = np.zeros(
-                shape=(n_regions, n_allc, 1), dtype=np.float32
-            )
-            total_cov_values = np.zeros(
-                shape=(n_regions, n_allc, 1), dtype=np.float32
-            )
+        elif self.mode == "region":
+            total_mc_values = np.zeros(shape=(n_regions, n_allc, 1), dtype=np.float32)
+            total_cov_values = np.zeros(shape=(n_regions, n_allc, 1), dtype=np.float32)
 
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
             for idy, allc_handle in enumerate(self.allc_handles):
                 mc_values, cov_values = query_allc_region(
                     allc_handle, chrom, start, end
                 )
-                if self.mode=='bp':
+                if self.mode == "bp":
                     total_mc_values[idx, idy, :] = mc_values
                     total_cov_values[idx, idy, :] = cov_values
-                elif self.mode=='region':
+                elif self.mode == "region":
                     total_mc_values[idx, idy, 0] = mc_values.sum()
                     total_cov_values[idx, idy, 0] = cov_values.sum()
 
@@ -132,6 +130,8 @@ class FetchRegionCools:
         region_key: str = "region",
         balance: bool = False,
         data_key="values",
+        norm_mode="log",
+        image_scale=256,
     ) -> None:
         """
         Initialize FetchRegionCools.
@@ -143,6 +143,8 @@ class FetchRegionCools:
         - region_key: Key in the data_dict that represents the region.
         - balance: Whether to balance the cool matrix.
         - data_key: Key in the data_dict to store the fetched data.
+        - norm_mode: Normalization mode. Default is "log".
+        - image_scale: The scale size of the image, data matrix loaded from the cool file will be resized to this scale. Default is 256.
 
         Returns
         -------
@@ -164,6 +166,8 @@ class FetchRegionCools:
         self.cool_objects = [cooler.Cooler(path) for path in cool_paths]
         self.balance = balance
         self.data_key = data_key
+        self.norm_mode = norm_mode
+        self.image_scale = image_scale
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -179,7 +183,6 @@ class FetchRegionCools:
         """
         region_ = data_dict[self.region_key]
         resolution = self.resolution
-        balance = self.balance
         if isinstance(region_, str):
             region_ = [region_]
         regions = understand_regions(region_, as_df=True)
@@ -203,23 +206,39 @@ class FetchRegionCools:
                 zip(self.cool_handles, self.cool_objects)
             ):
                 temp_values = self.query_cool_region(
-                    cool_handle, cool_object, chrom, start, end, balance
+                    cool_handle, cool_object, chrom, start, end
                 )
                 total_values[idx, idy, ...] = temp_values
+
+        if self.norm_mode == "log":
+            # norm_mode "log" only works on count matrix,
+            # if your data is normalized or balanced, should not do this step
+            assert np.min(total_values) >= 0, "The matrix contains negative values."
+            total_values = np.log1p(total_values + 1)
+
+        total_values = resize(
+            total_values,
+            (n_regions, n_cool, self.image_scale, self.image_scale),
+            anti_aliasing=True,
+        )
         data_dict[self.data_key] = total_values
         return data_dict
 
-    def query_cool_region(
-        self, cool_handle, cool_object, chrom, start, end, balance=False
-    ):
+    def query_cool_region(self, cool_handle, cool_object, chrom, start, end):
         """Get region data from an COOL file handle."""
         # bin_start = start // resolution
         # bin_end = (end-1) // resolution + 1
-        data = (
-            self.matrix(h5=cool_handle, cool=cool_object, balance=balance)
-            .fetch(f"{chrom}:{start}-{end}")
-            .astype("float32")
-        )
+        try:
+            data = (
+                self.matrix(h5=cool_handle, cool=cool_object, balance=self.balance)
+                .fetch(f"{chrom}:{start}-{end}")
+                .astype("float32")
+            )
+        except ValueError:
+            print(
+                "Got ValueError when fetching region: {chrom}:{start}-{end}, return 0"
+            )
+            return 0
         return data
 
     def matrix(
@@ -311,6 +330,7 @@ class FetchRegionBigWigs:
         bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
         region_key: str = "region",
         data_key="bw_values",
+        norm_mode="log",
     ):
         """
         Initialize FetchRegionBigWigs.
@@ -320,6 +340,7 @@ class FetchRegionBigWigs:
         - bw_paths: Path(s) to the allc file(s).
         - region_key: Key in the data_dict that represents the region.
         - data_key: Key in the data_dict to store the fetched data.
+        - norm_mode: Normalization mode. Default is "log".
 
         Returns
         -------
@@ -331,6 +352,7 @@ class FetchRegionBigWigs:
         self.region_key = region_key
         self.bw_handles = [pyBigWig.open(path) for path in bw_paths]
         self.data_key = data_key
+        self.norm_mode = norm_mode
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -358,6 +380,9 @@ class FetchRegionBigWigs:
             for idy, bw_handle in enumerate(self.bw_handles):
                 temp_values = self.query_bw_region(bw_handle, chrom, start, end)
                 total_values[idx, idy, :] = temp_values
+        if self.norm_mode == "log":
+            assert np.min(total_values) >= 0, "The matrix contains negative values."
+            total_values = np.log(total_values + 1)
         data_dict[self.data_key] = total_values
         return data_dict
 
@@ -367,6 +392,95 @@ class FetchRegionBigWigs:
         # fill the nan value with 0
         data = np.nan_to_num(data)
         return data
+
+
+class ReverseCompHicData:
+    def __init__(
+        self,
+        data_1d_keys: Tuple[str],
+        data_2d_keys: Tuple[str],
+        dna_key: str,
+        chance: float = 0.5,
+    ):
+        """
+        Initialize ReverseCompHicData.
+
+        Parameters
+        ----------
+        - data_1d_keys: Keys in the data_dict to store the 1D data.
+        - data_2d_keys: Keys in the data_dict to store the 2D data.
+        - dna_key: Key in the data_dict to store the DNA sequence.
+        - chance: The chance to reverse complement the data.
+
+        Returns
+        -------
+        None
+        """
+        self.data_1d_keys = data_1d_keys
+        self.data_2d_keys = data_2d_keys
+        self.dna_key = dna_key
+        self.chance = chance
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Reverse complement the DNA sequence and the Hi-C data.
+
+        Parameters
+        ----------
+        - data_dict: Dictionary containing the data.
+
+        Returns
+        -------
+        Dictionary containing the updated data.
+        """
+        _bool = np.random.rand(1)
+        if _bool < self.chance:
+            for key in self.data_1d_keys:
+                data_dict[key] = np.flip(
+                    data_dict[key], axis=-1
+                )  # -1 flip the sequence
+            for key in self.data_2d_keys:
+                data_dict[key] = np.flip(
+                    data_dict[key], axis=[-1, -2]
+                )  # -1 and -2 both filp the sequence, because the data is 2D
+            data_dict[self.dna_key] = np.flip(
+                data_dict[self.dna_key], axis=[-1, -2]
+            )  # -1 flip the sequence, -2 flip the base pair (complement)
+        return data_dict
+
+
+class AddGaussianNoise:
+    def __init__(self, data_keys: Tuple[str], std=0.1):
+        """
+        Initialize GaussianNoise.
+
+        Parameters
+        ----------
+        - data_keys: Keys in the data_dict to store the data.
+        - std: The standard deviation of the Gaussian noise. Default is 0.1.
+
+        Returns
+        -------
+        None
+        """
+        self.data_keys = data_keys
+        self.std = std
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add Gaussian noise to the data.
+
+        Parameters
+        ----------
+        - data_dict: Dictionary containing the data.
+
+        Returns
+        -------
+        Dictionary containing the updated data.
+        """
+        for key in self.data_keys:
+            data_dict[key] += np.random.randn(*data_dict[key].shape) * self.std
+        return data_dict
 
 
 # old code, temp save here

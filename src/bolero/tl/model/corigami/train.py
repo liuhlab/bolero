@@ -1,13 +1,22 @@
+import time
+
 import joblib
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
 import wandb
-from skimage.transform import resize
 
+from bolero.pl.hic import HicExamplePlotter
+from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
+from bolero.tl.generic.train_helper import (
+    CumulativeCounter,
+    CumulativePearson,
+    batch_pearson_correlation,
+)
+from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import ConvTransModel, ConvTransModelSeqOnly
-from bolero.tl.model.hic.dataset import HiCTrackDataset, reverse_comp_hic_data_batch
 
 
 class CorigamiSeqOnlyTrainer(GenericTrainer):
@@ -27,7 +36,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         "lr": 0.0002,
         "weight_decay": 0,
         "accumulate_grad": 1,
-        "expected_dna_length": 500 * (2**13),
         "std": 0.1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
@@ -35,16 +43,21 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         "pretrained_model": None,
         # loss cov cutoff
         "loss_cov_cutoff": 10,
-        "plot_example_per_epoch": None,
+        "plot_example_per_epoch": 9,
     }
     dataset_class = HiCTrackDataset
     model_class = ConvTransModelSeqOnly
 
     def __init__(self, config):
+        # modify model encoder_in_channel based on dna_fifth_channel
+        if config["dna_fifth_channel"]:
+            config["encoder_in_channel"] = 5
+
         super().__init__(config)
-        self.expected_dna_length = config["expected_dna_length"]
         self.image_scale = config["image_scale"]
         self.std = config["std"]
+        self.val_batches = config["val_batches"]
+
         self._setup_env()
         self._setup_dataset()
         return
@@ -98,50 +111,53 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         self._set_total_params()
         return
 
-    def gaussian_noise(self, inputs, std=1):
-        """
-        Add Gaussian noise to the input.
-        """
-        noise = np.random.randn(*inputs.shape) * std
-        outputs = inputs + noise
-        return outputs
-
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         # ==========
         # X
         # ==========
-        genome = self.dataset.genome
-        # TODO can test float 16 if not impact performance
-        dna_one_hot = genome.get_regions_one_hot(batch["region"])
-        curr_dna_length = dna_one_hot.shape[1]
-        if self.expected_dna_length and self.expected_dna_length > curr_dna_length:
-            raise ValueError(
-                f"Expected DNA length {self.expected_dna_length} is longer than current DNA length {curr_dna_length}."
-            )
-        else:
-            radius = (curr_dna_length - self.expected_dna_length) // 2
-            dna_one_hot = dna_one_hot[:, radius:-radius, :].astype(np.float32)
-        batch["dna_one_hot"] = self.guassian_noise(dna_one_hot, self.std)
-        batch["value"] = batch["value"][:, 0, :, :]
-        batch["value"] = resize(
-            batch["value"],
-            (batch["value"].shape[0], self.image_scale, self.image_scale),
-            anti_aliasing=True,
-        )
-        batch["value"] = np.log(batch["value"] + 1)
-        batch = reverse_comp_hic_data_batch(batch, data_1d_keys=None)
-        X = torch.from_numpy(batch["dna_one_hot"]).to(self.device)
+        X = batch["dna_one_hot"]
 
         # ==========
         # y_hic
         # ==========
-        y = torch.from_numpy(batch["value"]).float().to(self.device)
+        y = batch["value"]
 
         # ==========
         # Forward
         # ==========
         pred_y = model(X)
         return y, pred_y
+
+    def _plot_example_images(
+        self, example_batches, target_key="values", predict_key="pred_"
+    ):
+        epoch = self.cur_epoch + 1
+        wandb_images = []
+        for idx, batch in enumerate(example_batches):
+            plotter = HicExamplePlotter(target_key, predict_key)
+            fig, _ = plotter.plot(
+                batch,
+                figsize=(40, 20),
+                dpi=100,
+                top_example=2,
+                bottom_example=2,
+                plot_channel=0,
+            )
+            fig_array = figure_to_array(fig)
+
+            fig.savefig(f"{self.savename}.example_{epoch}_{idx}.jpg")
+            plt.close(fig)
+
+            wandb_images.append(
+                wandb.Image(
+                    fig_array,
+                    mode="RGB",
+                    caption=f"Epoch {epoch} Example {idx}",
+                    grouping=epoch,
+                    file_type="jpg",  # reduce file size
+                )
+            )
+        return wandb_images
 
     @torch.no_grad()
     def _model_validation_step(
@@ -155,7 +171,10 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
         size = 0
         val_loss = 0
+        single_batch_pearson_counter = CumulativeCounter()
+        across_batch_pearson_counter = CumulativePearson()
 
+        example_batches = []  # collect example batches for making images
         for batch_id, batch in enumerate(dataloader):
             y, pred_y = self._model_forward_pass(model, batch)
 
@@ -163,39 +182,70 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             loss_ = F.mse_loss(pred_y, y)
             val_loss += loss_.item()
 
-            size += 1
+            # TODO Add insulation score
+            # ==========
+            # Within batch pearson and save for across batch pearson
+            # ==========
+            # within batch pearson
+            corr = batch_pearson_correlation(pred_y, y).detach().cpu()[:, None]
+            single_batch_pearson_counter.update(corr)
+            # save for across batch pearson
+            across_batch_pearson_counter.update(pred_y, y)
 
-            # TODO metrics
-            # insulation score
-            # Pearson correlation
+            size += 1
+            if batch_id < self.plot_example_per_epoch:
+                batch["values"] = y.detach()
+                batch["pred_"] = pred_y.detach()
+                example_batches.append(batch)
 
             if ((batch_id + 1) % print_step) == 0:
                 desc_str = (
                     f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
                     f"Loss: {val_loss/size:.3f}; "
+                    f"Within batch Pearson: {single_batch_pearson_counter.mean():.3f}; "
+                    f"Across batch Pearson: {across_batch_pearson_counter.corr():.3f}; "
                 )
                 print(desc_str)
 
         del dataloader
         self._cleanup_env()
 
+        wandb_images = self._plot_example_images(
+            example_batches, target_key="values", predict_key="pred_"
+        )
+
         # ==========
         # Loss
         # ==========
         val_loss = val_loss / size
 
-        return val_loss
+        # ==========
+        # Within batch pearson
+        # ==========
+        single_batch_pearson = single_batch_pearson_counter.mean()
+
+        # ==========
+        # Across batch pearson
+        # ==========
+        across_batch_pearson = across_batch_pearson_counter.corr()
+
+        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
     def _log_save_and_check_stop(self):
         epoch = self.cur_epoch
         train_loss = self.train_loss
         learning_rate = self.cur_lr
         val_loss = self.val_loss
+        single_batch_pearson = self.single_batch_pearson
+        across_batch_pearson = self.across_batch_pearson
+        example_images = self.example_wandb_images
 
         print(
             f" - (Training) {epoch}; Loss: {train_loss:.3f}; Learning rate {learning_rate}."
         )
         print(f" - (Validation) {epoch} Loss: {val_loss:.3f}")
+        print(f"Single Batch Pearson Corr.: {single_batch_pearson:.3f}")
+        print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
@@ -221,6 +271,9 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
                     "val/early_stopping_counter": self.early_stopping_counter,
+                    "val/single_batch_pearson": single_batch_pearson,
+                    "val/across_batch_pearson": across_batch_pearson,
+                    "val_example/example_predictions": example_images,
                 }
             )
         flag = self.early_stopping_counter >= self.patience
@@ -238,22 +291,26 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             if self.use_ema:
                 self.ema.eval()
                 self.ema.ema_model.eval()
-                val_loss = self._model_validation_step(
-                    model=self.ema.ema_model,
-                    dataloader=dataloader,
-                    val_batches=val_batches,
+                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.ema.ema_model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
                 )
                 self.ema.train()
                 self.ema.ema_model.train()
             else:
                 self.model.eval()
-                val_loss = self._model_validation_step(
-                    model=self.model,
-                    dataloader=dataloader,
-                    val_batches=val_batches,
+                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
+                    self._model_validation_step(
+                        model=self.model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
                 )
                 self.model.train()
-        return val_loss
+        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
     def _fit(self, max_epochs=None, valid_first=False):
         if max_epochs is None:
@@ -268,11 +325,21 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
         if valid_first:
             print("Perform validation before training.")
-            (self.val_loss,) = self._validation_step()
+            (
+                self.val_loss,
+                self.single_batch_pearson,
+                self.across_batch_pearson,
+                wandb_images,
+            ) = self._validation_step()
             print(f"Validation loss before training: {self.val_loss:.4f}")
+            print(f"Validation Singe Batch pearson: {self.single_batch_pearson:.3f}")
+            print(f"Validation Across Batch pearson: {self.across_batch_pearson:.3f}.")
             wandb.log(
                 {
                     "val/val_loss": self.val_loss,
+                    "val/single_batch_pearson": self.single_batch_pearson,
+                    "val/across_batch_pearson": self.across_batch_pearson,
+                    "val_example/example_images": wandb_images,
                 }
             )
 
@@ -388,7 +455,12 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             self.train_loss = moving_avg_loss / (batch_id + 1)
             self.cur_lr = optimizer.param_groups[0]["lr"]
 
-            self.val_loss = self._validation_step()
+            (
+                self.val_loss,
+                self.single_batch_pearson,
+                self.across_batch_pearson,
+                self.example_wandb_images,
+            ) = self._validation_step()
 
             if np.isnan(self.val_loss):
                 print("Validation loss is NaN, skipping epoch.")
@@ -406,11 +478,28 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
     def _test(self):
         if self.val_loss is None:
-            self.val_loss = self._validation_step(val_batches=None)
-        self.test_loss = self._validation_step(testing=True, val_batches=None)
+            (
+                self.val_loss,
+                self.single_batch_pearson,
+                self.across_batch_pearson,
+                _,
+            ) = self._validation_step()
+
+        (
+            self.test_loss,
+            self.test_single_batch_pearson,
+            self.test_across_batch_pearson,
+            self.test_single_batch_pearson_per_channel,
+            wandb_images,
+        ) = self._validation_step(testing=True)
 
         wandb.summary["final_valid_loss"] = self.val_loss
+        wandb.summary["final_valid_within"] = self.single_batch_pearson
+        wandb.summary["final_valid_across"] = self.across_batch_pearson
         wandb.summary["final_test_loss"] = self.test_loss
+        wandb.summary["final_test_within"] = self.test_single_batch_pearson
+        wandb.summary["final_test_across"] = self.test_across_batch_pearson
+        wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
@@ -455,20 +544,19 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         "max_epochs": 80,
         "patience": 80,
         "use_amp": True,
-        "use_ema": True,
+        "use_ema": False,
         "scheduler": True,
-        "lr": 0.0002,
+        "lr": 0.002,
         "weight_decay": 0,
         "accumulate_grad": 1,
-        "expected_dna_length": 500 * (2**13),
-        "std": 0.1,
+        "std": "REQUIRED",
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
         "pretrained_model": None,
         # loss cov cutoff
         "loss_cov_cutoff": 10,
-        "plot_example_per_epoch": None,
+        "plot_example_per_epoch": 9,
     }
     dataset_class = HiCTrackDataset
     model_class = ConvTransModel
@@ -477,43 +565,18 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         # ==========
         # X
         # ==========
-        batch["bw_values"] = batch["bw_values"][:, 0, :]
-        genome = self.dataset.genome
-        dna_one_hot = genome.get_regions_one_hot(batch["region"])
-        curr_dna_length = dna_one_hot.shape[1]
-        if self.expected_dna_length:
-            if self.expected_dna_length >= curr_dna_length:
-                raise ValueError(
-                    f"Expected DNA length {self.expected_dna_length} is longer than current DNA length {curr_dna_length}."
-                )
-            else:
-                radius = (curr_dna_length - self.expected_dna_length) // 2
-                dna_one_hot = dna_one_hot[:, radius:-radius, :].astype(np.float32)
-                batch["bw_values"] = batch["bw_values"][:, radius:-radius].astype(
-                    np.float32
-                )
-
-        batch["values"] = batch["values"][:, 0, :, :]
-        batch["values"] = resize(
-            batch["values"],
-            (batch["values"].shape[0], self.image_scale, self.image_scale),
-            anti_aliasing=True,
-        )
-        # batch["values"] = np.log(batch["values"] + 1)
-
-        batch["dna_one_hot"] = self.gaussian_noise(dna_one_hot, self.std)
-        batch["bw_values"] = self.gaussian_noise(batch["bw_values"], self.std)
-        batch = reverse_comp_hic_data_batch(batch)
-
-        dna_seq = torch.from_numpy(batch["dna_one_hot"].copy())
-        feature = torch.from_numpy(batch["bw_values"].copy())
-        X = torch.cat([dna_seq, feature.unsqueeze(2)], dim=2).to(self.device)
+        start = time.time()
+        dna_seq = batch["dna_one_hot"]
+        feature = batch["bw_values"]
+        X = torch.cat([dna_seq, feature.unsqueeze(1)], dim=1)
 
         # ==========
         # y_hic
         # ==========
-        y = torch.from_numpy(batch["values"].copy()).float().to(self.device)
+        y = batch["values"]
 
+        end = time.time()
+        print(f"Data prep time: {end-start:.3f}")
         # ==========
         # Forward
         # ==========

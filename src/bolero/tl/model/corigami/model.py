@@ -49,7 +49,7 @@ class ConvModel(nn.Module):
         "decoder_mid_hidden": 256,
         "decoder_filter_size": 3,
         "decoder_num_blocks": 5,
-        "output_length": 400,
+        "image_scale": 256,
     }
 
     @classmethod
@@ -73,27 +73,26 @@ class ConvModel(nn.Module):
             filter_size=config["decoder_filter_size"],
             num_blocks=config["decoder_num_blocks"],
         )
-        output_length = config["output_length"]
-        return cls(encoder=encoder, decoder=decoder, output_length=output_length)
+        image_scale = config["image_scale"]
+        return cls(encoder=encoder, decoder=decoder, image_scale=image_scale)
 
     def __init__(
         self,
         encoder: blocks.Encoder = None,
         decoder: blocks.Decoder = None,
-        output_length=400,
+        image_scale: int = 256,
     ):
         super().__init__()
         print("Initializing ConvModel")
         self.encoder = encoder
         self.decoder = decoder
-        self.output_length = output_length
+        self.image_scale = image_scale
 
     def forward(self, x):
         """
         Input feature:
         batch_size, length * res, feature_dim
         """
-        x = self.move_feature_forward(x).float()
         x = self.encoder(x)
         x = self.diagonalize(x)
         x = self.decoder(x).squeeze(1)
@@ -110,14 +109,14 @@ class ConvModel(nn.Module):
 
     def diagonalize(self, x):
         """
-        concatenates each position in the 500 bins to every other position to form a 500-by-500 interaction map.
+        concatenates each position in the N bins to every other position to form a N-by-N interaction map.
         input dim:
         bs, feat, seq_len
         to:
         bs, feat*2, seq_len, seq_len
         """
-        x_i = x.unsqueeze(2).repeat(1, 1, self.output_length, 1)
-        x_j = x.unsqueeze(3).repeat(1, 1, 1, self.output_length)
+        x_i = x.unsqueeze(2).repeat(1, 1, self.image_scale, 1)
+        x_j = x.unsqueeze(3).repeat(1, 1, 1, self.image_scale)
         input_map = torch.cat([x_i, x_j], dim=1)
         return input_map
 
@@ -175,7 +174,7 @@ class ConvTransModel(ConvModel):
     decoder_num_blocks : int
         The number of blocks for decoder. Default is 5.
     image_scale: int
-        The dimension of the hic-image. Default is 400.
+        The dimension of the hic-image. Default is 256
 
     Attributes
     ----------
@@ -205,7 +204,7 @@ class ConvTransModel(ConvModel):
         "decoder_mid_hidden": 256,
         "decoder_filter_size": 3,
         "decoder_num_blocks": 5,
-        "image_scale": 400,
+        "image_scale": 256,
     }
 
     @classmethod
@@ -227,6 +226,7 @@ class ConvTransModel(ConvModel):
             hidden=config["encoder_output_channel"],
             layers=config["attn_layers"],
             record_attn=config["record_attn"],
+            input_dim=config["image_scale"],
         )
         decoder = blocks.Decoder(
             in_channel=config["encoder_output_channel"] * 2,
@@ -268,7 +268,6 @@ class ConvTransModel(ConvModel):
         Input feature:
         batch_size, length * res, feature_dim
         """
-        x = self.move_feature_forward(x).float()
         x = self.encoder(x)
         if x.shape[-1] > self.image_scale:
             x = self.trim_encoder_output(x)

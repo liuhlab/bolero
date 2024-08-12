@@ -432,10 +432,6 @@ class RayRegionDataset(GenericDataset):
             bins = genome.make_windows(
                 window_size=window_size, step=step, as_df=True, force_length=True
             )
-            # HL: why do you need to remove chrX and chrY? if this is hic specific, then it should be in the hic dataset
-            # I moved this to the hic dataset, confirm the deletion here
-            # remove_chrom = ['chrX', 'chrY']
-            # bins = bins.loc[~bins['Chromosome'].isin(remove_chrom)]
             bins["region"] = (
                 bins["Chromosome"]
                 + ":"
@@ -465,12 +461,16 @@ class RayRegionDataset(GenericDataset):
         self._block_size = _block_size
         self._max_blocks = _max_blocks
 
-    def _get_dna_one_hot(self, dataset, concurrency=1):
+    def _get_dna_one_hot(self, dataset, dtype="float32", concurrency=1):
         fn = FetchRegionOneHot
+        fn_constructor_kwargs = {"dtype": dtype}
         fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
 
         dataset = dataset.map_batches(
-            fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            fn_kwargs=fn_kwargs,
+            concurrency=concurrency,
         )
         self.dna_column = DNA_NAME
         return dataset

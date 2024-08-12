@@ -261,7 +261,7 @@ class TransformerEncoder(torch.nn.TransformerEncoder):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, hidden, dropout=0.1, max_len=500):
+    def __init__(self, hidden, dropout=0.1, max_len=256):
         """
         Initialize the positional encoding
         """
@@ -284,14 +284,14 @@ class PositionalEncoding(nn.Module):
 
 
 class AttnModule(nn.Module):
-    def __init__(self, hidden=128, layers=8, record_attn=False, inpu_dim=256):
+    def __init__(self, hidden=128, layers=8, record_attn=False, input_dim=256):
         """
         Initialize the attention module
         """
         super().__init__()
 
         self.record_attn = record_attn
-        self.pos_encoder = PositionalEncoding(hidden, dropout=0.1)
+        self.pos_encoder = PositionalEncoding(hidden, dropout=0.1, max_len=input_dim)
         encoder_layers = TransformerLayer(
             hidden, nhead=8, dropout=0.1, dim_feedforward=512, batch_first=True
         )

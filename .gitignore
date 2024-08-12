@@ -33,7 +33,12 @@ __pycache__/
 .ipynb_checkpoints/
 tests/check.ipynb
 
+# training
 rune/*
 **/wandb/
 **/*.json
 **/*.pt
+**/*.joblib
+
+# images
+**/*.jpg

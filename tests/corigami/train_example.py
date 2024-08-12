@@ -2,7 +2,7 @@
 import numpy as np
 from glob import glob
 from bolero import hg38_splits
-from bolero.tl.model.hic.dataset import HiCTrackDataset
+from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero import init
 import pathlib
 
@@ -27,17 +27,22 @@ config = {
     "resolution": 10000,
     "balance": False,
     "genome": 'hg38',
-    "dna": False,
     "batch_size": 8,
-    # trainng
+    "window_size": 5000000,
+    "step": 100000,
+    # model
+    "image_scale": 400,
+    # training
     "mode": "base",
     "chrom_split": hg38_splits[0],
-    "max_epochs": 1,
-    "patience": 1,
-    "train_batches": 10,
-    "val_batches": 5,
+    "max_epochs": 20,
+    "patience": 3,
+    "train_batches": 9,
+    "val_batches": 3,
+    "std": 0.1,
+    "lr": 0.002,
     # save data
-    "output_dir": "corigami_07_28",
+    "output_dir": "corigami_result",
     "wandb_project": "corigami_result",
     "wandb_job_type": "train",
     "wandb_group": None,
