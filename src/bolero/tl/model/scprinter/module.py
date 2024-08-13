@@ -632,6 +632,11 @@ class Conv1dLoRA(nn.Module):
             if isinstance(self.B_embedding[i], nn.Linear):
                 self.B_embedding[i].bias.data[...] = 0
                 self.B_embedding[i].weight.data[...] = 0
+            elif isinstance(self.B_embedding[i], nn.Sequential):
+                for j in range(len(self.B_embedding[i])):
+                    if isinstance(self.B_embedding[i][j], nn.Linear):
+                        self.B_embedding[i][j].bias.data[...] = 0
+                        self.B_embedding[i][j].weight.data[...] = 0
 
         # test A_output distribution
         with torch.no_grad():

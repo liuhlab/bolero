@@ -393,12 +393,16 @@ def get_global_coords(
 
     """
     global_start = (
-        region_bed_df["Chromosome"].map(chrom_offsets["global_start"]).astype(int)
+        region_bed_df["Chromosome"]
+        .map(chrom_offsets["global_start"].to_dict())
+        .astype(int)
     )
     start = region_bed_df["Start"] + global_start
 
     global_ends = (
-        region_bed_df["Chromosome"].map(chrom_offsets["global_end"]).astype(int)
+        region_bed_df["Chromosome"]
+        .map(chrom_offsets["global_end"].to_dict())
+        .astype(int)
     )
     _raw_end = region_bed_df["End"] + global_start
     end = _raw_end.where(_raw_end <= global_ends, global_ends)

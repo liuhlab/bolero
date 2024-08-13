@@ -308,7 +308,7 @@ class scFootprintTrainerMixin(GenericTrainer):
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
-        while self.cur_epoch < max_epochs and not stop_flag:
+        while self.cur_epoch <= max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
             if self._check_stage_flag("stop"):

@@ -190,7 +190,7 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         # the predefined pseudobulk cell id needs to be consistent with the barcode_order's cell id
         "barcode_order": "REQUIRED",
         "predefined_pseudobulk_path": None,
-        "standard_cov": 10e6,
+        "standard_cov": 8e6,
         "standard_cell": None,
     }
 
@@ -403,11 +403,8 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
         if not self.standard_cov and self.standard_cell:
             embedding = np.append(embedding, self.get_pseudobulk_coverage(cells))
 
-        try:
-            # Normalize the embedding
-            embedding = self.scaler.transform(embedding)
-        except NotFittedError:
-            pass
+        # Normalize the embedding
+        embedding = self.scaler.transform(embedding)
         return embedding
 
     def get_pseudobulk_coverage(self, cells: pd.Index) -> float:
@@ -441,10 +438,9 @@ class PredefinedPseudobulkGenerator(PseudobulkGenerator):
             raise ValueError("No predefined pseudobulks")
 
         n_defined = len(self.predefined_pseudobulks)
+        n = min(n, n_defined)
 
-        idx_sel = np.random.choice(
-            n_defined, n, replace=True if n > n_defined else False
-        )
+        idx_sel = np.random.choice(n_defined, n, replace=False)
 
         records = []
         for idx in idx_sel:

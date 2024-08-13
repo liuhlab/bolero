@@ -13,7 +13,7 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.utils import get_global_coords, validate_config
+from bolero.utils import get_global_coords, understand_regions, validate_config
 
 
 class BatchFootPrint(FootPrintModel):
@@ -371,11 +371,13 @@ class scPrinterDataset(RayGenomeChunkDataset):
             chrom_offsets = self.genome.chrom_offsets.copy()
 
             def _region_to_global_coords(batch):
+                region_df = understand_regions(batch.pop("region"))
                 global_coords = get_global_coords(
                     chrom_offsets=chrom_offsets,
-                    region_bed_df=batch.pop("region"),
+                    region_bed_df=region_df,
                 )
                 batch["region"] = global_coords
+                return batch
 
             dataset = dataset.map_batches(_region_to_global_coords)
         else:
@@ -421,6 +423,16 @@ class scPrinterDataset(RayGenomeChunkDataset):
             region_action_keys=[self.bias_column],
         )
 
+        # add dna one hot
+        work_ds = self._get_dna_one_hot(
+            dataset=work_ds,
+            concurrency=1,
+        )
+
+        work_ds = self._get_region_cropper(work_ds)
+
+        # IMPORTANT: region cov filter must be put after cropping,
+        # because region cov changes after cropping
         min_cov = self.min_cov
         max_cov = self.max_cov
         low_cov_ratio = self.low_cov_ratio
@@ -440,14 +452,6 @@ class scPrinterDataset(RayGenomeChunkDataset):
                 batch_size=512,
                 concurrency=1,
             )
-
-        # add dna one hot
-        work_ds = self._get_dna_one_hot(
-            dataset=work_ds,
-            concurrency=1,
-        )
-
-        work_ds = self._get_region_cropper(work_ds)
 
         if self.reverse_complement and self._dataset_mode == "train":
             work_ds = self._get_reverse_complement_region(work_ds)

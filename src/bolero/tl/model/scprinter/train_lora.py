@@ -214,8 +214,8 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
                     self._setup_model()
                     self._setup_fit()
 
-                    # only train for 10000 batches to adjust the output layer
-                    max_epochs = int(np.ceil(10000 / self.train_batches))
+                    # only train some batches to adjust the output layer
+                    max_epochs = int(np.ceil(15000 / self.train_batches))
                     max_epochs = min(max_epochs, self.config["max_epochs"])
                     self._fit(max_epochs=max_epochs, valid_first=valid_first)
                     self._save_stage_flag("adj_output")

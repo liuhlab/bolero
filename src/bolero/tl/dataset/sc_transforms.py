@@ -181,7 +181,7 @@ class GeneratePseudobulk:
                 vstack(_per_prefix_bulk_data[bulk_idx]).sum(axis=0).A1
             )
             bulk_data.append(agg_bulk)
-        bulk_data = vstack(bulk_data)
+        # bulk_data = vstack(bulk_data)
         bulk_data_dict[f"{output_prefix}:bulk_data"] = bulk_data
         bulk_data_dict[f"{output_prefix}:embedding_data"] = embedding_data
         bulk_data_dict[f"{output_prefix}:pseudobulk_ids"] = pseudobulk_ids
@@ -300,11 +300,14 @@ class FilterRegions:
 
         use_rows = (region_sum > self.min_cov) & (region_sum < self.max_cov)
 
-        # add some low coverage regions as negative samples
-        low_cov_rows = np.where(region_sum <= self.min_cov)[0]
-        choice_n = min(int(use_rows.sum() * self.low_cov_ratio), low_cov_rows.shape[0])
-        choice_rows = np.random.choice(low_cov_rows, choice_n, replace=False)
-        use_rows[choice_rows] = True
+        if self.low_cov_ratio > 0:
+            # add some low coverage regions as negative samples
+            low_cov_rows = np.where(region_sum <= self.min_cov)[0]
+            choice_n = min(
+                int(use_rows.sum() * self.low_cov_ratio), low_cov_rows.shape[0]
+            )
+            choice_rows = np.random.choice(low_cov_rows, choice_n, replace=False)
+            use_rows[choice_rows] = True
 
         if use_rows.sum() == 0:
             # keep at least one region
