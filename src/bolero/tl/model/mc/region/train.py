@@ -42,16 +42,37 @@ class mCTrainerMixin(GenericTrainer):
     prefix: str
 
     def get_train_dataloader(self, batches):
-        """Get training dataloader with Tensors."""
-        return super().get_train_dataloader(batches, as_torch=True)
+        """Training dataloader."""
+        self.dataset.train()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.train_chroms,
+            n_batches=batches,
+            batch_size=self.config["batch_size"],
+            as_torch=True,
+        )
+        return dataloader
 
     def get_valid_dataloader(self, batches):
-        """Get validation dataloader with Tensors."""
-        return super().get_valid_dataloader(batches, as_torch=True)
+        """Validation dataset."""
+        self.dataset.eval()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.train_chroms,
+            n_batches=batches,
+            batch_size=self.config["batch_size"],
+            as_torch=True,
+        )
+        return dataloader
 
     def get_test_dataloader(self, batches):
-        """Get test dataloader with Tensors."""
-        return super().get_test_dataloader(batches, as_torch=True)
+        """Test dataset."""
+        self.dataset.eval()
+        dataloader = self.dataset.get_dataloader(
+            chroms=self.train_chroms,
+            n_batches=batches,
+            batch_size=self.config["batch_size"],
+            as_torch=True,
+        )
+        return dataloader
 
     def __init__(self, config):
         super().__init__(config)
