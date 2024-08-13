@@ -2,13 +2,14 @@ from functools import partial
 
 import numpy as np
 import torch
-from scprinter.seq.attribution_wrapper import (
+from scprinter.seq.interpretation.attribution_wrapper import (
     CountWrapper,
     JustSumWrapper,
-    ProfileWrapperFootprint,
-    ProfileWrapperFootprintClass,
 )
-from scprinter.seq.attributions import calculate_attributions, projected_shap
+from scprinter.seq.interpretation.attributions import (
+    calculate_attributions,
+    project_attrs,
+)
 
 from bolero.tl.footprint.tfbs import AttrobutionScoreModel
 
@@ -53,7 +54,7 @@ class BatchAttribution:
             model=self.model,
         )
         # project channel-by-sequence 2D attributions to sequence 1D attributions
-        self.projector = partial(projected_shap, bs=64, device="cpu")
+        self.projector = partial(project_attrs, bs=64, device="cpu")
 
         if tfbs_model is not None:
             self.score_nrom = score_norm
@@ -84,31 +85,7 @@ class BatchAttribution:
             torch.nn.Module: The wrapped model.
         """
         n_out = torch.from_numpy(np.array(modes)).to(self.device)
-        if wrapper == "classification":
-            model = ProfileWrapperFootprintClass(
-                model,
-                nth_output=n_out,
-                res=1,
-                reduce_mean=False,
-                decay=decay,
-            )
-        elif wrapper == "classification_reduce":
-            model = ProfileWrapperFootprintClass(
-                model,
-                nth_output=n_out,
-                res=1,
-                reduce_mean=True,
-                decay=decay,
-            )
-        elif wrapper == "regression":
-            model = ProfileWrapperFootprint(
-                model, nth_output=n_out, res=1, reduce_mean=False
-            )
-        elif wrapper == "regression_reduce":
-            model = ProfileWrapperFootprint(
-                model, nth_output=n_out, res=1, reduce_mean=True
-            )
-        elif wrapper == "just_sum":
+        if wrapper == "just_sum":
             model = JustSumWrapper(model, nth_output=n_out, res=1, threshold=0.301)
         elif wrapper == "count":
             model = CountWrapper(model)
