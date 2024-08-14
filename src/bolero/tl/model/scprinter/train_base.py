@@ -26,12 +26,12 @@ class scFootprintTrainerMixin(GenericTrainer):
         {
             "max_epochs": 100,
             "patience": 10,
+            "start_early_stop_after_epoch": 15,
             "train_batches": 5000,
             "val_batches": 1000,
             "train_epoch_chroms": 15,
             # region file
             "region_bed_path": "REQUIRED",
-            "start_early_stop_after_epoch": 15,
         }
     )
 
@@ -237,11 +237,15 @@ class scFootprintTrainerMixin(GenericTrainer):
             f"Early stopping counter: {self.early_stopping_counter}"
         )
         # save checkpoint if the loss is better
-        if val_loss < self.best_val_loss:
+        if epoch < self.start_early_stop_after_epoch:
             self.best_val_loss = val_loss
             self._save_checkpint(update_best=True)
         else:
-            self._save_checkpint(update_best=False)
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
+                self._save_checkpint(update_best=True)
+            else:
+                self._save_checkpint(update_best=False)
 
         wandb.log(
             {
@@ -459,13 +463,15 @@ class scFootprintTrainerMixin(GenericTrainer):
         return
 
     def _test(self):
-        if self.val_loss is None:
-            (
-                self.val_loss,
-                self.val_profile_pearson,
-                self.val_across_pearson,
-                _,
-            ) = self._validation_step(val_batches=1500)
+        # load final best checkpoint for testing
+        self._update_state_dict()
+
+        (
+            self.val_loss,
+            self.val_profile_pearson,
+            self.val_across_pearson,
+            _,
+        ) = self._validation_step(val_batches=1500)
         valid_across_pearson_footprint, valid_across_pearson_coverage = (
             self.val_across_pearson
         )
