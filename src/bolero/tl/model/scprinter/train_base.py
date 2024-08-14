@@ -26,16 +26,18 @@ class scFootprintTrainerMixin(GenericTrainer):
         {
             "max_epochs": 100,
             "patience": 10,
-            "train_batches": 2000,
-            "val_batches": 300,
+            "train_batches": 5000,
+            "val_batches": 1000,
             "train_epoch_chroms": 15,
             # region file
             "region_bed_path": "REQUIRED",
+            "start_early_stop_after_epoch": 15,
         }
     )
 
     def __init__(self, config):
         super().__init__(config)
+        self.start_early_stop_after_epoch: bool = config["start_early_stop_after_epoch"]
 
         # the prefix of pseudobulk data in the batch dict
         # this is the pseudobulker name passed to dataset
@@ -227,7 +229,8 @@ class scFootprintTrainerMixin(GenericTrainer):
         if val_loss < self.best_val_loss - self.loss_tolerance:
             self.early_stopping_counter = 0
         else:
-            self.early_stopping_counter += 1
+            if epoch >= self.start_early_stop_after_epoch:
+                self.early_stopping_counter += 1
         print(
             f"Previous best loss: {previous_best:.4f}, "
             f"Loss at epoch {epoch}: {val_loss:.4f}; "

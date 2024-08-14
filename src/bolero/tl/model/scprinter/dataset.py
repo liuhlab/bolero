@@ -135,15 +135,15 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "max_jitter": 128,
         "clip_min": -10,
         "clip_max": 10,
-        "n_pseudobulks": 30,
+        "n_pseudobulks": 100,
         "cov_filter_name": "REQUIRED",
-        "min_cov": 10,
+        "min_cov": 25,
         "max_cov": 100000,
         "low_cov_ratio": 0.1,
         "reverse_complement": True,
         "shuffle_files": False,
         "read_parquet_kwargs": None,
-        "max_regions_per_genome_chunk": 100,
+        "max_regions_per_genome_chunk": 10,
     }
 
     @classmethod

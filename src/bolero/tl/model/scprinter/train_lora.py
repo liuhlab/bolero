@@ -23,7 +23,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "mode": "lora",
             "lr": 0.0003,
             # Lora related files
-            "accumulate_grad": 1,
+            "accumulate_grad": 8,
             "pretrained_model": "REQUIRED",
             "output_adjusted_model": None,
             "cell_embedding": "REQUIRED",
@@ -31,7 +31,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "cell_coverage": "REQUIRED",
             "pseudobulk_path": "REQUIRED",
             "prefix": "REQUIRED",
-            "standard_cov": 1e7,
+            "standard_cov": 8e6,
             "standard_cell": None,
         }
     )
