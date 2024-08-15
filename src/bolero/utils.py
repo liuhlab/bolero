@@ -316,9 +316,6 @@ def init(
         if verbose:
             print("Disabled ray lineage reconstruction and task retries")
 
-    # get number of cpus
-    if num_cpus is None:
-        num_cpus = max(1, os.cpu_count() - 1)
     # get system memory size
     if object_store_memory_gb is None:
         # in bytes
@@ -326,6 +323,7 @@ def init(
         object_store_memory = int(sys_memory * object_store_memory_ratio)
     else:
         object_store_memory = int(object_store_memory_gb * 1024**3)
+
     ray.init(
         num_cpus=num_cpus,
         object_store_memory=object_store_memory,
