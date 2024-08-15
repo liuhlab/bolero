@@ -622,6 +622,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         if self.use_ema:
             self.ema = self._get_ema()
         else:
+            print("EMA is not used.")
             self.ema = None
 
         # plot
