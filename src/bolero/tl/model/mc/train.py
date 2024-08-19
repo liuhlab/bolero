@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import wandb
 
-from bolero.pl.track1d import Track1DExamplePlotter
+from bolero.pl.mc import mcExamplePlotter
 from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import (
@@ -13,8 +13,11 @@ from bolero.tl.generic.train_helper import (
     CumulativePearson,
     batch_pearson_correlation,
 )
-from bolero.tl.model.mc.dataset import mCTrackDataset
+from bolero.tl.model.mc.dataset import mCplusATACDataset
 from bolero.tl.model.mc.model import MultiTrackmCModel
+
+# from torchsummary import summary
+from matplotlib import pyplot as plt
 
 
 class mCTrainerMixin(GenericTrainer):
@@ -25,12 +28,15 @@ class mCTrainerMixin(GenericTrainer):
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
+        "wandb_name": "REQUIRED",
         "wandb_group": None,
         "max_epochs": 100,
         "patience": 10,
         "use_amp": True,
         "use_ema": True,
-        "scheduler": False,
+        "optimizer": "REQUIRED",
+        "scheduler": True,
+        "scheduler_type": "REQUIRED",
         "lr": 0.003,
         "weight_decay": 0.001,
         "accumulate_grad": 1,
@@ -60,6 +66,13 @@ class mCTrainerMixin(GenericTrainer):
     # =============================
     def _setup_model(self):
         raise NotImplementedError
+    
+    #possion loss as in enformer model:
+    def log_clamp(self, t, eps=1e-6):
+        return torch.log(t.clamp(min=eps))
+
+    def poisson_loss(self, pred, target):
+        return (pred - target * self.log_clamp(pred)).mean()
 
     @torch.no_grad()
     def _model_validation_step(
@@ -71,9 +84,6 @@ class mCTrainerMixin(GenericTrainer):
         print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
 
-        prefix = self.prefix
-        mc_frac_key = f"{prefix}_mc_frac"
-
         size = 0
         val_loss = 0
         single_batch_pearson_counter = CumulativeCounter()
@@ -81,14 +91,20 @@ class mCTrainerMixin(GenericTrainer):
 
         example_batches = []  # collect example batches for making images
         for batch_id, batch in enumerate(dataloader):
-            y_mc_frac, pred_mc_frac, mask = self._model_forward_pass(model, batch)
+            y_mc_frac, y_bw_values, pred, mask = self._model_forward_pass(model, batch)
+
+            pred_mc_frac = pred[:, 0, :].unsqueeze(1)  # shape: (batch_size, 1, 1000)
+            pred_atac = pred[:, 1, :].unsqueeze(1)  # shape: (batch_size, 1, 1000)
 
             # mask is element wise mask based on coverage > cutoff
             c_loss_ = F.binary_cross_entropy_with_logits(
                 pred_mc_frac[mask], y_mc_frac[mask]
             )
             all_loss_ = F.binary_cross_entropy_with_logits(pred_mc_frac, y_mc_frac)
-            loss_ = c_loss_ + all_loss_
+
+            a_loss_ = F.mse_loss(pred_atac, y_bw_values)
+
+            loss_ = c_loss_ + all_loss_ + a_loss_
             val_loss += loss_.item()
 
             # model do not have sigmoid,
@@ -100,6 +116,7 @@ class mCTrainerMixin(GenericTrainer):
             # ==========
             # For calculate correlation, we need a DNA position wise mask where any sample's coverage > cutoff
             pos_mask = torch.any(mask, dim=[0, 1])
+
             # within batch pearson
             corr = (
                 batch_pearson_correlation(
@@ -116,7 +133,8 @@ class mCTrainerMixin(GenericTrainer):
 
             size += 1
             if batch_id < self.plot_example_per_epoch:
-                batch["pred_"] = pred_mc_frac.detach()
+                batch["mc_pred"] = pred_mc_frac.detach()
+                batch["atac_pred"] = pred_atac.detach()
                 example_batches.append(batch)
 
             if ((batch_id + 1) % print_step) == 0:
@@ -132,8 +150,11 @@ class mCTrainerMixin(GenericTrainer):
         self._cleanup_env()
 
         wandb_images = self._plot_example_images(
-            example_batches, target_key=mc_frac_key, predict_key="pred_"
+            example_batches, 
+            target_key=[f"{self.prefix}_mc_frac","atac_bw_values"], 
+            predict_key=["mc_pred","atac_pred"]
         )
+        # wandb_images = self._plot_distribution(example_batches, "pred_")
 
         # ==========
         # Loss
@@ -154,20 +175,30 @@ class mCTrainerMixin(GenericTrainer):
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
 
-    def _plot_example_images(self, example_batches, target_key, predict_key="pred_"):
+    def _plot_example_images(self, example_batches, target_key, predict_key):
         epoch = self.cur_epoch + 1
         wandb_images = []
         for idx, batch in enumerate(example_batches):
-            plotter = Track1DExamplePlotter(
-                target_key=target_key, predict_key=predict_key, data_mode="mc_frac"
+            # plotter = Track1DExamplePlotter(
+            #     target_key=target_key, predict_key=predict_key, data_mode="mc_frac"
+            # )
+            # fig, _ = plotter.plot(
+            #     batch,
+            #     figsize=(6, 8),
+            #     dpi=150,
+            #     top_example=2,
+            #     bottom_example=2,
+            #     plot_channel=0,
+            # )
+            plotter = mcExamplePlotter(
+                target_key=target_key, predict_key=predict_key
             )
-            fig, _ = plotter.plot(
+            fig, _ = plotter.plot_alltrack(
                 batch,
                 figsize=(6, 8),
                 dpi=150,
-                top_example=2,
-                bottom_example=2,
-                plot_channel=0,
+                example=2,
+                total_channel=2,
             )
             fig_array = figure_to_array(fig)
             fig.savefig(f"{self.savename}.example_{epoch}_{idx}.jpg")
@@ -182,6 +213,29 @@ class mCTrainerMixin(GenericTrainer):
                     file_type="jpg",  # reduce file size
                 )
             )
+        return wandb_images
+
+    def _plot_distribution(self, example_batches, key):
+
+        wandb_images = []
+
+        flattened_array = []
+        for batch in example_batches:
+            flattened_array.append(batch[key].flatten().cpu().numpy())
+
+        flattened_array = np.concatenate(flattened_array)
+        fig = plt.figure(figsize=(8, 6))
+        plt.hist(flattened_array, bins=500)
+
+        fig_array = figure_to_array(fig)
+        wandb_images.append(
+            wandb.Image(
+                fig_array,
+                mode="RGB",
+                caption=f"{key} Distribution",
+                file_type="jpg",  # reduce file size
+            )
+        )
         return wandb_images
 
     def _log_save_and_check_stop(self):
@@ -221,6 +275,7 @@ class mCTrainerMixin(GenericTrainer):
             wandb.log(
                 {
                     "train/train_loss": train_loss,
+                    "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
                     "val/early_stopping_counter": self.early_stopping_counter,
@@ -242,6 +297,7 @@ class mCTrainerMixin(GenericTrainer):
         scheduler = self.scheduler
         ema = self.ema
         self.val_loss = None
+
 
         if valid_first:
             print("Perform validation before training.")
@@ -314,17 +370,25 @@ class mCTrainerMixin(GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    y_mc_frac, pred_mc_frac, mask = self._model_forward_pass(
+                    y_mc_frac, y_bw_values, pred, mask = self._model_forward_pass(
                         self.model, batch
                     )
+                    pred_mc_frac = pred[:, 0, :].unsqueeze(1)
+                    pred_atac = pred[:, 1, :].unsqueeze(1)
 
                     c_loss_ = F.binary_cross_entropy_with_logits(
                         pred_mc_frac[mask], y_mc_frac[mask]
                     )
+
+                    a_loss_ = F.mse_loss(pred_atac, y_bw_values)
+
                     all_loss_ = F.binary_cross_entropy_with_logits(
                         pred_mc_frac, y_mc_frac
                     )
-                    loss = (c_loss_ + all_loss_) / self.accumulate_grad
+                    if batch_id == 0:
+                        print(f"c_loss: {c_loss_}, all_loss_: {all_loss_}, a_loss_: {a_loss_}")
+                    weight = torch.tensor([1,10,10]).cuda()
+                    loss = (c_loss_ + all_loss_ + a_loss_) / self.accumulate_grad
 
                     if np.isnan(loss.item()):
                         nan_loss = True
@@ -341,10 +405,6 @@ class mCTrainerMixin(GenericTrainer):
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)
                 # however, with larger batch size, the GPU memory usage will be higher
                 if (batch_id + 1) % self.accumulate_grad == 0:
-                    scaler.unscale_(
-                        optimizer
-                    )  # Unscale gradients for clipping without inf/nan gradients affecting the model
-
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
@@ -352,8 +412,8 @@ class mCTrainerMixin(GenericTrainer):
                     if ema:
                         ema.update()
 
-                    if scheduler is not None:
-                        scheduler.step()
+                    # if scheduler is not None:
+                    #     scheduler.step()
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
@@ -396,6 +456,12 @@ class mCTrainerMixin(GenericTrainer):
 
             self.cur_epoch += 1
             stop_flag = self._log_save_and_check_stop()
+
+            # epoch learning rate scheduling
+            if scheduler is not None:
+                # scheduler.step(self.val_loss)
+                scheduler.step()
+
             if stop_flag:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
@@ -416,18 +482,18 @@ class mCTrainerMixin(GenericTrainer):
             self.test_single_batch_pearson,
             self.test_across_batch_pearson,
             wandb_images,
+            # _,
         ) = self._validation_step(testing=True, val_batches=1500)
 
-        wandb.summary["final_valid_loss"] = self.val_loss
-        wandb.summary["final_valid_within"] = self.single_batch_pearson
-        wandb.summary["final_valid_across"] = self.across_batch_pearson
-        wandb.summary["final_test_loss"] = self.test_loss
-        wandb.summary["final_test_within"] = self.test_single_batch_pearson
-        wandb.summary["final_test_across"] = self.test_across_batch_pearson
-        wandb.summary["final_image"] = wandb_images
-
-        # final wandb flag to indicate the run is successfully finished
-        wandb.summary["success"] = True
+        if self.wandb_active:
+            wandb.summary["final_valid_loss"] = self.val_loss
+            wandb.summary["final_valid_within"] = self.single_batch_pearson
+            wandb.summary["final_valid_across"] = self.across_batch_pearson
+            wandb.summary["final_test_loss"] = self.test_loss
+            wandb.summary["final_test_within"] = self.test_single_batch_pearson
+            wandb.summary["final_test_across"] = self.test_across_batch_pearson
+            # final wandb flag to indicate the run is successfully finished
+            wandb.summary["success"] = True
         return
 
     def train(self):
@@ -448,7 +514,9 @@ class mCBaseTrainer(mCTrainerMixin):
         }
     )
 
-    dataset_class = mCTrackDataset
+    # dataset_class = mCTrackDataset
+    # dataset_class = mCSiteDataset
+    dataset_class = mCplusATACDataset
     model_class = MultiTrackmCModel
 
     def __init__(self, config):
@@ -497,6 +565,8 @@ class mCBaseTrainer(mCTrainerMixin):
         cov_key = f"{prefix}_cov"
         dna_key = "dna_one_hot"
         cov_cutoff = self.config["loss_cov_cutoff"]
+        bw_key = "atac_bw_values"
+        cell_track = 0
 
         # ==========
         # X
@@ -504,26 +574,29 @@ class mCBaseTrainer(mCTrainerMixin):
         X = batch[dna_key]
 
         # ==========
-        # y_mc_frac
+        # y
         # ==========
         y_mc_frac = batch[mc_frac_key]
+        y_mc_frac_single = y_mc_frac[:, cell_track, :].unsqueeze(1)  # shape: (batch_size, 1, 1000)
+        y_bw_values = batch[bw_key] # shape: (batch_size, 1, 1000)
 
         # ==========
         # Forward
         # ==========
-        pred_mc_frac = model(X)
+        pred = model(X)  # shape: (batch_size, 2, 1000)
 
         # ==========
         # Cov mask for loss
         # ==========
         y_cov = batch[cov_key]
-        mask = y_cov > cov_cutoff
+        y_cov_single = y_cov[:, cell_track, :].unsqueeze(1)
+        mask = y_cov_single > cov_cutoff  # shape: (batch_size, 1, 1000)
 
-        return y_mc_frac, pred_mc_frac, mask
+        return y_mc_frac_single, y_bw_values, pred, mask
 
     def train(self, valid_first=None) -> None:
         """Train the MultiTrackmCModel model."""
-        wandb_run = self._setup_wandb()
+        wandb_run = self._setup_wandb(use_wandb=True)
         if wandb_run is None:
             return
 
@@ -532,7 +605,8 @@ class mCBaseTrainer(mCTrainerMixin):
                 valid_first = True
 
         with wandb_run:
-            self.checkpoint = self._has_last_checkpoint()
+            # self.checkpoint = self._has_last_checkpoint()
+            self.checkpoint = False
             self._setup_model()
             self._setup_fit()
             self._fit(valid_first=valid_first)

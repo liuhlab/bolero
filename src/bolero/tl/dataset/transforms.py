@@ -148,7 +148,9 @@ class CropLastAxisWithJitter:
             _end = _start + length
             data[k] = _input[..., _start:_end].copy()
 
-        # data["jitter"] = np.array([jitter])
+        data["jitter"] = np.full((data[self.key[-1]].shape[0], 1), jitter).astype(
+            "float32"
+        )
         return data
 
 

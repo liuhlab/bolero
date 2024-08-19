@@ -4,7 +4,14 @@ from bolero.tl.generic.module import Conv1dWrapper
 
 
 class OutputHead(nn.Module):
-    def __init__(self, n_filters=1024, kernel_size=1, out_channels=1, bias=True):
+    def __init__(
+        self,
+        n_filters=1024,
+        kernel_size=1,
+        out_channels=1,
+        bias=True,
+        region_level_output=False,
+    ):
         """
         Make the final prediction of the model.
 
@@ -27,6 +34,11 @@ class OutputHead(nn.Module):
             padding=kernel_size // 2,
             bias=bias,
         )
+        self.activation = nn.GELU()
+        self.bn = nn.BatchNorm1d(out_channels)
+        self.dropout = nn.Dropout(0.5)
+        self.linear = nn.Linear(1840, 1)
+        self.region_level_output = region_level_output
 
     def forward(self, X, *args, output_len=None, modes=None, **kwargs):
         """Forward pass of the model."""
@@ -38,4 +50,14 @@ class OutputHead(nn.Module):
             trim = (X_score.shape[-1] - output_len_needed_in_X) // 2
         if trim > 0:
             X_score = X_score[..., trim:-trim]
+        # X_score.shape = (batch_size, 1, 1000)
+
+        if self.region_level_output:
+            X_score = X_score.mean(dim=-1)
+            # X_score.shape = (batch_size, 1)
+
+        # X_score = self.bn(X_score)
+        # X_score = self.activation(X_score)
+        # X_score = self.dropout(X_score)
+        # X_score = self.linear(X_score)
         return X_score

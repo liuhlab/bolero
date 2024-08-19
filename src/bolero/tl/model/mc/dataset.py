@@ -3,6 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 
+from bolero.tl.dataset.file_transforms import FetchRegionBigWigs
 from bolero.tl.dataset.file_transforms import FetchRegionALLCs
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.model.track1d.dataset import Track1DDataset
@@ -49,6 +50,7 @@ class mCTrackDataset(Track1DDataset):
         )
 
         dataset = self._get_mc_frac(dataset)
+        dataset = dataset.drop_columns(["region", "jitter"])
         return dataset
 
 
@@ -93,6 +95,10 @@ class SplitRegionTomCSite:
         self.hyper_ratio = hyper_ratio
         self.max_site_per_region = max_site_per_region
         self.dna_radius = dna_radius
+        self.upper_bound = 0.99
+        self.lower_bound = 0.01
+        self.upper_ratio = 0.3
+        self.lower_ratio = 0.3
 
     def __call__(self, data_dict: dict) -> dict:
         """
@@ -123,27 +129,44 @@ class SplitRegionTomCSite:
         # mc fraction filter & cov filter & random downsample
         hypo_site = (
             (mc_frac < self.hypo_frac_cutoff)
+            & (mc_frac > self.lower_bound)
             & (cov > self.cov_cutoff)
             & (np.random.rand(*cov.shape) < self.hypo_ratio)
         )
-        hypo_site = hypo_site.any(axis=1)
+        hypo_site = hypo_site.all(axis=1)
         hyper_site = (
             (mc_frac > self.hypo_frac_cutoff)
+            & (mc_frac < self.upper_bound)
             & (cov > self.cov_cutoff)
             & (np.random.rand(*cov.shape) < self.hyper_ratio)
         )
-        hyper_site = hyper_site.any(axis=1)
+        hyper_site = hyper_site.all(axis=1)
+        upper_site = (
+            (mc_frac > self.upper_bound)
+            & (cov > self.cov_cutoff)
+            & (np.random.rand(*cov.shape) < self.upper_ratio)
+        )
+        upper_site = upper_site.all(axis=1)
+        lower_site = (
+            (mc_frac < self.lower_bound)
+            & (cov > self.cov_cutoff)
+            & (np.random.rand(*cov.shape) < self.lower_ratio)
+        )
+        lower_site = lower_site.all(axis=1)
         # combine hypo and hyer sel
-        final_site = hypo_site | hyper_site
+        final_site = hypo_site | hyper_site | upper_site | lower_site
 
         # final downsample, in order to prevent too many sites in one region
         # apply a final downsample to select max_site
         # which approximately select max_site_per_region * n_region final sites
         max_site = final_site.shape[0] * self.max_site_per_region
-        final_downsample_ratio = max_site / final_site.sum()
-        if final_downsample_ratio < 1:
-            downsample_sel = np.random.rand(*final_site.shape) < final_downsample_ratio
-        final_site *= downsample_sel
+        if final_site.sum() > 0:
+            final_downsample_ratio = max_site / final_site.sum()
+            if final_downsample_ratio < 1:
+                downsample_sel = (
+                    np.random.rand(*final_site.shape) < final_downsample_ratio
+                )
+                final_site *= downsample_sel
 
         data_col = defaultdict(list)
         for region_site, region_mc, region_cov, region_frac, region_onehot in zip(
@@ -158,10 +181,9 @@ class SplitRegionTomCSite:
                 pos_dna_onehot = region_onehot[
                     :, dna_pos - self.dna_radius : dna_pos + self.dna_radius
                 ]
-
                 data_col["allc_mc"].append(pos_mc)
                 data_col["allc_cov"].append(pos_cov)
-                data_col["allc_frac"].append(pos_frac)
+                data_col["allc_mc_frac"].append(pos_frac)
                 data_col["dna_one_hot"].append(pos_dna_onehot)
         try:
             data_col = {k: np.array(v) for k, v in data_col.items()}
@@ -170,7 +192,7 @@ class SplitRegionTomCSite:
             print(data_col.keys())
             print("allc_mc", [v.shape for v in data_col["allc_mc"]])
             print("allc_cov", [v.shape for v in data_col["allc_cov"]])
-            print("allc_frac", [v.shape for v in data_col["allc_frac"]])
+            print("allc_mc_frac", [v.shape for v in data_col["allc_mc_frac"]])
             print("dna_one_hot", [v.shape for v in data_col["dna_one_hot"]])
         return data_col
 
@@ -211,7 +233,7 @@ class mCSiteDataset(Track1DDataset):
             "hypo_frac_cutoff": 0.8,
             "cov_cutoff": 10,
             "hypo_ratio": 1,
-            "hyper_ratio": 0.2,
+            "hyper_ratio": 0.75,
             "max_site_per_region": 3,
             "dna_radius": self._site_dna_radius,
         }
@@ -237,6 +259,352 @@ class mCSiteDataset(Track1DDataset):
         return dataset
 
 
+class FilterBymCFrac:
+    def __init__(self, hypo_cutoff=0.8, hyper_ratio=0.2):
+        self.hypo_cutoff = hypo_cutoff
+        self.hyper_ratio = hyper_ratio
+        self.filter_track = 0
+    
+    def __call__(self, data_dict):
+        
+        mc_frac = data_dict["allc_mc_frac"][:,self.filter_track,:]
+        # row_sel_bool: bool array, shape: [batch_size]
+        row_sel_bool = np.any((mc_frac > 0.1) & (mc_frac < 0.8), axis=1)
+
+        false_indices = np.where(row_sel_bool == False)[0]
+
+        # Randomly select indices of the False values to change
+        indices_to_change = np.random.choice(false_indices, len(false_indices) // 2, replace=False)
+
+        # Set the selected False values to True
+        row_sel_bool[indices_to_change] = True
+
+        new_dict = {k: v[row_sel_bool] for k, v in data_dict.items()}
+        return new_dict
+            
+class mCplusATACDataset(Track1DDataset):
+    """Single cell dataset for mC and ATAC combined data."""
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        """
+        Initialize the mCplusATACDataset.
+        """
+        super().__init__(*args, **kwargs)
+        self._cov_filter_key = f"{self.prefix}_cov"
+        self.signal_columns = [f"{self.prefix}_mc", f"{self.prefix}_cov"]
+        self.low_cov_ratio = 0
+
+        # Bigwig Files
+        if isinstance(self.bigwig_paths, str):
+            self.bigwig_paths = [self.bigwig_paths]
+
+    def _get_mc_frac(self, dataset):
+        # calculate mC fraction
+        def _mc_frac(data_dict):
+            mc = data_dict[f"{self.prefix}_mc"]
+            cov = data_dict[f"{self.prefix}_cov"]
+            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
+            return data_dict
+
+        dataset = dataset.map_batches(_mc_frac)
+        
+        # add the data key to the signal columns so later crop function can work
+        # Check if the string is not already in the list
+        data_key = f"{self.prefix}_mc_frac"
+        if data_key not in self.signal_columns:
+            self.signal_columns.append(data_key)
+        return dataset
+
+    def _get_bigwig_data(
+        self,
+        dataset,
+        data_key="bw_values",
+        concurrency=(1, 6),
+        n_oprators=5,
+        batch_size=8,
+    ):
+        """
+        Get the bigwig data for the dataset, Copied from HiC dataset.
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be processed.
+        data_key : str
+            The key to store the bigwig data.
+        concurrency : tuple
+            The concurrency for the dataset, min and max.
+        n_oprators : int
+            The number of oprators to be used when dataset contains multiple cool paths.
+            Each operator will process a chunk of the cool paths and saved in separate data_key.
+        batch_size : int
+            The batch size for the cool operator.
+            Small batch size will increase data fetching batch number and increase the concurrency.
+
+        Returns
+        -------
+        dataset : RayRegionDataset
+            The dataset with bigwig data oprator mapped.
+        """
+        _chunk_size = max(1, len(self.bigwig_paths) // n_oprators)
+
+        for idx, chunk_start in enumerate(
+            range(0, len(self.bigwig_paths), _chunk_size)
+        ):
+            chunk_end = min(len(self.bigwig_paths), chunk_start + _chunk_size)
+            chunk_paths = self.bigwig_paths[chunk_start:chunk_end]
+
+            fn = FetchRegionBigWigs
+            fn_constructor_kwargs = {
+                "bw_paths": chunk_paths,
+                "region_key": "region",
+                "data_key": f"{data_key}_{idx}",
+                "norm_mode": "log",
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=batch_size,
+            )
+        total_chunks = idx + 1
+
+        # add a final concat function to merge all the chunks
+        def _concat_bw_chunks(data):
+            bw_keys = [f"{data_key}_{idx}" for idx in range(total_chunks)]
+            bw_data = [data.pop(key) for key in bw_keys]
+            data[data_key] = np.concatenate(bw_data, axis=1)
+            return data
+
+        dataset = dataset.map_batches(
+            fn=_concat_bw_chunks,
+            batch_size=batch_size,
+        )
+
+        # add the data key to the signal columns so later crop function can work
+        if data_key not in self.signal_columns:
+            self.signal_columns.append(data_key)
+        return dataset
+
+    def _mc_frac_filter(self, dataset):
+        fn = FilterBymCFrac
+        fn_constructor_kwargs = {
+            "hypo_cutoff": 0.8, 
+            "hyper_ratio": 0.2
+        }
+        dataset = dataset.map_batches(
+            fn=fn, fn_constructor_kwargs=fn_constructor_kwargs, concurrency=(1, 4)
+        )
+        return dataset
+    
+    def _get_final_region(self, dataset):
+
+        def _final_region(data_dict):
+            region = data_dict["region"]
+            jitter = data_dict["jitter"]
+            regions_array = np.empty((len(region), 3), dtype=int)
+            for i, re in enumerate(region):
+                chrom, coords = re.split(':')
+                chrom = chrom.split('chr')[1]
+                if chrom == 'X':
+                    chrom = '23'
+                elif chrom == 'Y':
+                    chrom = '24'
+                start, end = map(int, coords.split('-'))
+                center = (start + end) // 2
+                _start = center - self.signal_length // 2 + jitter[i][0]
+                _end = self.signal_length + _start
+                regions_array[i] = [chrom, _start, _end]
+
+            data_dict["final_region"] = regions_array
+            return data_dict
+        
+        dataset = dataset.map_batches(_final_region)
+        return dataset
+
+    def get_processed_dataset(self, chroms, region_bed_path, drop_columns=False) -> None:
+        """
+        Get the processed dataset with many oprators applied.
+        """
+
+        def _cov_func(data):
+            return data.sum(-1).mean(-1)
+
+        dataset = super().get_processed_dataset(
+            chroms=chroms,
+            region_bed_path=region_bed_path,
+            cov_func=_cov_func,
+            do_arg=False,
+        )
+
+        dataset = self._get_mc_frac(dataset)
+
+        # TODO: add mC frac filter to enrich for hypo mC regions
+
+        dataset = self._get_bigwig_data(dataset, data_key="atac_bw_values")
+        # dataset = self._norm_bigwig(dataset, data_key="atac_bw_values")
+
+        # crop the regions
+        dataset = self._get_region_cropper(dataset)
+        dataset = self._filter_regions(dataset=dataset, cov_func=_cov_func)
+        # dataset = self._mc_frac_filter(dataset)
+
+        if self.dataset_mode == "train":
+            # reverse complement the regions
+            dataset = self._get_reverse_complement_region(dataset)
+
+        dataset = self._get_final_region(dataset)
+        # save some memory space
+        if drop_columns:
+            dataset = dataset.drop_columns(["region", "jitter"])
+        return dataset
+
+
+class mCTrackOnlineDataset(RayRegionDataset):
+    """Single cell dataset for cell-by-meta-region data."""
+
+    default_config = {
+        "cool_paths": "REQUIRED",
+        "resolution": "REQUIRED",
+        "balance": False,
+    }
+
+    def __init__(
+        self,
+        allc_paths,
+        bed,
+        genome,
+        standard_length,
+        allc_names=None,
+        dna=False,
+        boarder_strategy="drop",
+        remove_blacklist=False,
+    ) -> None:
+        """
+        Initialize the mCTrackOnlineDataset.
+        """
+        super().__init__(
+            bed=bed,
+            genome=genome,
+            standard_length=standard_length,
+            dna=dna,
+            boarder_strategy=boarder_strategy,
+            remove_blacklist=remove_blacklist,
+        )
+
+        self.allc_paths = allc_paths
+        if allc_names is None:
+            allc_names = [pathlib.Path(path).name for path in allc_paths]
+        else:
+            self.allc_names = allc_names
+        assert len(allc_paths) == len(allc_names)
+
+    def _get_allc_data(
+        self, dataset, data_key="values", concurrency=(1, 6), n_oprators=5, batch_size=8
+    ):
+        """
+        Get the cool data for the dataset
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be processed.
+        concurrency : tuple
+            The concurrency for the dataset, min and max.
+        n_oprators : int
+            The number of oprators to be used when dataset contains multiple cool paths.
+            Each operator will process a chunk of the cool paths and saved in separate data_key.
+        batch_size : int
+            The batch size for the cool operator.
+            Small batch size will increase data fetching batch number and increase the concurrency.
+
+        Returns
+        -------
+        dataset : RayRegionDataset
+            The dataset with cool data oprator mapped.
+        """
+        _chunk_size = max(1, len(self.allc_paths) // n_oprators)
+
+        for idx, chunk_start in enumerate(range(0, len(self.allc_paths), _chunk_size)):
+            chunk_end = min(len(self.allc_paths), chunk_start + _chunk_size)
+            chunk_paths = self.allc_paths[chunk_start:chunk_end]
+
+            fn = FetchRegionALLCs
+            fn_constructor_kwargs = {
+                "allc_paths": chunk_paths,
+                "data_suffix": f"_{idx}",
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=batch_size,
+            )
+        total_chunks = idx + 1
+
+        # add a final concat function to merge all the chunks
+        def _concat_allc_chunks(data):
+            for key in ["mc", "cov"]:
+                allc_keys = [f"{key}_values_{idx}" for idx in range(total_chunks)]
+                allc_data = [data.pop(key) for key in allc_keys]
+                data[f"{key}_values"] = np.concatenate(allc_data, axis=1)
+            return data
+
+        dataset = dataset.map_batches(
+            fn=_concat_allc_chunks,
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def _get_mc_frac(self, dataset):
+        # calculate mC fraction
+        def _mc_frac(data_dict):
+            mc = data_dict[f"{self.prefix}_mc"]
+            cov = data_dict[f"{self.prefix}_cov"]
+            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
+            return data_dict
+
+        dataset = dataset.map_batches(_mc_frac)
+        return dataset
+
+    def _split_region_to_site(self, dataset):
+        fn = SplitRegionTomCSite
+        fn_constructor_kwargs = {
+            "prefix": self.prefix,
+            "hypo_frac_cutoff": 0.8,
+            "cov_cutoff": 10,
+            "hypo_ratio": 1,
+            "hyper_ratio": 0.2,
+            "max_site_per_region": 3,
+            "dna_radius": self._site_dna_radius,
+        }
+        dataset = dataset.map_batches(
+            fn=fn, fn_constructor_kwargs=fn_constructor_kwargs, concurrency=(1, 4)
+        )
+        return dataset
+
+    def get_processed_dataset(self, chroms):
+        """
+        Get the processed dataset with many oprators applied.
+        """
+        # if multiple oprator is used, decrease the max concurrency to allow them parallel evenly
+        concurrency_allc = (1, 6)
+
+        dataset = super().get_processed_dataset(
+            chroms=chroms,
+        )
+
+        dataset = self._get_allc_data(dataset, concurrency=concurrency_allc)
+
+        dataset = self._split_region_to_site(dataset)
+
+        return dataset
+
+      
 class mCRegionOnlineDataset(RayRegionDataset):
     """Single cell dataset for cell-by-meta-region data."""
 

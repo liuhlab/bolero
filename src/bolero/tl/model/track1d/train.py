@@ -27,18 +27,21 @@ class Track1DTrainerMixin(GenericTrainer):
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
+        "wandb_name": "REQUIRED",
         "wandb_group": None,
         "max_epochs": 100,
         "patience": 10,
         "use_amp": True,
         "use_ema": True,
-        "scheduler": False,
+        "optimizer": "REQUIRED",
+        "scheduler": True,
+        "scheduler_type": "REQUIRED",
         "lr": 0.003,
         "weight_decay": 0.001,
         "accumulate_grad": 1,
         "train_batches": 2000,
         "val_batches": 300,
-        "loss_tolerance": 0.0,
+        "loss_tolerance": 0.0, 
         "plot_example_per_epoch": 9,
         # region file
         "region_bed_path": "REQUIRED",
@@ -274,6 +277,7 @@ class Track1DTrainerMixin(GenericTrainer):
             wandb.log(
                 {
                     "train/train_loss": train_loss,
+                    "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
                     "val/early_stopping_counter": self.early_stopping_counter,
@@ -402,8 +406,8 @@ class Track1DTrainerMixin(GenericTrainer):
                     if ema:
                         ema.update()
 
-                    if scheduler is not None:
-                        scheduler.step()
+                    # if scheduler is not None:
+                    #     scheduler.step()
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
@@ -447,6 +451,12 @@ class Track1DTrainerMixin(GenericTrainer):
 
             self.cur_epoch += 1
             stop_flag = self._log_save_and_check_stop()
+
+            # epoch learning rate scheduling
+            if scheduler is not None:
+                # scheduler.step(self.val_loss)
+                scheduler.step()
+
             if stop_flag:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
@@ -579,7 +589,8 @@ class Track1DBaseTrainer(Track1DTrainerMixin):
                 valid_first = True
 
         with wandb_run:
-            self.checkpoint = self._has_last_checkpoint()
+            # self.checkpoint = self._has_last_checkpoint()
+            self.checkpoint = False
             self._setup_model()
             self._setup_fit()
             self._fit(valid_first=valid_first)

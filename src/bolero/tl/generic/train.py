@@ -436,6 +436,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                             project=config["wandb_project"],
                             job_type=config["wandb_job_type"],
                             group=config["wandb_group"],
+                            name=config["wandb_name"],
                             save_code=True,
                         )
             else:
@@ -445,6 +446,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                     project=config["wandb_project"],
                     job_type=config["wandb_job_type"],
                     group=config["wandb_group"],
+                    name=config["wandb_name"],
                     save_code=True,
                 )
         else:
@@ -453,6 +455,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                 project=config["wandb_project"],
                 job_type=config["wandb_job_type"],
                 group=config["wandb_group"],
+                name=config["wandb_name"],
                 save_code=True,
             )
 
@@ -570,6 +573,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         return scaler
 
+    """
     def _get_optimizer(self):
         lr = self.config["lr"]
         weight_decay = self.config["weight_decay"]
@@ -577,13 +581,63 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.model.parameters(), lr=lr, weight_decay=weight_decay
         )
         return optimizer
+    """
 
+    def _get_optimizer(self):  # modified optimizer function, support for Adam and SGD
+        # TODO: use adamw as default optimizer
+        optimizer_type = self.config["optimizer"].lower()
+        lr = self.config["lr"]
+        weight_decay = self.config["weight_decay"]
+
+        if optimizer_type == "adamw":
+            optimizer = torch.optim.AdamW(
+                self.model.parameters(), lr=lr, weight_decay=weight_decay
+            )
+        elif optimizer_type == "adam":
+            optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=lr, weight_decay=weight_decay
+            )
+        elif optimizer_type == "sgd":
+            optimizer = torch.optim.SGD(
+                self.model.parameters(), lr=lr, weight_decay=weight_decay
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
+        return optimizer
+
+    """
     def _get_scheduler(self, optimizer):
         import transformers
 
         scheduler = transformers.get_cosine_schedule_with_warmup(
             optimizer, num_warmup_steps=3000, num_training_steps=100000
         )
+        return scheduler
+    """
+
+    def _get_scheduler(self, optimizer):
+        # TODO: use none scheduler as default
+        import transformers
+
+        scheduler_type = self.config["scheduler_type"].lower()
+
+        if scheduler_type == "cosine":
+            scheduler = transformers.get_cosine_schedule_with_warmup(
+                optimizer, num_warmup_steps=3000, num_training_steps=100000
+            )
+        elif scheduler_type == "step":
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer, step_size=10, gamma=0.5
+            )
+        elif scheduler_type == "plateau":
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=0.5, patience=3, threshold=0.01
+            )
+        elif scheduler_type == "cosineannealinglr":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30)
+        else:
+            raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
+
         return scheduler
 
     def _setup_fit(self):
@@ -631,6 +685,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.plot_example_per_epoch = 0
 
         # update state dict if checkpoint exists
+        print(self.checkpoint)
         if self.checkpoint:
             self._update_state_dict()
         return

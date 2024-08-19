@@ -85,6 +85,7 @@ class Track1DDataset(RayGenomeChunkDataset):
         "batch_size": 64,
         "shuffle_files": False,
         "read_parquet_kwargs": None,
+        "bigwig_paths": "REQUIRED",
     }
 
     def __init__(
@@ -101,6 +102,7 @@ class Track1DDataset(RayGenomeChunkDataset):
         batch_size: int = 64,
         shuffle_files: bool = False,
         read_parquet_kwargs: Optional[dict] = None,
+        bigwig_paths: str = None,
     ) -> None:
         """
         Initialize a Track1DDataset object.
@@ -151,6 +153,8 @@ class Track1DDataset(RayGenomeChunkDataset):
 
         self._cov_filter_key = self.prefix
         self.signal_columns = [self.prefix]
+
+        self.bigwig_paths = bigwig_paths  # addition config for the atac bw path
         return
 
     def _filter_regions(self, dataset, cov_func, concurrency=1):
@@ -240,7 +244,9 @@ class Track1DDataset(RayGenomeChunkDataset):
         dataset = dataset.map_batches(_rc)
         return dataset
 
-    def get_processed_dataset(self, chroms, region_bed_path, cov_func=None) -> None:
+    def get_processed_dataset(
+        self, chroms, region_bed_path, cov_func=None, do_arg=True
+    ) -> None:
         """
         Get the processed dataset with various operators applied.
 
@@ -250,6 +256,8 @@ class Track1DDataset(RayGenomeChunkDataset):
             The list of chromosomes to include in the dataset.
         region_bed_path : str
             The path to the region BED file.
+        do_arg : bool, default=True
+            Whether to perform the arg operation (crop and reverse complement) on the dataset
 
         Returns
         -------
@@ -273,7 +281,8 @@ class Track1DDataset(RayGenomeChunkDataset):
             def cov_func(data):
                 return data.sum(axis=(-1, -2))
 
-        dataset = self._filter_regions(dataset=dataset, cov_func=cov_func)
+        # if not do_arg:
+        #     dataset = self._filter_regions(dataset=dataset, cov_func=cov_func)
 
         # add dna one hot
         dataset = self._get_dna_one_hot(
@@ -281,14 +290,16 @@ class Track1DDataset(RayGenomeChunkDataset):
             concurrency=1,
         )
 
-        # crop the regions
-        dataset = self._get_region_cropper(dataset)
+        if do_arg:
+            # crop the regions
+            dataset = self._get_region_cropper(dataset)
+            dataset = self._filter_regions(dataset=dataset, cov_func=cov_func)
 
-        if self.dataset_mode == "train":
-            # reverse complement the regions
-            dataset = self._get_reverse_complement_region(dataset)
+            if self.dataset_mode == "train":
+                # reverse complement the regions
+                dataset = self._get_reverse_complement_region(dataset)
 
-        dataset = dataset.drop_columns(["region"])
+        # dataset = dataset.drop_columns(["region"])
         return dataset
 
     def get_dataloader(
@@ -298,6 +309,7 @@ class Track1DDataset(RayGenomeChunkDataset):
         n_batches,
         shuffle_rows=2000,
         as_torch=True,
+        drop_columns=True,
     ):
         """
         Get the dataloader for the dataset.
@@ -314,6 +326,8 @@ class Track1DDataset(RayGenomeChunkDataset):
             The number of rows to shuffle within each batch.
         as_torch : bool, default=True
             Whether to return the dataloader whoes data will be in torch tensors.
+        drop_columns : bool, default=True
+            Whether to drop the region and jitter columns from final match
 
         Returns
         -------
@@ -324,6 +338,7 @@ class Track1DDataset(RayGenomeChunkDataset):
         dataset_kwargs = {
             "chroms": chroms,
             "region_bed_path": region_bed_path,
+            "drop_columns": drop_columns or as_torch,
         }
         data_iter_kwargs = {}
 
