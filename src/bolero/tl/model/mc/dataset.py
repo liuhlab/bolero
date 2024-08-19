@@ -7,7 +7,6 @@ from bolero.tl.dataset.file_transforms import FetchRegionALLCs
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.model.track1d.dataset import Track1DDataset
 
-
 class mCTrackDataset(Track1DDataset):
     """Single cell dataset for cell-by-meta-region data."""
 
@@ -234,148 +233,6 @@ class mCSiteDataset(Track1DDataset):
         dataset = self._split_region_to_site(dataset)
         return dataset
 
-
-class mCTrackOnlineDataset(RayRegionDataset):
-    """Single cell dataset for cell-by-meta-region data."""
-
-    default_config = {
-        "cool_paths": "REQUIRED",
-        "resolution": "REQUIRED",
-        "balance": False,
-    }
-
-    def __init__(
-        self,
-        allc_paths,
-        bed,
-        genome,
-        standard_length,
-        allc_names=None,
-        dna=False,
-        boarder_strategy="drop",
-        remove_blacklist=False,
-    ) -> None:
-        """
-        Initialize the mCTrackOnlineDataset.
-        """
-        super().__init__(
-            bed=bed,
-            genome=genome,
-            standard_length=standard_length,
-            dna=dna,
-            boarder_strategy=boarder_strategy,
-            remove_blacklist=remove_blacklist,
-        )
-
-        self.allc_paths = allc_paths
-        if allc_names is None:
-            allc_names = [pathlib.Path(path).name for path in allc_paths]
-        else:
-            self.allc_names = allc_names
-        assert len(allc_paths) == len(allc_names)
-
-    def _get_allc_data(
-        self, dataset, data_key="values", concurrency=(1, 6), n_oprators=5, batch_size=8
-    ):
-        """
-        Get the cool data for the dataset
-
-        Parameters
-        ----------
-        dataset : RayRegionDataset
-            The dataset to be processed.
-        concurrency : tuple
-            The concurrency for the dataset, min and max.
-        n_oprators : int
-            The number of oprators to be used when dataset contains multiple cool paths.
-            Each operator will process a chunk of the cool paths and saved in separate data_key.
-        batch_size : int
-            The batch size for the cool operator.
-            Small batch size will increase data fetching batch number and increase the concurrency.
-
-        Returns
-        -------
-        dataset : RayRegionDataset
-            The dataset with cool data oprator mapped.
-        """
-        _chunk_size = max(1, len(self.allc_paths) // n_oprators)
-
-        for idx, chunk_start in enumerate(range(0, len(self.allc_paths), _chunk_size)):
-            chunk_end = min(len(self.allc_paths), chunk_start + _chunk_size)
-            chunk_paths = self.allc_paths[chunk_start:chunk_end]
-
-            fn = FetchRegionALLCs
-            fn_constructor_kwargs = {
-                "allc_paths": chunk_paths,
-                "data_suffix": f"_{idx}",
-            }
-            dataset = dataset.map_batches(
-                fn=fn,
-                fn_constructor_kwargs=fn_constructor_kwargs,
-                concurrency=concurrency,
-                batch_size=batch_size,
-            )
-        total_chunks = idx + 1
-
-        # add a final concat function to merge all the chunks
-        def _concat_allc_chunks(data):
-            for key in ["mc", "cov"]:
-                allc_keys = [f"{key}_values_{idx}" for idx in range(total_chunks)]
-                allc_data = [data.pop(key) for key in allc_keys]
-                data[f"{key}_values"] = np.concatenate(allc_data, axis=1)
-            return data
-
-        dataset = dataset.map_batches(
-            fn=_concat_allc_chunks,
-            batch_size=batch_size,
-        )
-        return dataset
-
-    def _get_mc_frac(self, dataset):
-        # calculate mC fraction
-        def _mc_frac(data_dict):
-            mc = data_dict[f"{self.prefix}_mc"]
-            cov = data_dict[f"{self.prefix}_cov"]
-            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
-            return data_dict
-
-        dataset = dataset.map_batches(_mc_frac)
-        return dataset
-
-    def _split_region_to_site(self, dataset):
-        fn = SplitRegionTomCSite
-        fn_constructor_kwargs = {
-            "prefix": self.prefix,
-            "hypo_frac_cutoff": 0.8,
-            "cov_cutoff": 10,
-            "hypo_ratio": 1,
-            "hyper_ratio": 0.2,
-            "max_site_per_region": 3,
-            "dna_radius": self._site_dna_radius,
-        }
-        dataset = dataset.map_batches(
-            fn=fn, fn_constructor_kwargs=fn_constructor_kwargs, concurrency=(1, 4)
-        )
-        return dataset
-
-    def get_processed_dataset(self, chroms):
-        """
-        Get the processed dataset with many oprators applied.
-        """
-        # if multiple oprator is used, decrease the max concurrency to allow them parallel evenly
-        concurrency_allc = (1, 6)
-
-        dataset = super().get_processed_dataset(
-            chroms=chroms,
-        )
-
-        dataset = self._get_allc_data(dataset, concurrency=concurrency_allc)
-
-        dataset = self._split_region_to_site(dataset)
-
-        return dataset
-
-
 class mCRegionOnlineDataset(RayRegionDataset):
     """Single cell dataset for cell-by-meta-region data."""
 
@@ -383,13 +240,16 @@ class mCRegionOnlineDataset(RayRegionDataset):
         "allc_paths": "REQUIRED",
         "bed": "REQUIRED",
         "genome": "REQUIRED",
-        "standard_length": "REQUIRED",
+        "dna_length": "REQUIRED",
         "batch_size": 64,
         "allc_names": None,
         "dna": False,
         "boarder_strategy": "drop",
         "remove_blacklist": False,
-        "prefix": "allc",
+        "mc_prefix": "allc",
+        "signal_mode": "region", ### bp or region
+        "signal_length": "given" ### given or int
+        # TODO support any signal length
     }
 
     def __init__(
@@ -397,13 +257,15 @@ class mCRegionOnlineDataset(RayRegionDataset):
         allc_paths,
         bed,
         genome,
-        standard_length,
+        dna_length,
         batch_size,
         allc_names=None,
         dna=False,
         boarder_strategy="drop",
         remove_blacklist=False,
-        prefix="allc",
+        mc_prefix="allc",
+        signal_mode="region",
+        signal_length="given",
     ) -> None:
         """
         Initialize the mCTrackOnlineDataset.
@@ -411,16 +273,17 @@ class mCRegionOnlineDataset(RayRegionDataset):
         super().__init__(
             bed=bed,
             genome=genome,
-            standard_length=standard_length,
+            standard_length=dna_length,
             dna=dna,
             batch_size=batch_size,
             boarder_strategy=boarder_strategy,
             remove_blacklist=remove_blacklist,
-            # check_length=False,
+            signal_length=signal_length,
         )
 
-        # self.standard_length = standard_length
-        self.prefix = prefix
+        self.mc_prefix = mc_prefix
+        self.signal_mode = signal_mode
+        # self.signal_length = signal_length
         self.allc_paths = allc_paths
         if allc_names is None:
             allc_names = [pathlib.Path(path).name for path in allc_paths]
@@ -459,10 +322,10 @@ class mCRegionOnlineDataset(RayRegionDataset):
             fn = FetchRegionALLCs
             fn_constructor_kwargs = {
                 "allc_paths": chunk_paths,
-                "data_prefix": f"{self.prefix}_",
+                "data_prefix": f"{self.mc_prefix}_",
                 "data_suffix": f"_{idx}",
                 "region_key": "Original_Name",
-                "mode": "region",
+                "mode": self.signal_mode,
             }
             dataset = dataset.map_batches(
                 fn=fn,
@@ -476,10 +339,10 @@ class mCRegionOnlineDataset(RayRegionDataset):
         def _concat_allc_chunks(data):
             for key in ["mc", "cov"]:
                 allc_keys = [
-                    f"{self.prefix}_{key}_{idx}" for idx in range(total_chunks)
+                    f"{self.mc_prefix}_{key}_{idx}" for idx in range(total_chunks)
                 ]
                 allc_data = [data.pop(key) for key in allc_keys]
-                data[f"{self.prefix}_{key}"] = np.concatenate(allc_data, axis=1)
+                data[f"{self.mc_prefix}_{key}"] = np.concatenate(allc_data, axis=1)
             return data
 
         dataset = dataset.map_batches(
@@ -491,44 +354,13 @@ class mCRegionOnlineDataset(RayRegionDataset):
     def _get_mc_frac(self, dataset):
         # calculate mC fraction
         def _mc_frac(data_dict):
-            mc = data_dict[f"{self.prefix}_mc"]
-            cov = data_dict[f"{self.prefix}_cov"]
-            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
+            mc = data_dict[f"{self.mc_prefix}_mc"]
+            cov = data_dict[f"{self.mc_prefix}_cov"]
+            data_dict[f"{self.mc_prefix}_mc_frac"] = mc / (cov + 1e-6)
             return data_dict
 
         dataset = dataset.map_batches(_mc_frac)
         return dataset
-
-    # def _standardize_region_length(self, dataset):
-    #     # after fetch mC data, standardize the region length before get sequence
-    #     def StandardizeRegionLength(data_dict):
-    #         region_ = data_dict[self.region_key]
-    #         if isinstance(region_, str):
-    #             region_ = [region_]
-    #         regions = understand_regions(region_, as_df=True)
-    #         standard_bed = self.genome.standard_region_length(
-    #             regions,
-    #             length=self.sequence_length,
-    #             boarder_strategy='drop',
-    #             remove_blacklist=False,
-    #             as_df=True,
-    #             check_length=True,
-    #         )
-    #         region_filter = regions[].isin(standard_bed['Name'])
-    #         # ray data don't understand categorical dtype in pandas
-    #         # standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
-    #         # standard_bed.rename(columns={"Name": "region"}, inplace=True)
-    #         data_dict[self.region_key] = standard_bed.set_index('Name').loc[regions.loc[region_filter]]
-
-    #     fn_constructor_kwargs = {
-    #         "standard_length": self.standard_length,
-    #         "genome": self.genome,
-    #     }
-    #     dataset = dataset.map_batches(
-    #         fn=fn,
-    #         fn_constructor_kwargs=fn_constructor_kwargs
-    #     )
-    #     return dataset
 
     def get_processed_dataset(self, chroms, shuffle_bed=False):
         """
@@ -544,6 +376,21 @@ class mCRegionOnlineDataset(RayRegionDataset):
 
         dataset = self._get_allc_data(dataset, concurrency=concurrency_allc)
 
-        # dataset = self._standardize_region_length(dataset)
         dataset = dataset.drop_columns(["Original_Name", "region"])
         return dataset
+
+    def get_dataloader(self, chroms=None, n_batches=None, batch_size=64, as_torch=False, shuffle_bed=False):
+        dataset_kwargs = {
+            "chroms": chroms,
+            "shuffle_bed": shuffle_bed,
+        }
+        data_iter_kwargs = {}
+        loader = self._get_dataloader_with_wrapper(
+            dataset_kwargs=dataset_kwargs,
+            data_iter_kwargs=data_iter_kwargs,
+            n_batches=n_batches,
+            batch_size=batch_size,
+            as_torch=as_torch,
+        )
+        return loader
+    

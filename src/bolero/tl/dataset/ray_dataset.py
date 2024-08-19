@@ -387,6 +387,7 @@ class RayRegionDataset(GenericDataset):
         "window_size": None,
         "step": None,
         "standard_length": "REQUIRED",
+        "signal_length": "given", 
         "dna": True,
         "batch_size": "REQUIRED",
     }
@@ -397,6 +398,7 @@ class RayRegionDataset(GenericDataset):
         genome,
         standard_length,
         batch_size,
+        signal_length='given',
         window_size=None,
         step=None,
         dna=True,
@@ -450,6 +452,7 @@ class RayRegionDataset(GenericDataset):
                 remove_blacklist=remove_blacklist,
                 as_df=True,
                 keep_original=True,
+                signal_length=signal_length,
             )
             # ray data don't understand categorical dtype in pandas
             standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)

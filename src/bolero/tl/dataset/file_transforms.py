@@ -91,8 +91,8 @@ class FetchRegionALLCs:
                 shape=(n_regions, n_allc, region_length), dtype=np.float32
             )
         elif self.mode == "region":
-            total_mc_values = np.zeros(shape=(n_regions, n_allc, 1), dtype=np.float32)
-            total_cov_values = np.zeros(shape=(n_regions, n_allc, 1), dtype=np.float32)
+            total_mc_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
+            total_cov_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
 
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
             for idy, allc_handle in enumerate(self.allc_handles):
@@ -103,8 +103,8 @@ class FetchRegionALLCs:
                     total_mc_values[idx, idy, :] = mc_values
                     total_cov_values[idx, idy, :] = cov_values
                 elif self.mode == "region":
-                    total_mc_values[idx, idy, 0] = mc_values.sum()
-                    total_cov_values[idx, idy, 0] = cov_values.sum()
+                    total_mc_values[idx, idy] = mc_values.sum()
+                    total_cov_values[idx, idy] = cov_values.sum()
 
         data_dict[f"{self.data_prefix}mc{self.data_suffix}"] = total_mc_values
         data_dict[f"{self.data_prefix}cov{self.data_suffix}"] = total_cov_values

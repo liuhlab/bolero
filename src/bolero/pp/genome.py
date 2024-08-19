@@ -585,6 +585,7 @@ class Genome:
         boarder_strategy="shift",
         as_df=True,
         keep_original=False,
+        signal_length='given',
     ):
         """
         Adjusts the length of regions to a standard length.
@@ -629,10 +630,38 @@ class Genome:
         _columns[:3] = ["Chromosome", "Start", "End"]
         regions_bed_df.columns = _columns
 
+        def _standardize_and_check(regions_bed_df, length):
+            # make sure all regions have the same size
+            regions_center = (regions_bed_df["Start"] + regions_bed_df["End"]) // 2
+            regions_bed_df["Start"] = regions_center - length // 2
+            regions_bed_df["End"] = regions_center + length // 2
+            # make sure for each chrom, start and end are not out of range
+            # only keep regions that are in range
+            chrom_sizes = self.chrom_sizes
+            use_regions = []
+            for chrom, chrom_df in regions_bed_df.groupby("Chromosome", observed=True):
+                chrom_size = chrom_sizes[chrom]
+                if boarder_strategy == "shift":
+                    chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
+                        chrom_df.Start < 0, "Start"
+                    ].values[:, None]
+                    chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
+                        chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
+                    ).values[:, None]
+                elif boarder_strategy == "drop":
+                    chrom_df = chrom_df[
+                        (chrom_df.Start >= 0) & (chrom_df.End <= chrom_size)
+                    ]
+                else:
+                    raise ValueError("boarder_strategy must be 'shift' or 'drop'")
+                use_regions.append(chrom_df)
+            use_regions = pd.concat(use_regions)
+            return use_regions
+                        
         if keep_original:
             if "Name" in regions_bed_df:
                 regions_bed_df["Original_Name"] = regions_bed_df["Name"]
-            else:
+            elif signal_length=='given':
                 regions_bed_df["Original_Name"] = (
                     regions_bed_df["Chromosome"].astype(str)
                     + ":"
@@ -640,32 +669,17 @@ class Genome:
                     + "-"
                     + regions_bed_df["End"].astype(str)
                 )
+            elif isinstance(signal_length, int):
+                signal_bed_df = _standardize_and_check(regions_bed_df, signal_length)
+                regions_bed_df["Original_Name"] = (
+                    signal_bed_df["Chromosome"].astype(str)
+                    + ":"
+                    + signal_bed_df["Start"].astype(str)
+                    + "-"
+                    + signal_bed_df["End"].astype(str)
+                )
 
-        # make sure all regions have the same size
-        regions_center = (regions_bed_df["Start"] + regions_bed_df["End"]) // 2
-        regions_bed_df["Start"] = regions_center - length // 2
-        regions_bed_df["End"] = regions_center + length // 2
-        # make sure for each chrom, start and end are not out of range
-        # only keep regions that are in range
-        chrom_sizes = self.chrom_sizes
-        use_regions = []
-        for chrom, chrom_df in regions_bed_df.groupby("Chromosome", observed=True):
-            chrom_size = chrom_sizes[chrom]
-            if boarder_strategy == "shift":
-                chrom_df.loc[chrom_df.Start < 0, ["Start", "End"]] -= chrom_df.loc[
-                    chrom_df.Start < 0, "Start"
-                ].values[:, None]
-                chrom_df.loc[chrom_df.End > chrom_size, ["Start", "End"]] -= (
-                    chrom_df.loc[chrom_df.End > chrom_size, "End"] - chrom_size
-                ).values[:, None]
-            elif boarder_strategy == "drop":
-                chrom_df = chrom_df[
-                    (chrom_df.Start >= 0) & (chrom_df.End <= chrom_size)
-                ]
-            else:
-                raise ValueError("boarder_strategy must be 'shift' or 'drop'")
-            use_regions.append(chrom_df)
-        use_regions = pd.concat(use_regions)
+        use_regions = _standardize_and_check(regions_bed_df, length)
 
         # update Name col
         use_regions["Name"] = (
@@ -675,6 +689,9 @@ class Genome:
             + "-"
             + use_regions["End"].astype(str)
         )
+        if signal_length=='standard':
+            use_regions['Original_Name'] = use_regions['Name']
+
         use_cols = ["Chromosome", "Start", "End", "Name"]
         if keep_original:
             use_cols.append("Original_Name")

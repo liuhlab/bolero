@@ -9,8 +9,12 @@ from scipy.stats import pearsonr
 from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.model.mc.dataset import mCRegionOnlineDataset
-from bolero.tl.model.mc.region.model import mCRegionModel
+from bolero.tl.model.mc.region.model import mCRegionModel, DeepSEA
 
+def BinomialLoss(p, x, n):
+    p = torch.clamp(p, min=1e-4, max=1-1e-4)
+    loss = x * torch.log(p) + (n - x) * torch.log(1 - p)
+    return -loss.mean()
 
 class mCTrainerMixin(GenericTrainer):
     trainer_config = {
@@ -48,6 +52,7 @@ class mCTrainerMixin(GenericTrainer):
             chroms=self.train_chroms,
             n_batches=batches,
             batch_size=self.config["batch_size"],
+            shuffle_bed=True,
             as_torch=True,
         )
         return dataloader
@@ -59,6 +64,7 @@ class mCTrainerMixin(GenericTrainer):
             chroms=self.train_chroms,
             n_batches=batches,
             batch_size=self.config["batch_size"],
+            shuffle_bed=False,
             as_torch=True,
         )
         return dataloader
@@ -70,6 +76,7 @@ class mCTrainerMixin(GenericTrainer):
             chroms=self.train_chroms,
             n_batches=batches,
             batch_size=self.config["batch_size"],
+            shuffle_bed=False,
             as_torch=True,
         )
         return dataloader
@@ -120,6 +127,8 @@ class mCTrainerMixin(GenericTrainer):
             # model do not have sigmoid,
             # so we need to do it here to make prediction in [0, 1]
             pred_frac = F.sigmoid(pred_frac)
+            # loss_ = BinomialLoss(pred_frac, y_mc, y_cov)
+            # val_loss += loss_.item()
 
             pred.append(pred_frac.detach().cpu().numpy())
             label.append(y_frac.detach().cpu().numpy())
@@ -139,11 +148,12 @@ class mCTrainerMixin(GenericTrainer):
         pred = np.concatenate(pred, axis=0)
         label = np.concatenate(label, axis=0)
 
-        wandb_images = self._plot_example_images(pred, label)
+        wandb_images = self._plot_example_images(pred[:, 0], label[:, 0])
 
         val_loss = val_loss / size
 
-        return val_loss, 0, pearsonr(pred, label)[0], wandb_images
+        total_pearson = [pearsonr(xx, yy)[0] for xx,yy in zip(pred.T, label.T)]
+        return val_loss, 0, np.mean(total_pearson), wandb_images
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
@@ -301,10 +311,15 @@ class mCTrainerMixin(GenericTrainer):
                     y_mc, y_cov, pred_frac = self._model_forward_pass(self.model, batch)
                     y_frac = y_mc / (y_cov + 1e-6)
                     loss = F.binary_cross_entropy_with_logits(pred_frac, y_frac)
+                    # pred_frac = F.sigmoid(pred_frac)
+                    # loss = BinomialLoss(pred_frac, y_mc, y_cov)
                     loss = loss / self.accumulate_grad
 
                     if np.isnan(loss.item()):
                         nan_loss = True
+                        # print(pred_frac)
+                        # print(loss)
+                        # print(self.accumulate_grad)
                         print("Training loss has NaN, skipping epoch.")
                         self._update_state_dict()
                         break
@@ -422,6 +437,7 @@ class mCRegionTrainer(mCTrainerMixin):
 
     dataset_class = mCRegionOnlineDataset
     model_class = mCRegionModel
+    # model_class = DeepSEA
 
     def __init__(self, config):
         self.prefix = config["prefix"]
@@ -432,6 +448,7 @@ class mCRegionTrainer(mCTrainerMixin):
     def _setup_model_from_config(self):
         print("Setting up model from config")
         model = mCRegionModel.create_from_config(self.config)
+        # model = DeepSEA.create_from_config(self.config)
         model.to(self.device)
         return model
 

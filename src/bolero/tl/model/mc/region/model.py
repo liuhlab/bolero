@@ -1,5 +1,6 @@
-from torch import nn
-
+import numpy as np
+import torch
+import torch.nn as nn
 from bolero.tl.generic.module import DNA_CNN, DilatedCNN
 from bolero.tl.model.mc.region.module import OutputHead
 
@@ -131,3 +132,73 @@ class mCRegionModel(nn.Module):
         # get the profile
         score = self.output_model(X, output_len=output_len, modes=modes)
         return score
+
+class DeepSEA(nn.Module):
+    default_config = {
+        "output_channels": 1,
+        "dna_len": 2000,
+    }
+
+    @classmethod
+    def get_default_config(cls):
+        """Get the default configuration for the model."""
+        return cls.default_config
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        return cls(
+            sequence_length=config['dna_len'], 
+            n_genomic_features=config['output_channels'],
+        )
+
+    def __init__(self, sequence_length, n_genomic_features):
+        """
+        Parameters
+        ----------
+        sequence_length : int
+        n_genomic_features : int
+        """
+        super(DeepSEA, self).__init__()
+        conv_kernel_size = 8
+        pool_kernel_size = 4
+
+        self.conv_net = nn.Sequential(
+            nn.Conv1d(4, 320, kernel_size=conv_kernel_size),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(
+                kernel_size=pool_kernel_size, stride=pool_kernel_size),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(320, 480, kernel_size=conv_kernel_size),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(
+                kernel_size=pool_kernel_size, stride=pool_kernel_size),
+            nn.Dropout(p=0.2),
+
+            nn.Conv1d(480, 960, kernel_size=conv_kernel_size),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.5))
+
+        reduce_by = conv_kernel_size - 1
+        pool_kernel_size = float(pool_kernel_size)
+        self.n_channels = int(
+            np.floor(
+                (np.floor(
+                    (sequence_length - reduce_by) / pool_kernel_size)
+                 - reduce_by) / pool_kernel_size)
+            - reduce_by)
+        self.classifier = nn.Sequential(
+            nn.Linear(960 * self.n_channels, n_genomic_features),
+            nn.ReLU(inplace=True),
+            nn.Linear(n_genomic_features, n_genomic_features)
+        )
+
+    def forward(self, x):
+        """Forward propagation of a batch.
+        """
+        out = self.conv_net(x)
+        reshape_out = out.view(out.size(0), 960 * self.n_channels)
+        predict = self.classifier(reshape_out)
+        return predict
+    
