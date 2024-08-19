@@ -3,6 +3,9 @@ import os
 import pathlib
 import re
 import subprocess
+import time
+
+import numpy as np
 
 USER_NAME = os.environ["USER"]
 
@@ -27,6 +30,9 @@ class SqueueJob:
         """Job is running"""
         return "RUNNING" in self.job_state
 
+    def __getitem__(self, key):
+        return self.info_dict[key]
+
 
 class SlurmManager:
     def __init__(
@@ -45,6 +51,7 @@ class SlurmManager:
         exclude: str = "",
         nodelist: str = "",
         chdir: str = ".",
+        max_jobs: int = 16,
     ):
         self.job_type = "gpu" if "gpu" in partition.lower() else "cpu"
         self.command = command
@@ -63,6 +70,7 @@ class SlurmManager:
             "nodelist": nodelist,
             "chdir": chdir,
         }
+        self.max_jobs = max_jobs
         if self.job_type == "cpu":
             self.config["gres"] = ""
 
@@ -126,9 +134,29 @@ class SlurmManager:
                 f.write(script)
         return
 
+    def _reach_max_jobs(self):
+        partition = self.config["partition"]
+
+        jobs = self.get_running_jobs(running_only=False, mine_only=True)
+        count = 0
+        for job in jobs:
+            if job["partition"] == partition:
+                count += 1
+        print(f"Current running jobs in partition {partition}: {count}")
+        if count >= self.max_jobs:
+            return True
+        return False
+
     def submit(self, rerun: bool = False):
         """Submit the job to slurm."""
         self._create_script()
+
+        # check max jobs
+        while self._reach_max_jobs():
+            print(
+                f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, waiting for jobs to finish..."
+            )
+            time.sleep(np.random.randint(100, 500))
 
         _run = True
         # submitted before
@@ -178,7 +206,7 @@ class SlurmManager:
         return job_id
 
     @staticmethod
-    def get_running_jobs():
+    def get_running_jobs(running_only: bool = True, mine_only: bool = True):
         """Get my running jobs from squeue."""
         process = subprocess.run(
             ["squeue", "--json"],
@@ -190,8 +218,11 @@ class SlurmManager:
         squeue_data = json.loads(output)
         jobs = [SqueueJob(info_dict) for info_dict in squeue_data["jobs"]]
 
-        my_running_job = [job for job in jobs if job.mine() and job.running()]
-        return my_running_job
+        if running_only:
+            jobs = [job for job in jobs if job.running()]
+        if mine_only:
+            jobs = [job for job in jobs if job.mine()]
+        return jobs
 
     @staticmethod
     def get_running_job_ids():

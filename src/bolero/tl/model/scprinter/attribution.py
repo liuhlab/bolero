@@ -86,7 +86,7 @@ class BatchAttribution:
         """
         n_out = torch.from_numpy(np.array(modes)).to(self.device)
         if wrapper == "just_sum":
-            model = JustSumWrapper(model, nth_output=n_out, res=1, threshold=0.301)
+            model = JustSumWrapper(model, nth_output=n_out, threshold=0.301)
         elif wrapper == "count":
             model = CountWrapper(model)
         else:

@@ -18,6 +18,12 @@ from .sbatch import SlurmManager
 @click.option("--nodelist", default="", help="Node list", show_default=True)
 @click.option("--chdir", default=".", help="Change directory", show_default=True)
 @click.option("--rerun", is_flag=True, help="Rerun job", show_default=True)
+@click.option(
+    "--max_jobs",
+    default=16,
+    help="Max number of jobs to submit to current partition",
+    show_default=True,
+)
 @click.argument("command", nargs=-1)
 def submitter(
     job_name,
@@ -35,6 +41,7 @@ def submitter(
     chdir,
     rerun,
     command,
+    max_jobs=16,
 ):
     """Submit a job to slurm"""
     manager = SlurmManager(
@@ -52,6 +59,7 @@ def submitter(
         exclude=exclude,
         nodelist=nodelist,
         chdir=chdir,
+        max_jobs=max_jobs,
     )
     _job_id = manager.submit(rerun=rerun)
     return
