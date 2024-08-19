@@ -93,6 +93,8 @@ class FetchRegionALLCs:
         elif self.mode == "region":
             total_mc_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
             total_cov_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
+        else:
+            raise ValueError("mode must be 'bp' or 'region'.")
 
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
             for idy, allc_handle in enumerate(self.allc_handles):

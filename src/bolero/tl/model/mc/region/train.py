@@ -9,12 +9,15 @@ from scipy.stats import pearsonr
 from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.model.mc.dataset import mCRegionOnlineDataset
-from bolero.tl.model.mc.region.model import mCRegionModel, DeepSEA
+from bolero.tl.model.mc.region.model import mCRegionModel
+
 
 def BinomialLoss(p, x, n):
-    p = torch.clamp(p, min=1e-4, max=1-1e-4)
+    """Calculate binomial loss using raw counts."""
+    p = torch.clamp(p, min=1e-4, max=1 - 1e-4)
     loss = x * torch.log(p) + (n - x) * torch.log(1 - p)
     return -loss.mean()
+
 
 class mCTrainerMixin(GenericTrainer):
     trainer_config = {
@@ -152,7 +155,7 @@ class mCTrainerMixin(GenericTrainer):
 
         val_loss = val_loss / size
 
-        total_pearson = [pearsonr(xx, yy)[0] for xx,yy in zip(pred.T, label.T)]
+        total_pearson = [pearsonr(xx, yy)[0] for xx, yy in zip(pred.T, label.T)]
         return val_loss, 0, np.mean(total_pearson), wandb_images
 
     def _model_forward_pass(self, model, batch):

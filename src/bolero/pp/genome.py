@@ -585,7 +585,7 @@ class Genome:
         boarder_strategy="shift",
         as_df=True,
         keep_original=False,
-        signal_length='given',
+        signal_length="given",
     ):
         """
         Adjusts the length of regions to a standard length.
@@ -605,6 +605,11 @@ class Genome:
             Default is 'shift'.
         as_df : bool, optional
             Whether to return the adjusted regions as a DataFrame. Default is True.
+        keep_original : bool, optional
+            Whether to keep the original signal regions as Original_Name in the output. Default is False.
+        signal_length : str or int, optional
+            If 'given', the original signal length is kept.
+            If int, the signal length is set to the specified length. Default is 'given'.
 
         Returns
         -------
@@ -657,11 +662,11 @@ class Genome:
                 use_regions.append(chrom_df)
             use_regions = pd.concat(use_regions)
             return use_regions
-                        
+
         if keep_original:
             if "Name" in regions_bed_df:
                 regions_bed_df["Original_Name"] = regions_bed_df["Name"]
-            elif signal_length=='given':
+            elif signal_length == "given":
                 regions_bed_df["Original_Name"] = (
                     regions_bed_df["Chromosome"].astype(str)
                     + ":"
@@ -689,8 +694,8 @@ class Genome:
             + "-"
             + use_regions["End"].astype(str)
         )
-        if signal_length=='standard':
-            use_regions['Original_Name'] = use_regions['Name']
+        if signal_length == "standard":
+            use_regions["Original_Name"] = use_regions["Name"]
 
         use_cols = ["Chromosome", "Start", "End", "Name"]
         if keep_original:

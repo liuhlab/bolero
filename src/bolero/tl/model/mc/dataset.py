@@ -6,6 +6,8 @@ import numpy as np
 from bolero.tl.dataset.file_transforms import FetchRegionALLCs
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.model.track1d.dataset import Track1DDataset
+from bolero.utils import understand_regions
+
 
 class mCTrackDataset(Track1DDataset):
     """Single cell dataset for cell-by-meta-region data."""
@@ -18,6 +20,7 @@ class mCTrackDataset(Track1DDataset):
         """
         Initialize the mCTrackDataset.
         """
+        print("This class is Deprecated, please use mCRegionOnlineDataset instead.")
         super().__init__(*args, **kwargs)
         self._cov_filter_key = f"{self.prefix}_cov"
         self.signal_columns = [f"{self.prefix}_mc", f"{self.prefix}_cov"]
@@ -233,6 +236,7 @@ class mCSiteDataset(Track1DDataset):
         dataset = self._split_region_to_site(dataset)
         return dataset
 
+
 class mCRegionOnlineDataset(RayRegionDataset):
     """Single cell dataset for cell-by-meta-region data."""
 
@@ -247,8 +251,8 @@ class mCRegionOnlineDataset(RayRegionDataset):
         "boarder_strategy": "drop",
         "remove_blacklist": False,
         "mc_prefix": "allc",
-        "signal_mode": "region", ### bp or region
-        "signal_length": "given" ### given or int
+        "signal_mode": "region",  ### bp or region
+        "signal_length": "given",  ### given or int
         # TODO support any signal length
     }
 
@@ -270,6 +274,15 @@ class mCRegionOnlineDataset(RayRegionDataset):
         """
         Initialize the mCTrackOnlineDataset.
         """
+        if signal_mode == "bp":
+            if signal_length == "given":
+                # check the bed file region length
+                bed = understand_regions(bed)
+                bed_length = bed["end"] - bed["start"]
+                assert (
+                    bed_length.unique().size == 1
+                ), "Region length must be the same when signal mode is bp and signal length is given."
+
         super().__init__(
             bed=bed,
             genome=genome,
@@ -379,7 +392,15 @@ class mCRegionOnlineDataset(RayRegionDataset):
         dataset = dataset.drop_columns(["Original_Name", "region"])
         return dataset
 
-    def get_dataloader(self, chroms=None, n_batches=None, batch_size=64, as_torch=False, shuffle_bed=False):
+    def get_dataloader(
+        self,
+        chroms=None,
+        n_batches=None,
+        batch_size=64,
+        as_torch=False,
+        shuffle_bed=False,
+    ):
+        """Get the dataloader for the dataset."""
         dataset_kwargs = {
             "chroms": chroms,
             "shuffle_bed": shuffle_bed,
@@ -393,4 +414,3 @@ class mCRegionOnlineDataset(RayRegionDataset):
             as_torch=as_torch,
         )
         return loader
-    
