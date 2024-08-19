@@ -573,19 +573,8 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         return scaler
 
-    """
     def _get_optimizer(self):
-        lr = self.config["lr"]
-        weight_decay = self.config["weight_decay"]
-        optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=lr, weight_decay=weight_decay
-        )
-        return optimizer
-    """
-
-    def _get_optimizer(self):  # modified optimizer function, support for Adam and SGD
-        # TODO: use adamw as default optimizer
-        optimizer_type = self.config["optimizer"].lower()
+        optimizer_type = self.config.get("optimizer", "adamw").lower()
         lr = self.config["lr"]
         weight_decay = self.config["weight_decay"]
 
@@ -605,23 +594,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
         return optimizer
 
-    """
     def _get_scheduler(self, optimizer):
-        import transformers
-
-        scheduler = transformers.get_cosine_schedule_with_warmup(
-            optimizer, num_warmup_steps=3000, num_training_steps=100000
-        )
-        return scheduler
-    """
-
-    def _get_scheduler(self, optimizer):
-        # TODO: use none scheduler as default
-        import transformers
-
         scheduler_type = self.config["scheduler_type"].lower()
 
         if scheduler_type == "cosine":
+            import transformers
+
             scheduler = transformers.get_cosine_schedule_with_warmup(
                 optimizer, num_warmup_steps=3000, num_training_steps=100000
             )
@@ -685,7 +663,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.plot_example_per_epoch = 0
 
         # update state dict if checkpoint exists
-        print(self.checkpoint)
         if self.checkpoint:
             self._update_state_dict()
         return

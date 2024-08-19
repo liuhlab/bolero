@@ -426,7 +426,7 @@ class mCTrainerMixin(GenericTrainer):
 
 
 class mCRegionTrainer(mCTrainerMixin):
-    """Train MultiTrackmCModel base model on pseudobulk single-cell ATAC data."""
+    """Train mC Model base model on pseudobulk single-cell ATAC data."""
 
     trainer_config = mCTrainerMixin.trainer_config.copy()
     trainer_config.update(
@@ -494,7 +494,7 @@ class mCRegionTrainer(mCTrainerMixin):
         return batch[mc_key], batch[cov_key], pred_frac
 
     def train(self, valid_first=None) -> None:
-        """Train the MultiTrackmCModel model."""
+        """Train the mC Model model."""
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return
