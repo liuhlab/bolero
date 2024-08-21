@@ -41,16 +41,10 @@ class GenericModel(nn.Module):
 
     @classmethod
     def create_from_config(cls, config: dict):
-        """
-        Create a model instance from a configuration.
-
-        Args:
-            config (dict): The configuration.
-
-        Returns
-        -------
-            GenericModel: The model instance.
-        """
+        """Create the dataset from a configuration dictionary."""
+        config = {k: v for k, v in config.items() if k in cls.default_config}
+        validate_config(config, cls.default_config)
+        print(f"Create model with config: {config}")
         return cls(**config)
 
 
@@ -503,7 +497,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
     def _setup_model_from_config(self):
         # initialize model with config
-        config = self.config
+        config = self.config.copy()
         validate_config(config, self.model_class.default_config, allow_extra_keys=True)
         model = self.model_class.create_from_config(config)
         model.to(self.device)
@@ -658,9 +652,10 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.ema = None
 
         # plot
-        self.plot_example_per_epoch = config["plot_example_per_epoch"]
-        if not self.plot_example_per_epoch:
-            self.plot_example_per_epoch = 0
+        if "plot_example_per_epoch" in config:
+            self.plot_example_per_epoch = config["plot_example_per_epoch"]
+            if not self.plot_example_per_epoch:
+                self.plot_example_per_epoch = 0
 
         # update state dict if checkpoint exists
         if self.checkpoint:
@@ -691,8 +686,8 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                         val_batches=val_batches,
                     )
                 )
-                self.ema.train()
-                self.ema.ema_model.train()
+                # self.ema.train()
+                # self.ema.ema_model.train()
             else:
                 self.model.eval()
                 val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (

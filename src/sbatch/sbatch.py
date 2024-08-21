@@ -41,11 +41,10 @@ class SlurmManager:
         command: str,
         time: str = "12:00:00",
         partition: str = "gpu",
-        nodes: int = 1,
         ntasks: int = 1,
         cpus_per_task: int = 32,
         mem_per_cpu: str = "4G",
-        gres: str = "gpu:1",
+        gpus: int = 1,
         output: str = "auto",
         error: str = "auto",
         exclude: str = "",
@@ -59,11 +58,10 @@ class SlurmManager:
             "job-name": job_name,
             "time": time,
             "partition": partition,
-            "nodes": nodes,
             "ntasks": ntasks,
             "cpus-per-task": cpus_per_task,
             "mem-per-cpu": mem_per_cpu,
-            "gres": gres,
+            "gpus": gpus,
             "output": output,
             "error": error,
             "exclude": exclude,
@@ -72,7 +70,7 @@ class SlurmManager:
         }
         self.max_jobs = max_jobs
         if self.job_type == "cpu":
-            self.config["gres"] = ""
+            self.config["gpus"] = ""
 
     @property
     def _chdir(self):
