@@ -27,13 +27,15 @@ leg
 # %%
 # bw_paths = [f'/large_experiments/zhoulab/hanliu/wmb/Li2023Science/old_annot/bigwig/{ct}.bw' for ct in leg]
 # assert all([pathlib.Path(p).exists() for p in bw_paths])
-bw_paths = ['/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/atac.bw']
+atac_paths = ['/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/atac.bw']
+ctcf_paths = ['/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/ctcf_log2fc.bw']
 
 # %%
 config = {
     # dataset
     "cool_paths": cool_paths[:1].tolist(), # for test, only use the first cool file
-    "bigwig_paths": bw_paths[:1],
+    "atac_paths": atac_paths,
+    "ctcf_paths": ctcf_paths,
     "resolution": 10000,
     "balance": False,
     "genome": 'hg38',
@@ -43,8 +45,11 @@ config = {
     "bed": '/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/train.bed',
     "standard_length": 2097152,
     "dna_fifth_channel": True,
+    "data_1d_keys": ("atac", "ctcf",),
     # model
     "image_scale": 256,
+    "encoder_in_channel": 5,
+    "encoder_num_epi": 2,
     # training
     "mode": "base",
     "chrom_split": hg38_splits[0],
@@ -54,6 +59,7 @@ config = {
     "val_batches": None,
     "std": 0.1,
     "lr": 0.002,
+    "use_ema": True,
     # save data
     "output_dir": "corigami_result",
     "wandb_project": "corigami_result",
@@ -85,11 +91,12 @@ dna_one_hot = batch["dna_one_hot"]
 dna_one_hot.shape
 
 # %%
-bw_values = batch["bw_values"]
-bw_values.shape
+feature_list = [batch[feat] for feat in config['data_1d_keys']]
+features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
+features.shape
 
 # %%
-X = torch.cat([dna_one_hot, bw_values.unsqueeze(1)], dim=1)
+X = torch.cat([dna_one_hot, features], dim=1)
 X.shape
 
 # %%
@@ -182,20 +189,27 @@ loss_
 
 # %%
 # Inference
-checkpoint = torch.load("corigami_08_06/base.base.best_checkpoint.pt", map_location=torch.device('cuda'))
+checkpoint = torch.load("corigami_base.ckpt", map_location=torch.device('cuda'))
 trainer._setup_model()
 model = trainer.model
 model.to(trainer.device)
-optimizer = trainer._get_optimizer()
-model.load_state_dict(checkpoint['state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer'])
-loss = checkpoint['best_val_loss']
-print(f"Loaded model with best validation loss: {loss}")
-epoch_info = torch.load("corigami_08_06/base.base.epoch_info.pt")
-print(epoch_info)
-model.eval()
+model_weights = checkpoint['state_dict']
+for key in list(model_weights):
+    model_weights[key.replace('model.', '')] = model_weights.pop(key)
+# %%
+model.load_state_dict(model_weights)
 
 # %%
+# optimizer = trainer._get_optimizer()
+# optimizer.load_state_dict(checkpoint['optimizer'])
+# loss = checkpoint['best_val_loss']
+# print(f"Loaded model with best validation loss: {loss}")
+# epoch_info = torch.load("corigami_08_06/base.base.epoch_info.pt")
+# print(epoch_info)
+
+
+# %%
+model.eval()
 dataset = trainer.dataset
 dataset.eval()
 dataloader = dataset.get_dataloader(chroms=hg38_splits[0]['valid'])
@@ -206,47 +220,18 @@ for batch_id, batch in enumerate(dataloader):
     break
 
 # %%
-batch['bw_values'] = batch['bw_values'][:, 0, :]
-batch["dna_one_hot"] = batch["dna_one_hot"].swapaxes(1, 2)
-batch['dna_one_hot'] = torch.from_numpy(batch['dna_one_hot'].copy())
-batch['bw_values'] = torch.from_numpy(batch['bw_values'].copy())
-X = torch.cat([batch['dna_one_hot'], batch['bw_values'].unsqueeze(2)], dim=2).to(trainer.device)
-
-# %%
-batch["values"] = batch["values"][:, 0, :, :]
-batch['values'] = torch.from_numpy(batch['values'].copy()).float().to(trainer.device)
-
+dna_one_hot = batch["dna_one_hot"]
+feature_list = [batch[feat] for feat in config['data_1d_keys']]
+features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
+X = torch.cat([dna_one_hot, features], dim=1)
+X.shape
 # %%
 pred_y = model(X.to(trainer.device))
 pred_y.shape
 
 # %%
-def diagonal_normalization(matrix):
-    # Get the size of the matrix
-    size = matrix.shape[0]
-
-    # Create a copy of the matrix to store normalized values
-    normalized_matrix = np.zeros_like(matrix)
-
-    # Normalize each diagonal
-    for d in range(size):
-        diagonal = np.diag(matrix, k=d)
-        if len(diagonal) > 0:
-            mean_value = np.mean(diagonal)
-            std_value = np.mean(diagonal)
-            if mean_value != 0:
-                normalized_diagonal = (diagonal - mean_value) / std_value
-                np.fill_diagonal(normalized_matrix[d:], normalized_diagonal)
-                np.fill_diagonal(normalized_matrix[:, d:], normalized_diagonal)
-
-    return normalized_matrix
-
 y = batch['values'].cpu().detach().numpy()
-# Apply diagonal normalization to each Hi-C matrix in the batch
-normalized_y = np.array([diagonal_normalization(matrix) for matrix in y])
-
 pred_y = pred_y.cpu().detach().numpy()
-normalized_pred_y = np.array([diagonal_normalization(matrix) for matrix in pred_y])
 
 # %%
 import matplotlib as mpl
@@ -260,17 +245,12 @@ mpl.rcParams['ps.fonttype'] = 42
 # %%
 from matplotlib.colors import LinearSegmentedColormap
 color_map = LinearSegmentedColormap.from_list("bright_red", [(1,1,1),(1,0,0)])
-# %%
-plt.imshow(pred_y[2], cmap=color_map, vmin=0, vmax=5)
 
 # %%
-plt.imshow(normalized_pred_y[2], cmap=color_map, vmin=-2, vmax=2)
+plt.imshow(y[6], cmap='coolwarm', vmin=0, vmax=5)
 
 # %%
-plt.imshow(y[2], cmap=color_map, vmin=0, vmax=5)
-
-# %%
-plt.imshow(normalized_y[2], cmap=color_map, vmin=-2, vmax=2)
+plt.imshow(pred_y[6], cmap='coolwarm', vmin=0, vmax=5)
 
 # %%
 np.amin(pred_y[-1])

@@ -11,9 +11,9 @@ class ConvModel(nn.Module):
     Parameters
     ----------
     encoder_in_channel : int
-        The number of input channels for encoder. Default is 4.
+        The number of input channels for encoder. Default is 5.
     encoder_num_epi : int
-        The number of epigenomic features. Default is 1.
+        The number of epigenomic features. Default is 2.
     encoder_output_channel : int
         The number of output channels for encoder. Default is 256.
     encoder_filter_size : int
@@ -41,8 +41,8 @@ class ConvModel(nn.Module):
     """
 
     default_config = {
-        "encoder_in_channel": 4,
-        "encoder_num_epi": 1,
+        "encoder_in_channel": 5,
+        "encoder_num_epi": 2,
         "encoder_output_channel": 256,
         "encoder_filter_size": 5,
         "encoder_num_blocks": 12,
@@ -154,9 +154,9 @@ class ConvTransModel(ConvModel):
     Parameters
     ----------
     encoder_in_channel : int
-        The number of input channels for encoder. Default is 4.
+        The number of input channels for encoder. Default is 5.
     encoder_num_epi: int
-        The number of epigenomic features. Default is 1.
+        The number of epigenomic features. Default is 2.
     encoder_output_channel : int
         The number of output channels for decoder. Default is 256.
     encoder_filter_size : int
@@ -194,8 +194,8 @@ class ConvTransModel(ConvModel):
     """
 
     default_config = {
-        "encoder_in_channel": 4,
-        "encoder_num_epi": 1,
+        "encoder_in_channel": 5,
+        "encoder_num_epi": 2,
         "encoder_output_channel": 256,
         "encoder_filter_size": 5,
         "encoder_num_blocks": 12,

@@ -80,7 +80,7 @@ class HicExamplePlotter(Track1DExamplePlotter):
             diagonal = np.diag(matrix, k=d)
             if len(diagonal) > 0:
                 mean_value = np.mean(diagonal)
-                std_value = np.mean(diagonal)
+                std_value = np.std(diagonal)
                 if mean_value != 0:
                     normalized_diagonal = (diagonal - mean_value) / std_value
                     np.fill_diagonal(normalized_matrix[d:], normalized_diagonal)

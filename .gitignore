@@ -39,6 +39,7 @@ rune/*
 **/*.json
 **/*.pt
 **/*.joblib
+**/*.ckpt
 
 # images
 **/*.jpg

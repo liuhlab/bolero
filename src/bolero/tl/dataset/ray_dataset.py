@@ -466,7 +466,9 @@ class RayRegionDataset(GenericDataset):
         self._block_size = _block_size
         self._max_blocks = _max_blocks
 
-    def _get_dna_one_hot(self, dataset, dtype="float32", concurrency=1):
+    def _get_dna_one_hot(
+        self, dataset, dtype="float32", concurrency=1, batch_size=1024
+    ):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {"dtype": dtype}
         fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
@@ -476,6 +478,7 @@ class RayRegionDataset(GenericDataset):
             fn_constructor_kwargs=fn_constructor_kwargs,
             fn_kwargs=fn_kwargs,
             concurrency=concurrency,
+            batch_size=batch_size,
         )
         self.dna_column = DNA_NAME
         return dataset

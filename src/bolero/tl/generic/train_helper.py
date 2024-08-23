@@ -4,6 +4,8 @@ from typing import Union
 
 import numpy as np
 import torch
+from scipy.stats import pearsonr
+from tqdm import tqdm
 
 hg38_splits = [None] * 5
 hg38_splits[0] = {
@@ -496,6 +498,53 @@ def batch_pearson_correlation_per_channel(
     cell_type_correlation = torch.cat(correlations_lst, dim=0)  # Shape: [9, 64]
 
     return cell_type_correlation
+
+
+def chr_score(matrix, res=10000, radius=500000, pseudocount_coeff=30):
+    """
+    Calculate the score for each locus in the matrix based on the surrounding loci.
+    """
+    pseudocount = matrix.mean() * pseudocount_coeff
+    pixel_radius = int(radius / res)
+    scores = []
+    for _, loc in enumerate(range(len(matrix))):
+        scores.append(point_score(loc, pixel_radius, matrix, pseudocount))
+    return scores
+
+
+def point_score(locus, radius, matrix, pseudocount):
+    """
+    Calculate the score for a single locus in the matrix based on the surrounding loci.
+    """
+    l_edge = max(locus - radius, 0)
+    r_edge = min(locus + radius, len(matrix))
+    l_mask = matrix[l_edge:locus, l_edge:locus]
+    r_mask = matrix[locus:r_edge, locus:r_edge]
+    center_mask = matrix[l_edge:locus, locus:r_edge]
+    score = (max(l_mask.mean(), r_mask.mean()) + pseudocount) / (
+        center_mask.mean() + pseudocount
+    )
+    return score
+
+
+def insulation_pearson(preds: torch.Tensor, targets: torch.Tensor):
+    """
+    Calculate the pearson correlation between the predicted insulation score and the target insulation score
+    """
+    scores = []
+    preds = preds.detach().cpu().numpy()
+    targets = targets.detach().cpu().numpy()
+    for pred, target in zip(preds, tqdm(targets)):
+        pred_insu = np.array(chr_score(pred))
+        label_insu = np.array(chr_score(target))
+        nas = np.logical_or(np.isnan(pred_insu), np.isnan(label_insu))
+        if nas.sum() == len(pred):
+            scores.append(np.nan)
+        else:
+            metric, p_val = pearsonr(pred_insu[~nas], label_insu[~nas])
+            scores.append(metric)
+    results = scores
+    return results
 
 
 def safe_save(obj: torch.Tensor, path: str) -> None:

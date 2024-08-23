@@ -14,6 +14,7 @@ from bolero.tl.generic.train_helper import (
     CumulativeCounter,
     CumulativePearson,
     batch_pearson_correlation,
+    insulation_pearson,
 )
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import ConvTransModel, ConvTransModelSeqOnly
@@ -40,7 +41,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
-        "pretrained_model": None,
+        "pretrained_model": "REQUIRED",
         # loss cov cutoff
         "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
@@ -81,6 +82,25 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             param.requires_grad = True
         return model
 
+    def _setup_model_from_checkpoint(self):
+        # load model from path, set parameter to requires_grad, and model to train
+        model_path = self.config["pretrained_model"]
+        if model_path is None:
+            raise ValueError("Pretrained model path is required.")
+        print(f"Setting up model from pretrain model at {model_path}")
+
+        checkpoint = torch.load(model_path, map_location=self.device)
+        model_weights = checkpoint["state_dict"]
+        for key in list(model_weights):
+            model_weights[key.replace("model.", "")] = model_weights.pop(key)
+        model = self.model_class.create_from_config(self.config)
+        model.to(self.device)
+        model.load_state_dict(model_weights)
+        model.train()
+        for param in model.parameters():
+            param.requires_grad = True
+        return model
+
     def _get_optimizer(self):
         lr = self.config["lr"]
         weight_decay = self.config["weight_decay"]
@@ -104,6 +124,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             self.model = self._setup_model_from_pretrain()
         elif mode == "base":
             self.model = self._setup_model_from_config()
+        elif mode == "checkpoint":
+            self.model = self._setup_model_from_checkpoint()
         else:
             raise ValueError(
                 f"Incorrect mode: {mode}, should be one of ['base', 'finetune']."
@@ -166,7 +188,10 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         dataloader,
         val_batches,
     ):
-        print_step = max(5, val_batches // 20)
+        if val_batches is None:
+            print_step = 10
+        else:
+            print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
 
         size = 0
@@ -182,7 +207,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             loss_ = F.mse_loss(pred_y, y)
             val_loss += loss_.item()
 
-            # TODO Add insulation score
             # ==========
             # Within batch pearson and save for across batch pearson
             # ==========
@@ -191,6 +215,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             single_batch_pearson_counter.update(corr)
             # save for across batch pearson
             across_batch_pearson_counter.update(pred_y, y)
+            # insulation score
+            insulation_score = np.mean(insulation_pearson(pred_y, y))
 
             size += 1
             if batch_id < self.plot_example_per_epoch:
@@ -204,6 +230,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     f"Loss: {val_loss/size:.3f}; "
                     f"Within batch Pearson: {single_batch_pearson_counter.mean():.3f}; "
                     f"Across batch Pearson: {across_batch_pearson_counter.corr():.3f}; "
+                    f"Insulation Pearson: {insulation_score:.3f}"
                 )
                 print(desc_str)
 
@@ -229,7 +256,13 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         # ==========
         across_batch_pearson = across_batch_pearson_counter.corr()
 
-        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
+        return (
+            val_loss,
+            single_batch_pearson,
+            across_batch_pearson,
+            insulation_score,
+            wandb_images,
+        )
 
     def _log_save_and_check_stop(self):
         epoch = self.cur_epoch
@@ -238,6 +271,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         val_loss = self.val_loss
         single_batch_pearson = self.single_batch_pearson
         across_batch_pearson = self.across_batch_pearson
+        insulation_score = self.insulation_score
         example_images = self.example_wandb_images
 
         print(
@@ -246,6 +280,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         print(f" - (Validation) {epoch} Loss: {val_loss:.3f}")
         print(f"Single Batch Pearson Corr.: {single_batch_pearson:.3f}")
         print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
+        print(f"Insulation Pearson Corr.: {insulation_score:.3f}")
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
@@ -273,6 +308,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     "val/early_stopping_counter": self.early_stopping_counter,
                     "val/single_batch_pearson": single_batch_pearson,
                     "val/across_batch_pearson": across_batch_pearson,
+                    "val/insulation_score": insulation_score,
                     "val_example/example_predictions": example_images,
                 }
             )
@@ -291,26 +327,40 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             if self.use_ema:
                 self.ema.eval()
                 self.ema.ema_model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.ema.ema_model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
+                (
+                    val_loss,
+                    single_batch_pearson,
+                    across_batch_pearson,
+                    insulation_score,
+                    wandb_images,
+                ) = self._model_validation_step(
+                    model=self.ema.ema_model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
                 )
                 self.ema.train()
                 self.ema.ema_model.train()
             else:
                 self.model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
+                (
+                    val_loss,
+                    single_batch_pearson,
+                    across_batch_pearson,
+                    insulation_score,
+                    wandb_images,
+                ) = self._model_validation_step(
+                    model=self.model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
                 )
                 self.model.train()
-        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
+        return (
+            val_loss,
+            single_batch_pearson,
+            across_batch_pearson,
+            insulation_score,
+            wandb_images,
+        )
 
     def _fit(self, max_epochs=None, valid_first=False):
         if max_epochs is None:
@@ -329,16 +379,19 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.insulation_score,
                 wandb_images,
             ) = self._validation_step()
             print(f"Validation loss before training: {self.val_loss:.4f}")
             print(f"Validation Singe Batch pearson: {self.single_batch_pearson:.3f}")
             print(f"Validation Across Batch pearson: {self.across_batch_pearson:.3f}.")
+            print(f"Validation insulation pearson: {self.insulation_score:.3f}")
             wandb.log(
                 {
                     "val/val_loss": self.val_loss,
                     "val/single_batch_pearson": self.single_batch_pearson,
                     "val/across_batch_pearson": self.across_batch_pearson,
+                    "val/insulation_score": self.insulation_score,
                     "val_example/example_images": wandb_images,
                 }
             )
@@ -376,7 +429,10 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             cur_loss = 1e10
             nan_loss = False
 
-            print_steps = max(5, self.train_batches // 50)
+            if self.train_batches is None:
+                print_steps = 10
+            else:
+                print_steps = max(5, self.train_batches // 50)
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -459,6 +515,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.insulation_score,
                 self.example_wandb_images,
             ) = self._validation_step()
 
@@ -482,6 +539,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 self.val_loss,
                 self.single_batch_pearson,
                 self.across_batch_pearson,
+                self.insulation_score,
                 _,
             ) = self._validation_step()
 
@@ -489,7 +547,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             self.test_loss,
             self.test_single_batch_pearson,
             self.test_across_batch_pearson,
-            self.test_single_batch_pearson_per_channel,
+            self.insulation_score,
             wandb_images,
         ) = self._validation_step(testing=True)
 
@@ -499,6 +557,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         wandb.summary["final_test_loss"] = self.test_loss
         wandb.summary["final_test_within"] = self.test_single_batch_pearson
         wandb.summary["final_test_across"] = self.test_across_batch_pearson
+        wandb.summary["final_insulation_score"] = self.insulation_score
         wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished
@@ -567,8 +626,9 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         # ==========
         start = time.time()
         dna_seq = batch["dna_one_hot"]
-        feature = batch["bw_values"]
-        X = torch.cat([dna_seq, feature.unsqueeze(1)], dim=1)
+        feature_list = [batch[feat] for feat in self.config["data_1d_keys"]]
+        features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
+        X = torch.cat([dna_seq, features], dim=1)
 
         # ==========
         # y_hic

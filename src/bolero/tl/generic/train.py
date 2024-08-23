@@ -243,7 +243,7 @@ class TrainerDatasetMixin:
         self.dataset.eval()
         if isinstance(self.dataset, RayRegionDataset):
             dataloader = self.dataset.get_dataloader(
-                chroms=self.train_chroms,
+                chroms=self.test_chroms,
                 n_batches=batches,
                 batch_size=self.config["batch_size"],
             )

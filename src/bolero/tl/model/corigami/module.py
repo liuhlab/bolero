@@ -77,9 +77,9 @@ class Encoder(nn.Module):
         return res_blocks
 
 
-class EncoderSplit(Encoder):
+class EncoderSplit(nn.Module):
     def __init__(
-        self, in_channel=4, num_epi=2, output_size=256, filter_size=5, num_blocks=12
+        self, in_channel=5, num_epi=2, output_size=256, filter_size=5, num_blocks=12
     ):
         """
         Initialize the EncoderSplit
@@ -121,6 +121,16 @@ class EncoderSplit(Encoder):
         x = torch.cat([seq, epi], dim=1)
         out = self.conv_end(x)
         return out
+
+    def get_res_blocks(self, n, his, hs):
+        """
+        Get the residual blocks
+        """
+        blocks = []
+        for _, h, hi in zip(range(n), hs, his):
+            blocks.append(ConvBlock(self.filter_size, hidden_in=hi, hidden=h))
+        res_blocks = nn.Sequential(*blocks)
+        return res_blocks
 
 
 class ResBlockDilated(nn.Module):

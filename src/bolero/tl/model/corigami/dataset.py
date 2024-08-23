@@ -16,7 +16,8 @@ class HiCTrackDataset(RayRegionDataset):
 
     default_config = {
         "cool_paths": "REQUIRED",
-        "bigwig_paths": "REQUIRED",
+        "atac_paths": "REQUIRED",
+        "ctcf_paths": "REQUIRED",
         "resolution": "REQUIRED",
         "balance": False,
         "genome": "REQUIRED",
@@ -26,6 +27,7 @@ class HiCTrackDataset(RayRegionDataset):
         "bed": "REQUIRED",
         "standard_length": "REQUIRED",
         "dna_fifth_channel": False,
+        "data_1d_keys": "REQUIRED",
     }
 
     def __init__(
@@ -38,9 +40,12 @@ class HiCTrackDataset(RayRegionDataset):
         window_size,
         step,
         batch_size,
-        bigwig_paths=None,
+        data_1d_keys,
         cool_names=None,
-        bigwig_names=None,
+        atac_paths=None,
+        atac_names=None,
+        ctcf_paths=None,
+        ctcf_names=None,
         balance=False,
         dna_fifth_channel=False,
         boarder_strategy="drop",
@@ -76,16 +81,23 @@ class HiCTrackDataset(RayRegionDataset):
         assert len(cool_paths) == len(cool_names)
 
         # Bigwig Files
-        self.bigwig_paths = bigwig_paths
-        if bigwig_names is None and bigwig_paths is not None:
-            bigwig_names = [pathlib.Path(path).name for path in bigwig_paths]
+        self.atac_paths = atac_paths
+        if atac_names is None and atac_paths is not None:
+            atac_names = [pathlib.Path(path).name for path in atac_paths]
         else:
-            self.bigwig_names = bigwig_names
+            self.atac_names = atac_names
+
+        self.ctcf_paths = ctcf_paths
+        if ctcf_names is None and ctcf_paths is not None:
+            ctcf_names = [pathlib.Path(path).name for path in ctcf_paths]
+        else:
+            self.ctcf_names = ctcf_names
 
         self.resolution = resolution
         self.balance = balance
         self.step = step
         self.dna_fifth_channel = dna_fifth_channel
+        self.data_1d_keys = data_1d_keys
 
     def _get_cool_data(
         self,
@@ -159,7 +171,8 @@ class HiCTrackDataset(RayRegionDataset):
     def _get_bigwig_data(
         self,
         dataset,
-        data_key="bw_values",
+        bigwig_paths,
+        data_key,
         concurrency=(1, 6),
         n_oprators=5,
         batch_size=8,
@@ -190,13 +203,11 @@ class HiCTrackDataset(RayRegionDataset):
         dataset : RayRegionDataset
             The dataset with bigwig data oprator mapped.
         """
-        _chunk_size = max(5, len(self.bigwig_paths) // n_oprators)
+        _chunk_size = max(5, len(bigwig_paths) // n_oprators)
 
-        for idx, chunk_start in enumerate(
-            range(0, len(self.bigwig_paths), _chunk_size)
-        ):
-            chunk_end = min(len(self.bigwig_paths), chunk_start + _chunk_size)
-            chunk_paths = self.bigwig_paths[chunk_start:chunk_end]
+        for idx, chunk_start in enumerate(range(0, len(bigwig_paths), _chunk_size)):
+            chunk_end = min(len(bigwig_paths), chunk_start + _chunk_size)
+            chunk_paths = bigwig_paths[chunk_start:chunk_end]
 
             fn = FetchRegionBigWigs
             fn_constructor_kwargs = {
@@ -255,7 +266,11 @@ class HiCTrackDataset(RayRegionDataset):
     def _add_gaussian_noise(
         self,
         dataset,
-        data_keys=("dna_one_hot", "bw_values"),
+        dna_key="dna_one_hot",
+        data_1d_keys=(
+            "atac",
+            "ctcf",
+        ),
         std=0.1,
         concurrency=(1, 6),
         batch_size=8,
@@ -265,6 +280,7 @@ class HiCTrackDataset(RayRegionDataset):
         """
         # Need to update the std when providing different dataset
         fn = AddGaussianNoise
+        data_keys = [dna_key] + list(data_1d_keys)
         fn_constructor_kwargs = {"data_keys": data_keys, "std": std}
         dataset = dataset.map_batches(
             fn=fn,
@@ -300,7 +316,10 @@ class HiCTrackDataset(RayRegionDataset):
         self,
         dataset,
         dna_key="dna_one_hot",
-        data_1d_keys=("bw_values",),
+        data_1d_keys=(
+            "atac",
+            "ctcf",
+        ),
         data_2d_keys=("values",),
         chance=0.5,
         concurrency=(1, 6),
@@ -324,15 +343,25 @@ class HiCTrackDataset(RayRegionDataset):
         )
         return dataset
 
-    def _add_corigami_dim_shift(self, dataset, batch_size=8, concurrency=6):
+    def _add_corigami_dim_shift(
+        self,
+        dataset,
+        data_1d_keys=(
+            "atac",
+            "ctcf",
+        ),
+        data_2d_keys=("values",),
+        batch_size=8,
+        concurrency=6,
+    ):
         def _dim_shift(data_dict):
             # DNA data shape: (batch_size, channel, seq_len), already in the correct shape
-            # data_dict["dna_one_hot"] = data_dict["dna_one_hot"].swapaxes(1, 2)
-            data_dict["values"] = data_dict["values"][:, 0, :, :]
-            if "bw_values" in data_dict:
-                data_dict["bw_values"] = data_dict["bw_values"][:, 0, :].astype(
-                    np.float32
-                )
+            for feature in data_2d_keys:
+                data_dict[feature] = data_dict[feature][:, 0, :, :]
+
+            for feature in data_1d_keys:
+                if feature in data_dict:
+                    data_dict[feature] = data_dict[feature][:, 0, :].astype(np.float32)
             return data_dict
 
         dataset = dataset.map_batches(
@@ -360,20 +389,45 @@ class HiCTrackDataset(RayRegionDataset):
             chroms=chroms, shuffle_bed=shuffle_bed, bed=_bed
         )
 
-        dataset = self._get_cool_data(dataset, concurrency=(1, max_concurrency))
+        dataset = self._get_cool_data(
+            dataset, concurrency=(1, int(max_concurrency / 2))
+        )
 
-        dataset = self._get_bigwig_data(dataset, concurrency=(1, max_concurrency))
+        if self.atac_paths is not None:
+            dataset = self._get_bigwig_data(
+                dataset,
+                bigwig_paths=self.atac_paths,
+                data_key="atac",
+                concurrency=(1, max_concurrency),
+                norm_mode="log",
+            )
+
+        if self.ctcf_paths is not None:
+            dataset = self._get_bigwig_data(
+                dataset,
+                bigwig_paths=self.ctcf_paths,
+                data_key="ctcf",
+                concurrency=(1, max_concurrency),
+                norm_mode=None,
+            )
 
         dataset = self._get_dna_one_hot(
-            dataset=dataset, dtype="float16", concurrency=(1, max_concurrency)
+            dataset=dataset,
+            dtype="float16",
+            concurrency=(1, max_concurrency),
+            batch_size=8,
         )
 
         if self.dataset_mode == "train":
             dataset = self._add_gaussian_noise(
-                dataset, concurrency=(1, max_concurrency)
+                dataset,
+                data_1d_keys=self.data_1d_keys,
+                concurrency=(1, max_concurrency),
             )
             dataset = self._reverse_comp_hic_data(
-                dataset, concurrency=(1, max_concurrency)
+                dataset,
+                data_1d_keys=self.data_1d_keys,
+                concurrency=(1, max_concurrency),
             )
 
         if self.dna_fifth_channel:
@@ -382,7 +436,9 @@ class HiCTrackDataset(RayRegionDataset):
             # Must do this AFTER the self._reverse_comp_hic_data step, because ACGTN[::-1] -> NACGT is wrong
             dataset = self._add_fifth_dna_channel(dataset, concurrency=max_concurrency)
 
-        dataset = self._add_corigami_dim_shift(dataset, concurrency=max_concurrency)
+        dataset = self._add_corigami_dim_shift(
+            dataset, data_1d_keys=self.data_1d_keys, concurrency=max_concurrency
+        )
 
         if drop_str:
             # in order to set as_torch=True, we need to drop the string columns
