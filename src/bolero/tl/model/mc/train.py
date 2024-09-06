@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import wandb
 
+# from torchsummary import summary
 from bolero.pl.mc import mcExamplePlotter
 from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
@@ -15,9 +16,6 @@ from bolero.tl.generic.train_helper import (
 )
 from bolero.tl.model.mc.dataset import mCplusATACDataset
 from bolero.tl.model.mc.model import MultiTrackmCModel
-
-# from torchsummary import summary
-from matplotlib import pyplot as plt
 
 
 class mCTrainerMixin(GenericTrainer):
@@ -66,12 +64,13 @@ class mCTrainerMixin(GenericTrainer):
     # =============================
     def _setup_model(self):
         raise NotImplementedError
-    
-    #possion loss as in enformer model:
+
     def log_clamp(self, t, eps=1e-6):
+        """Clamp log to avoid log(0)"""
         return torch.log(t.clamp(min=eps))
 
     def poisson_loss(self, pred, target):
+        """Possion loss as in enformer"""
         return (pred - target * self.log_clamp(pred)).mean()
 
     @torch.no_grad()
@@ -150,9 +149,9 @@ class mCTrainerMixin(GenericTrainer):
         self._cleanup_env()
 
         wandb_images = self._plot_example_images(
-            example_batches, 
-            target_key=[f"{self.prefix}_mc_frac","atac_bw_values"], 
-            predict_key=["mc_pred","atac_pred"]
+            example_batches,
+            target_key=[f"{self.prefix}_mc_frac", "atac_bw_values"],
+            predict_key=["mc_pred", "atac_pred"],
         )
         # wandb_images = self._plot_distribution(example_batches, "pred_")
 
@@ -190,9 +189,7 @@ class mCTrainerMixin(GenericTrainer):
             #     bottom_example=2,
             #     plot_channel=0,
             # )
-            plotter = mcExamplePlotter(
-                target_key=target_key, predict_key=predict_key
-            )
+            plotter = mcExamplePlotter(target_key=target_key, predict_key=predict_key)
             fig, _ = plotter.plot_alltrack(
                 batch,
                 figsize=(6, 8),
@@ -216,7 +213,6 @@ class mCTrainerMixin(GenericTrainer):
         return wandb_images
 
     def _plot_distribution(self, example_batches, key):
-
         wandb_images = []
 
         flattened_array = []
@@ -297,7 +293,6 @@ class mCTrainerMixin(GenericTrainer):
         scheduler = self.scheduler
         ema = self.ema
         self.val_loss = None
-
 
         if valid_first:
             print("Perform validation before training.")
@@ -386,8 +381,10 @@ class mCTrainerMixin(GenericTrainer):
                         pred_mc_frac, y_mc_frac
                     )
                     if batch_id == 0:
-                        print(f"c_loss: {c_loss_}, all_loss_: {all_loss_}, a_loss_: {a_loss_}")
-                    weight = torch.tensor([1,10,10]).cuda()
+                        print(
+                            f"c_loss: {c_loss_}, all_loss_: {all_loss_}, a_loss_: {a_loss_}"
+                        )
+                    # weight = torch.tensor([1, 10, 10]).cuda()
                     loss = (c_loss_ + all_loss_ + a_loss_) / self.accumulate_grad
 
                     if np.isnan(loss.item()):
@@ -411,9 +408,6 @@ class mCTrainerMixin(GenericTrainer):
 
                     if ema:
                         ema.update()
-
-                    # if scheduler is not None:
-                    #     scheduler.step()
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
@@ -459,7 +453,6 @@ class mCTrainerMixin(GenericTrainer):
 
             # epoch learning rate scheduling
             if scheduler is not None:
-                # scheduler.step(self.val_loss)
                 scheduler.step()
 
             if stop_flag:
@@ -577,8 +570,10 @@ class mCBaseTrainer(mCTrainerMixin):
         # y
         # ==========
         y_mc_frac = batch[mc_frac_key]
-        y_mc_frac_single = y_mc_frac[:, cell_track, :].unsqueeze(1)  # shape: (batch_size, 1, 1000)
-        y_bw_values = batch[bw_key] # shape: (batch_size, 1, 1000)
+        y_mc_frac_single = y_mc_frac[:, cell_track, :].unsqueeze(
+            1
+        )  # shape: (batch_size, 1, 1000)
+        y_bw_values = batch[bw_key]  # shape: (batch_size, 1, 1000)
 
         # ==========
         # Forward

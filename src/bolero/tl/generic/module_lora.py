@@ -8,6 +8,7 @@ Also video from the LoRA author: https://www.youtube.com/watch?v=DhRoTONcyZE
 """
 
 import math
+import re
 from copy import deepcopy
 from typing import Union
 
@@ -35,6 +36,9 @@ class LoRALayer:
         self.merged = False
         self.merge_weights = merge_weights
 
+        self.lora_A: nn.Parameter
+        self.lora_B: nn.Parameter
+
 
 class LoRAEmbedding(nn.Embedding, LoRALayer):
     # LoRA implemented in a dense layer
@@ -42,7 +46,7 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
         self,
         num_embeddings: int,
         embedding_dim: int,
-        r: int = 0,
+        r: int = 1,
         lora_alpha: int = 1,
         merge_weights: bool = True,
         **kwargs,
@@ -222,129 +226,6 @@ class LoRALinear(nn.Linear, LoRALayer):
         return lora_linear
 
 
-class LoRAConv2d(nn.Module, LoRALayer):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        r=0,
-        lora_alpha=1,
-        lora_dropout=0.0,
-        merge_weights=True,
-        **kwargs,
-    ):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, **kwargs)
-        LoRALayer.__init__(
-            self,
-            r=r,
-            lora_alpha=lora_alpha,
-            lora_dropout=lora_dropout,
-            merge_weights=merge_weights,
-        )
-        assert isinstance(kernel_size, int)
-        # Actual trainable parameters
-        if r > 0:
-            self.lora_A = nn.Parameter(
-                self.conv.weight.new_zeros((r * kernel_size, in_channels * kernel_size))
-            )
-            self.lora_B = nn.Parameter(
-                self.conv.weight.new_zeros(
-                    (out_channels // self.conv.groups * kernel_size, r * kernel_size)
-                )
-            )
-            self.scaling = self.lora_alpha / self.r
-            # Freezing the pre-trained weight matrix
-            self.conv.weight.requires_grad = False
-        self.reset_parameters()
-        self.merged = False
-
-    def reset_parameters(self):
-        """Reset the parameters of the LoRA layer."""
-        self.conv.reset_parameters()
-        if hasattr(self, "lora_A"):
-            # initialize A the same way as the default for nn.Linear and B to zero
-            nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-            nn.init.zeros_(self.lora_B)
-
-    def train(self, mode=True):
-        """Set the training mode of the LoRA layer."""
-        super().train(mode)
-        if mode:
-            if self.merge_weights and self.merged:
-                if self.r > 0:
-                    # Make sure that the weights are not merged
-                    self.conv.weight.data -= (self.lora_B @ self.lora_A).view(
-                        self.conv.weight.shape
-                    ) * self.scaling
-                self.merged = False
-        else:
-            if self.merge_weights and not self.merged:
-                if self.r > 0:
-                    # Merge the weights and mark it
-                    self.conv.weight.data += (self.lora_B @ self.lora_A).view(
-                        self.conv.weight.shape
-                    ) * self.scaling
-                self.merged = True
-
-    def forward(self, x):
-        """Forward pass of the LoRA layer."""
-        if self.r > 0 and not self.merged:
-            return self.conv._conv_forward(
-                x,
-                self.conv.weight
-                + (self.lora_B @ self.lora_A).view(self.conv.weight.shape)
-                * self.scaling,
-                self.conv.bias,
-            )
-        return self.conv(x)
-
-    @classmethod
-    def from_nn(
-        cls,
-        conv2d_module: nn.Conv2d,
-        rank: int = 1,
-        alpha: float = 1,
-        lora_dropout: float = 0.0,
-    ) -> "LoRAConv2d":
-        """
-        Create a LoRAConvND instance from an existing nn.Conv2d module.
-        """
-        assert (
-            isinstance(conv2d_module.kernel_size, int)
-            or len(set(conv2d_module.kernel_size)) == 1
-        ), f"Only square kernels are supported, got {conv2d_module.kernel_size}"
-        kernel_size_int = (
-            conv2d_module.kernel_size[0]
-            if isinstance(conv2d_module.kernel_size, tuple)
-            else conv2d_module.kernel_size
-        )
-
-        lora_conv = cls(
-            in_channels=conv2d_module.in_channels,
-            out_channels=conv2d_module.out_channels,
-            kernel_size=kernel_size_int,
-            r=rank,
-            lora_alpha=alpha,
-            lora_dropout=lora_dropout,
-            merge_weights=True,
-            stride=conv2d_module.stride,
-            padding=conv2d_module.padding,
-            dilation=conv2d_module.dilation,
-            groups=conv2d_module.groups,
-            bias=conv2d_module.bias is not None,
-            device=conv2d_module.weight.device,
-            dtype=conv2d_module.weight.dtype,
-        )
-
-        # Copy the original weight and bias to the new LoRAConv1d instance
-        lora_conv.conv.weight.data = conv2d_module.weight.data.clone()
-        if conv2d_module.bias is not None:
-            lora_conv.conv.bias.data = conv2d_module.bias.data.clone()
-        return lora_conv
-
-
 class LoRAConv(nn.Module, LoRALayer):
     def __init__(
         self,
@@ -352,7 +233,7 @@ class LoRAConv(nn.Module, LoRALayer):
         in_channels,
         out_channels,
         kernel_size,
-        r=0,
+        r=1,
         lora_alpha=1,
         lora_dropout=0.0,
         merge_weights=True,
@@ -476,7 +357,7 @@ class LoRAConv(nn.Module, LoRALayer):
         rank: int = 1,
         alpha: float = 1,
         lora_dropout: float = 0.0,
-    ) -> "LoRAConv2d":
+    ) -> "LoRAConv":
         """
         Create a LoRAConvND instance from an existing nn.Conv1d, nn.Conv2d, or nn.Conv3d module.
         """
@@ -515,7 +396,7 @@ class LoRAConv(nn.Module, LoRALayer):
         return lora_conv
 
 
-def _set_submodule_by_name(
+def set_submodule_by_name(
     model: nn.Module, module_name: str, new_module: nn.Module
 ) -> None:
     """
@@ -578,10 +459,18 @@ def convert_to_lora_model(
 
     Args:
         model (nn.Module): The original PyTorch model.
+        convert_linear (bool): If set to True, nn.Linear modules are replaced.
+            Default is False.
+        convert_conv (bool): If set to True, nn.Conv1d, nn.Conv2d, and nn.Conv3d
+            modules are replaced. Default is False.
         rank (int): The rank for LoRA parameterization.
         alpha (float): The scaling factor for LoRA.
         inplace (bool): If set to True, the original model is modified.
             Default is False.
+        bias_trainable (str): If set to "none", will not make any changes to the bias.
+            If set to "all", all biases are trainable.
+            If set to "lora_only", only LoRA biases are trainable.
+            Default is "none".
 
     Returns
     -------
@@ -603,7 +492,15 @@ def convert_to_lora_model(
     # Update the model with the modified modules
     for name, module, lora_cls in modules_to_modify:
         lora_module = lora_cls.from_nn(module, rank=rank, alpha=alpha)
-        _set_submodule_by_name(model, name, lora_module)
+        set_submodule_by_name(model, name, lora_module)
 
     mark_only_lora_as_trainable(model, bias=bias_trainable)
     return model
+
+
+def name_in_patterns(name, exclude_patterns):
+    """Check if the name matches any of the exclude patterns."""
+    for p in exclude_patterns:
+        if re.search(p, name):
+            return True
+    return False

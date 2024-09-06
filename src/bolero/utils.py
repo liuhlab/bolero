@@ -258,6 +258,7 @@ def init(
     object_store_memory_ratio=0.5,
     _enable_lineage_reconstruction=False,
     _ray_max_errored_blocks=3,
+    _ray_runtime_env=None,
 ):
     """
     Set up the environment for bolero.
@@ -331,7 +332,7 @@ def init(
         _system_config={
             "automatic_object_spilling_enabled": object_spilling,
         },
-        runtime_env={},
+        runtime_env={} if _ray_runtime_env is None else _ray_runtime_env,
         resources={"bolero_dataset_gen": 100, "bolero_100": 100},
     )
 

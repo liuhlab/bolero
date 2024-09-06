@@ -480,9 +480,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     if ema:
                         ema.update()
 
-                    if scheduler is not None:
-                        scheduler.step()
-
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
                     desc_str = (
@@ -530,6 +527,10 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
                 break
+
+            if scheduler is not None:
+                scheduler.step()
+
         self._cleanup_env()
         return
 

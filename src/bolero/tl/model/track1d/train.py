@@ -41,7 +41,7 @@ class Track1DTrainerMixin(GenericTrainer):
         "accumulate_grad": 1,
         "train_batches": 2000,
         "val_batches": 300,
-        "loss_tolerance": 0.0, 
+        "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         # region file
         "region_bed_path": "REQUIRED",
@@ -406,9 +406,6 @@ class Track1DTrainerMixin(GenericTrainer):
                     if ema:
                         ema.update()
 
-                    # if scheduler is not None:
-                    #     scheduler.step()
-
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
                     desc_str = (
@@ -454,7 +451,6 @@ class Track1DTrainerMixin(GenericTrainer):
 
             # epoch learning rate scheduling
             if scheduler is not None:
-                # scheduler.step(self.val_loss)
                 scheduler.step()
 
             if stop_flag:

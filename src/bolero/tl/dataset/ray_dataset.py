@@ -92,6 +92,7 @@ class RayGenomeChunkDataset(GenericDataset):
 
         # get genome and other metadata
         config = joblib.load(f"{dataset_path}/config.joblib")
+        self._ds_config = config
 
         if genome is None:
             genome = config["genome"]
@@ -111,6 +112,13 @@ class RayGenomeChunkDataset(GenericDataset):
         # slot for later processor
         self.signal_columns = set()
         self.dna_column = DNA_NAME
+
+    def get_chroms(self):
+        """Get the chromosomes in the dataset."""
+        chroms = [
+            str(p).split("/")[-1] for p in pathlib.Path(self.dataset_path).glob("chr*")
+        ]
+        return chroms
 
     def _get_chroms_dir(self, chroms):
         if chroms is None:
@@ -389,7 +397,7 @@ class RayRegionDataset(GenericDataset):
         "window_size": None,
         "step": None,
         "standard_length": "REQUIRED",
-        "signal_length": "given", 
+        "signal_length": "given",
         "dna": True,
         "batch_size": "REQUIRED",
     }
@@ -400,7 +408,7 @@ class RayRegionDataset(GenericDataset):
         genome,
         standard_length,
         batch_size,
-        signal_length='given',
+        signal_length="given",
         window_size=None,
         step=None,
         dna=True,

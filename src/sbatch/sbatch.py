@@ -41,7 +41,6 @@ class SlurmManager:
         command: str,
         time: str = "12:00:00",
         partition: str = "gpu",
-        ntasks: int = 1,
         cpus_per_task: int = 32,
         mem_per_cpu: str = "4G",
         gpus: int = 1,
@@ -58,7 +57,6 @@ class SlurmManager:
             "job-name": job_name,
             "time": time,
             "partition": partition,
-            "ntasks": ntasks,
             "cpus-per-task": cpus_per_task,
             "mem-per-cpu": mem_per_cpu,
             "gpus": gpus,
@@ -186,6 +184,7 @@ class SlurmManager:
             # sbatch and get the job id
             # sbatch output is like "Submitted batch job 12345678"
             try:
+                time.sleep(np.random.randint(1, 10))
                 process = subprocess.run(
                     ["sbatch", self._script_path],
                     capture_output=True,

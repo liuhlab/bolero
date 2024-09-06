@@ -7,7 +7,6 @@ from .sbatch import SlurmManager
 @click.option("-n", "--job-name", required=True, help="Job name")
 @click.option("--time", default="12:00:00", help="Time limit", show_default=True)
 @click.option("--partition", default="cpu", help="Partition", show_default=True)
-@click.option("--ntasks", default=1, help="Number of tasks", show_default=True)
 @click.option("--cpus-per-task", default=32, help="CPUs per task", show_default=True)
 @click.option("--mem-per-cpu", default="4G", help="Memory per CPU", show_default=True)
 @click.option("--gpus", default=1, help="gpus", show_default=True)
@@ -28,7 +27,6 @@ def submitter(
     job_name,
     time,
     partition,
-    ntasks,
     cpus_per_task,
     mem_per_cpu,
     gpus,
@@ -47,7 +45,6 @@ def submitter(
         command=" ".join(command),
         time=time,
         partition=partition,
-        ntasks=ntasks,
         cpus_per_task=cpus_per_task,
         mem_per_cpu=mem_per_cpu,
         gpus=gpus,

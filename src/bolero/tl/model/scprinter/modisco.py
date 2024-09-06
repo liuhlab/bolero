@@ -19,13 +19,11 @@ modisco_n = {MODISCO_N}
 jaspar_meme_path = "{JASPAR_MEME_PATH}"
 if jaspar_meme_path == "None":
     jaspar_meme_path = None
-finemo_width=800
 
 rule all:
     input:
         expand("{{sample_dir}}/modisco.h5", sample_dir=sample_dirs),
         expand("{{sample_dir}}/modisco_report/motifs.html", sample_dir=sample_dirs),
-        expand("{{sample_dir}}/finemo_hits/hits.tsv", sample_dir=sample_dirs)
 
 rule modisco:
     input:
@@ -57,6 +55,15 @@ rule modisco_report:
         "-i {{input.modisco_h5_path}} "
         "-o {{params.modisco_report_dir}} "
         "-t {{params.jaspar_meme_path}}"
+"""
+
+FINEMO_PIPELINE_TEMPLATE = """
+sample_dirs = {SAMPLE_DIRS}
+finemo_width=800
+
+rule all:
+    input:
+        expand("{{sample_dir}}/finemo_hits/hits.tsv", sample_dir=sample_dirs)
 
 rule finemo_dump:
     input:
@@ -81,13 +88,15 @@ rule finemo:
         finemo_output_path="{{sample_dir}}/finemo_hits/hits.tsv"
     params:
         output_dir="{{sample_dir}}/finemo_hits"
+    resources:
+        gpu_slots=1
     shell:
         "finemo call-hits "
         "-M pp "
         "-r {{input.finemo_path}} "
         "-m {{input.modisco_h5_path}} "
         "-o {{params.output_dir}} "
-        "-d cpu"
+        "-d cuda"
 """
 
 
@@ -194,8 +203,19 @@ def prepare_modisco_pipeline(
     else:
         print("Snakefile already exists. Skipping writing Snakefile.")
 
+    snakefile_finemo_path = output_dir / "Snakefile_finemo"
+    if not snakefile_finemo_path.exists():
+        pipeline = FINEMO_PIPELINE_TEMPLATE.format(
+            SAMPLE_DIRS=[str(path) for path in sample_dirs],
+        )
+        with open(snakefile_finemo_path, "w") as f:
+            f.write(pipeline)
+    else:
+        print("Snakefile_finemo already exists. Skipping writing Snakefile.")
+
     cmd = f"snakemake -s {snakefile_path} -j {cpu} -d {output_dir} --keep-going"
-    return cmd
+    cmd2 = f"snakemake -s {snakefile_finemo_path} -j {cpu} -d {output_dir} --resources gpu_slots=1 --keep-going"
+    return cmd, cmd2
 
 
 def parse_finemo_results(output_dir):

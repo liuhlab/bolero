@@ -638,8 +638,8 @@ class Genome:
         def _standardize_and_check(regions_bed_df, length):
             # make sure all regions have the same size
             regions_center = (regions_bed_df["Start"] + regions_bed_df["End"]) // 2
-            regions_bed_df["Start"] = regions_center - length // 2
-            regions_bed_df["End"] = regions_center + length // 2
+            regions_bed_df.loc[:, "Start"] = regions_center - length // 2
+            regions_bed_df.loc[:, "End"] = regions_center + length // 2
             # make sure for each chrom, start and end are not out of range
             # only keep regions that are in range
             chrom_sizes = self.chrom_sizes
