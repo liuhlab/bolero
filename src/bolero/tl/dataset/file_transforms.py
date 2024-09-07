@@ -437,14 +437,16 @@ class ReverseCompHicData:
         """
         _bool = np.random.rand(1)
         if _bool < self.chance:
-            for key in self.data_1d_keys:
-                data_dict[key] = np.flip(
-                    data_dict[key], axis=-1
-                )  # -1 flip the sequence
-            for key in self.data_2d_keys:
-                data_dict[key] = np.flip(
-                    data_dict[key], axis=[-1, -2]
-                )  # -1 and -2 both filp the sequence, because the data is 2D
+            if self.data_1d_keys is not None:
+                for key in self.data_1d_keys:
+                    data_dict[key] = np.flip(
+                        data_dict[key], axis=-1
+                    )  # -1 flip the sequence
+            if self.data_2d_keys is not None:
+                for key in self.data_2d_keys:
+                    data_dict[key] = np.flip(
+                        data_dict[key], axis=[-1, -2]
+                    )  # -1 and -2 both filp the sequence, because the data is 2D
             data_dict[self.dna_key] = np.flip(
                 data_dict[self.dna_key], axis=[-1, -2]
             )  # -1 flip the sequence, -2 flip the base pair (complement)

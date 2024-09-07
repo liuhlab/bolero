@@ -28,13 +28,14 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
+        "wandb_name": "REQUIRED",
         "wandb_group": None,
         "max_epochs": 80,
         "patience": 80,
         "use_amp": True,
-        "use_ema": True,
+        "use_ema": False,
         "scheduler": True,
-        "lr": 0.0002,
+        "lr": 0.002,
         "weight_decay": 0,
         "accumulate_grad": 1,
         "std": 0.1,
@@ -142,7 +143,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         # ==========
         # y_hic
         # ==========
-        y = batch["value"]
+        y = batch["values"]
 
         # ==========
         # Forward
@@ -612,6 +613,7 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
+        "wandb_name": "REQUIRED",
         "wandb_group": None,
         "max_epochs": 80,
         "patience": 80,

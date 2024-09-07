@@ -280,7 +280,9 @@ class HiCTrackDataset(RayRegionDataset):
         """
         # Need to update the std when providing different dataset
         fn = AddGaussianNoise
-        data_keys = [dna_key] + list(data_1d_keys)
+        data_keys = (
+            [dna_key] + list(data_1d_keys) if data_1d_keys is not None else [dna_key]
+        )
         fn_constructor_kwargs = {"data_keys": data_keys, "std": std}
         dataset = dataset.map_batches(
             fn=fn,
@@ -359,9 +361,12 @@ class HiCTrackDataset(RayRegionDataset):
             for feature in data_2d_keys:
                 data_dict[feature] = data_dict[feature][:, 0, :, :]
 
-            for feature in data_1d_keys:
-                if feature in data_dict:
-                    data_dict[feature] = data_dict[feature][:, 0, :].astype(np.float32)
+            if data_1d_keys is not None:
+                for feature in data_1d_keys:
+                    if feature in data_dict:
+                        data_dict[feature] = data_dict[feature][:, 0, :].astype(
+                            np.float32
+                        )
             return data_dict
 
         dataset = dataset.map_batches(
