@@ -113,7 +113,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         import pl_bolts
 
         scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
-            optimizer, warmup_epochs=10, max_epochs=self.config["max_epochs"]
+            optimizer, warmup_epochs=10, max_epochs=200
         )
         return scheduler
 
@@ -303,6 +303,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             wandb.log(
                 {
                     "train/train_loss": train_loss,
+                    "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
                     "val/early_stopping_counter": self.early_stopping_counter,
@@ -449,6 +450,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
+                    optimizer.zero_grad()
                     y, pred_y = self._model_forward_pass(self.model, batch)
                     loss = F.mse_loss(pred_y, y)
                     loss = loss / self.accumulate_grad
@@ -473,18 +475,20 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         optimizer
                     )  # Unscale gradients for clipping without inf/nan gradients affecting the model
 
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1)
                     scaler.step(optimizer)
                     scaler.update()
-                    optimizer.zero_grad()
 
                     if ema:
                         ema.update()
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
+                    _cur_lr = optimizer.param_groups[0]["lr"]
                     desc_str = (
                         f" - (Training) {self.cur_epoch} {batch_id} "
                         f"Loss: {_loss:.4f} "
+                        f"Learning rate: {_cur_lr:.4f}"
                     )
 
                     if _loss > (cur_loss + 0.5):
@@ -498,6 +502,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
                     cur_loss = _loss
                     print(desc_str)
+            if scheduler is not None:
+                scheduler.step()
 
             del dataloader
             self._cleanup_env()
@@ -507,6 +513,12 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
             self.train_loss = moving_avg_loss / (batch_id + 1)
             self.cur_lr = optimizer.param_groups[0]["lr"]
+            print(
+                f" - (Training) {self.cur_epoch} Learning rate from optimizer: {self.cur_lr:.3f}"
+            )
+            print(
+                f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
+            )
 
             (
                 self.val_loss,
@@ -620,6 +632,9 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
     }
     dataset_class = HiCTrackDataset
     model_class = ConvTransModel
+
+    def __init__(self, config):
+        super().__init__(config)
 
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         # ==========

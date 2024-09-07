@@ -112,19 +112,19 @@ class HicExamplePlotter(Track1DExamplePlotter):
         mpl.rcParams["ps.fonttype"] = 42
 
         nrows = int(top_example + bottom_example)
-        fig, axes = plt.subplots(nrows=nrows, ncols=4, figsize=figsize, dpi=dpi)
+        fig, axes = plt.subplots(nrows=nrows, ncols=2, figsize=figsize, dpi=dpi)
         target_data, predict_data, corr_data, mse_data = self._select_example_by_corr(
             batch, top_example, bottom_example, plot_channel
         )
         for i, (target, predict, corr, mse) in enumerate(
             zip(target_data, predict_data, corr_data, mse_data)
         ):
-            normalized_target = self._diagonal_normalization(target)
-            normalized_predict = self._diagonal_normalization(predict)
+            # normalized_target = self._diagonal_normalization(target)
+            # normalized_predict = self._diagonal_normalization(predict)
             color_map = LinearSegmentedColormap.from_list(
                 "bright_red", [(1, 1, 1), (1, 0, 0)]
             )
-            base = int(i * 4)
+            base = int(i * 2)
             ax = axes.flatten()[base]
             ax.imshow(target, cmap=color_map, vmin=0, vmax=5)
             ax.set_title(f"Target - Corr: {corr:.2f}, MSE: {mse:.2f}")
@@ -148,30 +148,6 @@ class HicExamplePlotter(Track1DExamplePlotter):
                 ha="left",
                 va="top",
                 transform=ax_2.transAxes,
-            )
-            ax_3 = axes.flatten()[base + 2]
-            ax_3.imshow(normalized_target, cmap=color_map, vmin=-2, vmax=2)
-            ax_3.set_title(f"Diagonal Norm Target - Corr: {corr:.2f}, MSE: {mse:.2f}")
-            ax_3.text(
-                0.01,
-                0.99,
-                f"Min: {np.min(normalized_target):.2f}\nMax: {np.max(normalized_target):.2f}",
-                color="black",
-                ha="left",
-                va="top",
-                transform=ax_3.transAxes,
-            )
-            ax_4 = axes.flatten()[base + 3]
-            ax_4.imshow(normalized_predict, cmap=color_map, vmin=-2, vmax=2)
-            ax_4.set_title(f"Diagonal Norm Predict - Corr: {corr:.2f}, MSE: {mse:.2f}")
-            ax_4.text(
-                0.01,
-                0.99,
-                f"Min: {np.min(normalized_predict):.2f}\nMax: {np.max(normalized_predict):.2f}",
-                color="black",
-                ha="left",
-                va="top",
-                transform=ax_4.transAxes,
             )
         plt.tight_layout()
         return fig, axes

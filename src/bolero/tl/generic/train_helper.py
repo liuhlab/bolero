@@ -29,7 +29,7 @@ hg38_splits[0] = {
         "chr19",
         "chr21",
         "chr22",
-        "chrX",
+        # "chrX",
         # "chrY",
     ],
 }
@@ -239,6 +239,36 @@ mm10_splits[4] = {
         "chr17",
         "chr19",
         "chrX",
+    ],
+}
+
+corigami_hg38_splits = [None]
+corigami_hg38_splits[0] = {
+    "test": [
+        "chr15",
+    ],
+    "valid": ["chr10"],
+    "train": [
+        "chr1",
+        "chr2",
+        "chr3",
+        "chr4",
+        "chr5",
+        "chr6",
+        "chr7",
+        "chr8",
+        "chr9",
+        "chr11",
+        "chr12",
+        "chr13",
+        "chr14",
+        "chr16",
+        "chr17",
+        "chr18",
+        "chr19",
+        "chr20",
+        "chr21",
+        "chr22",
     ],
 }
 
@@ -579,7 +609,21 @@ def compare_configs(config1, config2):
             return True
         if isinstance(value, list):
             return all(isinstance(item, (int, float, str)) for item in value)
+        if isinstance(value, tuple):
+            return all(isinstance(item, (int, float, str)) for item in value)
+        if isinstance(value, dict):
+            return all(
+                isinstance(item, (int, float, str, list)) for item in value.values()
+            ) and all(isinstance(key, str) for key in value.keys())
         return False
+
+    def _is_equal(value1, value2):
+        """Check if two values are equal."""
+        if isinstance(value1, list) and isinstance(value2, list):
+            return value1.sort() == value2.sort()
+        if isinstance(value1, tuple) or isinstance(value2, tuple):
+            return list(value1) == list(value2)
+        return value1 == value2
 
     # Extract keys from both dictionaries considering only supported value types
     keys1 = {key for key, value in config1.items() if _is_valid_value(value)}
@@ -595,10 +639,7 @@ def compare_configs(config1, config2):
         value2 = config2[key]
 
         # Check for list to handle potential unordered elements
-        if isinstance(value1, list) and isinstance(value2, list):
-            if value1 != value2:
-                return False
-        elif value1 != value2:
+        if not _is_equal(value1, value2):
             return False
     return True
 

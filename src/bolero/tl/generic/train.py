@@ -253,7 +253,7 @@ class TrainerDatasetMixin:
                 region_bed_path=self.config["region_bed_path"],
                 n_batches=batches,
             )
-            return dataloader
+        return dataloader
 
 
 class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
@@ -309,8 +309,8 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.cur_epoch: int = 0
         self.early_stopping_counter: int = 0
         self.best_val_loss: float = np.Inf
-        self.train_batches: int = None
-        self.val_batches: int = None
+        self.train_batches: int = self.config["train_batches"]
+        self.val_batches: int = self.config["val_batches"]
 
         # path and file names
         self.output_dir = pathlib.Path(config["output_dir"]).absolute().resolve()

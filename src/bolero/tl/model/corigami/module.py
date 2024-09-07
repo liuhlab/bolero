@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
+
 
 class ConvBlock(nn.Module):
     def __init__(self, size, stride=2, hidden_in=64, hidden=64):
@@ -23,16 +25,28 @@ class ConvBlock(nn.Module):
         )
         self.relu = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         It consists of three components
         - Scaling
         - Residual
         - ReLU
         """
-        scaled = self.scale(x)
+        scaled = x
+        for module in self.scale:
+            if isinstance(module, ConditionalLoRALayer):
+                scaled = module(scaled, *args, **kwargs)
+            else:
+                scaled = module(scaled)
         identity = scaled
-        res_out = self.res(scaled)
+
+        res_out = scaled
+        for module in self.res:
+            if isinstance(module, ConditionalLoRALayer):
+                res_out = module(res_out, *args, **kwargs)
+            else:
+                res_out = module(res_out)
+
         out = self.relu(res_out + identity)
         return out
 
@@ -109,17 +123,37 @@ class EncoderSplit(nn.Module):
         self.conv_end = nn.Conv1d(256, output_size, 1)
         self.in_channel = in_channel
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         Concatenate the dna seq with epigenomic features
         """
         seq = x[:, : self.in_channel, :]
         epi = x[:, self.in_channel :, :]
-        seq = self.res_blocks_seq(self.conv_start_seq(seq))
-        epi = self.res_blocks_epi(self.conv_start_epi(epi))
+
+        for module in self.conv_start_seq:
+            if isinstance(module, ConditionalLoRALayer):
+                seq = module(seq, *args, **kwargs)
+            else:
+                seq = module(seq)
+
+        for module in self.conv_start_epi:
+            if isinstance(module, ConditionalLoRALayer):
+                epi = module(epi, *args, **kwargs)
+            else:
+                epi = module(epi)
+
+        for block in self.res_blocks_seq:
+            seq = block(seq, *args, **kwargs)
+
+        for block in self.res_blocks_epi:
+            epi = block(epi, *args, **kwargs)
 
         x = torch.cat([seq, epi], dim=1)
-        out = self.conv_end(x)
+
+        if isinstance(self.conv_end, ConditionalLoRALayer):
+            out = self.conv_end(x, *args, **kwargs)
+        else:
+            out = self.conv_end(x)
         return out
 
     def get_res_blocks(self, n, his, hs):
@@ -149,12 +183,19 @@ class ResBlockDilated(nn.Module):
         )
         self.relu = nn.ReLU()
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         The forward pass for residual blocks
         """
         identity = x
-        res_out = self.res(x)
+
+        res_out = x
+        for module in self.res:
+            if isinstance(module, ConditionalLoRALayer):
+                res_out = module(res_out, *args, **kwargs)
+            else:
+                res_out = module(res_out)
+
         out = self.relu(res_out + identity)
         return out
 
@@ -175,16 +216,26 @@ class Decoder(nn.Module):
         self.res_blocks = self.get_res_blocks(num_blocks, hidden)
         self.conv_end = nn.Conv2d(hidden, 1, 1)
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         It consists of three components
         - Convolutional start
         - Residual blocks
         - Convolutional end
         """
-        x = self.conv_start(x)
-        x = self.res_blocks(x)
-        out = self.conv_end(x)
+        for module in self.conv_start:
+            if isinstance(module, ConditionalLoRALayer):
+                x = module(x, *args, **kwargs)
+            else:
+                x = module(x)
+
+        for block in self.res_blocks:
+            x = block(x, *args, **kwargs)
+
+        if isinstance(self.conv_end, ConditionalLoRALayer):
+            out = self.conv_end(x, *args, **kwargs)
+        else:
+            out = self.conv_end(x)
         return out
 
     def get_res_blocks(self, n, hidden):
@@ -204,11 +255,13 @@ class Decoder(nn.Module):
 class TransformerLayer(torch.nn.TransformerEncoderLayer):
     # Pre-LN structure
 
-    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+    def forward(self, src, src_mask=None, src_key_padding_mask=None, *args, **kwargs):
         """
         The forward pass of the TransformerLayer
         """
         # MHA section
+        # The MHA implementation in pytorch does not use nn.Linear for q, k, v projection,
+        # it will not contain subclass of LoRALayer.
         src_norm = self.norm1(src)
         src_side, attn_weights = self.self_attn(
             src_norm,
@@ -221,7 +274,18 @@ class TransformerLayer(torch.nn.TransformerEncoderLayer):
 
         # MLP section
         src_norm = self.norm2(src)
-        src_side = self.linear2(self.dropout(self.activation(self.linear1(src_norm))))
+
+        if isinstance(self.linear1, ConditionalLoRALayer):
+            src_norm = self.linear1(src_norm, *args, **kwargs)
+        else:
+            src_norm = self.linear1(src_norm)
+        src_norm = self.dropout(self.activation(src_norm))
+
+        if isinstance(self.linear2, ConditionalLoRALayer):
+            src_side = self.linear2(src_norm, *args, **kwargs)
+        else:
+            src_side = self.linear2(src_norm)
+
         src = src + self.dropout2(src_side)
         return src, attn_weights
 
@@ -237,7 +301,7 @@ class TransformerEncoder(torch.nn.TransformerEncoder):
         self.norm = norm
         self.record_attn = record_attn
 
-    def forward(self, src, mask=None, src_key_padding_mask=None):
+    def forward(self, src, *args, mask=None, src_key_padding_mask=None, **kwargs):
         """
         Pass the input through the encoder layers in turn.
 
@@ -255,7 +319,11 @@ class TransformerEncoder(torch.nn.TransformerEncoder):
 
         for mod in self.layers:
             output, attn_weights = mod(
-                output, src_mask=mask, src_key_padding_mask=src_key_padding_mask
+                output,
+                *args,
+                src_mask=mask,
+                src_key_padding_mask=src_key_padding_mask,
+                **kwargs,
             )
             attn_weight_list.append(attn_weights.unsqueeze(0).detach())
         if self.norm is not None:
@@ -309,16 +377,16 @@ class AttnModule(nn.Module):
             encoder_layers, layers, record_attn=record_attn
         )
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         The forward pass of attention module
         """
         x = self.pos_encoder(x)
-        output = self.module(x)
+        output = self.module(x, *args, **kwargs)
         return output
 
-    def inference(self, x):
+    def inference(self, x, *args, **kwargs):
         """
         Inference the attention module
         """
-        return self.module(x)
+        return self.module(x, *args, **kwargs)

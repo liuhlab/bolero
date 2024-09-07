@@ -413,7 +413,7 @@ class HiCTrackDataset(RayRegionDataset):
 
         dataset = self._get_dna_one_hot(
             dataset=dataset,
-            dtype="float16",
+            dtype="float32",
             concurrency=(1, max_concurrency),
             batch_size=8,
         )
@@ -427,7 +427,7 @@ class HiCTrackDataset(RayRegionDataset):
             dataset = self._reverse_comp_hic_data(
                 dataset,
                 data_1d_keys=self.data_1d_keys,
-                concurrency=(1, max_concurrency),
+                concurrency=(1, int(max_concurrency / 2)),
             )
 
         if self.dna_fifth_channel:

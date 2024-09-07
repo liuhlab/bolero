@@ -263,22 +263,22 @@ class ConvTransModel(ConvModel):
         radius = (x.shape[-1] - self.image_scale) // 2
         return x[:, :, radius:-radius]
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         Input feature:
-        batch_size, length * res, feature_dim
+        batch_size, feature_dim, length
         """
-        x = self.encoder(x)
+        x = self.encoder(x, *args, **kwargs)
         if x.shape[-1] > self.image_scale:
             x = self.trim_encoder_output(x)
         x = self.move_feature_forward(x)
         if self.record_attn:
-            x, attn_weights = self.attn(x)
+            x, attn_weights = self.attn(x, *args, **kwargs)
         else:
-            x = self.attn(x)
+            x = self.attn(x, *args, **kwargs)
         x = self.move_feature_forward(x)
         x = self.diagonalize(x)
-        x = self.decoder(x).squeeze(1)
+        x = self.decoder(x, *args, **kwargs).squeeze(1)
         if self.record_attn:
             return x, attn_weights
         else:

@@ -20,6 +20,8 @@ from torch.nn import functional as F
 from bolero.tl.generic.module import GroupedLinear
 
 from .module_lora import (
+    LoRAConv,
+    LoRALinear,
     mark_only_lora_as_trainable,
     name_in_patterns,
     set_submodule_by_name,
@@ -538,11 +540,15 @@ def convert_to_conditional_lora_model(
     convert_conv=False,
     rank=1,
     alpha=1,
+    lora_dropout=0.0,
     inplace=False,
     bias_trainable="none",
     verbose=False,
     include_name_patterns: list = None,
     exclude_name_patterns: list = None,
+    default_conditional: bool = True,
+    include_cond_lora_patterns: list = None,
+    exclude_cond_lora_patterns: list = None,
 ):
     """
     Replace all pytorch modules (parent class of the lora class)
@@ -550,18 +556,36 @@ def convert_to_conditional_lora_model(
 
     Args:
         model (nn.Module): The original PyTorch model.
+        emb_input_features (int): The number of input features for the embedding.
+        hidden_dim (int): The number of hidden dimensions in the MLP.
+        hidden_layers (int): The number of hidden layers in the MLP. Default is 0.
+        output_layer_groups (int): The number of groups in the output layer. Default is 1.
         convert_linear (bool): If set to True, nn.Linear modules are replaced.
             Default is False.
         convert_conv (bool): If set to True, nn.Conv1d, nn.Conv2d, and nn.Conv3d
             modules are replaced. Default is False.
         rank (int): The rank for LoRA parameterization.
         alpha (float): The scaling factor for LoRA.
+        lora_dropout (float): The dropout rate for LoRA input.
         inplace (bool): If set to True, the original model is modified.
             Default is False.
         bias_trainable (str): If set to "none", will not make any changes to the bias.
             If set to "all", all biases are trainable.
             If set to "lora_only", only LoRA biases are trainable.
             Default is "none".
+        verbose (bool): If set to True, print the conversion process.
+            Default is False.
+        include_name_patterns (list): A list of patterns to include in the LoRA conversion.
+            Default is None.
+        exclude_name_patterns (list): A list of patterns to exclude from the LoRA conversion.
+            Default is None.
+        default_conditional (bool): Whether use conditional LoRA conversion for names not matching
+            include_cond_lora_patterns OR exclude_cond_lora_patterns.
+            Default is True.
+        include_cond_lora_patterns (list): A list of patterns to include in the conditional LoRA conversion.
+            Default is ('.+',), which means all LoRA layers will be conditional.
+        exclude_cond_lora_patterns (list): A list of patterns to exclude from the conditional LoRA conversion.
+            Default is None.
 
     Returns
     -------
@@ -574,6 +598,10 @@ def convert_to_conditional_lora_model(
         exclude_name_patterns = []
     if include_name_patterns is None:
         include_name_patterns = []
+    if exclude_cond_lora_patterns is None:
+        exclude_cond_lora_patterns = []
+    if include_cond_lora_patterns is None:
+        include_cond_lora_patterns = []
 
     # Create a list of modules to modify
     modules_to_modify = []
@@ -585,26 +613,45 @@ def convert_to_conditional_lora_model(
             if not name_in_patterns(name, include_name_patterns):
                 continue
 
+        conditional = default_conditional
+        if name_in_patterns(name, include_cond_lora_patterns):
+            conditional = True
+        if name_in_patterns(name, exclude_cond_lora_patterns):
+            conditional = False
+
         if isinstance(module, nn.Linear) and convert_linear:
-            modules_to_modify.append((name, module, ConditionalLoRALinear))
+            lora_cls = ConditionalLoRALinear if conditional else LoRALinear
+            modules_to_modify.append((name, module, lora_cls))
         elif isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)) and convert_conv:
-            modules_to_modify.append((name, module, ConditionalLoRAConv))
+            lora_cls = ConditionalLoRAConv if conditional else LoRAConv
+            modules_to_modify.append((name, module, lora_cls))
         else:
             pass
 
     # Update the model with the modified modules
     for name, module, lora_cls in modules_to_modify:
-        lora_module = lora_cls.from_nn(
-            module,
-            rank=rank,
-            alpha=alpha,
-            emb_input_features=emb_input_features,
-            hidden_dim=hidden_dim,
-            hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
-        )
+        if issubclass(lora_cls, ConditionalLoRALayer):
+            lora_module = lora_cls.from_nn(
+                module,
+                rank=rank,
+                alpha=alpha,
+                lora_dropout=lora_dropout,
+                emb_input_features=emb_input_features,
+                hidden_dim=hidden_dim,
+                hidden_layers=hidden_layers,
+                output_layer_groups=output_layer_groups,
+            )
+        else:
+            lora_module = lora_cls.from_nn(
+                module,
+                rank=rank,
+                alpha=alpha,
+                lora_dropout=lora_dropout,
+            )
         if verbose:
-            print(f"Converting {name} {type(module)} to LoRA module")
+            print(
+                f"Converting '{name}' <{type(module).__name__}> to <{lora_cls.__name__}> module"
+            )
         set_submodule_by_name(model, name, lora_module)
 
     mark_only_lora_as_trainable(model, bias=bias_trainable)

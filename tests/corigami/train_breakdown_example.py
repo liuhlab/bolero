@@ -6,7 +6,7 @@ from skimage.transform import resize
 import torch
 import torch.nn.functional as F
 
-from bolero import hg38_splits
+from bolero.tl.generic.train_helper import hg38_splits
 from bolero.tl.model.corigami.train import CorigamiTrainer
 # %%
 # Set up
@@ -27,8 +27,8 @@ leg
 # %%
 # bw_paths = [f'/large_experiments/zhoulab/hanliu/wmb/Li2023Science/old_annot/bigwig/{ct}.bw' for ct in leg]
 # assert all([pathlib.Path(p).exists() for p in bw_paths])
-atac_paths = ['/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/atac.bw']
-ctcf_paths = ['/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/ctcf_log2fc.bw']
+atac_paths = ['/large_storage/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/atac.bw']
+ctcf_paths = ['/large_storage/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/genomic_features/ctcf_log2fc.bw']
 
 # %%
 config = {
@@ -42,7 +42,7 @@ config = {
     "batch_size": 8,
     "window_size": 2097152,
     "step": 40000,
-    "bed": '/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/train.bed',
+    "bed": '/large_storage/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/train.bed',
     "standard_length": 2097152,
     "dna_fifth_channel": True,
     "data_1d_keys": ("atac", "ctcf",),
@@ -61,7 +61,7 @@ config = {
     "lr": 0.002,
     "use_ema": True,
     # save data
-    "output_dir": "corigami_result",
+    "output_dir": "/large_storage/zhoulab/yishuang/project/bolero/tests/corigami/corigami_result",
     "wandb_project": "corigami_result",
     "wandb_job_type": "train",
     "wandb_group": None,
@@ -193,6 +193,8 @@ checkpoint = torch.load("corigami_base.ckpt", map_location=torch.device('cuda'))
 trainer._setup_model()
 model = trainer.model
 model.to(trainer.device)
+# %%
+model.eval()
 model_weights = checkpoint['state_dict']
 for key in list(model_weights):
     model_weights[key.replace('model.', '')] = model_weights.pop(key)
@@ -209,7 +211,6 @@ model.load_state_dict(model_weights)
 
 
 # %%
-model.eval()
 dataset = trainer.dataset
 dataset.eval()
 dataloader = dataset.get_dataloader(chroms=hg38_splits[0]['valid'])
