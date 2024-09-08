@@ -50,7 +50,8 @@ class EmbeddingMLP(nn.Module):
             output_features (int): The number of output features, usually the number of parameters in the LoRA A or B matrix.
             hidden_dim (int): The number of hidden dimensions in the MLP.
             hidden_layers (int): The number of hidden layers in the MLP. Default is 0.
-            output_layer_groups (int): The number of groups in the output layer. Default is 1. If set to more than 1, the output layer will be a GroupedLinear layer to reduce the number of parameters.
+            output_layer_groups (int): The number of groups in the output layer. Default is 1.
+                If set to more than 1, the output layer will be a GroupedLinear layer to reduce the number of parameters.
         """
         super().__init__()
 
@@ -86,18 +87,40 @@ class EmbeddingMLP(nn.Module):
         self.mlp = nn.Sequential(*layers)
         self.rescale_factor = nn.Parameter(torch.tensor(1.0), requires_grad=False)
 
-    def forward(self, embedding: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, embedding: torch.Tensor, emb_weights: torch.Tensor = None
+    ) -> torch.Tensor:
         """
         Forward pass of the EmbeddingMLP module.
 
         Args:
             embedding (torch.Tensor): The input embedding tensor.
+                If the input tensor is 2D, it is assumed to be (bs, emb_dim).
+                If the input tensor is 3D, it is assumed to be (bs, seq_len, emb_dim).
+            emb_weights (torch.Tensor): The embedding weights tensor.
+                Only applicable for 3D input tensor, where the final weights will be weighted sum across the sequence length dimension.
+                it is assumed to be (bs, seq_len).
+                If None, the output will be the mean across the sequence length dimension.
 
         Returns
         -------
             torch.Tensor: The output tensor after passing through the MLP layers.
         """
+        ndim = embedding.ndim
+        bs = embedding.shape[0]
+        if ndim == 3:
+            # expect input shape (bs, seq_len, emb_dim)
+            embedding = rearrange(embedding, "bs l d -> (bs l) d")
+
         x = self.mlp(embedding * self.rescale_factor)
+
+        if ndim == 3:
+            x = rearrange(x, "(bs l) d -> bs l d", bs=bs)
+            if emb_weights is None:
+                x = x.mean(dim=1)
+            else:
+                emb_weights = F.softmax(emb_weights, dim=1)
+                x = einsum(x, emb_weights, "bs l d, bs l -> bs d")
 
         a, b = self.output_shape
         x = rearrange(x, "bs (a b) -> bs a b", a=a, b=b)
@@ -409,8 +432,12 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
         weights = rearrange(base_weights + lora_weights, "b o i k -> (b o) i k")
 
+        b = x.shape[0]
         x = rearrange(x, "b i l -> 1 (b i) l")
-        return x, weights
+
+        f_conv = F.conv1d
+        revert_x = lambda x: rearrange(x, "1 (b i) l -> b i l", b=b)
+        return x, weights, f_conv, revert_x
 
     def _prepare_conv2d_lora(self, x, *args, **kwargs) -> torch.Tensor:
         """
@@ -435,8 +462,12 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
         weights = rearrange(base_weights + lora_weights, "b o i k1 k2 -> (b o) i k1 k2")
 
+        b = x.shape[0]
         x = rearrange(x, "b i h w -> 1 (b i) h w")
-        return x, weights
+
+        f_conv = F.conv2d
+        revert_x = lambda x: rearrange(x, "1 (b i) h w -> b i h w", b=b)
+        return x, weights, f_conv, revert_x
 
     def _prepare_conv3d_lora(self, *args, **kwargs):
         raise NotImplementedError
@@ -446,17 +477,17 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         bs = x.shape[0]
 
         if self.conv_type == "1d":
-            x, lora_weights = self._prepare_conv1d_lora(x, *args, **kwargs)
-            f_conv = F.conv1d
-            revert_x = lambda x: rearrange(x, "1 (b i) l -> b i l", b=bs)
+            x, lora_weights, f_conv, revert_x = self._prepare_conv1d_lora(
+                x, *args, **kwargs
+            )
         elif self.conv_type == "2d":
-            x, lora_weights = self._prepare_conv2d_lora(x, *args, **kwargs)
-            f_conv = F.conv2d
-            revert_x = lambda x: rearrange(x, "1 (b i) h w -> b i h w", b=bs)
+            x, lora_weights, f_conv, revert_x = self._prepare_conv2d_lora(
+                x, *args, **kwargs
+            )
         elif self.conv_type == "3d":
-            x, lora_weights = self._prepare_conv3d_lora(x, *args, **kwargs)
-            f_conv = F.conv3d
-            revert_x = lambda x: rearrange(x, "1 (b i) d h w -> b i d h w", b=bs)
+            x, lora_weights, f_conv, revert_x = self._prepare_conv3d_lora(
+                x, *args, **kwargs
+            )
         else:
             raise ValueError(f"Unsupported convolution module class {self.conv_type}")
 
@@ -467,7 +498,11 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         conv_x = f_conv(
             input=x,
             weight=lora_weights,
-            bias=repeat(self.conv.bias, "o -> (bs o)", bs=bs),
+            bias=(
+                repeat(self.conv.bias, "o -> (bs o)", bs=bs)
+                if self.conv.bias is not None
+                else None
+            ),
             groups=bs * self.groups,  # each batch_size is a group
             dilation=self.conv.dilation,
             padding=self.conv.padding,
