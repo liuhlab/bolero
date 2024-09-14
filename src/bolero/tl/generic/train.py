@@ -267,6 +267,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "wandb_project": "REQUIRED",
         "wandb_job_type": "REQUIRED",
         "wandb_group": None,
+        "wandb_name": None,
         "max_epochs": "REQUIRED",
         "patience": "REQUIRED",
         "use_amp": True,

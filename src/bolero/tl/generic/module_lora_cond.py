@@ -17,7 +17,7 @@ import torch.nn as nn
 from einops import einsum, rearrange, repeat
 from torch.nn import functional as F
 
-from bolero.tl.generic.module import GroupedLinear
+from bolero.tl.generic.module import Conv1dWrapper, GroupedLinear
 
 from .module_lora import (
     LoRAConv,
@@ -657,7 +657,10 @@ def convert_to_conditional_lora_model(
         if isinstance(module, nn.Linear) and convert_linear:
             lora_cls = ConditionalLoRALinear if conditional else LoRALinear
             modules_to_modify.append((name, module, lora_cls))
-        elif isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)) and convert_conv:
+        elif (
+            isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d, Conv1dWrapper))
+            and convert_conv
+        ):
             lora_cls = ConditionalLoRAConv if conditional else LoRAConv
             modules_to_modify.append((name, module, lora_cls))
         else:

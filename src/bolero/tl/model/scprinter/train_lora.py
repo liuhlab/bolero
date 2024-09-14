@@ -38,6 +38,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
 
     dataset_class = scPrinterDataset
     model_class = scFootprintBPNetLoRA
+    pseudobulk_class = PredefinedPseudobulkGenerator
 
     def _setup_pretrain_model_for_adjust_output(self):
         pretrain_model_path = self.config["pretrained_model"]
@@ -116,7 +117,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         }
         dataset.add_pseudobulker(
             name=self.config["prefix"],
-            cls=PredefinedPseudobulkGenerator,
+            cls=self.pseudobulk_class,
             pseudobulker_kwargs=pseudobulker_params,
         )
         # save pseudobulker scaler and example pseudobulk embedding

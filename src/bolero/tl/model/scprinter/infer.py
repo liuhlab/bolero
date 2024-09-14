@@ -671,13 +671,14 @@ class scPrinterPseudobulkInferencer:
         -------
             ray.data.Dataset: The transformed dataset.
         """
-        output_path = pathlib.Path(output_path).absolute().resolve()
-        output_path.mkdir(parents=True, exist_ok=True)
+        if output_path is not None:
+            output_path = pathlib.Path(output_path).absolute().resolve()
+            output_path.mkdir(parents=True, exist_ok=True)
 
-        success_flag = output_path / ".success"
-        if success_flag.exists():
-            print(f"Output path has success flag {output_path}/.success. Skipping.")
-            return
+            success_flag = output_path / ".success"
+            if success_flag.exists():
+                print(f"Output path has success flag {output_path}/.success. Skipping.")
+                return
 
         _config = self.infer_config.copy()
         _config["model"] = self.model.get_collapsed_model(collapse_key)
@@ -686,7 +687,7 @@ class scPrinterPseudobulkInferencer:
         # if footprint_attr, coverage_attr or attr_tfbs needed, run the attribution on a sample to estimate the attr normalization
         # save the normalization value in output_path
         if any([footprint_attr, coverage_attr, attr_tfbs]):
-            self._prerun_transform(
+            dataset = self._prerun_transform(
                 inferencer=inferencer,
                 output_path=output_path,
                 bed_path=bed_path,
@@ -699,7 +700,7 @@ class scPrinterPseudobulkInferencer:
             for chunk_id, chunk_start in enumerate(range(0, bed.shape[0], _chunk_size)):
                 _bed = bed.iloc[chunk_start : chunk_start + _chunk_size]
                 _chunk_output_path = output_path / f"chunk_{chunk_id}"
-                inferencer.transform(
+                dataset = inferencer.transform(
                     _bed,
                     output_path=_chunk_output_path,
                     _pre_run=False,
@@ -712,7 +713,7 @@ class scPrinterPseudobulkInferencer:
                     **write_parquet_kwargs,
                 )
         else:
-            inferencer.transform(
+            dataset = inferencer.transform(
                 bed,
                 output_path=output_path,
                 _pre_run=False,
@@ -725,8 +726,9 @@ class scPrinterPseudobulkInferencer:
                 **write_parquet_kwargs,
             )
 
-        success_flag.touch()
-        return
+        if output_path is not None:
+            success_flag.touch()
+        return dataset
 
     @staticmethod
     def _prerun_transform(

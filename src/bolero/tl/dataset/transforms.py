@@ -329,6 +329,7 @@ class FetchRegionOneHot:
         region_key: str = "region",
         output_key: str = "dna_one_hot",
         dtype: str = "float32",
+        random_shift: bool = 0,
     ) -> None:
         """
         Initialize the FetchRegionOneHot transform.
@@ -341,11 +342,15 @@ class FetchRegionOneHot:
             The key to store the one-hot encoded DNA in the data dictionary. Defaults to "dna_one_hot".
         dtype : str, optional
             The data type of the one-hot encoded DNA. Defaults to "float32".
+        random_shift : bool, optional
+            Whether to randomly shift the DNA sequence. Defaults to False.
+            Borzoi model uses this to randomly shift the DNA sequence. Other models should allways set to 0
 
         """
         self.region_key = region_key
         self.output_key = output_key
         self.dtype = dtype
+        self.random_shift = random_shift
 
     def __call__(self, data: dict, remote_genome_one_hot) -> dict:
         """
@@ -360,10 +365,21 @@ class FetchRegionOneHot:
         -------
         dict
             The modified data dictionary with the one-hot encoded DNA.
+            DNA one-hot shape: (batch, channel, length)
         """
         genome_one_hot = ray.get(remote_genome_one_hot)
         # shape: (batch, length, channel)
-        one_hot = genome_one_hot.get_regions_one_hot(data[self.region_key])
+        region = data[self.region_key]
+
+        if self.random_shift > 0:
+            shift = np.random.randint(-self.random_shift, self.random_shift + 1)
+            chrom, coords = region.split(":")
+            start, end = map(int, coords.split("-"))
+            start += shift
+            end += shift
+            region = f"{chrom}:{start}-{end}"
+
+        one_hot = genome_one_hot.get_regions_one_hot(region)
         # change to (batch, channel, length)
         data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
         return data

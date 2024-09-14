@@ -30,7 +30,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from bolero.tl.generic.module import DNA_CNN, Conv1dWrapper, DilatedCNN
+from bolero.tl.generic.module import (
+    DNA_CNN,
+    Conv1dWrapper,
+    DilatedCNN,
+    DiscreteKeyValueBottleneckNoVQ,
+)
 from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, FootprintsHead
 from bolero.utils import validate_config
 
@@ -169,6 +174,11 @@ class scFootprintBPNetLoRA(nn.Module):
         "lora_hidden_dim": None,
         "lora_output_layer_groups": 1,
         "no_over_rank": False,
+        "kv_bottleneck": False,
+        "num_memories": 256,
+        "dim_memory": 64,
+        "num_memory_codebooks": 2,
+        "additional_embs": 1,
     }
 
     @classmethod
@@ -204,6 +214,11 @@ class scFootprintBPNetLoRA(nn.Module):
         lora_hidden_dim: Optional[int] = None,
         lora_output_layer_groups: Optional[int] = 1,
         no_over_rank: bool = False,
+        kv_bottleneck: bool = False,
+        num_memories: int = 256,
+        dim_memory: int = 20,
+        num_memory_codebooks: int = 2,
+        additional_embs: int = 1,
     ):
         # ===============
         # Initialize the model
@@ -236,16 +251,26 @@ class scFootprintBPNetLoRA(nn.Module):
             example_region_embedding = torch.Tensor(
                 np.array(example_region_embedding[:use_rows])
             )
-
-        self._determine_embedding_dims(
-            cell_embedding=example_cell_embedding,
-            region_embedding=example_region_embedding,
-            a_embedding=a_embedding,
-            b_embedding=b_embedding,
-        )
-        example_a_embedding = self.A_embedding_process(
-            example_cell_embedding, example_region_embedding
-        )
+        if not kv_bottleneck:
+            self._determine_embedding_dims(
+                cell_embedding=example_cell_embedding,
+                region_embedding=example_region_embedding,
+                a_embedding=a_embedding,
+                b_embedding=b_embedding,
+            )
+            example_a_embedding = self.A_embedding_process(
+                example_cell_embedding, example_region_embedding
+            )
+        else:
+            self.A_embedding_dims = int(
+                additional_embs + num_memory_codebooks * dim_memory
+            )
+            self.B_embedding_dims = int(
+                additional_embs + num_memory_codebooks * dim_memory
+            )
+            self.A_embedding_process = self._get_cell_embedding
+            self.B_embedding_process = self._get_cell_embedding
+            example_a_embedding = None
 
         conv1d_lora = partial(
             Conv1dMultiLoRA,
@@ -302,6 +327,15 @@ class scFootprintBPNetLoRA(nn.Module):
                 layer=self.profile_cnn_model.linear,
                 r=1,
             )
+
+        if kv_bottleneck:
+            self.kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                num_memory_codebooks=num_memory_codebooks,
+            )
+        else:
+            self.kv_bottleneck = None
 
     @staticmethod
     def _get_cell_embedding(cell, region):
@@ -433,6 +467,13 @@ class scFootprintBPNetLoRA(nn.Module):
         A_embeddings = self.A_embedding_process(cell_embedding, region_embedding)
         B_embeddings = self.B_embedding_process(cell_embedding, region_embedding)
 
+        # process the embeddings if kv_bottleneck is used
+        if self.kv_bottleneck is not None:
+            if A_embeddings is not None:
+                A_embeddings = self.vq_ind_to_emb(A_embeddings)
+            if B_embeddings is not None:
+                B_embeddings = self.vq_ind_to_emb(B_embeddings)
+
         if isinstance(self.profile_cnn_model.linear, nn.Linear):
             raise NotImplementedError
             # print("translating linear into conv1d")
@@ -487,6 +528,15 @@ class scFootprintBPNetLoRA(nn.Module):
                 p.requires_grad = True
         return model_clone
 
+    def vq_ind_to_emb(self, emb_data):
+        """VQ index to embedding."""
+        n_cbs = self.kv_bottleneck.num_memory_codebooks
+        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
+        other_emb_data = emb_data[:, n_cbs:]
+        emb_data = self.kv_bottleneck(vq_ind)
+        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
+        return emb_data
+
     def forward(
         self, X, cell_embedding=None, region_embedding=None, output_len=None, modes=None
     ):
@@ -510,6 +560,13 @@ class scFootprintBPNetLoRA(nn.Module):
 
         if output_len is None:
             output_len = self.output_len
+
+        # process the embeddings if kv_bottleneck is used
+        if self.kv_bottleneck is not None:
+            if A_embeddings is not None:
+                A_embeddings = self.vq_ind_to_emb(A_embeddings)
+            if B_embeddings is not None:
+                B_embeddings = self.vq_ind_to_emb(B_embeddings)
 
         # get the motifs
         X = self.dna_cnn_model(X, A_embeddings=A_embeddings, B_embeddings=B_embeddings)

@@ -3,6 +3,7 @@ import math
 
 import torch
 import torch.nn.functional as F
+from einops import rearrange, repeat
 from torch import nn
 
 from bolero.utils import validate_config
@@ -124,7 +125,9 @@ class Conv1dWrapper(nn.Module):
 
     def forward(self, X, *args, modes=None, **kwargs):
         """Forward pass of the Conv1dWrapper module."""
-        # The args, and kwargs are just placeholders
+        # The args, and kwargs are just placeholders,
+        # in case the LoRA version of the model needs to pass additional
+        # arguments to the forward pass of the Conv1dWrapper module.
         # Use modes to select a subset of the weights
         return (
             self.conv(X)
@@ -454,3 +457,65 @@ class ConvBlockModule(nn.Module):
         X = self.conv2(X, *args, **kwargs)
         X = self.block2(X)
         return X
+
+
+class DiscreteKeyValueBottleneckNoVQ(nn.Module):
+    def __init__(
+        self,
+        num_memories=256,
+        dim_memory=64,
+        num_memory_codebooks=2,
+        average_pool_memories=False,
+    ):
+        """
+        A simple implementation of a discrete key-value bottleneck without VQ part.
+
+        Adapted from https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/tree/main
+
+        Parameters
+        ----------
+        num_memories: int
+            number of memories, which is the codebook size in VQ
+        dim_memory: int
+            dimension of memory vector in each codebook
+        num_memory_codebooks: int
+            number of codebooks, which is the number of heads in multi-head VQ
+        """
+        super().__init__()
+        self.values = nn.Parameter(
+            torch.clamp(
+                torch.randn(num_memory_codebooks, num_memories, dim_memory),
+                min=-3,
+                max=3,
+            ),
+        )
+        # self.values.shape (h, n, d)
+
+        self.num_memory_codebooks = num_memory_codebooks
+        self.dim_memory = dim_memory
+        self.num_memories = num_memories
+
+        self.average_pool_memories = average_pool_memories
+
+    def forward(
+        self,
+        vq_indices,
+    ):
+        """Turn vq indices into memory embeddings."""
+        input_shape = vq_indices.shape
+        if vq_indices.ndim == 2:
+            vq_indices = rearrange(vq_indices, "bs h -> bs 1 h")
+        vq_indices = rearrange(vq_indices, "b n h -> b h n")
+
+        values = repeat(self.values, "h n d -> b h n d", b=input_shape[0])
+        vq_indices = repeat(vq_indices, "b h n -> b h n d", d=values.shape[-1])
+        memories = values.gather(2, vq_indices)
+
+        if self.average_pool_memories:
+            memories = memories.mean(dim=1)
+        else:
+            memories = rearrange(memories, "b h n d -> b n (h d)")
+
+        if len(input_shape) == 2:
+            memories = memories.squeeze(1)
+        return memories

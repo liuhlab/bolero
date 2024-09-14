@@ -139,7 +139,10 @@ class GeneratePseudobulk:
                 self._input_prefix.add(prefix)
                 # prefix_rows is bool array
                 # some pseudo-bulks may not have any rows for a prefix
-                found_n = prefix_rows.sum()
+                if prefix_rows.dtype == bool:
+                    found_n = prefix_rows.sum()
+                else:
+                    found_n = len(prefix_rows)
                 if found_n == 0:
                     continue
                 found_row_count += found_n
@@ -150,7 +153,7 @@ class GeneratePseudobulk:
                     print(f"Prefix {prefix} not found in data_dict")
                     continue
 
-                _bulk_values = csr_matrix(row_by_base[prefix_rows].sum(axis=0).A1)
+                _bulk_values = csr_matrix(row_by_base[prefix_rows])
                 _per_prefix_bulk_data[bulk_idx].append(_bulk_values)
 
             # check if all rows is found, otherwise print warning
@@ -177,11 +180,8 @@ class GeneratePseudobulk:
                     f"No rows for bulk {bulk_idx}, this might be due to prefix or row id mismatch. "
                     f"Example rows: {example_rows}"
                 )
-            agg_bulk = csr_matrix(
-                vstack(_per_prefix_bulk_data[bulk_idx]).sum(axis=0).A1
-            )
+            agg_bulk = csr_matrix(vstack(bulk_data_list).sum(axis=0).A1)
             bulk_data.append(agg_bulk)
-        # bulk_data = vstack(bulk_data)
         bulk_data_dict[f"{output_prefix}:bulk_data"] = bulk_data
         bulk_data_dict[f"{output_prefix}:embedding_data"] = embedding_data
         bulk_data_dict[f"{output_prefix}:pseudobulk_ids"] = pseudobulk_ids

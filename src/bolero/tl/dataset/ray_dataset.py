@@ -233,14 +233,15 @@ class RayGenomeChunkDataset(GenericDataset):
         region_bed,
         name_to_pseudobulker,
         region_action_keys=None,
+        concurrency=20,
         **pseudobulk_kwargs,
     ) -> None:
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
-        compressed_bytes_to_tensor_concurrency = (1, 1)
-        generate_pseudobulk_concurrency = (1, 16)
-        generate_regions_concurrency = (1, 4)
+        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        generate_pseudobulk_concurrency = (1, concurrency)
+        generate_regions_concurrency = (1, concurrency // 2)
 
         dataset = self._read_parquet(chroms=chroms)
 

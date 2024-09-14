@@ -13,7 +13,7 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.utils import get_global_coords, understand_regions, validate_config
+from bolero.utils import get_global_coords, understand_regions
 
 
 class BatchFootPrint(FootPrintModel):
@@ -145,27 +145,6 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "read_parquet_kwargs": None,
         "max_regions_per_genome_chunk": 10,
     }
-
-    @classmethod
-    def get_default_config(cls) -> dict:
-        """
-        Get the default configuration.
-        """
-        return cls.default_config
-
-    @classmethod
-    def create_from_config(
-        cls,
-        config: dict,
-    ) -> "scPrinterDataset":
-        """
-        Create a scPrinterDataset object from the configuration.
-        """
-        # remove additional keys in the configuration
-        config = {k: v for k, v in config.items() if k in cls.default_config}
-        validate_config(config, cls.default_config)
-        print(f"Create scPrinterDataset with config: {config}")
-        return cls(**config)
 
     def __init__(
         self,
@@ -500,6 +479,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         """
         shuffle_rows = int(500 * (self.n_pseudobulks + 1))
         shuffle_rows = max(shuffle_rows, 5000)
+        shuffle_rows = min(shuffle_rows, 30000)
 
         # dataset_kwargs will be passed to self.get_processed_dataset method
         dataset_kwargs = {

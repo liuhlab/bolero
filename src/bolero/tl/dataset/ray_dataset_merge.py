@@ -6,13 +6,16 @@ import joblib
 import numpy as np
 import pandas as pd
 import ray
-from scipy.sparse import csr_matrix, vstack
+from scipy.sparse import csc_matrix, csr_matrix, hstack, vstack
+from tqdm import tqdm
 
+from bolero import Genome
 from bolero.pp.genome_chunk_dataset import (
     array_to_compressed_bytes_dict,
     csr_matrix_to_compressed_bytes_dict,
 )
 from bolero.tl.dataset.ray_dataset import RayGenomeChunkDataset
+from bolero.utils import understand_regions
 
 
 class PseudobulkMerge:
@@ -203,3 +206,151 @@ class RayGenomeChunkDatasetPseudobulkMerge(RayGenomeChunkDataset):
         config["num_rows_per_file"] = num_rows_per_file
         joblib.dump(config, f"{output_dir}/config.joblib")
         return
+
+
+def _merge_bp_to_bins(window_data, merge_resolution):
+    nrow, length = window_data.shape
+    bins = length // merge_resolution
+    assert length % merge_resolution == 0, "length % resolution needs to be 0"
+
+    final_data = csc_matrix((nrow, bins))
+    for k in range(merge_resolution):
+        idx = np.arange(k, length, merge_resolution)
+        final_data += window_data[:, idx]
+    return final_data
+
+
+class MergeGenomeChunkDatasetByBins:
+    """
+    This generator takes in pseudobulk-by-bases RayGenomeChunkDataset and merge them into pseudobulk-by-bins per chromosome.
+
+    This is preparing for Borzoi model training.
+    """
+
+    def __init__(
+        self,
+        genome,
+        merge_window_size=600000,
+        merge_step_size=200000,
+        merge_resolution=32,
+        prefix="pseudobulk",
+    ):
+        self.genome = Genome(genome)
+        self.window_bed = self.genome.make_windows(
+            window_size=merge_window_size, step=merge_step_size, as_df=True
+        )
+        self.merge_step_size = merge_step_size
+        self.merge_window_size = merge_window_size
+        self.merge_resolution = merge_resolution
+        self.prefix = prefix
+
+    def _get_region_data(self, dataset_path, chrom):
+        """
+        Here I take out data from whole chromosome,
+        which is memory intensive (not really at pseudobulk level).
+        """
+        ds = RayGenomeChunkDataset(dataset_path, genome=self.genome)
+        dataset = ds._read_parquet(chroms=[chrom])
+
+        # filter meta region length equal to self.window_size
+        dataset = ds._filter_meta_region_length(dataset=dataset)
+
+        # from compressed bytes to tensor (cell/sample by meta-region matrix) and other information
+        dataset = ds._compressed_bytes_to_tensor(
+            dataset=dataset,
+            concurrency=(1, 8),
+        )
+        region_to_data = {}
+
+        for batch in dataset.iter_batches(batch_size=50):
+            for region, csr_mat in zip(batch["region"], batch[self.prefix]):
+                region_to_data[region] = csr_mat.tocsc()
+
+        return region_to_data
+
+    def merge_chrom(self, dataset_path, chrom, output_dir, num_rows_per_file=20):
+        """Merge a single chromosome"""
+        chrom_out_path = pathlib.Path(f"{output_dir}/{chrom}")
+        success_flag = chrom_out_path / ".SUCCESS"
+        if success_flag.exists():
+            print(f"Skip {chrom} because {success_flag} exists.")
+            return
+
+        window_bed = self.window_bed
+
+        region_to_data = self._get_region_data(dataset_path, chrom)
+        region_bed = (
+            understand_regions(list(region_to_data.keys()))
+            .sort_values("Start")
+            .reset_index(drop=True)
+        )
+
+        window_data_col = []
+        chrom_window_bed = window_bed[window_bed["Chromosome"] == chrom]
+        for _, (chrom, start, end) in tqdm(
+            chrom_window_bed.iterrows(), total=chrom_window_bed.shape[0]
+        ):
+            region = f"{chrom}:{start}-{end}"
+            length = end - start
+            if length != self.merge_window_size:
+                continue
+            use_regions = region_bed[
+                (region_bed["Start"] < end) & (region_bed["End"] > start)
+            ]
+
+            # concatenate small meta regions (e.g., 100K) into a window data (e.g., 600K)
+            # because the meta regions are overlapped, we need to trim the overlapped regions
+            cur_start = start
+            window_data = []
+            for _, (_, rstart, rend, rname) in use_regions.iterrows():
+                csc_data = region_to_data[rname]
+                left_trim = cur_start - rstart
+                right_trim = max(0, rend - end)
+                if right_trim == 0:
+                    csc_data = csc_data[:, left_trim:]
+                    cur_start = rend
+                else:
+                    csc_data = csc_data[:, left_trim:-right_trim]
+                    cur_start = rend - right_trim
+                window_data.append(csc_data)
+            window_data = hstack(window_data).tocsr()
+            if window_data.shape[1] != length:
+                print(f"Warning: {region} has shape {window_data.shape[1]} != {length}")
+                continue
+
+            # merge bp to bins at given resolution
+            window_data = _merge_bp_to_bins(window_data, self.merge_resolution)
+            window_data = window_data.astype("float32").tocsr()
+            data_dict = csr_matrix_to_compressed_bytes_dict(
+                prefix=self.prefix, matrix=window_data
+            )
+            data_dict["region"] = region
+            window_data_col.append(data_dict)
+
+        # dump to parquet
+        ds = ray.data.from_items(window_data_col)
+        ds.write_parquet(f"{output_dir}/{chrom}", num_rows_per_file=num_rows_per_file)
+
+        success_flag.touch()
+        return
+
+    def merge(self, dataset_path, output_dir, num_rows_per_file=20):
+        """Merge all chromosomes"""
+        chroms = [p.name for p in pathlib.Path(dataset_path).glob("*") if p.is_dir()]
+        for chrom in chroms:
+            print("Merging", chrom)
+            self.merge_chrom(dataset_path, chrom, output_dir, num_rows_per_file)
+
+        # config
+        config = joblib.load(f"{dataset_path}/config.joblib")
+        config["window_size"] = self.merge_window_size
+        config["step_size"] = self.merge_step_size
+        config["num_rows_per_file"] = num_rows_per_file
+        joblib.dump(config, f"{output_dir}/config.joblib")
+
+        # row names
+        _row_names = joblib.load(f"{dataset_path}/row_names.joblib")
+        row_names = {
+            self.prefix: _row_names[self.prefix],
+        }
+        joblib.dump(row_names, f"{output_dir}/row_names.joblib")
