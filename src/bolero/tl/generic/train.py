@@ -565,7 +565,8 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         return ema
 
     def _get_scaler(self):
-        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        # scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        scaler = torch.amp.GradScaler(enabled=self.use_amp)
         return scaler
 
     def _get_optimizer(self):

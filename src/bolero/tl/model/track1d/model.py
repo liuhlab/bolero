@@ -123,6 +123,7 @@ class DialatedCNNTrack1DModel(nn.Module):
             output_len = self.output_len
 
         # get the motifs
+        # breakpoint()
         X = self.dna_cnn_model(X)
 
         # get the hidden layer

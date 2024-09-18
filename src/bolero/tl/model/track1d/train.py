@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import wandb
+import pdb
 
 from bolero.pl.track1d import Track1DExamplePlotter
 from bolero.pl.utils import figure_to_array
@@ -48,6 +49,8 @@ class Track1DTrainerMixin(GenericTrainer):
         # loss cov cutoff
         "loss_cov_cutoff": 10,
     }
+
+    
 
     prefix: str
 
@@ -358,7 +361,7 @@ class Track1DTrainerMixin(GenericTrainer):
             moving_avg_loss = 0
             cur_loss = 1e10
             nan_loss = False
-
+            
             print_steps = max(5, self.train_batches // 50)
             for batch_id, batch in enumerate(dataloader):
                 try:
@@ -561,16 +564,19 @@ class Track1DBaseTrainer(Track1DTrainerMixin):
         # X
         # ==========
         X = batch["dna_one_hot"]
+        # X = batch["dna_one_hot"].to(self.device, dtype=torch.bfloat16)
 
         # ==========
         # y_mc_frac
         # ==========
         y = batch[prefix]
+        # y = batch[prefix].to(self.device, dtype=torch.bfloat16)
         y = torch.log1p(y)
 
         # ==========
         # Forward
         # ==========
+        # breakpoint()
         pred_y = model(X)
         return y, pred_y
 
