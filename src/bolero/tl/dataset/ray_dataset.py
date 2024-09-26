@@ -201,6 +201,7 @@ class RayGenomeChunkDataset(GenericDataset):
         action_keys,
         max_regions,
         concurrency,
+        pos_resolution=None,
     ):
         # generate region from bed file
         fn = GenerateRegions
@@ -209,6 +210,7 @@ class RayGenomeChunkDataset(GenericDataset):
             "meta_region_overlap": self.window_size - self.step_size,
             "action_keys": action_keys,
             "max_regions": max_regions,
+            "pos_resolution": pos_resolution,
         }
         dataset = dataset.flat_map(
             fn=fn,

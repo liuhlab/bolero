@@ -223,6 +223,7 @@ class GenerateRegions:
         meta_region_overlap,
         action_keys,
         max_regions=None,
+        pos_resolution=None,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -232,6 +233,7 @@ class GenerateRegions:
 
         self.action_keys = action_keys
         self.max_regions = max_regions
+        self.pos_resolution = pos_resolution
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -263,6 +265,12 @@ class GenerateRegions:
                 if key in self.action_keys:
                     rstart = start - offset
                     rend = end - offset
+
+                    # coords to position resolution
+                    if self.pos_resolution:
+                        rstart = rstart // self.pos_resolution
+                        rend = rend // self.pos_resolution
+
                     rvalue = value[..., rstart:rend]
                     try:
                         rvalue = rvalue.toarray()

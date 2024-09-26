@@ -302,7 +302,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.device: torch.device = try_gpu()
         self.optimizer: torch.optim.Optimizer = None
         self.scheduler: torch.optim.lr_scheduler._LRScheduler = None
-        self.scaler: torch.cuda.amp.GradScaler = None
+        self.scaler: torch.amp.GradScaler = None
         self.ema: EMA = None
 
         # epoch info
@@ -524,9 +524,9 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         print(
             f"Load and update state dict from checkpoint file: {self.best_checkpoint_path}"
         )
-        checkpoint: dict = torch.load(self.best_checkpoint_path)
+        checkpoint: dict = torch.load(self.best_checkpoint_path, weights_only=False)
         try:
-            epoch_info = torch.load(self.epoch_info_path)
+            epoch_info = torch.load(self.epoch_info_path, weights_only=False)
             checkpoint.update(epoch_info)
         except FileNotFoundError:
             print("Epoch info not found, skipping.")
@@ -565,7 +565,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         return ema
 
     def _get_scaler(self):
-        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         return scaler
 
     def _get_optimizer(self):
@@ -708,6 +708,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         }
         safe_save(epoch_info, self.epoch_info_path)
         if update_best:
+            print("Saving best checkpoint...")
             # check point includes model and other training states
             checkpoint = {
                 "best_val_loss": self.best_val_loss,

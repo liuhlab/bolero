@@ -24,6 +24,7 @@ from bolero.utils import (
     get_default_save_dir,
     get_global_coords,
     get_package_dir,
+    parse_global_coords,
     understand_regions,
 )
 
@@ -1050,4 +1051,10 @@ class Genome:
                 self.chrom_offsets if chrom_offsets is None else chrom_offsets
             ),
             region_bed_df=understand_regions(region_bed, as_df=True),
+        )
+
+    def parse_global_coords(self, global_coords):
+        """Return the global coords in to regions."""
+        return parse_global_coords(
+            chrom_offsets=self.chrom_offsets, global_coords=global_coords
         )

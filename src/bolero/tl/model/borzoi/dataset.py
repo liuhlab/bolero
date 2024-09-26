@@ -1,5 +1,8 @@
+import pathlib
 from collections import OrderedDict
 from typing import Any, Iterable
+
+import ray
 
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
@@ -11,6 +14,8 @@ from bolero.tl.dataset.transforms import (
 )
 from bolero.utils import get_global_coords, understand_regions
 
+from .utils import BorzoiRegions, clamp_sqrt_large_value
+
 DNA_NAME = "dna_one_hot"
 
 
@@ -19,12 +24,13 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
     default_config = {
         "dataset_path": "REQUIRED",
-        "genome": "REQUIRED",
         "batch_size": 2,
         "dna_window": 524288,
+        "pos_resolution": 32,
         "reverse_complement": True,
         "max_jitter": 3,
         "n_pseudobulks": 100,
+        "clamp_sqrt_threshold": None,
         "shuffle_files": True,
         "read_parquet_kwargs": None,
     }
@@ -32,21 +38,19 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def __init__(
         self,
         dataset_path: str,
-        genome,
         batch_size: int = 2,
         dna_window: int = 524288,
+        pos_resolution: int = 32,
         reverse_complement: bool = True,
         max_jitter: int = 3,
         n_pseudobulks: int = 100,
         cov_filter_name: str = None,
-        min_cov: int = 10,
-        max_cov: int = 100000,
+        clamp_sqrt_threshold: int = None,
         shuffle_files=False,
         read_parquet_kwargs=None,
     ):
         super().__init__(
             dataset_path=dataset_path,
-            genome=genome,
             shuffle_files=shuffle_files,
             read_parquet_kwargs=read_parquet_kwargs,
         )
@@ -55,17 +59,38 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # region properties
         self.dna_window = dna_window
         self.signal_window = dna_window
+        self.pos_resolution = pos_resolution
         self.max_jitter = max_jitter
-        self.min_counts = min_cov
-        self.max_counts = max_cov
         self.reverse_complement = reverse_complement
         self.n_pseudobulks = n_pseudobulks
-        self.min_cov = min_cov
-        self.max_cov = max_cov
         self.cov_filter_name = cov_filter_name
+        self.clamp_sqrt_threshold = clamp_sqrt_threshold
 
         self.name_to_pseudobulker = OrderedDict()
+
+        self.borzoi_regions = BorzoiRegions()
         return
+
+    def get_train_valid_test(self, fold):
+        """Get the train, valid, and test folds and regions for the given fold."""
+        fold_split = self.borzoi_regions.fold_splits[fold]
+        train_folds = fold_split["train"]
+        valid_folds = fold_split["valid"]
+        test_folds = fold_split["test"]
+
+        train_regions, valid_regions, test_regions = (
+            self.borzoi_regions.get_train_valid_test_regions(
+                self.genome.name, split_id=fold, region_length=self.dna_window
+            )
+        )
+        return (
+            train_folds,
+            valid_folds,
+            test_folds,
+            train_regions,
+            valid_regions,
+            test_regions,
+        )
 
     def __repr__(self) -> str:
         _str = (
@@ -79,7 +104,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def _get_dna_one_hot(self, dataset, concurrency):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {
-            "random_shift": self.max_jitter,
+            "random_shift": self.max_jitter if self._dataset_mode == "train" else 0,
             "dtype": "bool",
         }
         fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
@@ -173,10 +198,116 @@ class BorzoiDataset(RayGenomeChunkDataset):
             dataset = dataset.drop_columns(["region"])
         return dataset
 
+    def _get_folds_dir(self, folds):
+        if folds is None:
+            fold_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("fold*")]
+        else:
+            if isinstance(folds, str):
+                folds = [folds]
+            fold_dirs = [f"{self.dataset_path}/fold{fold}" for fold in folds]
+
+            # make sure all fold_dir exists
+            fold_dirs = [
+                fold_dir for fold_dir in fold_dirs if pathlib.Path(fold_dir).exists()
+            ]
+            assert (
+                len(fold_dirs) > 0
+            ), f"None of the fold {folds} exists in {self.dataset_path}"
+        return fold_dirs
+
+    def _read_parquet(self, folds):
+        _dataset = ray.data.read_parquet(
+            self._get_folds_dir(folds),
+            file_extensions=["parquet"],
+            **self.read_parquet_kwargs,
+        )
+        return _dataset
+
+    def _add_clamp_sqrt(self, dataset):
+        if self.clamp_sqrt_threshold is None:
+            return dataset
+
+        signal_columns = self.signal_columns
+        threshold = self.clamp_sqrt_threshold
+
+        def _oprator(batch):
+            for key in signal_columns:
+                batch[key] = clamp_sqrt_large_value(batch[key], threshold=threshold)
+            return batch
+
+        dataset = dataset.map_batches(
+            fn=_oprator,
+            concurrency=(1, 4),
+        )
+        return dataset
+
+    def _get_processed_dataset(
+        self,
+        folds,
+        region_bed,
+        name_to_pseudobulker,
+        region_action_keys=None,
+        concurrency=32,
+        **pseudobulk_kwargs,
+    ) -> None:
+        """
+        Preprocess the dataset to return pseudobulk region rows.
+        """
+        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        generate_pseudobulk_concurrency = (1, concurrency)
+        generate_regions_concurrency = (1, concurrency // 2)
+
+        dataset = self._read_parquet(folds=folds)
+
+        # filter meta region length equal to self.window_size
+        dataset = self._filter_meta_region_length(dataset=dataset)
+
+        # from compressed bytes to tensor (cell/sample by meta-region matrix) and other information
+        dataset = self._compressed_bytes_to_tensor(
+            dataset=dataset,
+            concurrency=compressed_bytes_to_tensor_concurrency,
+        )
+
+        if region_action_keys is None:
+            region_action_keys = []
+        elif isinstance(region_action_keys, str):
+            region_action_keys = [region_action_keys]
+        else:
+            pass
+
+        # generate pseudobulk
+        if len(name_to_pseudobulker) > 0:
+            dataset = self._generate_pseudobulk(
+                dataset=dataset,
+                name_to_pseudobulker=name_to_pseudobulker,
+                concurrency=generate_pseudobulk_concurrency,
+                **pseudobulk_kwargs,
+            )
+
+            # update region_action_keys
+            region_action_keys = [
+                name for name in region_action_keys if name not in name_to_pseudobulker
+            ]
+            new_keys = [f"{name}:bulk_data" for name in name_to_pseudobulker.keys()]
+            region_action_keys.extend(new_keys)
+            region_action_keys = list(set(region_action_keys))
+            self.signal_columns = region_action_keys
+
+        if region_bed is not None:
+            dataset = self._generate_regions(
+                dataset=dataset,
+                bed=region_bed,
+                action_keys=region_action_keys,
+                max_regions=1,
+                concurrency=generate_regions_concurrency,
+                pos_resolution=self.pos_resolution,
+            )
+        return dataset
+
     def get_processed_dataset(
         self,
-        chroms: list[str],
-        region_bed_path: str,
+        folds: list[int],
+        region_bed: str,
         return_cells: bool = False,
         return_regions: bool = True,
         concurrency: int = 16,
@@ -186,7 +317,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         Parameters
         ----------
-        - chroms (list): List of chromosomes to include in the dataset.
+        - folds (list): List of folds to include in the dataset.
         - region_bed_path (str): Path to the BED file containing the regions.
         - return_cells (bool): Whether to return the cells in the dataset. Default is False.
         - return_regions (bool): Whether to return the regions in the dataset. Default is False.
@@ -196,18 +327,16 @@ class BorzoiDataset(RayGenomeChunkDataset):
         - work_ds (Dataset): The processed dataset.
 
         """
-        standard_length = self.dna_window
-        region_bed = self.standard_region_length(region_bed_path, standard_length)
+        # standard_length = self.dna_window
+        # region_bed = self.standard_region_length(region_bed, standard_length)
 
-        work_ds = super()._get_processed_dataset(
-            chroms=chroms,
+        work_ds = self._get_processed_dataset(
+            folds=folds,
             region_bed=region_bed,
             name_to_pseudobulker=self.name_to_pseudobulker,
-            bypass_keys=[self.bias_column],
             n_pseudobulks=self.n_pseudobulks,
             return_rows=return_cells,
             inplace=False,
-            region_action_keys=[self.bias_column],
             concurrency=concurrency,
         )
 
@@ -224,16 +353,21 @@ class BorzoiDataset(RayGenomeChunkDataset):
         work_ds = self._process_region_columns(
             dataset=work_ds, keep_regions=return_regions
         )
+
+        # add clamp sqrt
+        work_ds = self._add_clamp_sqrt(work_ds)
         return work_ds
 
     def get_dataloader(
         self,
-        chroms,
-        region_bed_path,
+        folds,
+        region_bed,
         as_torch=True,
         return_regions=True,
         return_cells=False,
         n_batches=None,
+        shuffle_rows=500,
+        concurrency=20,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -259,14 +393,13 @@ class BorzoiDataset(RayGenomeChunkDataset):
         DataLoader
             The dataloader.
         """
-        shuffle_rows = 50
-
         # dataset_kwargs will be passed to self.get_processed_dataset method
         dataset_kwargs = {
-            "chroms": chroms,
-            "region_bed_path": region_bed_path,
+            "folds": folds,  # for borzoi we don't split train/valid/test via chromosomes, so all chromosomes are included
+            "region_bed": region_bed,
             "return_cells": return_cells,
             "return_regions": return_regions,
+            "concurrency": concurrency,
         }
         data_iter_kwargs = dataloader_kwargs
 

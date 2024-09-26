@@ -369,17 +369,21 @@ class FetchRegionOneHot:
         """
         genome_one_hot = ray.get(remote_genome_one_hot)
         # shape: (batch, length, channel)
-        region = data[self.region_key]
+        regions = data[self.region_key]
 
         if self.random_shift > 0:
-            shift = np.random.randint(-self.random_shift, self.random_shift + 1)
-            chrom, coords = region.split(":")
-            start, end = map(int, coords.split("-"))
-            start += shift
-            end += shift
-            region = f"{chrom}:{start}-{end}"
+            new_regions = []
+            for region in regions:
+                shift = np.random.randint(-self.random_shift, self.random_shift + 1)
+                chrom, coords = region.split(":")
+                start, end = map(int, coords.split("-"))
+                start += shift
+                end += shift
+                region = f"{chrom}:{start}-{end}"
+                new_regions.append(region)
+            regions = new_regions
 
-        one_hot = genome_one_hot.get_regions_one_hot(region)
+        one_hot = genome_one_hot.get_regions_one_hot(regions)
         # change to (batch, channel, length)
         data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
         return data

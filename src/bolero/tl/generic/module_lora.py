@@ -161,7 +161,7 @@ class LoRALinear(nn.Linear, LoRALayer):
     def train(self, mode: bool = True):
         """Set the training mode of the LoRA layer."""
 
-        def T(w):
+        def _T(w):
             return w.transpose(0, 1) if self.fan_in_fan_out else w
 
         nn.Linear.train(self, mode)
@@ -169,13 +169,13 @@ class LoRALinear(nn.Linear, LoRALayer):
             if self.merge_weights and self.merged:
                 # Make sure that the weights are not merged
                 if self.r > 0:
-                    self.weight.data -= T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data -= _T(self.lora_B @ self.lora_A) * self.scaling
                 self.merged = False
         else:
             if self.merge_weights and not self.merged:
                 # Merge the weights and mark it
                 if self.r > 0:
-                    self.weight.data += T(self.lora_B @ self.lora_A) * self.scaling
+                    self.weight.data += _T(self.lora_B @ self.lora_A) * self.scaling
                 self.merged = True
 
     def forward(self, x: torch.Tensor):
@@ -425,23 +425,16 @@ def set_submodule_by_name(
     return
 
 
-def mark_only_lora_as_trainable(model: nn.Module, bias: str = "none") -> None:
+def mark_only_lora_as_trainable(model: nn.Module, bias_learable=None) -> None:
     """Set the trainable status of the LoRA layers in the model."""
     for n, p in model.named_parameters():
         if "lora_" not in n:
-            p.requires_grad = False
-    if bias == "none":
-        return
-    elif bias == "all":
-        for n, p in model.named_parameters():
-            if "bias" in n:
-                p.requires_grad = True
-    elif bias == "lora_only":
-        for m in model.modules():
-            if isinstance(m, LoRALayer) and hasattr(m, "bias") and m.bias is not None:
-                m.bias.requires_grad = True
-    else:
-        raise NotImplementedError
+            if "bias" not in n:
+                p.requires_grad = False
+            else:
+                if bias_learable is not None:
+                    p.requires_grad = bias_learable
+                # otherwise, do not make any changes to the bias
 
 
 def convert_to_lora_model(

@@ -519,3 +519,62 @@ class DiscreteKeyValueBottleneckNoVQ(nn.Module):
         if len(input_shape) == 2:
             memories = memories.squeeze(1)
         return memories
+
+
+class KVBottleNeckMixin:
+    kv_bottleneck: DiscreteKeyValueBottleneckNoVQ
+
+    def setup_kv_bottleneck(
+        self,
+        num_memory_codebooks,
+        num_memories,
+        dim_memory,
+        additional_embs,
+    ):
+        """
+        Setup the key-value bottleneck for converting indices to embeddings.
+
+        Parameters
+        ----------
+        num_memory_codebooks: int
+            number of codebooks
+        num_memories: int
+            number of memories in each codebook
+        dim_memory: int
+            dimension of memory vector in each codebook
+        additional_embs: int
+            number of additional embeddings to be concatenated with the memory embeddings
+
+        Returns
+        -------
+        kv_bottleneck: nn.Module
+            key-value bottleneck module
+        emb_input_features: int
+            number of input features for the embeddings after concatenating the additional embeddings
+        """
+        # key-value bottleneck for converting indices to embeddings
+        self.additional_embs = additional_embs
+        self.num_memory_codebooks = num_memory_codebooks
+        self.num_memories = num_memories
+        self.dim_memory = dim_memory
+        kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
+            num_memories=num_memories,
+            dim_memory=dim_memory,
+            num_memory_codebooks=num_memory_codebooks,
+            average_pool_memories=False,
+        )
+        emb_input_features = num_memory_codebooks * dim_memory + additional_embs
+        return kv_bottleneck, emb_input_features
+
+    def vq_ind_to_emb(self, emb_data):
+        """
+        VQ index to embedding.
+
+        (bs, n_cbs + additional_embs) -> (bs, n_cbs * dim_memory + additional_embs).
+        """
+        n_cbs = self.kv_bottleneck.num_memory_codebooks
+        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
+        other_emb_data = emb_data[:, n_cbs:]
+        emb_data = self.kv_bottleneck(vq_ind)
+        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
+        return emb_data

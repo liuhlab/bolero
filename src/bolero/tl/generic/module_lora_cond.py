@@ -17,7 +17,11 @@ import torch.nn as nn
 from einops import einsum, rearrange, repeat
 from torch.nn import functional as F
 
-from bolero.tl.generic.module import Conv1dWrapper, GroupedLinear
+from bolero.tl.generic.module import (
+    Conv1dWrapper,
+    GroupedLinear,
+    KVBottleNeckMixin,
+)
 
 from .module_lora import (
     LoRAConv,
@@ -28,7 +32,7 @@ from .module_lora import (
 )
 
 
-class EmbeddingMLP(nn.Module):
+class EmbeddingMLP(nn.Module, KVBottleNeckMixin):
     """
     This class turn the input embedding into one of the LoRA low-rank weight matrix (A or B) through a simple MLP.
     """
@@ -41,6 +45,12 @@ class EmbeddingMLP(nn.Module):
         hidden_dim: int,
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
+        bias=True,
+        kv_bottleneck=False,
+        num_memory_codebooks=2,
+        num_memories=256,
+        dim_memory=20,
+        additional_embs=1,
     ) -> None:
         """
         Initialize the EmbeddingMLP module.
@@ -63,15 +73,30 @@ class EmbeddingMLP(nn.Module):
         if output_layer_groups > 1:
             if self.hidden_dim > 8 and self.out_feathres > 8:
                 # Grouped Linear has smaller number of parameters
-                output_module = partial(GroupedLinear, groups=output_layer_groups)
+                output_module = partial(
+                    GroupedLinear, groups=output_layer_groups, bias=bias
+                )
             else:
-                output_module = nn.Linear
+                output_module = partial(nn.Linear, bias=bias)
         else:
-            output_module = nn.Linear
+            output_module = partial(nn.Linear, bias=bias)
+
+        # key-value bottleneck for converting indices to embeddings
+        if kv_bottleneck:
+            self.kv_bottleneck, _ = self.setup_kv_bottleneck(
+                num_memory_codebooks=num_memory_codebooks,
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                additional_embs=additional_embs,
+            )
+        else:
+            self.kv_bottleneck = None
 
         def _generate_linear_module(in_features, out_features):
             layers = [
-                nn.Linear(in_features=in_features, out_features=out_features),
+                nn.Linear(
+                    in_features=in_features, out_features=out_features, bias=bias
+                ),
                 nn.BatchNorm1d(out_features),  # TODO: maybe try LayerNorm
                 nn.GELU(),
             ]
@@ -106,6 +131,9 @@ class EmbeddingMLP(nn.Module):
         -------
             torch.Tensor: The output tensor after passing through the MLP layers.
         """
+        if self.kv_bottleneck is not None:
+            embedding = self.vq_ind_to_emb(embedding)
+
         ndim = embedding.ndim
         bs = embedding.shape[0]
         if ndim == 3:
@@ -128,17 +156,16 @@ class EmbeddingMLP(nn.Module):
 
     def zero_weights_and_bias(self):
         """
-        Zero the weights and bias of the MLP's first layer, use this in B embedding.
+        Zero the weights and bias of the MLP's last layer, use this in B embedding.
         """
-        for i in range(len(self.mlp)):
-            if isinstance(self.mlp[i], (nn.GELU, nn.BatchNorm1d)):
-                continue
+        last_layer = self.mlp[-1]
 
-            if isinstance(self.mlp[i], (nn.Linear, GroupedLinear)):
-                self.mlp[i].bias.data[...] = 0
-                self.mlp[i].weight.data[...] = 0
-            else:
-                print("Skip zero weights and bias for layer", i, type(self.mlp[i]))
+        assert isinstance(
+            last_layer, (nn.Linear, GroupedLinear)
+        ), f"Last layer is {type(last_layer)}, expected nn.Linear or GroupedLinear"
+        if last_layer.bias is not None:
+            last_layer.bias.data[...] = 0
+        last_layer.weight.data[...] = 0
         return
 
     def scale_weights(self, example_embedding: np.ndarray):
@@ -172,6 +199,24 @@ class EmbeddingMLP(nn.Module):
         return
 
 
+class UnconditionalParameters(nn.Module):
+    def __init__(self, shape):
+        super().__init__()
+        self.shape = shape
+        self.values = nn.Parameter(torch.randn(shape), requires_grad=True)
+
+    def forward(self, embedding, *args, **kwargs):
+        """Forward"""
+        bs = embedding.shape[0]
+        values = repeat(self.values, "a b -> bs a b", bs=bs)
+        return values
+
+    def zero_weights_and_bias(self):
+        """Make the values zero."""
+        self.values.data[...] = 0
+        return
+
+
 class ConditionalLoRALayer:
     def __init__(
         self,
@@ -183,6 +228,12 @@ class ConditionalLoRALayer:
         hidden_dim: int,
         hidden_layers: int,
         output_layer_groups: int,
+        conditional_b=True,
+        kv_bottleneck=False,
+        num_memory_codebooks=2,
+        num_memories=256,
+        dim_memory=20,
+        additional_embs=1,
     ):
         self.base_class = nn.Module
         self.lora_alpha = lora_alpha
@@ -207,15 +258,28 @@ class ConditionalLoRALayer:
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
             output_layer_groups=output_layer_groups,
+            kv_bottleneck=kv_bottleneck,
+            num_memory_codebooks=num_memory_codebooks,
+            num_memories=num_memories,
+            dim_memory=dim_memory,
+            additional_embs=additional_embs,
         )
-        self.lora_B_module = EmbeddingMLP(
-            input_features=emb_input_features,
-            output_features=out_features * self.r,
-            output_shape=(out_features, self.r),
-            hidden_dim=hidden_dim,
-            hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
-        )
+        if conditional_b:
+            self.lora_B_module = EmbeddingMLP(
+                input_features=emb_input_features,
+                output_features=out_features * self.r,
+                output_shape=(out_features, self.r),
+                hidden_dim=hidden_dim,
+                hidden_layers=hidden_layers,
+                output_layer_groups=output_layer_groups,
+                kv_bottleneck=kv_bottleneck,
+                num_memory_codebooks=num_memory_codebooks,
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                additional_embs=additional_embs,
+            )
+        else:
+            self.lora_B_module = UnconditionalParameters(shape=(out_features, self.r))
         self.scaling = self.lora_alpha / self.r
 
     def lora_A(self, *args, **kwargs) -> torch.Tensor:
@@ -259,23 +323,35 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
         hidden_dim: int,
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
-        r: int = 1,
-        lora_alpha: int = 1,
+        rank: int = 1,
+        alpha: int = 1,
         lora_dropout: float = 0.0,
+        conditional_b=True,
+        kv_bottleneck=False,
+        num_memory_codebooks=2,
+        num_memories=256,
+        dim_memory=20,
+        additional_embs=1,
         **kwargs,
     ):
         self.base_class = nn.Linear
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
         ConditionalLoRALayer.__init__(
             self,
-            lora_alpha=lora_alpha,
+            lora_alpha=alpha,
             lora_dropout=lora_dropout,
             emb_input_features=emb_input_features,
-            shape_a=torch.Size([r, in_features]),
-            shape_b=torch.Size([out_features, r]),
+            shape_a=torch.Size([rank, in_features]),
+            shape_b=torch.Size([out_features, rank]),
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
             output_layer_groups=output_layer_groups,
+            conditional_b=conditional_b,
+            kv_bottleneck=kv_bottleneck,
+            num_memory_codebooks=num_memory_codebooks,
+            num_memories=num_memories,
+            dim_memory=dim_memory,
+            additional_embs=additional_embs,
         )
 
         # Freezing the pre-trained weight matrix
@@ -300,13 +376,6 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
     def from_nn(
         cls,
         linear_module: nn.Linear,
-        emb_input_features: int,
-        hidden_dim: int,
-        rank: int = 1,
-        alpha: float = 1,
-        lora_dropout: float = 0.0,
-        hidden_layers: int = 0,
-        output_layer_groups: int = 1,
         **kwargs,
     ) -> "ConditionalLoRALinear":
         """
@@ -315,13 +384,6 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
         lora_linear = cls(
             in_features=linear_module.in_features,
             out_features=linear_module.out_features,
-            r=rank,
-            lora_alpha=alpha,
-            lora_dropout=lora_dropout,
-            emb_input_features=emb_input_features,
-            hidden_layers=hidden_layers,
-            hidden_dim=hidden_dim,
-            output_layer_groups=output_layer_groups,
             bias=linear_module.bias is not None,
             device=linear_module.weight.device,
             dtype=linear_module.weight.dtype,
@@ -345,27 +407,33 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         groups,
         emb_input_features: int,
         hidden_dim: int,
-        r=0,
-        lora_alpha=1,
+        rank=0,
+        alpha=1,
         lora_dropout=0.0,
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
+        conditional_b=True,
+        kv_bottleneck=False,
+        num_memory_codebooks=2,
+        num_memories=256,
+        dim_memory=20,
+        additional_embs=1,
         **kwargs,
     ):
         if conv_class == nn.Conv1d:
             conv_type = "1d"
             shape_a, shape_b = self._gen_conv1d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, r
+                in_channels, out_channels, groups, kernel_size, rank
             )
         elif conv_class == nn.Conv2d:
             conv_type = "2d"
             shape_a, shape_b = self._gen_conv2d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, r
+                in_channels, out_channels, groups, kernel_size, rank
             )
         elif conv_class == nn.Conv3d:
             conv_type = "3d"
             shape_a, shape_b = self._gen_conv3d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, r
+                in_channels, out_channels, groups, kernel_size, rank
             )
         else:
             raise ValueError(f"Unsupported convolution module class {conv_type}")
@@ -386,12 +454,18 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
             self,
             shape_a=shape_a,
             shape_b=shape_b,
-            lora_alpha=lora_alpha,
+            lora_alpha=alpha,
             lora_dropout=lora_dropout,
             emb_input_features=emb_input_features,
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
             output_layer_groups=output_layer_groups,
+            conditional_b=conditional_b,
+            kv_bottleneck=kv_bottleneck,
+            num_memory_codebooks=num_memory_codebooks,
+            num_memories=num_memories,
+            dim_memory=dim_memory,
+            additional_embs=additional_embs,
         )
 
         # Freezing the pre-trained weight matrix
@@ -516,13 +590,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
     def from_nn(
         cls,
         conv_module: Union[nn.Conv1d, nn.Conv2d, nn.Conv3d],
-        emb_input_features: int,
-        hidden_dim: int,
-        rank: int = 1,
-        alpha: float = 1,
-        lora_dropout: float = 0.0,
-        hidden_layers: int = 0,
-        output_layer_groups: int = 1,
+        **kwargs,
     ) -> "ConditionalLoRAConv":
         """
         Create a LoRAConvND instance from an existing nn.Conv1d, nn.Conv2d, or nn.Conv3d module.
@@ -543,19 +611,13 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
             out_channels=conv_module.out_channels,
             kernel_size=kernel_size_int,
             groups=conv_module.groups,
-            r=rank,
-            lora_alpha=alpha,
-            lora_dropout=lora_dropout,
-            emb_input_features=emb_input_features,
-            hidden_dim=hidden_dim,
-            hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
             stride=conv_module.stride,
             padding=conv_module.padding,
             dilation=conv_module.dilation,
             bias=conv_module.bias is not None,
             device=conv_module.weight.device,
             dtype=conv_module.weight.dtype,
+            **kwargs,
         )
 
         # Copy the original weight and bias to the new LoRAConv1d instance
@@ -568,7 +630,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 def convert_to_conditional_lora_model(
     model,
     emb_input_features: int,
-    hidden_dim: int,
+    hidden_dim: int = 256,
     hidden_layers: int = 0,
     output_layer_groups: int = 1,
     convert_linear=False,
@@ -577,13 +639,14 @@ def convert_to_conditional_lora_model(
     alpha=1,
     lora_dropout=0.0,
     inplace=False,
-    bias_trainable="none",
+    bias_learable=None,
     verbose=False,
     include_name_patterns: list = None,
     exclude_name_patterns: list = None,
     default_conditional: bool = True,
     include_cond_lora_patterns: list = None,
     exclude_cond_lora_patterns: list = None,
+    **kwargs,
 ):
     """
     Replace all pytorch modules (parent class of the lora class)
@@ -604,9 +667,9 @@ def convert_to_conditional_lora_model(
         lora_dropout (float): The dropout rate for LoRA input.
         inplace (bool): If set to True, the original model is modified.
             Default is False.
-        bias_trainable (str): If set to "none", will not make any changes to the bias.
-            If set to "all", all biases are trainable.
-            If set to "lora_only", only LoRA biases are trainable.
+        bias_trainable (str): If set to None, will not make any changes to the bias.
+            If set to True, all biases are trainable.
+            If set to False, only base model biases are freezed.
             Default is "none".
         verbose (bool): If set to True, print the conversion process.
             Default is False.
@@ -621,6 +684,7 @@ def convert_to_conditional_lora_model(
             Default is ('.+',), which means all LoRA layers will be conditional.
         exclude_cond_lora_patterns (list): A list of patterns to exclude from the conditional LoRA conversion.
             Default is None.
+        kwargs: Additional keyword arguments to pass to the LoRA modules' constructors.
 
     Returns
     -------
@@ -678,6 +742,7 @@ def convert_to_conditional_lora_model(
                 hidden_dim=hidden_dim,
                 hidden_layers=hidden_layers,
                 output_layer_groups=output_layer_groups,
+                **kwargs,
             )
         else:
             lora_module = lora_cls.from_nn(
@@ -692,5 +757,5 @@ def convert_to_conditional_lora_model(
             )
         set_submodule_by_name(model, name, lora_module)
 
-    mark_only_lora_as_trainable(model, bias=bias_trainable)
+    mark_only_lora_as_trainable(model, bias_learable=bias_learable)
     return model

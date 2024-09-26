@@ -319,13 +319,19 @@ class CumulativeCounter:
         ----------
             value (np.ndarray or torch.Tensor): The value to be added to the counter.
         """
-        try:
-            self.total += float(np.nansum(value))
-        except TypeError:
-            # torch
-            self.total += float(torch.nansum(value).detach().cpu().item())
-        # both numpy and torch will work
-        self.count += np.prod(value.shape)
+        if isinstance(value, (int, float)):
+            self.total += value
+            self.count += 1
+            return
+        else:
+            try:
+                self.total += float(np.nansum(value))
+            except TypeError:
+                # torch
+                self.total += float(torch.nansum(value).detach().cpu().item())
+            # both numpy and torch will work
+            self.count += np.prod(value.shape)
+            return
 
     def mean(self) -> float:
         """

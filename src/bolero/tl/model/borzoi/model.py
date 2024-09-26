@@ -1,6 +1,12 @@
+from copy import deepcopy
+
 import torch
 from torch import nn
+from torchinfo import summary
 
+from bolero.utils import validate_config
+
+from .metrics import poisson_multinomial
 from .module import (
     ConvBlock,
     ConvDna,
@@ -10,15 +16,55 @@ from .module import (
 )
 
 
+def model_summary(
+    model,
+    row_settings=("var_names",),
+    input_size=None,
+    input_data=None,
+    depth=3,
+    cache_forward_pass=True,
+    col_names=("num_params",),
+):
+    """Print model summary."""
+    device = next(model.parameters()).device
+
+    s = summary(
+        model,
+        depth=depth,
+        row_settings=row_settings,
+        input_size=input_size,
+        input_data=input_data,
+        cache_forward_pass=cache_forward_pass,
+        col_names=col_names,
+        device=device,
+    ).__repr__()
+    return s
+
+
 class Borzoi(nn.Module):
     default_config = {
-        "checkpoint_path": None,
+        "transformer_attn_dropout": 0.05,
+        "transformer_pos_dropout": 0.01,
+        "transformer_ff_dropout": 0.2,
+        "final_conv_dropout": 0.1,
     }
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        default_config = cls.get_default_config()
+        config = {k: v for k, v in config.items() if k in default_config}
+        validate_config(config, default_config)
+        return cls(**config)
 
     def __init__(
         self,
-        checkpoint_path,
+        transformer_attn_dropout=0.05,
+        transformer_pos_dropout=0.01,
+        transformer_ff_dropout=0.2,
+        final_conv_dropout=0.1,
     ):
+        """Initialize Borzoi model."""
         super().__init__()
 
         # =========
@@ -36,13 +82,13 @@ class Borzoi(nn.Module):
         # ==============
         self.res_tower = SequentialwithArgs(
             ConvBlock(in_channels=512, out_channels=608, kernel_size=5),
-            self._max_pool,
+            nn.MaxPool1d(kernel_size=2, padding=0),
             ConvBlock(in_channels=608, out_channels=736, kernel_size=5),
-            self._max_pool,
+            nn.MaxPool1d(kernel_size=2, padding=0),
             ConvBlock(in_channels=736, out_channels=896, kernel_size=5),
-            self._max_pool,
+            nn.MaxPool1d(kernel_size=2, padding=0),
             ConvBlock(in_channels=896, out_channels=1056, kernel_size=5),
-            self._max_pool,
+            nn.MaxPool1d(kernel_size=2, padding=0),
             ConvBlock(in_channels=1056, out_channels=1280, kernel_size=5),
         )
 
@@ -50,7 +96,7 @@ class Borzoi(nn.Module):
         # UNet connections 1
         # ==================
         self.unet1 = SequentialwithArgs(
-            self._max_pool,
+            nn.MaxPool1d(kernel_size=2, padding=0),
             ConvBlock(in_channels=1280, out_channels=1536, kernel_size=5),
         )
 
@@ -62,9 +108,9 @@ class Borzoi(nn.Module):
                 channels=1536,
                 heads=8,
                 dim_key=64,
-                attn_dropout=0.05,
-                pos_dropout=0.01,
-                dropout=0.2,
+                attn_dropout=transformer_attn_dropout,
+                pos_dropout=transformer_pos_dropout,
+                ff_dropout=transformer_ff_dropout,
                 num_rel_pos_features=32,
                 seq_len=4096,
             )
@@ -89,7 +135,7 @@ class Borzoi(nn.Module):
 
         self.upsampling_unet1 = SequentialwithArgs(
             ConvBlock(in_channels=1536, out_channels=1536, kernel_size=1),
-            self.upsample,
+            torch.nn.Upsample(scale_factor=2),
         )
         self.separable1 = ConvBlock(
             in_channels=1536, out_channels=1536, kernel_size=3, conv_type="separable"
@@ -97,7 +143,7 @@ class Borzoi(nn.Module):
 
         self.upsampling_unet0 = SequentialwithArgs(
             ConvBlock(in_channels=1536, out_channels=1536, kernel_size=1),
-            self.upsample,
+            torch.nn.Upsample(scale_factor=2),
         )
         self.separable0 = ConvBlock(
             in_channels=1536, out_channels=1536, kernel_size=3, conv_type="separable"
@@ -109,14 +155,31 @@ class Borzoi(nn.Module):
         self.crop = TargetLengthCrop(16384 - 32)
         self.final_joined_convs = SequentialwithArgs(
             ConvBlock(in_channels=1536, out_channels=1920, kernel_size=1),
-            nn.Dropout(0.1),
+            nn.Dropout(final_conv_dropout),
             nn.GELU(approximate="tanh"),
         )
 
-        if checkpoint_path is not None:
-            self.load_state_dict(torch.load(checkpoint_path))
+    @classmethod
+    def get_default_config(cls):
+        """Get default config."""
+        return deepcopy(cls.default_config)
 
-    def forward(self, x, *args, **kwargs):
+    @classmethod
+    def from_checkpoint(cls, checkpoint_path, weights_only=False):
+        """Load model from checkpoint."""
+        model = cls()
+
+        model_weights = torch.load(checkpoint_path, weights_only=weights_only)
+        model_weights = {
+            k: v
+            for k, v in model_weights.items()
+            if k.split(".")[0] not in {"human_head", "mouse_head"}
+        }
+        if checkpoint_path is not None:
+            model.load_state_dict(model_weights)
+        return model
+
+    def forward(self, x, crop=True, *args, **kwargs):
         """Borzoi forward pass."""
         # change dtype to half if not already
         if torch.is_autocast_enabled():
@@ -186,39 +249,113 @@ class Borzoi(nn.Module):
         # Out - x: (bs, 1920, 16352)
         # signal resolution is 32
         # =================
-        x = self.crop(x.permute(0, 2, 1)).permute(0, 2, 1)
         x = self.final_joined_convs(x, *args, **kwargs)
+
+        if crop:
+            x = self.crop(x)
         return x
+
+    def _model_summary(
+        self,
+        input_size=(1, 4, 524288),
+        input_data=None,
+        depth=3,
+        col_names=("input_size", "output_size", "num_params"),
+        cache_forward_pass=False,
+        **kwargs,
+    ):
+        summary_str = model_summary(
+            self,
+            input_size=input_size,
+            input_data=input_data,
+            depth=depth,
+            col_names=col_names,
+            cache_forward_pass=cache_forward_pass,
+            **kwargs,
+        )
+        return summary_str
+
+    def __repr__(self):
+        return self._model_summary()
+
+    def loss(self, y_pred, y_true):
+        """
+        Compute the loss for the Borzoi model.
+
+        Parameters
+        ----------
+        y_pred : torch.Tensor
+            Predicted values, shape (batch_size, out_channels, seq_len).
+        y_true : torch.Tensor
+            True values, shape (batch_size, out_channels, seq_len).
+        """
+        y_true_crop = self.crop(y_true)
+
+        _loss = poisson_multinomial(
+            y_true=y_true_crop,
+            y_pred=y_pred,
+            total_weight=self.loss_total_weight,
+            weight_range=1,  # 1 means not use the position weighted loss
+            weight_exp=4,
+            epsilon=1e-7,  # this is smallest for float16
+            rescale=False,
+        )
+
+        # loss is averaged across batch and channels
+        _loss = _loss.mean()
+        return _loss
 
 
 class BorzoiWithOutputHead(Borzoi):
-    def __init__(self, checkpoint_path=None, enable_mouse_head=True):
-        super().__init__(checkpoint_path=None)
+    """Borzoi model with bulk track output heads, from the original model."""
 
-        self.human_head = nn.Conv1d(in_channels=1920, out_channels=7611, kernel_size=1)
+    def __init__(self, human_head=True, mouse_head=False):
+        super().__init__()
 
-        self.enable_mouse_head = enable_mouse_head
+        if not (human_head or mouse_head):
+            raise ValueError("At least one of human_head or mouse_head should be True")
+
+        self.enable_human_head = human_head
+        if self.enable_human_head:
+            self.human_head = nn.Conv1d(
+                in_channels=1920, out_channels=7611, kernel_size=1
+            )
+
+        self.enable_mouse_head = mouse_head
         if self.enable_mouse_head:
             self.mouse_head = nn.Conv1d(
                 in_channels=1920, out_channels=2608, kernel_size=1
             )
         self.final_softplus = nn.Softplus()
 
+    @classmethod
+    def from_checkpoint(
+        cls, checkpoint_path, weights_only=False, human_head=True, mouse_head=False
+    ):
+        """Load model from checkpoint."""
+        model = cls(human_head=human_head, mouse_head=mouse_head)
         if checkpoint_path is not None:
-            self.load_state_dict(torch.load(checkpoint_path))
+            model.load_state_dict(
+                torch.load(checkpoint_path, weights_only=weights_only)
+            )
+        return model
 
     def forward(self, x, *args, **kwargs):
         """Borzoi forward pass to get human and mouse output."""
         x = super().forward(x, *args, **kwargs)
 
-        human_out = self.final_softplus(self.human_head(x))
-        # human_out: (bs, 7611, 16352)
-        # equivalent to 16352*32 = 523264 bp signal
+        output = []
+
+        if self.enable_human_head:
+            human_out = self.final_softplus(self.human_head(x))
+            # human_out: (bs, 7611, 16352)
+            # equivalent to 16352*32 = 523264 bp signal
+            output.append(human_out)
 
         if self.enable_mouse_head:
             mouse_out = self.final_softplus(self.mouse_head(x))
             # mouse_out: (bs, 2608, 16352)
             # equivalent to 16352*32 = 523264 bp signal
-            return human_out, mouse_out
-        else:
-            return human_out
+            output.append(mouse_out)
+
+        return output

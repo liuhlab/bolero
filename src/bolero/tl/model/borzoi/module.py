@@ -8,9 +8,11 @@ enformer pytorch: https://github.com/lucidrains/enformer-pytorch/blob/main/LICEN
 import math
 
 import torch
-from einops import rearrange
+from einops import rearrange, repeat
 from torch import einsum, nn
+from torch.nn import functional as F
 
+from bolero.tl.generic.module import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
 
 
@@ -106,9 +108,9 @@ class TargetLengthCrop(nn.Module):
 
     def forward(self, x):
         """
-        x: torch.Tensor, shape (batch, seq_len, dim)
+        x: torch.Tensor, shape (batch, dim, seq_len)
         """
-        seq_len, target_len = x.shape[-2], self.target_length
+        seq_len, target_len = x.shape[-1], self.target_length
 
         if target_len == -1:
             return x
@@ -123,13 +125,32 @@ class TargetLengthCrop(nn.Module):
         if trim == 0:
             return x
 
-        return x[:, -trim:trim]
+        return x[..., -trim:trim]
+
+
+class GEGLU(nn.Module):
+    def forward(self, x):
+        """GEGLU forward pass."""
+        x, gates = x.chunk(2, dim=-1)
+        return x * F.gelu(gates)
 
 
 class SequentialwithArgs(nn.Sequential):
     """Sequential module that can pass additional arguments to the modules."""
 
-    no_args_modules = (nn.MaxPool1d, nn.LayerNorm, nn.Dropout, nn.ReLU, nn.GELU)
+    no_args_modules = (
+        nn.MaxPool1d,
+        nn.LayerNorm,
+        nn.Dropout,
+        nn.ReLU,
+        nn.GELU,
+        nn.Upsample,
+        nn.Softplus,
+        nn.Conv1d,
+        nn.Conv2d,
+        nn.Linear,
+        GEGLU,
+    )
 
     def forward(self, x, *args, **kwargs):
         """SequentialwithArgs forward pass."""
@@ -323,10 +344,11 @@ class TransformerLayer(nn.Module):
         dim_key=64,
         attn_dropout=0.05,
         pos_dropout=0.01,
-        dropout=0.2,
+        ff_dropout=0.2,
         num_rel_pos_features=32,
         seq_len=4096,
     ):
+        super().__init__()
         self.layers = SequentialwithArgs(
             Residual(
                 SequentialwithArgs(
@@ -340,7 +362,7 @@ class TransformerLayer(nn.Module):
                         num_rel_pos_features=num_rel_pos_features,
                         seq_len=seq_len,
                     ),
-                    nn.Dropout(dropout),
+                    nn.Dropout(ff_dropout),
                 )
             ),
             Residual(
@@ -348,7 +370,7 @@ class TransformerLayer(nn.Module):
                     input_dim=channels,
                     hidden_dim=channels * 2,
                     output_dim=channels,
-                    dropout=dropout,
+                    dropout=ff_dropout,
                 ),
             ),
         )
@@ -356,3 +378,183 @@ class TransformerLayer(nn.Module):
     def forward(self, x, *args, **kwargs):
         """TransformerLayer forward pass."""
         return self.layers(x, *args, **kwargs)
+
+
+class OutputHead(SequentialwithArgs):
+    """A simple output head with out context input."""
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__(
+            nn.Conv1d(
+                in_channels=in_channels, out_channels=out_channels, kernel_size=1
+            ),
+            nn.Softplus(),
+        )
+
+
+class ContextCrossAttention(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        context_dim,
+        heads=8,
+        dim_head=64,
+    ):
+        super().__init__()
+        self.query_norm = nn.LayerNorm(in_channels)
+        self.key_values_norm = nn.LayerNorm(context_dim)
+
+        self.scale = dim_head**-0.5
+        self.heads = heads
+        inner_dim = heads * dim_head
+        self.to_queries = nn.Linear(in_channels, inner_dim, bias=False)
+
+        self.null_key = nn.Parameter(torch.randn(inner_dim))
+        self.null_value = nn.Parameter(torch.randn(inner_dim))
+
+        self.to_key_values = nn.Linear(context_dim, inner_dim * 2, bias=False)
+        self.to_out = nn.Linear(inner_dim, in_channels)
+
+    def forward(self, x, embedding):
+        """
+        b - batch
+        e - borzoi embedding dim, 1920
+        c - context dim, 41
+        d - inner dimension
+        i - sequence length (query embeddings), 16352
+        j - sequence length (keys / values contexts)
+        h - attention heads
+
+        x: torch.Tensor, shape (batch, seq_len, dim)
+        """
+        h = self.heads
+
+        # perform cross attention from dna -> context
+        if embedding.ndim == 2:
+            embedding = rearrange(embedding, "b c -> b 1 c")
+
+        # (b, 16352, 1920) -> (b, 16352, 512)
+        q = self.to_queries(self.query_norm(x))
+        # (b, 1, 41) -> (b, 1, 512), (b, 1, 512)
+        k, v = self.to_key_values(self.key_values_norm(embedding)).chunk(2, dim=-1)
+        null_k = repeat(self.null_key, "d -> b 1 d", b=embedding.shape[0])
+        null_v = repeat(self.null_value, "d -> b 1 d", b=embedding.shape[0])
+        # (b, 1, 512), (b, 1, 512) -> (b, 2, 512)
+        k = torch.cat((null_k, k), dim=1)
+        v = torch.cat((null_v, v), dim=1)
+
+        # split out head
+        # (b, 16352, 512) -> (b, 8, 16352, 64)
+        q = rearrange(q, "b n (h d) -> b h n d", h=h)
+        # (b, 2, 512) -> (b, 8, 2, 64)
+        k = rearrange(k, "b j (h d) -> b h j d", h=h)
+        v = rearrange(v, "b j (h d) -> b h j d", h=h)
+        # (b, 8, 16352, 64), (b, 8, 2, 64) -> (b, 8, 16352, 2)
+        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
+
+        # attention
+        attn = sim.softmax(dim=-1)
+
+        # aggregate
+        # (b, 8, 16352, 2), (b, 8, 2, 64) -> (b, 8, 16352, 64)
+        out = einsum("b h i j, b h j d -> b h i d", attn, v)
+        # (b, 8, 16352, 64) -> (b, 16352, 512)
+        out = rearrange(out, "b h i d -> b i (h d)", h=h)
+
+        # combine heads
+        # (b, 16352, 512) -> (b, 16352, 1920)
+        out = self.to_out(out)
+        return out
+
+
+class GEGLUFeedForward(nn.Module):
+    def __init__(self, dim, dropout=0.05, mult=2):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, dim * mult * 2),
+            nn.Dropout(dropout),
+            GEGLU(),
+            nn.Linear(dim * mult, dim),
+        )
+
+    def forward(self, x, *args, **kwargs):
+        """GEGLUFeedForward forward pass."""
+        # placeholder args and kwargs, but not used
+        return self.net(x)
+
+
+class ContextOutputHead(nn.Module, KVBottleNeckMixin):
+    """A simple output head with context input."""
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        context_dim,
+        cross_attn_heads=8,
+        cross_attn_dim=64,
+        ff_mult=2,
+        dropout=0.05,
+        kv_bottleneck=False,
+        num_memories=256,
+        dim_memory=20,
+        num_memory_codebooks=2,
+        additional_embs=1,
+    ):
+        super().__init__()
+        cross_attn = Residual(
+            # layer norm included in the cross attention
+            ContextCrossAttention(
+                in_channels=in_channels,
+                context_dim=context_dim,
+                heads=cross_attn_heads,
+                dim_head=cross_attn_dim,
+            )
+        )
+        feed_forward = Residual(
+            # layer norm included in the feed forward
+            GEGLUFeedForward(dim=in_channels, dropout=dropout, mult=ff_mult),
+        )
+        self.residual_context = Residual(
+            SequentialwithArgs(
+                cross_attn,
+                feed_forward,
+                nn.Dropout(dropout),
+                # nn.GELU(approximate="tanh"),  # TODO: should we add GELU here?
+            )
+        )
+        self.final_output_head = OutputHead(in_channels, out_channels)
+
+        # key-value bottleneck for converting indices to embeddings
+        if kv_bottleneck:
+            self.kv_bottleneck, _ = self.setup_kv_bottleneck(
+                num_memory_codebooks=num_memory_codebooks,
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                additional_embs=additional_embs,
+            )
+        else:
+            self.kv_bottleneck = None
+
+    def forward(self, x: torch.Tensor, embedding: torch.Tensor):
+        """
+        ContextOutputHead forward pass.
+
+        Parameters
+        ----------
+            x: torch.Tensor, shape (batch, dim, seq_len)
+            embedding: torch.Tensor, shape (batch, context_dim)
+
+        Returns
+        -------
+            torch.Tensor, shape (batch, out_channels, seq_len)
+        """
+        if self.kv_bottleneck is not None:
+            embedding = self.vq_ind_to_emb(embedding)
+
+        x = x.permute(0, 2, 1)
+        x = self.residual_context(x, embedding=embedding)
+        x = x.permute(0, 2, 1)
+        x = self.final_output_head(x)
+        return x

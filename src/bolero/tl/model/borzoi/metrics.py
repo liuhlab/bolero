@@ -10,10 +10,10 @@ class MeanPearsonCorrCoefPerChannel(Metric):
     is_differentiable: Optional[bool] = False
     higher_is_better: Optional[bool] = True
 
-    def __init__(self, n_channels: int, dist_sync_on_step=False):
+    def __init__(self, n_channels: int, dist_sync_on_step=False, reduce_dims=(0, 2)):
         """Calculates the mean pearson correlation across channels aggregated over regions"""
         super().__init__(dist_sync_on_step=dist_sync_on_step)
-        self.reduce_dims = (0, 1)
+        self.reduce_dims = reduce_dims
         self.add_state(
             "product",
             default=torch.zeros(n_channels, dtype=torch.float32),
@@ -75,20 +75,54 @@ class MeanPearsonCorrCoefPerChannel(Metric):
         return correlation
 
 
+def get_position_weights(
+    seq_len: int, weight_range: float, weight_exp: int, device: str
+):
+    """
+    Generate smooth position-wise weights that are high in the middle and low at the ends.
+
+    This function creates a set of weights for positions in a sequence, where the weights
+    are highest in the middle of the sequence and decrease towards the ends. The weights
+    are normalized to have a maximum value of 1. Note that this function is not used in
+    the referenced paper.
+
+    Args:
+        seq_len (int): The length of the sequence.
+        weight_range (float): The range of the weights.
+        weight_exp (int): The exponent used to control the smoothness of the weights.
+                          This value is adjusted to be an even number.
+        device (str): The device to which the tensors are moved (e.g., 'cpu' or 'cuda').
+
+    Returns
+    -------
+        torch.Tensor: A tensor containing the position-wise weights, with shape (1, seq_len, 1).
+    """
+    weight_exp = max(2, weight_exp // 2 * 2)  # Ensure weight_exp is even number
+    pos_start = -(seq_len / 2 - 0.5)
+    pos_end = seq_len / 2 + 0.5
+    positions = torch.arange(pos_start, pos_end, dtype=torch.float32).to(device)
+    sigma = -pos_start / (np.log(weight_range)) ** (1 / weight_exp)
+    position_weights = torch.exp(-((positions / sigma) ** weight_exp))
+    position_weights /= torch.max(position_weights)
+    position_weights = position_weights.unsqueeze(0).unsqueeze(-1)
+    return position_weights
+
+
 def poisson_multinomial(
-    y_true,
-    y_pred,
+    y_true: torch.Tensor,
+    y_pred: torch.Tensor,
     total_weight: float = 1,
     weight_range: float = 1,
     weight_exp: int = 4,
     epsilon: float = 1e-7,
     rescale: bool = False,
 ):
-    """Poisson decomposition with multinomial specificity term in PyTorch.
+    """
+    Compositional loss containing the overall poisson term and position-wise multinomial term.
 
     Args:
-        y_true (torch.Tensor): Ground truth tensor of shape [B, L, T].
-        y_pred (torch.Tensor): Predicted tensor of shape [B, L, T].
+        y_true (torch.Tensor): Ground truth tensor of shape (bs, c, seq_len).
+        y_pred (torch.Tensor): Predicted tensor of shape (bs, c, seq_len).
         total_weight (float): Weight of the Poisson total term.
         weight_range (float): Range of the position-specific weights.
         weight_exp (int): Exponent of the position-specific weights,
@@ -96,40 +130,26 @@ def poisson_multinomial(
         epsilon (float): Small value to avoid log(0).
         rescale (bool): Rescale loss after re-weighting.
     """
-    seq_len = y_true.shape[1]
+    seq_len = y_true.shape[-1]
 
     # Position-specific weights (similar to TensorFlow code)
     if weight_range < 1:
         raise ValueError("Poisson Multinomial weight_range must be >=1")
     elif weight_range == 1:
-        weigh_by_position = False
         weight_scale = seq_len
     else:
-        # this is aim to create an smooth position wise weight
-        # that is high in the middle and low in the ends
-        # This is not actually used in the paper
-        weight_exp = max(2, weight_exp // 2 * 2)  # Ensure weight_exp is even number
-        pos_start = -(seq_len / 2 - 0.5)
-        pos_end = seq_len / 2 + 0.5
-        positions = torch.arange(pos_start, pos_end, dtype=torch.float32).to(
-            y_true.device
+        position_weights = get_position_weights(
+            seq_len, weight_range, weight_exp, y_true.device
         )
-        sigma = -pos_start / (np.log(weight_range)) ** (1 / weight_exp)
-        position_weights = torch.exp(-((positions / sigma) ** weight_exp))
-        position_weights /= torch.max(position_weights)
-        position_weights = position_weights.unsqueeze(0).unsqueeze(-1)
-
-        weigh_by_position = True
-        weight_scale = torch.sum(position_weights)
-
-    if weigh_by_position:
         # Apply position weights to true and predicted values
         y_true = y_true * position_weights
         y_pred = y_pred * position_weights
 
+        weight_scale = torch.sum(position_weights)
+
     # Poisson loss computation (sum across lengths, then compute loss)
-    s_true = torch.sum(y_true, dim=-2)  # B x T
-    s_pred = torch.sum(y_pred, dim=-2)  # B x T
+    s_true = torch.sum(y_true, dim=-1)  # (bs, c)
+    s_pred = torch.sum(y_pred, dim=-1)  # (bs, c)
 
     poisson_term = F.poisson_nll_loss(
         s_pred, s_true, log_input=False, reduction="none"
@@ -141,15 +161,15 @@ def poisson_multinomial(
     y_pred += epsilon
 
     # Normalize predictions to sum to one (multinomial probability)
-    p_pred = y_pred / s_pred.unsqueeze(-2)  # B x L x T
+    p_pred = y_pred / s_pred.unsqueeze(-1)  # (bs, c, seq_len)
 
     # Multinomial loss
-    pl_pred = torch.log(p_pred)  # B x L x T
-    multinomial_term = torch.sum(-y_true * pl_pred, dim=-2)  # B x T
+    pl_pred = torch.log(p_pred)  # (bs, c, seq_len)
+    multinomial_term = torch.sum(-y_true * pl_pred, dim=-1)  # (bs, c)
     multinomial_term /= weight_scale
 
     # Combine Poisson and Multinomial terms
-    loss_raw = multinomial_term + total_weight * poisson_term  # B x T
+    loss_raw = multinomial_term + total_weight * poisson_term  # (bs, c)
 
     # Rescale if required
     if rescale:
