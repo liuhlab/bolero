@@ -5,15 +5,16 @@ from typing import Any, Iterable
 import ray
 
 from bolero.tl.dataset.ray_dataset import (
-    RayGenomeChunkDataset,
+    RayGenomeChunkDataset, RayRegionDataset
 )
 from bolero.tl.dataset.sc_transforms import FilterRegions
 from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
 )
-from bolero.utils import get_global_coords, understand_regions
 
+from bolero.utils import get_global_coords, understand_regions
+from bolero.tl.dataset.file_transforms import FetchRegionBigWigs
 from .utils import BorzoiRegions, clamp_sqrt_large_value
 
 DNA_NAME = "dna_one_hot"
@@ -240,6 +241,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             concurrency=(1, 4),
         )
         return dataset
+    
 
     def _get_processed_dataset(
         self,
@@ -412,3 +414,463 @@ class BorzoiDataset(RayGenomeChunkDataset):
             batch_size=self.batch_size,
         )
         return loader
+
+
+
+class BorzoiDatasetOnline(RayRegionDataset):
+    """Singel cell pseudobulk dataset for Borzoi model."""
+
+    default_config = {
+        "bigwig_paths": "REQUIRED",
+        "bed": "REQUIRED",
+        "batch_size": 2,
+        "dna_window": 524288,
+        "pos_resolution": 32,
+        "reverse_complement": True,
+        # "max_jitter": 3,
+        "max_jitter": 0,
+        "clamp_sqrt_threshold": None,
+        "shuffle_files": True,
+        "read_parquet_kwargs": None,
+    }
+
+    def __init__(
+        self,
+        bigiwig_paths = list[str],
+        bed = str,
+        batch_size: int = 2,
+        dna_window: int = 524288,
+        pos_resolution: int = 32,
+        reverse_complement: bool = True,
+        max_jitter: int = 3,
+        cov_filter_name: str = None,
+        clamp_sqrt_threshold: int = None,
+        shuffle_files=False,
+    ):
+        super().__init__(
+            bigiwig_paths=bigiwig_paths,
+            shuffle_files=shuffle_files,
+        )
+        self.batch_size = batch_size
+
+        # region properties
+        self.dna_window = dna_window
+        self.signal_window = dna_window
+        self.pos_resolution = pos_resolution
+        self.max_jitter = max_jitter
+        self.reverse_complement = reverse_complement
+        self.cov_filter_name = cov_filter_name
+        self.clamp_sqrt_threshold = clamp_sqrt_threshold
+
+        self.name_to_online = OrderedDict()
+
+        self.borzoi_regions = BorzoiRegions()
+        return
+
+    def get_train_valid_test(self, fold):
+        """Get the train, valid, and test folds and regions for the given fold."""
+        fold_split = self.borzoi_regions.fold_splits[fold]
+        train_folds = fold_split["train"]
+        valid_folds = fold_split["valid"]
+        test_folds = fold_split["test"]
+
+        train_regions, valid_regions, test_regions = (
+            self.borzoi_regions.get_train_valid_test_regions(
+                self.genome.name, split_id=fold, region_length=self.dna_window
+            )
+        )
+        return (
+            train_folds,
+            valid_folds,
+            test_folds,
+            train_regions,
+            valid_regions,
+            test_regions,
+        )
+
+    def __repr__(self) -> str:
+        _str = (
+            f"{self.__name__}\n"
+            f"Dataset directory: {self.bigiwig_paths}\n"
+            f"DNA window: {self.dna_window}, Signal window: {self.signal_window},\n"
+            f"Max jitter: {self.max_jitter}, Batch size: {self.batch_size},\n"
+        )
+        return _str
+
+    def _get_dna_one_hot(self, dataset, concurrency):
+
+
+        fn = FetchRegionOneHot
+        fn_constructor_kwargs = {
+            "random_shift": self.max_jitter if self._dataset_mode == "train" else 0,
+            "dtype": "bool",
+        }
+        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            fn_kwargs=fn_kwargs,
+            concurrency=concurrency,
+        )
+        self.dna_column = DNA_NAME
+        return dataset
+
+    def _get_reverse_complement_region(self, dataset) -> None:
+        """
+        Reverse complement the DNA sequences by 50% probability.
+
+        Returns
+        -------
+        None
+        """
+        _rc = ReverseComplement(
+            dna_key=self.dna_column,
+            signal_key=self.signal_columns,
+        )
+        dataset = dataset.map_batches(_rc)
+        return dataset
+
+    def add_pseudobulker(self, name: str, cls, pseudobulker_kwargs: dict):
+        """
+        Add a pseudobulker to the dataset.
+
+        Parameters
+        ----------
+        name : str
+            The name of the pseudobulker, will be used as pseudobulk prefix in final dict.
+        cls : Pseudobulker class
+            The pseudobulker class that can be used to generate pseudobulks.
+        pseudobulker_kwargs : dict
+            The keyword arguments to pass to the pseudobulker class constructor.
+        """
+        if "barcode_order" not in pseudobulker_kwargs:
+            pseudobulker_kwargs["barcode_order"] = self.barcode_order
+        generator = cls.create_from_config(**pseudobulker_kwargs)
+        self.name_to_pseudobulker[name] = generator
+        return
+
+    def _filter_bed_regions(
+        self,
+        dataset,
+        cov_filter_key,
+        min_cov,
+        max_cov,
+        low_cov_ratio,
+        batch_size,
+        concurrency,
+    ):
+        fn = FilterRegions
+        fn_constructor_kwargs = {
+            "cov_filter_key": cov_filter_key,
+            "min_cov": min_cov,
+            "max_cov": max_cov,
+            "low_cov_ratio": low_cov_ratio,
+        }
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def _process_region_columns(self, dataset, keep_regions=False):
+        """
+        Keep the regions by converting them to global coordinates OR remove the region columns.
+        """
+        if keep_regions:
+            chrom_offsets = self.genome.chrom_offsets.copy()
+
+            def _region_to_global_coords(batch):
+                region_df = understand_regions(batch.pop("region"))
+                global_coords = get_global_coords(
+                    chrom_offsets=chrom_offsets,
+                    region_bed_df=region_df,
+                )
+                batch["region"] = global_coords
+                return batch
+
+            dataset = dataset.map_batches(_region_to_global_coords)
+        else:
+            dataset = dataset.drop_columns(["Original_name"])
+        return dataset
+
+    def _get_folds_dir(self, folds):
+        if folds is None:
+            fold_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("fold*")]
+        else:
+            if isinstance(folds, str):
+                folds = [folds]
+            fold_dirs = [f"{self.dataset_path}/fold{fold}" for fold in folds]
+
+            # make sure all fold_dir exists
+            fold_dirs = [
+                fold_dir for fold_dir in fold_dirs if pathlib.Path(fold_dir).exists()
+            ]
+            assert (
+                len(fold_dirs) > 0
+            ), f"None of the fold {folds} exists in {self.dataset_path}"
+        return fold_dirs
+
+
+    def _add_clamp_sqrt(self, dataset):
+        if self.clamp_sqrt_threshold is None:
+            return dataset
+
+        signal_columns = self.signal_columns
+        threshold = self.clamp_sqrt_threshold
+
+        def _oprator(batch):
+            for key in signal_columns:
+                batch[key] = clamp_sqrt_large_value(batch[key], threshold=threshold)
+            return batch
+
+        dataset = dataset.map_batches(
+            fn=_oprator,
+            concurrency=(1, 4),
+        )
+        return dataset
+
+    def _get_bigwig_data(
+            self,
+            dataset,
+            data_key="bw_values",
+            concurrency=(1, 6),
+            n_operators=5,
+            batch_size=8,
+            norm_mode="log",
+        ):
+            """
+            Get the bigwig data for the dataset, copied from corigami HiCTrackDataset
+
+            Parameters
+            ----------
+            dataset : RayRegionDataset
+                The dataset to be processed.
+            data_key : str
+                The key to store the bigwig data.
+            concurrency : tuple
+                The concurrency for the dataset, min and max.
+            n_operators : int
+                The number of operators to be used when dataset contains multiple cool paths.
+                Each operator will process a chunk of the cool paths and saved in separate data_key.
+            batch_size : int
+                The batch size for the cool operator.
+                Small batch size will increase data fetching batch number and increase the concurrency.
+            norm_mode : str
+                The normalization mode for the bigwig data.
+
+            Returns
+            -------
+            dataset : RayRegionDataset
+                The dataset with bigwig data oprator mapped.
+            """
+            _chunk_size = max(1, len(self.bigwig_paths) // n_operators)
+            # breakpoint()
+            for idx, chunk_start in enumerate(
+                range(0, len(self.bigwig_paths), _chunk_size)
+            ):
+                chunk_end = min(len(self.bigwig_paths), chunk_start + _chunk_size)
+                chunk_paths = self.bigwig_paths[chunk_start:chunk_end]
+
+                fn = FetchRegionBigWigs
+                fn_constructor_kwargs = {
+                    "bw_paths": chunk_paths,
+                    "region_key": "Original_Name", #this is what determines the signal fetched, 'region' is 1840 and 'Original_Name' is 1000
+                    "data_key": f"{data_key}_{idx}",
+                    "norm_mode": norm_mode,
+                }
+                dataset = dataset.map_batches(
+                    fn=fn,
+                    fn_constructor_kwargs=fn_constructor_kwargs,
+                    concurrency=concurrency,
+                    batch_size=batch_size,
+                )
+
+                
+            total_chunks = idx + 1
+
+            # add a final concat function to merge all the chunks
+            def _concat_bw_chunks(data, data_key=data_key, total_chunks=total_chunks):
+                bw_keys = [f"{data_key}_{idx}" for idx in range(total_chunks)]
+                bw_data = [data.pop(key) for key in bw_keys if key in data]
+                if not bw_data:
+                    raise ValueError("No bigwig data found to concatenate.")
+                data[data_key] = np.concatenate(bw_data, axis=1)
+                return data            
+
+            dataset = dataset.map_batches(
+                fn=_concat_bw_chunks,
+                batch_size=batch_size,
+            )
+            return dataset        
+
+    def _get_dna_one_hot(self, dataset, concurrency):
+        fn = FetchRegionOneHot
+        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+
+        dataset = dataset.map_batches(
+            fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
+        )
+        self.dna_column = DNA_NAME
+        return dataset
+    def _get_processed_dataset(
+        self,
+        folds,
+        region_bed,
+        filter_regions=True,
+        region_action_keys=["bw_values", "embedding_data"],
+        concurrency=32,
+        **pseudobulk_kwargs,
+    ) -> None:
+        """
+        Preprocess the dataset to return pseudobulk region rows.
+        """
+        # compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        # generate_pseudobulk_concurrency = (1, concurrency)
+        # generate_regions_concurrency = (1, concurrency // 2)
+        bw_concurrency = (1,concurrency)
+        generate_regions_concurrency = (1, concurrency // 2)
+
+        dataset = super()._get_processed_dataset(
+                folds=folds,
+                region_bed=region_bed,
+        )
+
+        dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None)
+
+        #Expectation for this step is that the data is dictionary with region with corresponding
+        #modality and the embedding for each corresponding cell type 
+
+        if filter_regions:
+            dataset = self._filter_bed_regions(dataset)
+
+            # # update region_action_keys
+            # region_action_keys = [
+            #     name for name in region_action_keys if name not in name_to_online
+            # ]
+            # new_keys = [f"{name}:bw_values" for name in name_to_online.keys()]
+            # region_action_keys.extend(new_keys)
+
+        region_action_keys = list(set(region_action_keys))
+        self.signal_columns = region_action_keys
+
+        
+        dataset = self._generate_regions(
+            dataset=dataset,
+            bed=region_bed,
+            action_keys=region_action_keys,
+            max_regions=1,
+            concurrency=generate_regions_concurrency,
+            pos_resolution=self.pos_resolution,
+        )
+            
+        return dataset
+
+    def get_processed_dataset(
+        self,
+        folds: list[int],
+        region_bed: str,
+        return_cells: bool = False,
+        return_regions: bool = True,
+        concurrency: int = 16,
+    ) -> None:
+        """
+        Process the dataset and return the processed dataset.
+
+        Parameters
+        ----------
+        - folds (list): List of folds to include in the dataset.
+        - region_bed_path (str): Path to the BED file containing the regions.
+        - return_cells (bool): Whether to return the cells in the dataset. Default is False.
+        - return_regions (bool): Whether to return the regions in the dataset. Default is False.
+
+        Returns
+        -------
+        - work_ds (Dataset): The processed dataset.
+
+        """
+        # standard_length = self.dna_window
+        # region_bed = self.standard_region_length(region_bed, standard_length)
+
+        work_ds = self._get_processed_dataset(
+            folds=folds,
+            region_bed=region_bed,
+            inplace=False,
+            concurrency=concurrency,
+        )
+
+        # add dna one hot
+        work_ds = self._get_dna_one_hot(
+            dataset=work_ds,
+            concurrency=1,
+        )
+
+        if self.reverse_complement and self._dataset_mode == "train":
+            work_ds = self._get_reverse_complement_region(work_ds)
+
+        # remove region column OR turn it into global coordinates (str to numbers)
+        work_ds = self._process_region_columns(
+            dataset=work_ds, keep_regions=return_regions
+        )
+
+        # add clamp sqrt
+        work_ds = self._add_clamp_sqrt(work_ds)
+        return work_ds
+
+    def get_dataloader(
+        self,
+        folds,
+        region_bed,
+        as_torch=True,
+        return_regions=True,
+        return_cells=False,
+        n_batches=None,
+        shuffle_rows=500,
+        concurrency=20,
+        **dataloader_kwargs,
+    ) -> Iterable[dict[str, Any]]:
+        """
+        Get the dataloader.
+
+        Parameters
+        ----------
+        local_shuffle_buffer_size : int, optional
+            The size of the local shuffle buffer, by default 10000.
+        randomize_block_order : bool, optional
+            Whether to randomize the block order, by default False.
+        as_torch : bool, optional
+            Whether to return a PyTorch dataloader, by default True.
+        device : str, optional
+            The device to use, by default None.
+        return_cells : bool, optional
+            Whether to return the cell ids, by default False.
+        **dataloader_kwargs
+            Additional keyword arguments pass to ray.data.Dataset.iter_batches.
+
+        Returns
+        -------
+        DataLoader
+            The dataloader.
+        """
+        # dataset_kwargs will be passed to self.get_processed_dataset method
+        dataset_kwargs = {
+            "folds": folds,  # for borzoi we don't split train/valid/test via chromosomes, so all chromosomes are included
+            "region_bed": region_bed,
+            "return_cells": return_cells,
+            "return_regions": return_regions,
+            "concurrency": concurrency,
+        }
+        data_iter_kwargs = dataloader_kwargs
+
+        loader = self._get_dataloader_with_wrapper(
+            dataset_kwargs=dataset_kwargs,
+            data_iter_kwargs=data_iter_kwargs,
+            as_torch=as_torch,
+            shuffle_rows=shuffle_rows,
+            n_batches=n_batches,
+            batch_size=self.batch_size,
+        )
+        return loader
+    
