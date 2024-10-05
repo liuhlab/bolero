@@ -29,7 +29,7 @@ file_mounts:
 setup: |
   set -e  # Exit if any command failed.
   conda activate ray
-  sudo mount 192.168.179.186:/filestore /mnt/filestore
+  # sudo mount 192.168.179.186:/filestore /mnt/filestore
 
   if [ -f $HOME/.SKIPSETUP ]
   then
