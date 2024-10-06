@@ -8,22 +8,17 @@ Also video from the LoRA author: https://www.youtube.com/watch?v=DhRoTONcyZE
 """
 
 from copy import deepcopy
-from functools import partial
 from typing import Union
 
-import numpy as np
 import torch
 import torch.nn as nn
 from einops import einsum, rearrange, repeat
 from torch.nn import functional as F
 
-from bolero.tl.generic.module import (
-    Conv1dWrapper,
-    GroupedLinear,
-    KVBottleNeckMixin,
-)
-
+from .module import Conv1dWrapper
+from .module_embedding import EmbeddingMLP
 from .module_lora import (
+    DoRAMixin,
     LoRAConv,
     LoRALinear,
     mark_only_lora_as_trainable,
@@ -32,177 +27,11 @@ from .module_lora import (
 )
 
 
-class EmbeddingMLP(nn.Module, KVBottleNeckMixin):
-    """
-    This class turn the input embedding into one of the LoRA low-rank weight matrix (A or B) through a simple MLP.
-    """
-
-    def __init__(
-        self,
-        input_features: int,
-        output_features: int,
-        output_shape: torch.Size,
-        hidden_dim: int,
-        hidden_layers: int = 0,
-        output_layer_groups: int = 1,
-        bias=True,
-        kv_bottleneck=False,
-        num_memory_codebooks=2,
-        num_memories=256,
-        dim_memory=20,
-        additional_embs=1,
-    ) -> None:
-        """
-        Initialize the EmbeddingMLP module.
-
-        Args:
-            input_features (int): The number of input features, usually the Encoder's embedding dimension.
-            output_features (int): The number of output features, usually the number of parameters in the LoRA A or B matrix.
-            hidden_dim (int): The number of hidden dimensions in the MLP.
-            hidden_layers (int): The number of hidden layers in the MLP. Default is 0.
-            output_layer_groups (int): The number of groups in the output layer. Default is 1.
-                If set to more than 1, the output layer will be a GroupedLinear layer to reduce the number of parameters.
-        """
-        super().__init__()
-
-        self.input_features = input_features
-        self.hidden_dim = self.input_features if hidden_dim is None else hidden_dim
-        self.out_feathres = output_features
-        self.output_shape = output_shape
-
-        if output_layer_groups > 1:
-            if self.hidden_dim > 8 and self.out_feathres > 8:
-                # Grouped Linear has smaller number of parameters
-                output_module = partial(
-                    GroupedLinear, groups=output_layer_groups, bias=bias
-                )
-            else:
-                output_module = partial(nn.Linear, bias=bias)
-        else:
-            output_module = partial(nn.Linear, bias=bias)
-
-        # key-value bottleneck for converting indices to embeddings
-        if kv_bottleneck:
-            self.kv_bottleneck, _ = self.setup_kv_bottleneck(
-                num_memory_codebooks=num_memory_codebooks,
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                additional_embs=additional_embs,
-            )
-        else:
-            self.kv_bottleneck = None
-
-        def _generate_linear_module(in_features, out_features):
-            layers = [
-                nn.Linear(
-                    in_features=in_features, out_features=out_features, bias=bias
-                ),
-                nn.BatchNorm1d(out_features),  # TODO: maybe try LayerNorm
-                nn.GELU(),
-            ]
-            return layers
-
-        layers = _generate_linear_module(self.input_features, self.hidden_dim)
-        for _ in range(hidden_layers):
-            layers += _generate_linear_module(self.hidden_dim, self.hidden_dim)
-        layers.append(
-            output_module(in_features=self.hidden_dim, out_features=self.out_feathres)
-        )
-
-        self.mlp = nn.Sequential(*layers)
-        self.rescale_factor = nn.Parameter(torch.tensor(1.0), requires_grad=False)
-
-    def forward(
-        self, embedding: torch.Tensor, emb_weights: torch.Tensor = None
-    ) -> torch.Tensor:
-        """
-        Forward pass of the EmbeddingMLP module.
-
-        Args:
-            embedding (torch.Tensor): The input embedding tensor.
-                If the input tensor is 2D, it is assumed to be (bs, emb_dim).
-                If the input tensor is 3D, it is assumed to be (bs, seq_len, emb_dim).
-            emb_weights (torch.Tensor): The embedding weights tensor.
-                Only applicable for 3D input tensor, where the final weights will be weighted sum across the sequence length dimension.
-                it is assumed to be (bs, seq_len).
-                If None, the output will be the mean across the sequence length dimension.
-
-        Returns
-        -------
-            torch.Tensor: The output tensor after passing through the MLP layers.
-        """
-        if self.kv_bottleneck is not None:
-            embedding = self.vq_ind_to_emb(embedding)
-
-        ndim = embedding.ndim
-        bs = embedding.shape[0]
-        if ndim == 3:
-            # expect input shape (bs, seq_len, emb_dim)
-            embedding = rearrange(embedding, "bs l d -> (bs l) d")
-
-        x = self.mlp(embedding * self.rescale_factor)
-
-        if ndim == 3:
-            x = rearrange(x, "(bs l) d -> bs l d", bs=bs)
-            if emb_weights is None:
-                x = x.mean(dim=1)
-            else:
-                emb_weights = F.softmax(emb_weights, dim=1)
-                x = einsum(x, emb_weights, "bs l d, bs l -> bs d")
-
-        a, b = self.output_shape
-        x = rearrange(x, "bs (a b) -> bs a b", a=a, b=b)
-        return x
-
-    def zero_weights_and_bias(self):
-        """
-        Zero the weights and bias of the MLP's last layer, use this in B embedding.
-        """
-        last_layer = self.mlp[-1]
-
-        assert isinstance(
-            last_layer, (nn.Linear, GroupedLinear)
-        ), f"Last layer is {type(last_layer)}, expected nn.Linear or GroupedLinear"
-        if last_layer.bias is not None:
-            last_layer.bias.data[...] = 0
-        last_layer.weight.data[...] = 0
-        return
-
-    def scale_weights(self, example_embedding: np.ndarray):
-        """
-        Scale the weights of the MLP's first layer based on the example embedding, use this in A embedding.
-        """
-        with torch.no_grad():
-            self.eval()
-            try:
-                self.cuda()
-            except AssertionError:
-                pass
-
-            example_embedding = example_embedding.to(self.mlp[0].weight.device)
-            example_output = self(example_embedding)
-            mean, std = example_output.mean(), example_output.std()
-            print(f"Embedding example mean: {mean}, std: {std}")
-            rescale_factor = 1 / (std)
-            self.rescale_factor = nn.Parameter(
-                rescale_factor.clone().detach(), requires_grad=False
-            )
-            # rescale the embedding matrix
-        return
-
-    def fix_parameters(self):
-        """
-        Fix the parameters of the MLP.
-        """
-        for param in self.parameters():
-            param.requires_grad = False
-        return
-
-
 class UnconditionalParameters(nn.Module):
     def __init__(self, shape):
         super().__init__()
         self.shape = shape
+        self.output_shape = shape
         self.values = nn.Parameter(torch.randn(shape), requires_grad=True)
 
     def forward(self, embedding, *args, **kwargs):
@@ -228,12 +57,15 @@ class ConditionalLoRALayer:
         hidden_dim: int,
         hidden_layers: int,
         output_layer_groups: int,
-        conditional_b=True,
-        kv_bottleneck=False,
-        num_memory_codebooks=2,
-        num_memories=256,
-        dim_memory=20,
-        additional_embs=1,
+        conditional_b: bool = True,
+        kv_bottleneck: bool = False,
+        num_memory_codebooks: int = 2,
+        num_memories: int = 256,
+        dim_memory: int = 20,
+        additional_embs: int = 1,
+        norm_type: str = "batch",
+        batchnorm_momentum: float = 0.1,
+        embedding_dropout: float = 0.0,
     ):
         self.base_class = nn.Module
         self.lora_alpha = lora_alpha
@@ -263,6 +95,9 @@ class ConditionalLoRALayer:
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            norm_type=norm_type,
+            batchnorm_momentum=batchnorm_momentum,
+            dropout=embedding_dropout,
         )
         if conditional_b:
             self.lora_B_module = EmbeddingMLP(
@@ -277,6 +112,9 @@ class ConditionalLoRALayer:
                 num_memories=num_memories,
                 dim_memory=dim_memory,
                 additional_embs=additional_embs,
+                norm_type=norm_type,
+                batchnorm_momentum=batchnorm_momentum,
+                dropout=embedding_dropout,
             )
         else:
             self.lora_B_module = UnconditionalParameters(shape=(out_features, self.r))
@@ -313,7 +151,7 @@ class ConditionalLoRALayer:
         self.base_class.train(self, mode)
 
 
-class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
+class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
     # LoRA implemented in a dense layer
     def __init__(
         self,
@@ -332,6 +170,10 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
         num_memories=256,
         dim_memory=20,
         additional_embs=1,
+        norm_type="batch",
+        batchnorm_momentum=0.1,
+        embedding_dropout=0.0,
+        use_dora=False,
         **kwargs,
     ):
         self.base_class = nn.Linear
@@ -352,6 +194,9 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            norm_type=norm_type,
+            batchnorm_momentum=batchnorm_momentum,
+            embedding_dropout=embedding_dropout,
         )
 
         # Freezing the pre-trained weight matrix
@@ -360,17 +205,52 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
         nn.Linear.reset_parameters(self)
         self.reset_lora_parameters()
 
+        self.use_dora = use_dora
+        if self.use_dora:
+            self._prepare_dora_magnitude()
+
+    def _lora_adaptive_weight(self, *args, **kwargs):
+        # (bs, i, o) -> (bs, o, i)
+        lora_weight = (self._lora_ab(*args, **kwargs) * self.scaling).transpose(1, 2)
+        # (o, i) -> (1, o, i)
+        base_weight = rearrange(self.weight, "o i -> 1 o i")
+        weight = lora_weight + base_weight
+        return weight  # (bs, o, i)
+
+    def _adaptive_weight(self, *args, **kwargs):
+        weight = self._lora_adaptive_weight(*args, **kwargs)
+        if self.use_dora:
+            weight = self._dora_adaptive_weight(weight, has_bs_dim=True)
+        return weight  # (bs, o, i)
+
+    def collapse(self, *args, **kwargs) -> nn.Linear:
+        """Collapse the LoRA layer."""
+        weight = self._adaptive_weight(*args, **kwargs).squeeze(0)
+
+        # Create a new nn.Linear instance with the LoRA weights
+        linear = nn.Linear(
+            in_features=self.in_features,
+            out_features=self.out_features,
+            bias=self.bias is not None,
+            device=self.weight.device,
+            dtype=self.weight.dtype,
+        )
+        linear.weight.data = weight.data.clone()
+        if self.bias is not None:
+            linear.bias.data = self.bias.data.clone()
+        return linear
+
     def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """Forward pass of the LoRA layer."""
-        result = F.linear(x, self.weight, bias=self.bias)
+        # weight: (bs, o, i)
+        weight = self._adaptive_weight(*args, **kwargs)
 
-        lora_result = einsum(
-            self.lora_dropout(x),
-            self._lora_ab(*args, **kwargs),
-            "b ... i, b i o -> b ... o",
-        )
-        result += lora_result * self.scaling
-        return result
+        # vectorized linear operation on each item in the batch
+        lora_result = einsum(x, weight, "b ... i, b o i -> b ... o")
+        if self.bias is not None:
+            lora_result += self.bias
+        lora_result = self.lora_dropout(lora_result)
+        return lora_result
 
     @classmethod
     def from_nn(
@@ -397,7 +277,7 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
         return lora_linear
 
 
-class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
+class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
     def __init__(
         self,
         conv_class,
@@ -407,7 +287,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         groups,
         emb_input_features: int,
         hidden_dim: int,
-        rank=0,
+        rank=2,
         alpha=1,
         lora_dropout=0.0,
         hidden_layers: int = 0,
@@ -418,31 +298,42 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         num_memories=256,
         dim_memory=20,
         additional_embs=1,
+        norm_type="batch",
+        batchnorm_momentum=0.1,
+        embedding_dropout=0.0,
+        use_dora=False,
         **kwargs,
     ):
-        if conv_class == nn.Conv1d:
+        if issubclass(conv_class, nn.Conv1d):
             conv_type = "1d"
             shape_a, shape_b = self._gen_conv1d_lora_shape(
                 in_channels, out_channels, groups, kernel_size, rank
             )
-        elif conv_class == nn.Conv2d:
+        elif issubclass(conv_class, nn.Conv2d):
             conv_type = "2d"
             shape_a, shape_b = self._gen_conv2d_lora_shape(
                 in_channels, out_channels, groups, kernel_size, rank
             )
-        elif conv_class == nn.Conv3d:
+        elif issubclass(conv_class, nn.Conv3d):
             conv_type = "3d"
             shape_a, shape_b = self._gen_conv3d_lora_shape(
                 in_channels, out_channels, groups, kernel_size, rank
             )
         else:
-            raise ValueError(f"Unsupported convolution module class {conv_type}")
+            raise ValueError(f"Unsupported convolution module class {conv_class}")
 
         self.base_class = conv_class
         self.conv_type = conv_type
 
         super().__init__()
-        self.conv = conv_class(in_channels, out_channels, kernel_size, **kwargs)
+        self.conv = conv_class(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            groups=groups,
+            **kwargs,
+        )
+        self.weight = self.conv.weight
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -466,6 +357,9 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            norm_type=norm_type,
+            batchnorm_momentum=batchnorm_momentum,
+            embedding_dropout=embedding_dropout,
         )
 
         # Freezing the pre-trained weight matrix
@@ -473,6 +367,10 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
         self.conv.reset_parameters()
         self.reset_lora_parameters()
+
+        self.use_dora = use_dora
+        if use_dora:
+            self._prepare_dora_magnitude()
 
     def _gen_conv1d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
         shape_a = (r * kernel_size, in_channels // groups * kernel_size)
@@ -486,6 +384,14 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
     def _gen_conv3d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
         raise NotImplementedError
+
+    def _maybe_to_dora_weights(self, lora_weights):
+        if self.use_dora:
+            # lora_weights: (b o i k)
+            weight = self._dora_adaptive_weight(lora_weights, has_bs_dim=True)
+        else:
+            weight = lora_weights
+        return weight
 
     def _prepare_conv1d_lora(self, x, *args, **kwargs):
         """
@@ -504,7 +410,9 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
         base_weights = rearrange(self.conv.weight, "o i k -> 1 o i k")
 
-        weights = rearrange(base_weights + lora_weights, "b o i k -> (b o) i k")
+        weights = base_weights + lora_weights
+        weights = self._maybe_to_dora_weights(weights)
+        weights = rearrange(weights, "b o i k -> (b o) i k")
 
         b = x.shape[0]
         x = rearrange(x, "b i l -> 1 (b i) l")
@@ -535,6 +443,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         base_weights = rearrange(self.conv.weight, "o i k1 k2 -> 1 o i k1 k2")
 
         weights = rearrange(base_weights + lora_weights, "b o i k1 k2 -> (b o) i k1 k2")
+        weights = self._maybe_to_dora_weights(weights)
 
         b = x.shape[0]
         x = rearrange(x, "b i h w -> 1 (b i) h w")
@@ -545,6 +454,16 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
 
     def _prepare_conv3d_lora(self, *args, **kwargs):
         raise NotImplementedError
+
+    def collapse(self, *args, **kwargs) -> nn.modules.conv._ConvNd:
+        """Collapse the LoRA layer."""
+        new_conv = deepcopy(self.conv)
+        new_conv.weight.data = (
+            self.conv.weight
+            + self._lora_ab(*args, **kwargs).reshape(self.conv.weight.shape)
+            * self.scaling
+        )
+        return new_conv
 
     def forward(self, x, *args, **kwargs):
         """Forward pass of the LoRA layer."""
@@ -584,6 +503,8 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
         )
         # return result with shape (batch_size, out_channels, ...)
         conv_x = revert_x(conv_x)
+
+        conv_x = self.lora_dropout(conv_x)
         return conv_x
 
     @classmethod
@@ -758,4 +679,21 @@ def convert_to_conditional_lora_model(
         set_submodule_by_name(model, name, lora_module)
 
     mark_only_lora_as_trainable(model, bias_learable=bias_learable)
+    return model
+
+
+def collapse_lora_model_(model, *args, **kwargs):
+    """
+    Collapse all LoRA layers in the given model in place
+
+    Args:
+        model (nn.Module): The model with LoRA layers.
+
+    Returns
+    -------
+        nn.Module: The model with collapsed LoRA layers.
+    """
+    for name, module in model.named_modules():
+        if hasattr(module, "collapse"):
+            set_submodule_by_name(model, name, module.collapse(*args, **kwargs))
     return model

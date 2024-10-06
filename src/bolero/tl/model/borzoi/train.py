@@ -1,6 +1,7 @@
 import pathlib
 
 import numpy as np
+import ray
 import torch
 import wandb
 
@@ -14,7 +15,7 @@ from bolero.tl.model.borzoi.metrics import (
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
-from .utils import MovingMetric, make_warmup_scheduler
+from .utils import MovingMetric, reverse_clamp_sqrt
 
 
 class TrainerBorzoiDatasetMixin:
@@ -79,7 +80,12 @@ class TrainerBorzoiDatasetMixin:
             self.train_regions,
             self.valid_regions,
             self.test_regions,
-        ) = self.dataset.get_train_valid_test(self.config["fold_split_id"])
+        ) = self.dataset.get_train_valid_test(
+            self.config["fold_split_id"],
+            downsample_train_region=self.config["downsample_train_region"],
+            downsample_valid_region=self.config["downsample_valid_region"],
+            downsample_test_region=self.config["downsample_test_region"],
+        )
 
     def _get_dataset_paths(self, _folds: list) -> list:
         """
@@ -214,6 +220,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "accumulate_grad": 32,
         "shuffle_rows": 300,
         "dataloader_concurrency": 24,
+        "downsample_train_region": None,
+        "downsample_valid_region": None,
+        "downsample_test_region": None,
     }
 
     def __init__(self, config):
@@ -243,33 +252,56 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         model,
         dataloader,
         val_batches,
+        collect_data=False,
     ):
-        print_step = max(5, val_batches // 10)
-        example_step = max(5, val_batches // (self.plot_example_per_epoch + 1))
+        if val_batches is None:
+            print_step = 100
+            example_step = 100
+        else:
+            print_step = max(5, val_batches // 10)
+            example_step = max(5, val_batches // (self.plot_example_per_epoch + 1))
         # if val batches is None, use all batches in the dataset
         size = 0
         mean_val_loss = CumulativeCounter()
+        mean_loss_breakdown = {
+            "multinomial": CumulativeCounter(),
+            "poisson": CumulativeCounter(),
+        }
         mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
             self.device
         )
 
+        pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+
         example_batches = []  # collect example batches for making images
+        data_collector = []  # collect data for further analysis
 
         for batch_id, batch in enumerate(dataloader):
-            y_true, y_pred, loss = self._model_forward_pass(model, batch)
+            y_true, y_pred, loss, loss_breakdown = self._model_forward_pass(
+                model, batch
+            )
 
             mean_val_corr.update(target=y_true, preds=y_pred)
+            for k, v in loss_breakdown.items():
+                mean_loss_breakdown[k].update(v)
             mean_val_loss.update(loss)
+
+            # add additional data into batch dict
+            batch["true_data"] = y_true
+            batch["pred_data"] = y_pred
+            id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+            batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+            batch.update(loss_breakdown)
+            if collect_data:
+                data_collector.append(
+                    {
+                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()
+                    }
+                )
 
             size += 1
             if batch_id % example_step == 0:
-                batch["pred_data"] = y_pred
-                batch["true_data"] = y_true
-
-                pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
-                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
-
                 example_batches.append(batch)
 
             if ((batch_id + 1) % print_step) == 0:
@@ -289,9 +321,13 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # Final metrics
         # ==========
         val_loss = mean_val_loss.mean()
+        val_loss_breakdown = {k: v.mean() for k, v in mean_loss_breakdown.items()}
         val_corr = mean_val_corr.compute().cpu().numpy()
 
-        return val_loss, val_corr, wandb_images
+        if collect_data:
+            return val_loss, val_loss_breakdown, val_corr, wandb_images, data_collector
+        else:
+            return val_loss, val_loss_breakdown, val_corr, wandb_images
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
@@ -331,6 +367,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         train_corr = self.train_corr.mean()
         learning_rate = self.cur_lr
         val_loss = self.val_loss
+        val_loss_breakdown = self.val_loss_breakdown
         val_corr = self.val_corr.mean()
 
         print(
@@ -382,6 +419,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 "train/train_loss": train_loss,
                 "train/train_corr": train_corr,
                 "val/val_loss": val_loss,
+                "val/val_loss_poisson": val_loss_breakdown["poisson"],
+                "val/val_loss_multinomial": val_loss_breakdown["multinomial"],
                 "val/best_val_corr": self.best_val_metric,
                 "val/early_stopping_counter": self.early_stopping_counter,
                 "val/val_corr": val_corr,
@@ -394,18 +433,19 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         return flag
 
     def _get_scheduler(self, optimizer):
-        warmup_steps = self.config.get("warmup_steps", None)
+        self.config["scheduler_type"] = "borzoi"
+        warmup_steps = self.config.get("warmup_steps", 10000)
         accumulate_grad = self.config.get("accumulate_grad", 1)
         warmup_steps = (
             warmup_steps // accumulate_grad + 1
         )  # because we update every accumulate_grad steps
 
-        if warmup_steps is None:
-            scheduler = None
-        else:
-            scheduler = make_warmup_scheduler(
-                optimizer=optimizer, warmup_steps=warmup_steps
-            )
+        total_steps = self.max_epochs * self.train_batches
+        total_steps = total_steps // accumulate_grad + 1
+
+        scheduler = GenericTrainer._get_scheduler(
+            self, optimizer, warmup_steps=warmup_steps, total_steps=total_steps
+        )
         return scheduler
 
     def _fine_grained_lr_groups(self, small_scale=4):
@@ -519,19 +559,14 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
+                    y_true, y_pred, loss, _ = self._model_forward_pass(
+                        self.model, batch
+                    )
                     if np.isnan(loss.item()):
                         nan_loss = True
                         print("Training loss has NaN, skipping epoch.")
                         self._update_state_dict()
                         break
-                    # if loss.item() > 5:
-                    #     print(f"Capture large loss: {loss.item()}")
-                    #     batch.pop("dna_one_hot")
-                    #     batch['loss'] = loss.item()
-                    #     batch["pred_data"] = y_pred.detach().cpu().numpy()
-                    #     batch["true_data"] = y_true.detach().cpu().numpy()
-                    #     joblib.dump(batch, f"large_loss_batch_{self.cur_epoch}_{batch_id}.pkl")
 
                 # ==========
                 # Backward
@@ -613,6 +648,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             self.cur_lr = optimizer.param_groups[0]["lr"]
             (
                 self.val_loss,
+                self.val_loss_breakdown,
                 self.val_corr,
                 self.val_wandb_images,
             ) = self._validation_step()
@@ -638,7 +674,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         """Generic validation step."""
         val_batches = val_batches or self.val_batches
         if testing:
-            dataloader = self.get_test_dataloader(batches=val_batches)
+            dataloader = self.get_test_dataloader(batches=val_batches * 3)
         else:
             dataloader = self.get_valid_dataloader(batches=val_batches)
 
@@ -646,37 +682,52 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             if self.use_ema:
                 self.ema.eval()
                 self.ema.ema_model.eval()
-                val_loss, val_corr, wandb_images = self._model_validation_step(
-                    model=self.ema.ema_model,
-                    dataloader=dataloader,
-                    val_batches=val_batches,
+                val_loss, val_loss_breakdown, val_corr, wandb_images = (
+                    self._model_validation_step(
+                        model=self.ema.ema_model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
                 )
             else:
                 self.model.eval()
-                val_loss, val_corr, wandb_images = self._model_validation_step(
-                    model=self.model,
-                    dataloader=dataloader,
-                    val_batches=val_batches,
+                val_loss, val_loss_breakdown, val_corr, wandb_images = (
+                    self._model_validation_step(
+                        model=self.model,
+                        dataloader=dataloader,
+                        val_batches=val_batches,
+                    )
                 )
                 self.model.train()
 
         self.model.freeze_batchnorms()
-        return val_loss, val_corr, wandb_images
+        return val_loss, val_loss_breakdown, val_corr, wandb_images
 
     def _test(self):
         # load final best checkpoint for testing
         self._update_state_dict()
 
         if self.val_loss is None:
-            self.val_loss, self.val_corr, _ = self._validation_step()
+            self.val_loss, self.val_loss_breakdown, self.val_corr, _ = (
+                self._validation_step()
+            )
 
-        self.test_loss, self.test_corr, wandb_images = self._validation_step(
-            testing=True
+        self.test_loss, self.test_loss_breakdown, self.test_corr, wandb_images = (
+            self._validation_step(testing=True)
         )
 
         wandb.summary["final_valid_loss"] = self.val_loss
+        wandb.summary["final_valid_loss_poisson"] = self.val_loss_breakdown["poisson"]
+        wandb.summary["final_valid_loss_multinomial"] = self.val_loss_breakdown[
+            "multinomial"
+        ]
         wandb.summary["final_valid_corr"] = self.val_corr.mean()
+
         wandb.summary["final_test_loss"] = self.test_loss
+        wandb.summary["final_test_loss_poisson"] = self.test_loss_breakdown["poisson"]
+        wandb.summary["final_test_loss_multinomial"] = self.test_loss_breakdown[
+            "multinomial"
+        ]
         wandb.summary["final_test_corr"] = self.test_corr.mean()
         wandb.summary["final_image"] = wandb_images
 
@@ -696,7 +747,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 1e-5,
+            "lr": 5e-5,
             "warmup_steps": 10000,
             "scheduler": True,
             # pseudobulk related
@@ -704,6 +755,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "target_cov": "REQUIRED",
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
+            "downsample_vq": None,
+            "cov_soft_clamp": None,
         }
     )
 
@@ -730,6 +783,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "target_cov": self.config["target_cov"],
             "use_vq_emb": self.config["use_vq_emb"],
             "prefix_name": self.config["prefix"],
+            "downsample_vq": self.config["downsample_vq"],
         }
 
         use_vq_emb = self.config["use_vq_emb"]
@@ -754,25 +808,31 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
         embedding_key = f"{self.prefix}:embedding_data"
+        soft_clamp = self.config["cov_soft_clamp"]
 
         # ==========
         # Get batch data
         # ==========
-        X = batch[dna_key]
+        X = batch.pop(dna_key)
         embedding = batch.get(embedding_key, None)
-        y_true = batch[data_key]
+        y_true = batch.pop(data_key)
 
         # ==========
         # Forward and Loss
         # ==========
         y_pred = model(X, embedding=embedding)
 
-        loss = model.loss(y_true=y_true, y_pred=y_pred)
+        loss, loss_breakdown = model.loss(
+            y_true=y_true, y_pred=y_pred, soft_clamp=soft_clamp
+        )
 
         with torch.no_grad():
             y_true_crop = model.crop(y_true).detach()
             y_pred = y_pred.detach()
-        return y_true_crop, y_pred, loss
+            if soft_clamp is not None:
+                # reverse clamp of pred
+                y_pred = reverse_clamp_sqrt(y_pred, soft_clamp)
+        return y_true_crop, y_pred, loss, loss_breakdown
 
     def _print_banner(self, text):
         print("=" * len(text) + "\n" + text + "\n" + "=" * len(text))
@@ -865,9 +925,53 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             if not output_only:
                 # train the lora model
                 self.train_lora()
-
                 self._test()
             self._cleanup_env()
             wandb.finish()
         flag.touch()
+        return
+
+
+class BorzoiLoRATester(BorzoiLoRATrainer):
+    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
+    trainer_config["checkpoint_path"] = "REQUIRED"
+
+    def _setup_model(self):
+        checkpoint = torch.load(self.config["checkpoint_path"], weights_only=False)
+        if isinstance(checkpoint, dict):
+            super()._setup_model()
+            self.model.convert_to_lora()
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            self.model = checkpoint
+
+        self.model.eval()
+        return
+
+    @staticmethod
+    def save_batches(data_batches, saveas, num_rows_per_file=100):
+        """Save the data batches to parquet."""
+        dataset = ray.data.from_items(data_batches)
+        dataset.write_parquet(saveas, num_rows_per_file=num_rows_per_file)
+        return
+
+    @torch.inference_mode()
+    def test(self, saveas=None, device="cuda"):
+        """Test the Borzoi LoRA model."""
+        self._setup_model()
+        model = self.model.to(device)
+
+        dataloader = self.get_test_dataloader(batches=None)
+        *_, data_batches = self._model_validation_step(
+            model=model,
+            dataloader=dataloader,
+            val_batches=None,
+            collect_data=True,
+        )
+        self._cleanup_env()
+
+        if saveas is None:
+            return data_batches
+        else:
+            self.save_batches(data_batches, saveas)
         return

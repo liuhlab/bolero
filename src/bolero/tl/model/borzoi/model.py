@@ -278,7 +278,7 @@ class Borzoi(nn.Module):
     def __repr__(self):
         return self._model_summary()
 
-    def loss(self, y_pred, y_true):
+    def loss(self, y_pred, y_true, soft_clamp):
         """
         Compute the loss for the Borzoi model.
 
@@ -291,7 +291,7 @@ class Borzoi(nn.Module):
         """
         y_true_crop = self.crop(y_true)
 
-        _loss = poisson_multinomial(
+        _loss, loss_breakdown = poisson_multinomial(
             y_true=y_true_crop,
             y_pred=y_pred,
             total_weight=self.loss_total_weight,
@@ -299,11 +299,15 @@ class Borzoi(nn.Module):
             weight_exp=4,
             epsilon=1e-7,  # this is smallest for float16
             rescale=False,
+            return_breakdown=True,
+            soft_clamp=soft_clamp,
         )
 
         # loss is averaged across batch and channels
         _loss = _loss.mean()
-        return _loss
+        with torch.no_grad():
+            loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
+        return _loss, loss_breakdown
 
 
 class BorzoiWithOutputHead(Borzoi):

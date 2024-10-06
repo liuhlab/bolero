@@ -22,6 +22,7 @@ class RNAVQPseudobulker:
         "target_cov": 8e6,
         "use_vq_emb": True,
         "prefix_name": "pseudobulk",
+        "downsample_vq": None,
     }
 
     @classmethod
@@ -35,7 +36,12 @@ class RNAVQPseudobulker:
         return pseudobulker
 
     def __init__(
-        self, vq_records, target_cov=8e6, use_vq_emb=True, prefix_name="pseudobulk"
+        self,
+        vq_records,
+        target_cov=8e6,
+        use_vq_emb=True,
+        prefix_name="pseudobulk",
+        downsample_vq=None,
     ):
         """
         Load VQ records and prepare pseudobulks for RNA data.
@@ -48,6 +54,13 @@ class RNAVQPseudobulker:
 
         if isinstance(vq_records, str):
             vq_records = joblib.load(vq_records)
+
+        if downsample_vq is not None:
+            use_vq_id = np.random.choice(
+                list(vq_records.keys()), downsample_vq, replace=False
+            )
+            vq_records = {k: v for k, v in vq_records.items() if k in use_vq_id}
+            print(f"Downsampled to {len(vq_records)} VQs")
 
         self.predefined_pseudobulks = {}
         self.pseudobulk_ids = pd.Index(vq_records.keys())

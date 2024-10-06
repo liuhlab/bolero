@@ -23,44 +23,43 @@ Output Shape:
 """
 
 from copy import deepcopy
-from functools import partial
-from typing import Optional
+from typing import Optional, Union
 
-import numpy as np
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
+from torchinfo import summary
 
-from bolero.tl.generic.module import (
-    DNA_CNN,
-    Conv1dWrapper,
-    DilatedCNN,
-    DiscreteKeyValueBottleneckNoVQ,
+from bolero.tl.generic.module import DNA_CNN, DilatedCNN
+from bolero.tl.generic.module_embedding import KVBottleNeckMixin
+from bolero.tl.generic.module_lora_cond import (
+    collapse_lora_model_,
+    convert_to_conditional_lora_model,
 )
-from bolero.tl.model.scprinter.module import Conv1dMultiLoRA, FootprintsHead
+from bolero.tl.model.scprinter.module import CoverageHead, FootprintsHead
 from bolero.utils import validate_config
 
 
-class scFootprintBPNet(nn.Module):
+class seq2PRINT(nn.Module):
     """scFootprintBPNet bulk model."""
 
     default_config = {
-        "dna_len": "auto",
+        "n_filters": 1024,
+        "dna_kernel_size": 21,
+        "in_channels": 4,
+        "n_blocks": 8,
+        "dia_kernel_size": 3,
+        "groups": 8,
+        "output_kernel_size": 1,
+        "output_scales": 99,
+        "dna_len": 1840,
         "output_len": 800,
     }
 
     @classmethod
     def get_default_config(cls) -> dict:
         """Get default configuration combined from dataset, model and trainer."""
-        dna_cnn_config = deepcopy(DNA_CNN.default_config)
-        hidden_layer_config = deepcopy(DilatedCNN.default_config)
-        output_config = deepcopy(FootprintsHead.default_config)
-        default_config = {
-            **cls.default_config,
-            **dna_cnn_config,
-            **hidden_layer_config,
-            **output_config,
-        }
-        return default_config
+        return deepcopy(cls.default_config)
 
     @classmethod
     def create_from_config(cls, config: dict):
@@ -68,61 +67,57 @@ class scFootprintBPNet(nn.Module):
         default_config = cls.get_default_config()
         config = {k: v for k, v in config.items() if k in default_config}
         validate_config(config, default_config)
-
-        activation = config["activation"]
-        if isinstance(activation, str):
-            if activation.lower() == "gelu":
-                activation = nn.GELU()
-            elif activation.lower() == "relu":
-                activation = nn.ReLU()
-            else:
-                raise ValueError(f"Invalid activation: {activation}")
-
-        dna_cnn_model = DNA_CNN.create_from_config(config)
-
-        hidden_layer_model = DilatedCNN.create_from_config(config)
-
-        output_model = FootprintsHead.create_from_config(config)
-
-        dna_len = config["dna_len"]
-        output_len = config["output_len"]
-        dia_kernel_size = hidden_layer_model.dia_kernel_size
-        hidden_conv_blocks = hidden_layer_model.n_blocks
-        if dna_len == "auto":
-            # calculate the dna_len to prevent the padding issue
-            dna_len = output_len + dna_cnn_model.conv.weight.shape[2] - 1
-            for i in range(hidden_conv_blocks):
-                dna_len = dna_len + 2 * (
-                    dia_kernel_size // 2
-                ) * hidden_layer_model.dilation_func(i)
-
-        return cls(
-            dna_cnn_model=dna_cnn_model,
-            hidden_layer_model=hidden_layer_model,
-            output_model=output_model,
-            dna_len=dna_len,
-            output_len=output_len,
-        )
+        return cls(**config)
 
     def __init__(
         self,
-        dna_cnn_model,
-        hidden_layer_model,
-        output_model,
-        dna_len,
-        output_len,
+        n_filters=1024,
+        dna_kernel_size=21,
+        in_channels=4,
+        n_blocks=8,
+        dia_kernel_size=3,
+        groups=8,
+        dna_len=1840,
+        output_len=800,
+        output_kernel_size=1,
+        output_scales=99,
     ):
         # ===============
         # Initialize the model
         # ===============
         super().__init__()
-        self.dna_cnn_model = dna_cnn_model
-        self.hidden_layer_model = hidden_layer_model
-        self.profile_cnn_model = output_model
+
+        activation = nn.GELU()
+
+        self.dna_cnn_model = DNA_CNN(
+            n_filters=n_filters,
+            dna_kernel_size=dna_kernel_size,
+            activation=activation,
+            in_channels=in_channels,
+        )
+
+        self.hidden_layer_model = DilatedCNN(
+            n_filters=n_filters,
+            bottleneck=n_filters,
+            n_blocks=n_blocks,
+            dia_kernel_size=dia_kernel_size,
+            groups=groups,
+            activation=activation,
+            batch_norm=True,
+            batch_norm_momentum=0.1,
+            dilation_func=None,
+            bipass_connect=False,
+        )
+        self.footprint_head = FootprintsHead(
+            n_filters=n_filters,
+            output_kernel_size=output_kernel_size,
+            output_scales=output_scales,
+        )
+        self.coverage_head = CoverageHead(n_filters=n_filters)
         self.dna_len = dna_len
         self.output_len = output_len
 
-    def forward(self, X, output_len=None, modes=None, **kwargs):
+    def forward(self, X, *args, output_len=None, modes=None, **kwargs):
         """
         Forward pass of the model.
 
@@ -131,7 +126,7 @@ class scFootprintBPNet(nn.Module):
             X: The input tensor.
             output_len: The length of the output.
             modes: The modes tensor.
-            kwargs: placeholder for additional keyword arguments to allow for compatibility with other models.
+            args, kwargs: placeholder parameters for conditional LoRA layers.
 
         Returns
         -------
@@ -141,50 +136,168 @@ class scFootprintBPNet(nn.Module):
             output_len = self.output_len
 
         # get the motifs
-        X = self.dna_cnn_model(X)
+        X = self.dna_cnn_model(X, *args, **kwargs)
 
         # get the hidden layer
-        X = self.hidden_layer_model(X)
+        X = self.hidden_layer_model(X, *args, **kwargs)
 
         # get the profile
-        score = self.profile_cnn_model(X, output_len=output_len, modes=modes)
-        return score
+        fp_score = self.footprint_head(
+            X, *args, output_len=output_len, modes=modes, **kwargs
+        )
+        coverage = self.coverage_head(X, *args, **kwargs)
+        return fp_score, coverage
+
+    @staticmethod
+    def footprint_loss(y_pred, y_true):
+        """Mean squared error loss for footprint."""
+        # footprint contains nan values, remove them when calculating loss
+        mask = ~torch.isnan(y_true)
+        loss = F.mse_loss(y_pred[mask], y_true[mask])
+        return loss
+
+    @staticmethod
+    def coverage_loss(y_pred, y_true):
+        """Poisson loss for coverage."""
+        # Poisson loss for coverage
+        # full=True has no effect on gradient, but make the loss value positive so print nicer...
+        loss = F.poisson_nll_loss(
+            y_pred, y_true, log_input=False, reduction="mean", full=True
+        )
+        return loss
+
+    def loss(self, y_footprint, y_coverage, pred_footprint, pred_coverage):
+        """Compute the loss."""
+        fp_loss = self.footprint_loss(y_pred=pred_footprint, y_true=y_footprint)
+        cov_loss = self.coverage_loss(y_pred=pred_coverage, y_true=y_coverage)
+        return fp_loss, cov_loss
+
+    def model_summary(
+        self,
+        row_settings=("var_names",),
+        input_size=None,
+        input_data=None,
+        depth=4,
+        cache_forward_pass=False,
+        col_names=("num_params",),
+    ):
+        """Print model summary."""
+        device = next(self.parameters()).device
+
+        if (input_size is None) and (input_data is None):
+            input_size = (1, 4, self.dna_len)
+
+        s = summary(
+            self,
+            depth=depth,
+            row_settings=row_settings,
+            input_size=input_size,
+            input_data=input_data,
+            cache_forward_pass=cache_forward_pass,
+            col_names=col_names,
+            device=device,
+        ).__repr__()
+        return s
+
+    def __repr__(self):
+        return self.model_summary()
+
+    def footprint_parameters(self):
+        """Get the parameters for the chunk and footprint head."""
+        for name, params in self.named_parameters():
+            if "coverage_head" in name:
+                continue
+            yield params
+
+    def coverage_parameters(self):
+        """Get the parameters for the coverage head."""
+        for name, params in self.named_parameters():
+            if "coverage_head" in name:
+                yield params
 
 
-class scFootprintBPNetLoRA(nn.Module):
+def make_lora_config(
+    emb_input_features,
+    hidden_dim=256,
+    hidden_layers=1,
+    output_layer_groups=4,
+    lora_dropout=0.01,
+    lora_output=False,
+):
+    """Make LoRA configuration for the Borzoi model."""
+    lora_config = {
+        "dna_cnn_model": {
+            "emb_input_features": emb_input_features,
+            "hidden_dim": hidden_dim,
+            "hidden_layers": hidden_layers,
+            "output_layer_groups": output_layer_groups,
+            "convert_conv": True,
+            "rank": 4,  # total rank 4 * 21
+            "lora_dropout": lora_dropout,
+        },
+        "hidden_layer_model": {
+            "emb_input_features": emb_input_features,
+            "hidden_dim": hidden_dim,
+            "hidden_layers": hidden_layers,
+            "output_layer_groups": output_layer_groups,
+            "convert_conv": True,
+            "rank": 32,  # total rank 32 * 3 conv1 + 32 * 1 conv2
+            "lora_dropout": lora_dropout,
+        },
+    }
+    if lora_output:
+        lora_config["footprint_head"] = (
+            {
+                "emb_input_features": emb_input_features,
+                "hidden_dim": hidden_dim,
+                "hidden_layers": hidden_layers,
+                "output_layer_groups": output_layer_groups,
+                "convert_conv": True,
+                "rank": 32,  # total rank 32 * 1
+                "lora_dropout": lora_dropout,
+            },
+        )
+        lora_config["coverage_head"] = (
+            {
+                "emb_input_features": emb_input_features,
+                "hidden_dim": hidden_dim,
+                "hidden_layers": hidden_layers,
+                "output_layer_groups": output_layer_groups,
+                "convert_conv": True,
+                "rank": 1,  # total rank 1 * 1
+                "lora_dropout": lora_dropout,
+            },
+        )
+    return lora_config
+
+
+class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
     """scFootprintBPNetLoRA model."""
 
-    default_config = {
-        "dna_cnn_model": None,
-        "hidden_layer_model": None,
-        "profile_cnn_model": None,
-        "dna_len": None,
-        "output_len": None,
-        "example_cell_embedding": None,
-        "example_region_embedding": None,
-        "a_embedding": "cell",
-        "b_embedding": "cell",
-        "lora_dna_cnn": True,
-        "lora_dilated_cnn": True,
-        "lora_pff_cnn": True,
-        "lora_output_cnn": True,
-        "lora_count_cnn": True,
-        "lora_rank": 8,
-        "n_lora_layers": 0,
-        "lora_hidden_dim": None,
-        "lora_output_layer_groups": 1,
-        "no_over_rank": False,
-        "kv_bottleneck": False,
-        "num_memories": 256,
-        "dim_memory": 64,
-        "num_memory_codebooks": 2,
-        "additional_embs": 1,
-    }
+    default_config = seq2PRINT.get_default_config()
+
+    default_config.update(
+        {
+            "base_model": None,
+            "emb_input_features": "REQUIRED",
+            "n_lora_layers": 1,
+            "lora_hidden_dim": 512,
+            "lora_output_layer_groups": 1,
+            "lora_dropout": 0.01,
+            "conditional_b": False,
+            "kv_bottleneck": None,
+            "num_memories": 256,
+            "dim_memory": 64,
+            "num_memory_codebooks": 2,
+            "additional_embs": 1,
+            "lora_output": False,
+        }
+    )
 
     @classmethod
     def get_default_config(cls):
         """Get the default configuration for the model."""
-        return cls.default_config
+        return deepcopy(cls.default_config)
 
     @classmethod
     def create_from_config(cls, config: dict):
@@ -195,262 +308,131 @@ class scFootprintBPNetLoRA(nn.Module):
 
     def __init__(
         self,
-        dna_cnn_model: DNA_CNN,
-        hidden_layer_model: DilatedCNN,
-        profile_cnn_model: FootprintsHead,
-        dna_len: int = 1840,
-        output_len: int = 800,
-        example_cell_embedding: Optional[np.ndarray] = None,
-        example_region_embedding: Optional[np.ndarray] = None,
-        a_embedding: str = "cell",
-        b_embedding: str = "cell",
-        lora_dna_cnn: bool = False,
-        lora_dilated_cnn: bool = False,
-        lora_pff_cnn: bool = False,
-        lora_output_cnn: bool = False,
-        lora_count_cnn: bool = False,
-        lora_rank: int = 8,
+        base_model: Union[str, seq2PRINT],
+        emb_input_features: int,
         n_lora_layers: int = 0,
-        lora_hidden_dim: Optional[int] = None,
+        lora_hidden_dim: Optional[int] = 256,
         lora_output_layer_groups: Optional[int] = 1,
-        no_over_rank: bool = False,
-        kv_bottleneck: bool = False,
+        lora_dropout: float = 0.01,
+        conditional_b: bool = False,
+        kv_bottleneck: bool = None,
         num_memories: int = 256,
         dim_memory: int = 20,
         num_memory_codebooks: int = 2,
         additional_embs: int = 1,
+        lora_output: bool = False,
+        **base_kwargs,
     ):
         # ===============
         # Initialize the model
         # ===============
-        super().__init__()
-        self.dna_cnn_model = dna_cnn_model
-        self.hidden_layer_model = hidden_layer_model
-        self.profile_cnn_model = profile_cnn_model
-        self.dna_len = dna_len
-        self.output_len = output_len
+        super().__init__(**base_kwargs)
 
-        # ===============
-        # Prepare LoRA Layer Wrapper
-        # ===============
-        # will store the actual embedding dims
-        self.A_embedding_dims = None
-        self.B_embedding_dims = None
-        # will store the input cell embedding and region embedding, output A or B embedding
-        self.A_embedding_process = None
-        self.B_embedding_process = None
-
-        # determine the embedding dims based on a_embedding and b_embedding type
-        if example_cell_embedding is not None:
-            use_rows = min(256, example_cell_embedding.shape[0])
-            example_cell_embedding = torch.Tensor(
-                np.array(example_cell_embedding[:use_rows])
-            )
-        if example_region_embedding is not None:
-            use_rows = min(256, example_region_embedding.shape[0])
-            example_region_embedding = torch.Tensor(
-                np.array(example_region_embedding[:use_rows])
-            )
-        if not kv_bottleneck:
-            self._determine_embedding_dims(
-                cell_embedding=example_cell_embedding,
-                region_embedding=example_region_embedding,
-                a_embedding=a_embedding,
-                b_embedding=b_embedding,
-            )
-            example_a_embedding = self.A_embedding_process(
-                example_cell_embedding, example_region_embedding
-            )
+        # load checkpoint or get state from pre-trained model
+        if isinstance(base_model, seq2PRINT):
+            self.load_state_dict(base_model.state_dict())
+        elif base_model is None:
+            raise ValueError("base_model is required.")
         else:
-            self.A_embedding_dims = int(
-                additional_embs + num_memory_codebooks * dim_memory
+            self.load_state_dict(torch.load(base_model, weights_only=False))
+
+        # key-value bottleneck for converting indices to embeddings
+        if kv_bottleneck == "local":
+            self.kv_bottleneck_mode = "local"
+            lora_input_features = num_memory_codebooks * dim_memory + additional_embs
+        elif kv_bottleneck == "global":
+            self.kv_bottleneck_mode = "global"
+        elif kv_bottleneck is None:
+            self.kv_bottleneck_mode = None
+            lora_input_features = emb_input_features
+        else:
+            raise ValueError(
+                f"kv_bottleneck value: {kv_bottleneck} is invalid, setting to None"
             )
-            self.B_embedding_dims = int(
-                additional_embs + num_memory_codebooks * dim_memory
-            )
-            self.A_embedding_process = self._get_cell_embedding
-            self.B_embedding_process = self._get_cell_embedding
-            example_a_embedding = None
-
-        conv1d_lora = partial(
-            Conv1dMultiLoRA,
-            A_embedding_dims=self.A_embedding_dims,
-            B_embedding_dims=self.B_embedding_dims,
-            hidden_dims=lora_hidden_dim,
-            n_layers=n_lora_layers,
-            example_a_embedding=example_a_embedding,
-            output_layer_groups=lora_output_layer_groups,
-            no_over_rank=no_over_rank,
-        )
-
-        # ===============
-        # Apply LoRA Layers to each sub-model
-        # ===============
-
-        # DNA Model
-        if lora_dna_cnn:
-            self.dna_cnn_model.conv = conv1d_lora(
-                layer=self.dna_cnn_model.conv, r=lora_rank
-            )
-
-        # Hidden Layer Model
-        hidden_layers = self.hidden_layer_model.layers
-        for i in range(len(hidden_layers)):
-            if lora_dilated_cnn:
-                hidden_layers[i].module.conv1 = conv1d_lora(
-                    layer=hidden_layers[i].module.conv1,
-                    r=lora_rank,
-                )
-            if lora_pff_cnn:
-                hidden_layers[i].module.conv2 = conv1d_lora(
-                    layer=hidden_layers[i].module.conv2,
-                    r=lora_rank,
-                )
-
-        # Profile Model
-        if lora_output_cnn:
-            self.profile_cnn_model.conv_layer = conv1d_lora(
-                layer=self.profile_cnn_model.conv_layer,
-                r=lora_rank,
-            )
-        if lora_count_cnn:
-            # if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            #     # translating linear into conv1d"
-            #     weight = self.profile_cnn_model.linear.weight.data
-            #     bias = self.profile_cnn_model.linear.bias.data
-            #     self.profile_cnn_model.linear = Conv1dWrapper(
-            #         weight.shape[1], weight.shape[0], 1
-            #     )
-            #     self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-            #     self.profile_cnn_model.linear.conv.bias.data = bias
-            self.profile_cnn_model.linear = conv1d_lora(
-                layer=self.profile_cnn_model.linear,
-                r=1,
-            )
-
-        if kv_bottleneck:
-            self.kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
+        self.emb_input_features = emb_input_features
+        self.num_memories = num_memories
+        self.dim_memory = dim_memory
+        self.num_memory_codebooks = num_memory_codebooks
+        self.additional_embs = additional_embs
+        if self.kv_bottleneck_mode == "global":
+            self.kv_bottleneck, lora_input_features = self.setup_kv_bottleneck(
+                num_memory_codebooks=num_memory_codebooks,
                 num_memories=num_memories,
                 dim_memory=dim_memory,
-                num_memory_codebooks=num_memory_codebooks,
+                additional_embs=additional_embs,
+            )
+            print(
+                "Using global shared key-value bottleneck for converting indices to embeddings."
             )
         else:
             self.kv_bottleneck = None
 
-    @staticmethod
-    def _get_cell_embedding(cell, region):
-        return cell
-
-    @staticmethod
-    def _get_region_embedding(cell, region):
-        return region
-
-    @staticmethod
-    def _concat_cell_region_embedding(cell, region):
-        return torch.cat((cell, region), dim=-1)
-
-    @staticmethod
-    def _get_null(cell, region):
-        return None
-
-    def _determine_embedding_dims(
-        self, cell_embedding, region_embedding, a_embedding, b_embedding
-    ):
-        cell_embedding_dims = (
-            None if cell_embedding is None else cell_embedding.shape[-1]
+        # LoRA configuration
+        self.convert_to_lora(
+            emb_input_features=lora_input_features,
+            lora_hidden_dim=lora_hidden_dim,
+            n_lora_layers=n_lora_layers,
+            lora_output_layer_groups=lora_output_layer_groups,
+            lora_dropout=lora_dropout,
+            conditional_b=conditional_b,
+            lora_output=lora_output,
         )
-        region_embedding_dims = (
-            None if region_embedding is None else region_embedding.shape[-1]
-        )
-
-        # determine A B embedding dims
-        if a_embedding == "concat":
-            self.A_embedding_dims = cell_embedding_dims + region_embedding_dims
-            self.A_embedding_process = self._concat_cell_region_embedding
-        elif a_embedding == "cell":
-            self.A_embedding_dims = cell_embedding_dims
-            self.A_embedding_process = self._get_cell_embedding
-        elif a_embedding == "region":
-            self.A_embedding_dims = region_embedding_dims
-            self.A_embedding_process = self._get_region_embedding
-        elif a_embedding == "none":
-            self.A_embedding_dims = 0
-            self.A_embedding_process = self._get_null
-        else:
-            raise ValueError(f"Invalid A embedding type: {a_embedding}")
-
-        if b_embedding == "concat":
-            self.B_embedding_dims = cell_embedding_dims + region_embedding_dims
-            self.B_embedding_process = self._concat_cell_region_embedding
-        elif b_embedding == "cell":
-            self.B_embedding_dims = cell_embedding_dims
-            self.B_embedding_process = self._get_cell_embedding
-        elif b_embedding == "region":
-            self.B_embedding_dims = region_embedding_dims
-            self.B_embedding_process = self._get_region_embedding
-        elif b_embedding == "none":
-            self.B_embedding_dims = 0
-            self.B_embedding_process = self._get_null
-        else:
-            raise ValueError(f"Invalid B embedding type: {b_embedding}")
         return
 
-    def return_origin(self, requires_grad: bool = True):
-        """
-        Returns a clone of the model with original layers.
+    def convert_to_lora(
+        self,
+        emb_input_features,
+        lora_hidden_dim,
+        n_lora_layers,
+        lora_output_layer_groups,
+        lora_dropout,
+        conditional_b,
+        lora_output=False,
+    ):
+        """Convert the model to LoRA."""
+        self.lora_config = make_lora_config(
+            emb_input_features=emb_input_features,
+            hidden_dim=lora_hidden_dim,
+            hidden_layers=n_lora_layers,
+            output_layer_groups=lora_output_layer_groups,
+            lora_dropout=lora_dropout,
+            lora_output=lora_output,
+        )
 
-        Parameters
-        ----------
-            requires_grad: Whether to require gradients.
+        for module_names, config in self.lora_config.items():
+            if isinstance(module_names, str):
+                module_names = (module_names,)
 
-        Returns
-        -------
-            scFootprintBPNet: A clone of the model with original layers.
-        """
-        self = self.to("cpu")
-        if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            raise NotImplementedError
-            # print("translating linear into conv1d")
-            # weight = self.profile_cnn_model.linear.weight.data
-            # print(weight.shape)
-            # bias = self.profile_cnn_model.linear.bias.data
-            # self.profile_cnn_model.linear = Conv1dWrapper(
-            #     weight.shape[1], weight.shape[0], 1
-            # )
-            # print(self.profile_cnn_model.linear.conv.weight.shape)
-            # self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-            # self.profile_cnn_model.linear.conv.bias.data = bias
+            config["conditional_b"] = conditional_b
+            if self.kv_bottleneck_mode == "local":
+                config["kv_bottleneck"] = True
+                config["num_memories"] = self.num_memories
+                config["dim_memory"] = self.dim_memory
+                config["num_memory_codebooks"] = self.num_memory_codebooks
+                config["additional_embs"] = self.additional_embs
 
-        model_clone = deepcopy(self)
-        # DNA Input CNN
-        if not isinstance(model_clone.dna_cnn_model.conv, Conv1dWrapper):
-            model_clone.dna_cnn_model.conv = model_clone.dna_cnn_model.conv.layer
-        # Hidden Layer Dialated CNN
-        if not isinstance(
-            model_clone.hidden_layer_model.layers[0].module.conv1, Conv1dWrapper
-        ):
-            for layer in model_clone.hidden_layer_model.layers:
-                layer.module.conv1 = layer.module.conv1.layer
-        if not isinstance(
-            model_clone.hidden_layer_model.layers[0].module.conv2, Conv1dWrapper
-        ):
-            for layer in model_clone.hidden_layer_model.layers:
-                layer.module.conv2 = layer.module.conv2.layer
-        # Output Head
-        if not isinstance(model_clone.profile_cnn_model.conv_layer, Conv1dWrapper):
-            model_clone.profile_cnn_model.conv_layer = (
-                model_clone.profile_cnn_model.conv_layer.layer
-            )
-        if not isinstance(model_clone.profile_cnn_model.linear, Conv1dWrapper):
-            model_clone.profile_cnn_model.linear = (
-                model_clone.profile_cnn_model.linear.layer
-            )
-        if requires_grad:
-            for p in model_clone.parameters():
-                p.requires_grad = True
-        return model_clone
+            for module_name in module_names:
+                module = getattr(self, module_name)
+                module = convert_to_conditional_lora_model(module, **config)
+                setattr(self, module_name, module)
 
-    def collapse(self, cell_embedding=None, region_embedding=None, requires_grad=True):
+        # also make sure kv_bottleneck is trainable
+        for name, param in self.named_parameters():
+            if "kv_bottleneck" in name:
+                param.requires_grad = True
+            if not lora_output:
+                # directly train the output layers
+                if "coverage_head" in name:
+                    param.requires_grad = True
+                if "footprint_head" in name:
+                    param.requires_grad = True
+
+        if not lora_output:
+            self.footprint_head.reset_parameters()
+            self.coverage_head.reset_parameters()
+        return
+
+    def collapse(self, embedding=None, requires_grad=True):
         """
         Returns a clone of the model with collapsed layers.
 
@@ -464,124 +446,58 @@ class scFootprintBPNetLoRA(nn.Module):
         -------
             scFootprintBPNet: A clone of the model with collapsed layers.
         """
-        A_embeddings = self.A_embedding_process(cell_embedding, region_embedding)
-        B_embeddings = self.B_embedding_process(cell_embedding, region_embedding)
-
         # process the embeddings if kv_bottleneck is used
         if self.kv_bottleneck is not None:
-            if A_embeddings is not None:
-                A_embeddings = self.vq_ind_to_emb(A_embeddings)
-            if B_embeddings is not None:
-                B_embeddings = self.vq_ind_to_emb(B_embeddings)
-
-        if isinstance(self.profile_cnn_model.linear, nn.Linear):
-            raise NotImplementedError
-            # print("translating linear into conv1d")
-            # weight = self.profile_cnn_model.linear.weight.data
-            # print(weight.shape)
-            # bias = self.profile_cnn_model.linear.bias.data
-            # self.profile_cnn_model.linear = Conv1dWrapper(
-            #     weight.shape[1], weight.shape[0], 1
-            # )
-            # print(self.profile_cnn_model.linear.conv.weight.shape)
-            # self.profile_cnn_model.linear.conv.weight.data = weight.unsqueeze(-1)
-            # self.profile_cnn_model.linear.conv.bias.data = bias
+            embedding = self.vq_ind_to_emb(embedding)
 
         model_clone = deepcopy(self)
-        # DNA Input CNN
-        if not isinstance(model_clone.dna_cnn_model.conv, Conv1dWrapper):
-            model_clone.dna_cnn_model.conv = (
-                model_clone.dna_cnn_model.conv.collapse_layer(
-                    A_embeddings, B_embeddings
-                )
-            )
-        # Hidden Layer Dialated CNN
-        if not isinstance(
-            model_clone.hidden_layer_model.layers[0].module.conv1, Conv1dWrapper
-        ):
-            for layer in model_clone.hidden_layer_model.layers:
-                layer.module.conv1 = layer.module.conv1.collapse_layer(
-                    A_embeddings, B_embeddings
-                )
-        if not isinstance(
-            model_clone.hidden_layer_model.layers[0].module.conv2, Conv1dWrapper
-        ):
-            for layer in model_clone.hidden_layer_model.layers:
-                layer.module.conv2 = layer.module.conv2.collapse_layer(
-                    A_embeddings, B_embeddings
-                )
-        # Output Head
-        if not isinstance(model_clone.profile_cnn_model.conv_layer, Conv1dWrapper):
-            model_clone.profile_cnn_model.conv_layer = (
-                model_clone.profile_cnn_model.conv_layer.collapse_layer(
-                    A_embeddings, B_embeddings
-                )
-            )
-        if not isinstance(model_clone.profile_cnn_model.linear, Conv1dWrapper):
-            model_clone.profile_cnn_model.linear = (
-                model_clone.profile_cnn_model.linear.collapse_layer(
-                    A_embeddings, B_embeddings
-                )
-            )
+        model_clone = collapse_lora_model_(model_clone, embedding=embedding)
+
         if requires_grad:
             for p in model_clone.parameters():
                 p.requires_grad = True
         return model_clone
 
-    def vq_ind_to_emb(self, emb_data):
-        """VQ index to embedding."""
-        n_cbs = self.kv_bottleneck.num_memory_codebooks
-        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
-        other_emb_data = emb_data[:, n_cbs:]
-        emb_data = self.kv_bottleneck(vq_ind)
-        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
-        return emb_data
+    def model_summary(self):
+        """Print model summary."""
+        input_data = {
+            "X": torch.ones(1, 4, self.dna_len),
+            "embedding": torch.ones(1, self.emb_input_features),
+        }
+        return super().model_summary(input_data=input_data)
 
-    def forward(
-        self, X, cell_embedding=None, region_embedding=None, output_len=None, modes=None
-    ):
+    def forward(self, X, embedding=None, output_len=None):
         """
         Forward pass of the model.
 
         Parameters
         ----------
             X: The input tensor.
-            cell_embedding: The cell embedding tensor.
-            region_embedding: The region embedding tensor.
+            embedding: The embedding tensor.
             output_len: The length of the output.
-            modes: The modes tensor.
 
         Returns
         -------
             torch.Tensor: The output tensor.
         """
-        A_embeddings = self.A_embedding_process(cell_embedding, region_embedding)
-        B_embeddings = self.B_embedding_process(cell_embedding, region_embedding)
-
         if output_len is None:
             output_len = self.output_len
 
-        # process the embeddings if kv_bottleneck is used
+        # process the embedding if kv_bottleneck is used
         if self.kv_bottleneck is not None:
-            if A_embeddings is not None:
-                A_embeddings = self.vq_ind_to_emb(A_embeddings)
-            if B_embeddings is not None:
-                B_embeddings = self.vq_ind_to_emb(B_embeddings)
+            embedding = self.vq_ind_to_emb(embedding)
 
         # get the motifs
-        X = self.dna_cnn_model(X, A_embeddings=A_embeddings, B_embeddings=B_embeddings)
+        X = self.dna_cnn_model(X, embedding=embedding)
 
         # get the hidden layer
-        X = self.hidden_layer_model(
-            X, A_embeddings=A_embeddings, B_embeddings=B_embeddings
-        )
+        X = self.hidden_layer_model(X, embedding=embedding)
 
         # get the profile
-        score = self.profile_cnn_model(
+        fp_score = self.footprint_head(
             X,
-            A_embeddings=A_embeddings,
-            B_embeddings=B_embeddings,
+            embedding=embedding,
             output_len=output_len,
-            modes=modes,
         )
-        return score
+        coverage = self.coverage_head(X, embedding=embedding)
+        return fp_score, coverage

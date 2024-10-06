@@ -12,7 +12,7 @@ from einops import rearrange, repeat
 from torch import einsum, nn
 from torch.nn import functional as F
 
-from bolero.tl.generic.module import KVBottleNeckMixin
+from bolero.tl.generic.module_embedding import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
 
 
@@ -234,7 +234,7 @@ class Attention(nn.Module):
         # relative positional encoding
         positions = self.pos_dropout(self.positions)
         # (8191, 32)
-        rel_k = maybe_pass_additional_params(self.to_rel_k, positions)
+        rel_k = maybe_pass_additional_params(self.to_rel_k, positions, *args, **kwargs)
         # (8191, 32) -> (8191, 512)
         rel_k = rearrange(rel_k, "n (h d) -> h n d", h=h)
         # (8191, 512) -> (8, 8191, 64)

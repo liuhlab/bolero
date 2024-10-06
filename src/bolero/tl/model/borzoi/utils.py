@@ -1,7 +1,5 @@
 import pyranges as pr
 import torch
-from torch import nn
-from torch.optim.lr_scheduler import LambdaLR
 
 from bolero.pp.genome import Genome
 from bolero.utils import get_package_dir
@@ -184,37 +182,6 @@ def reverse_clamp_sqrt(data: torch.Tensor, threshold=50):
         torch.clamp_min(data - threshold, 0), 2
     )
     return data
-
-
-def make_warmup_scheduler(optimizer, warmup_steps):
-    """
-    Create a learning rate scheduler with warmup.
-    """
-
-    def _lr_lambda(step):
-        if step < warmup_steps:
-            lr_rate = (step + 1) / (warmup_steps + 1)
-        else:
-            lr_rate = 1.0
-        return lr_rate
-
-    return LambdaLR(optimizer, lr_lambda=_lr_lambda)
-
-
-def freeze_batchnorms_(model):
-    """
-    Freeze batchnorms in the model.
-
-    # https://github.com/lucidrains/tf-bind-transformer/blob/main/tf_bind_transformer/tf_bind_transformer.py#L468-L470
-    When finetune Enformer or Borzoi, it is recommended to freeze the batchnorms.
-    """
-    bns = [m for m in model.modules() if isinstance(m, nn.BatchNorm1d)]
-
-    for bn in bns:
-        bn.eval()
-        bn.track_running_stats = False
-        for p in bn.parameters():
-            p.requires_grad = False
 
 
 class MovingMetric:

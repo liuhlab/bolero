@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from bolero import Genome
 
@@ -24,11 +25,17 @@ class BorzoiExamplePlotter:
 
     def plot(self, batch, channel=0, nrows=2, return_array=False):
         """Plot the true and predicted data for a batch of examples."""
-        y_true = batch[self.true_key].cpu().numpy()
-        y_pred = batch[self.pred_key].cpu().numpy()
+        y_true = batch[self.true_key]
+        if isinstance(y_true, torch.Tensor):
+            y_true = y_true.cpu().numpy()
+        y_pred = batch[self.pred_key]
+        if isinstance(y_pred, torch.Tensor):
+            y_pred = y_pred.cpu().numpy()
         sample_ids = batch[self.id_key]
 
-        regions = batch["region"].cpu().numpy()
+        regions = batch["region"]
+        if isinstance(regions, torch.Tensor):
+            regions = regions.cpu().numpy()
         regions = self.genome.parse_global_coords(regions)
 
         row_ids = list(range(nrows))

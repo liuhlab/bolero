@@ -14,8 +14,10 @@ from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.generic.ema import EMA
 from bolero.tl.generic.train_helper import (
     FakeWandb,
+    GradNormCollector,
     check_wandb_success,
     compare_configs,
+    make_borzoi_scheduler,
     safe_save,
 )
 from bolero.utils import try_gpu, validate_config
@@ -116,6 +118,20 @@ class TrainerAttributesMixin:
 
         """
         return pathlib.Path(f"{self.savename}.{self.mode}.best_model.pt")
+
+    @property
+    def model_log_dir(self) -> pathlib.Path:
+        """
+        Get the path to the model log directory.
+
+        Returns
+        -------
+            pathlib.Path: The path to the model log directory.
+
+        """
+        log_dir = pathlib.Path(f"{self.savename}.model_log")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir
 
 
 class TrainerDatasetMixin:
@@ -280,6 +296,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         "accumulate_grad": 1,
+        "grad_norm_collector": False,
     }
     dataset_class = GenericDataset
     model_class = GenericModel
@@ -304,12 +321,16 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.scheduler: torch.optim.lr_scheduler._LRScheduler = None
         self.scaler: torch.amp.GradScaler = None
         self.ema: EMA = None
+        self.grad_norm_collector: GradNormCollector = (
+            GradNormCollector() if config["grad_norm_collector"] else None
+        )
 
         # epoch info
         self.checkpoint: bool = False
         self.cur_epoch: int = 0
         self.early_stopping_counter: int = 0
         self.best_val_loss: float = np.Inf
+        self.plot_example_per_epoch: int = 0
         self.train_batches: int = self.config["train_batches"]
         self.val_batches: int = self.config["val_batches"]
 
@@ -589,7 +610,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             raise ValueError(f"Unsupported optimizer type: {optimizer_type}")
         return optimizer
 
-    def _get_scheduler(self, optimizer):
+    def _get_scheduler(self, optimizer, *args, **kwargs):
         scheduler_type = self.config["scheduler_type"].lower()
 
         if scheduler_type == "cosine":
@@ -608,10 +629,17 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             )
         elif scheduler_type == "cosineannealinglr":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=30)
+        elif scheduler_type == "borzoi":
+            scheduler = make_borzoi_scheduler(optimizer, *args, **kwargs)
         else:
             raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
 
         return scheduler
+
+    def _collect_grad_norm(self, model):
+        if self.grad_norm_collector is not None:
+            self.grad_norm_collector.collect(model)
+        return
 
     def _setup_fit(self):
         config = self.config
@@ -655,8 +683,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         # plot
         if "plot_example_per_epoch" in config:
             self.plot_example_per_epoch = config["plot_example_per_epoch"]
-            if not self.plot_example_per_epoch:
-                self.plot_example_per_epoch = 0
 
         # update state dict if checkpoint exists
         if self.checkpoint:
@@ -727,6 +753,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                 safe_save(self.ema.ema_model, self.best_model_path)
             else:
                 safe_save(self.model, self.best_model_path)
+
+        if self.grad_norm_collector:
+            self.grad_norm_collector.save(
+                self.model_log_dir / f"epoch_{self.cur_epoch}_grad_norms.json"
+            )
+            self.grad_norm_collector.reset()
         return
 
     def _save_stage_flag(self, flag_name):

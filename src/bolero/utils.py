@@ -426,7 +426,7 @@ def parse_global_coords(
     bins = chrom_offsets["global_start"].tolist() + [
         chrom_offsets["global_end"].iloc[-1]
     ]
-    global_coords = pd.DataFrame(global_coords, columns=["Start", "End"])
+    global_coords = pd.DataFrame(global_coords.copy(), columns=["Start", "End"])
     global_coords["Chromosome"] = pd.cut(
         global_coords.loc[:, "Start"],
         bins=bins,

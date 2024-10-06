@@ -1,16 +1,17 @@
 import torch
+from torch import nn
 
-from bolero.tl.generic.module import KVBottleNeckMixin
+from bolero.tl.generic.module_embedding import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
 
 from .model import Borzoi, model_summary
 from .model_lora_config import (
+    make_all_conditional_large_lora_config,
     make_all_conditional_lora_config,
     make_classic_lora_config,
     make_output_conditional_lora_config,
 )
 from .module import ContextOutputHead, ConvBlock, OutputHead, SequentialwithArgs
-from .utils import freeze_batchnorms_
 
 
 class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
@@ -29,6 +30,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "final_output_dropout": 0.01,
             "loss_total_weight": 0.2,
             "conditional_b": True,
+            "lora_norm": "layer",
             # Key-Value Bottleneck
             "kv_bottleneck": "global",
             "num_memories": 256,
@@ -59,6 +61,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         final_output_dropout=0.01,
         loss_total_weight=0.2,
         conditional_b=True,
+        lora_norm="layer",
         # kv bottleneck
         kv_bottleneck="global",
         num_memories=256,
@@ -129,7 +132,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         elif kv_bottleneck is None:
             self.kv_bottleneck_mode = None
         else:
-            raise (f"kv_bottleneck value: {kv_bottleneck} is invalid, setting to None")
+            raise ValueError(
+                f"kv_bottleneck value: {kv_bottleneck} is invalid, setting to None"
+            )
         self.num_memories = num_memories
         self.dim_memory = dim_memory
         self.num_memory_codebooks = num_memory_codebooks
@@ -188,6 +193,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             preset=lora_preset,
         )
         self.conditional_b = conditional_b
+        self.lora_norm = lora_norm
         self.emb_input_features = emb_input_features
 
         # make sure batchnorm is frozen
@@ -195,8 +201,25 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         return
 
     def freeze_batchnorms(self):
-        """Freeze all batchnorm layers."""
-        freeze_batchnorms_(self)
+        """
+        Freeze batchnorms in the base model.
+
+        # https://github.com/lucidrains/tf-bind-transformer/blob/main/tf_bind_transformer/tf_bind_transformer.py#L468-L470
+        When finetune Enformer or Borzoi, it is recommended to freeze the batchnorms.
+        """
+        for name, module in self.named_modules():
+            # don't freeze lora modules
+            if "lora_A_module" in name:
+                continue
+            if "lora_B_module" in name:
+                continue
+
+            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                module.eval()
+                module.track_running_stats = False
+                for param in module.parameters():
+                    param.requires_grad = False
+        return
 
     def freeze_all_parameter_except_output_head(self):
         """Freeze all parameters except the final output head."""
@@ -227,6 +250,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         }
         if preset == "all_conditional":
             lora_config = make_all_conditional_lora_config(**kwargs)
+        elif preset == "all_conditional_large":
+            lora_config = make_all_conditional_large_lora_config(**kwargs)
         elif preset == "output_conditional":
             lora_config = make_output_conditional_lora_config(**kwargs)
         elif preset == "classic":
@@ -252,6 +277,10 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 config["dim_memory"] = self.dim_memory
                 config["num_memory_codebooks"] = self.num_memory_codebooks
                 config["additional_embs"] = self.additional_embs
+                config["norm_type"] = self.lora_norm
+                config["batchnorm_momentum"] = (
+                    0.1  # if using batchnorm, set momentum to 0.9
+                )
 
             for module_name in module_names:
                 module = getattr(self, module_name)

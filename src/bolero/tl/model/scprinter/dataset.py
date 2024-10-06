@@ -137,11 +137,11 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "clip_max": 10,
         "n_pseudobulks": 100,
         "cov_filter_name": "REQUIRED",
-        "min_cov": 25,
+        "min_cov": 30,
         "max_cov": 100000,
         "low_cov_ratio": 0.1,
         "reverse_complement": True,
-        "shuffle_files": False,
+        "shuffle_files": True,
         "read_parquet_kwargs": None,
         "max_regions_per_genome_chunk": 10,
     }
@@ -157,12 +157,12 @@ class scPrinterDataset(RayGenomeChunkDataset):
         clip_min: float = -10,
         clip_max: float = 10,
         n_pseudobulks: int = 10,
-        min_cov: int = 10,
+        min_cov: int = 30,
         max_cov: int = 100000,
         low_cov_ratio: float = 0.1,
         cov_filter_name: str = None,
         reverse_complement: bool = True,
-        shuffle_files=False,
+        shuffle_files=True,
         read_parquet_kwargs=None,
         max_regions_per_genome_chunk: int = 100,
     ):
@@ -369,6 +369,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         region_bed_path: str,
         return_cells: bool = False,
         return_regions: bool = False,
+        concurrency=16,
     ) -> None:
         """
         Process the dataset and return the processed dataset.
@@ -400,6 +401,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
             return_rows=return_cells,
             inplace=False,
             region_action_keys=[self.bias_column],
+            concurrency=concurrency,
         )
 
         # add dna one hot
@@ -452,6 +454,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         return_regions=False,
         return_cells=False,
         n_batches=None,
+        concurrency=16,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -478,8 +481,8 @@ class scPrinterDataset(RayGenomeChunkDataset):
             The dataloader.
         """
         shuffle_rows = int(500 * (self.n_pseudobulks + 1))
-        shuffle_rows = max(shuffle_rows, 5000)
-        shuffle_rows = min(shuffle_rows, 30000)
+        shuffle_rows = max(shuffle_rows, 3000)
+        shuffle_rows = min(shuffle_rows, 20000)
 
         # dataset_kwargs will be passed to self.get_processed_dataset method
         dataset_kwargs = {
@@ -487,6 +490,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
             "region_bed_path": region_bed_path,
             "return_cells": return_cells,
             "return_regions": return_regions,
+            "concurrency": concurrency,
         }
         data_iter_kwargs = dataloader_kwargs
 

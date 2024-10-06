@@ -17,13 +17,50 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
+class DoRAMixin:
+    """
+    Mixin class to add DoRA to LoRA layers.
+
+    Weight-Decomposed Low-Rank Adaptation (DoRA) is an improvment to LoRA.
+    https://github.com/NVlabs/DoRA
+
+    This class should work for both linear and conv layers.
+    It should also work for both conditional and unconditional LoRA layers.
+    When weight comes in with bs dimension, set has_bs_dim to True.
+    """
+
+    def _prepare_dora_magnitude(self):
+        # record the base magnitude of the output dim of the weight matrix
+        self.base_m = nn.Parameter(
+            self.weight.norm(p=2, dim=0, keepdim=False), requires_grad=False
+        )  # (i, ...)
+        # learnable adaptive magnitude, initialized to 0
+        self.dora_m = nn.Parameter(torch.zeros_like(self.base_m))  # (i, ...)
+
+    def _dora_adaptive_weight(self, lora_adaptive_weight, has_bs_dim=False):
+        """
+        lora_adaptive_weight: (bs, o, i, ...) or (o, i, ...)
+        """
+        output_dim = 1 if has_bs_dim else 0
+        output_norm = lora_adaptive_weight.norm(
+            p=2, dim=output_dim, keepdim=True
+        )  # (bs, 1, i, ...) or (1, i, ...)
+        normed_weight = (
+            lora_adaptive_weight / output_norm
+        )  # (bs, o, i, ...) or (o, i, ...)
+
+        dora_weight = normed_weight * (
+            self.base_m + self.dora_m
+        )  # (bs, o, i, ...) or (o, i, ...)
+        return dora_weight
+
+
 class LoRALayer:
     def __init__(
         self,
         r: int,
         lora_alpha: int,
         lora_dropout: float,
-        merge_weights: bool,
     ):
         self.r = r
         self.lora_alpha = lora_alpha
@@ -32,9 +69,6 @@ class LoRALayer:
             self.lora_dropout = nn.Dropout(p=lora_dropout)
         else:
             self.lora_dropout = lambda x: x
-        # Mark the weight as unmerged
-        self.merged = False
-        self.merge_weights = merge_weights
 
         self.lora_A: nn.Parameter
         self.lora_B: nn.Parameter
@@ -48,7 +82,6 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
         embedding_dim: int,
         r: int = 1,
         lora_alpha: int = 1,
-        merge_weights: bool = True,
         **kwargs,
     ):
         nn.Embedding.__init__(self, num_embeddings, embedding_dim, **kwargs)
@@ -57,7 +90,6 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
             r=r,
             lora_alpha=lora_alpha,
             lora_dropout=0,
-            merge_weights=merge_weights,
         )
         # Actual trainable parameters
         if r > 0:
@@ -76,56 +108,50 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
             nn.init.zeros_(self.lora_A)
             nn.init.normal_(self.lora_B)
 
-    def train(self, mode: bool = True):
-        """Set the training mode of the LoRA layer."""
-        nn.Embedding.train(self, mode)
-        if mode:
-            if self.merge_weights and self.merged:
-                # Make sure that the weights are not merged
-                if self.r > 0:
-                    self.weight.data -= (self.lora_B @ self.lora_A).transpose(
-                        0, 1
-                    ) * self.scaling
-                self.merged = False
-        else:
-            if self.merge_weights and not self.merged:
-                # Merge the weights and mark it
-                if self.r > 0:
-                    self.weight.data += (self.lora_B @ self.lora_A).transpose(
-                        0, 1
-                    ) * self.scaling
-                self.merged = True
+    def collapse(self, *args, **kwargs) -> nn.Embedding:
+        """Collapse the LoRA layer into a regular nn.Embedding layer."""
+        weight = (
+            self.weight.data
+            + (self.lora_B @ self.lora_A).transpose(0, 1) * self.scaling
+        )
+        new_module = nn.Embedding(
+            num_embeddings=self.num_embeddings,
+            embedding_dim=self.embedding_dim,
+            padding_idx=self.padding_idx,
+            freeze=False,
+            max_norm=self.max_norm,
+            norm_type=self.norm_type,
+            scale_grad_by_freq=self.scale_grad_by_freq,
+            sparse=self.sparse,
+        )
+        new_module.weight.data = weight
+        return new_module
 
     def forward(self, x: torch.Tensor):
         """Forward pass of the LoRA layer."""
-        if self.r > 0 and not self.merged:
-            result = nn.Embedding.forward(self, x)
-            after_A = F.embedding(
-                x,
-                self.lora_A.transpose(0, 1),
-                self.padding_idx,
-                self.max_norm,
-                self.norm_type,
-                self.scale_grad_by_freq,
-                self.sparse,
-            )
-            result += (after_A @ self.lora_B.transpose(0, 1)) * self.scaling
-            return result
-        else:
-            return nn.Embedding.forward(self, x)
+        result = nn.Embedding.forward(self, x)
+        after_A = F.embedding(
+            x,
+            self.lora_A.transpose(0, 1),
+            self.padding_idx,
+            self.max_norm,
+            self.norm_type,
+            self.scale_grad_by_freq,
+            self.sparse,
+        )
+        result += (after_A @ self.lora_B.transpose(0, 1)) * self.scaling
 
 
-class LoRALinear(nn.Linear, LoRALayer):
+class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
     # LoRA implemented in a dense layer
     def __init__(
         self,
         in_features: int,
         out_features: int,
-        r: int = 0,
+        r: int,
         lora_alpha: int = 1,
         lora_dropout: float = 0.0,
-        fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
-        merge_weights: bool = True,
+        use_dora: bool = False,
         **kwargs,
     ):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
@@ -134,20 +160,20 @@ class LoRALinear(nn.Linear, LoRALayer):
             r=r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
-            merge_weights=merge_weights,
         )
 
-        self.fan_in_fan_out = fan_in_fan_out
         # Actual trainable parameters
-        if r > 0:
-            self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
-            self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
-            self.scaling = self.lora_alpha / self.r
-            # Freezing the pre-trained weight matrix
-            self.weight.requires_grad = False
+        self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
+        self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
+        self.scaling = self.lora_alpha / self.r
+
+        # Freezing the pre-trained weight matrix
+        self.weight.requires_grad = False
         self.reset_parameters()
-        if fan_in_fan_out:
-            self.weight.data = self.weight.data.transpose(0, 1)
+
+        self.use_dora = use_dora
+        if use_dora:
+            self._prepare_dora_magnitude()
 
     def reset_parameters(self):
         """Reset the parameters of the LoRA layer."""
@@ -158,42 +184,37 @@ class LoRALinear(nn.Linear, LoRALayer):
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
-    def train(self, mode: bool = True):
-        """Set the training mode of the LoRA layer."""
+    def _lora_ab(self):
+        return self.lora_B @ self.lora_A * self.scaling  # (o, i)
 
-        def _T(w):
-            return w.transpose(0, 1) if self.fan_in_fan_out else w
+    def _adaptive_weight(self):
+        lora_weight = self.weight + self._lora_ab()
+        if self.use_dora:
+            lora_weight = self._dora_adaptive_weight(lora_weight, has_bs_dim=False)
+        return lora_weight
 
-        nn.Linear.train(self, mode)
-        if mode:
-            if self.merge_weights and self.merged:
-                # Make sure that the weights are not merged
-                if self.r > 0:
-                    self.weight.data -= _T(self.lora_B @ self.lora_A) * self.scaling
-                self.merged = False
-        else:
-            if self.merge_weights and not self.merged:
-                # Merge the weights and mark it
-                if self.r > 0:
-                    self.weight.data += _T(self.lora_B @ self.lora_A) * self.scaling
-                self.merged = True
+    def collapse(self, *args, **kwargs) -> nn.Linear:
+        """Collapse the LoRA layer into a regular nn.Linear layer."""
+        new_module = nn.Linear(
+            in_features=self.in_features,
+            out_features=self.out_features,
+            bias=self.bias is not None,
+            device=self.weight.device,
+            dtype=self.weight.dtype,
+        )
+
+        weight = self._adaptive_weight()
+        new_module.weight.data = weight
+        if self.bias is not None:
+            new_module.bias.data = self.bias.data
+        return new_module
 
     def forward(self, x: torch.Tensor):
         """Forward pass of the LoRA layer."""
-
-        def T(w):
-            return w.transpose(0, 1) if self.fan_in_fan_out else w
-
-        if self.r > 0 and not self.merged:
-            result = F.linear(x, T(self.weight), bias=self.bias)
-            result += (
-                self.lora_dropout(x)
-                @ self.lora_A.transpose(0, 1)
-                @ self.lora_B.transpose(0, 1)
-            ) * self.scaling
-            return result
-        else:
-            return F.linear(x, T(self.weight), bias=self.bias)
+        weight = self._adaptive_weight()
+        result = F.linear(x, weight, bias=self.bias)
+        result = self.lora_dropout(result)
+        return result
 
     @classmethod
     def from_nn(
@@ -212,8 +233,6 @@ class LoRALinear(nn.Linear, LoRALayer):
             r=rank,
             lora_alpha=alpha,
             lora_dropout=lora_dropout,
-            fan_in_fan_out=False,
-            merge_weights=True,
             bias=linear_module.bias is not None,
             device=linear_module.weight.device,
             dtype=linear_module.weight.dtype,
@@ -226,17 +245,17 @@ class LoRALinear(nn.Linear, LoRALayer):
         return lora_linear
 
 
-class LoRAConv(nn.Module, LoRALayer):
+class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
     def __init__(
         self,
         conv_class,
         in_channels,
         out_channels,
         kernel_size,
-        r=1,
+        r,
         lora_alpha=1,
         lora_dropout=0.0,
-        merge_weights=True,
+        use_dora=False,
         **kwargs,
     ):
         if conv_class == nn.Conv1d:
@@ -249,13 +268,16 @@ class LoRAConv(nn.Module, LoRALayer):
             raise ValueError(f"Unsupported convolution module class {conv_type}")
 
         super().__init__()
-        self.conv = conv_class(in_channels, out_channels, kernel_size, **kwargs)
+        self.conv: nn.modules.conv._ConvNd = conv_class(
+            in_channels, out_channels, kernel_size, **kwargs
+        )
+        self.weight = self.conv.weight
+
         LoRALayer.__init__(
             self,
             r=r,
             lora_alpha=lora_alpha,
             lora_dropout=lora_dropout,
-            merge_weights=merge_weights,
         )
         assert isinstance(kernel_size, int)
         # Actual trainable parameters
@@ -279,7 +301,10 @@ class LoRAConv(nn.Module, LoRALayer):
             # Freezing the pre-trained weight matrix
             self.conv.weight.requires_grad = False
         self.reset_parameters()
-        self.merged = False
+
+        self.use_dora = use_dora
+        if use_dora:
+            self._prepare_dora_magnitude()
 
     def _gen_conv_1d_lora_parameter(
         self, in_channels, out_channels, groups, kernel_size, r
@@ -318,37 +343,34 @@ class LoRAConv(nn.Module, LoRALayer):
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
-    def train(self, mode=True):
-        """Set the training mode of the LoRA layer."""
-        super().train(mode)
-        if mode:
-            if self.merge_weights and self.merged:
-                if self.r > 0:
-                    # Make sure that the weights are not merged
-                    self.conv.weight.data -= (self.lora_B @ self.lora_A).view(
-                        self.conv.weight.shape
-                    ) * self.scaling
-                self.merged = False
-        else:
-            if self.merge_weights and not self.merged:
-                if self.r > 0:
-                    # Merge the weights and mark it
-                    self.conv.weight.data += (self.lora_B @ self.lora_A).view(
-                        self.conv.weight.shape
-                    ) * self.scaling
-                self.merged = True
+    def _lora_ab(self):
+        lora_ab = (self.lora_B @ self.lora_A).view(
+            self.conv.weight.shape
+        ) * self.scaling
+        return lora_ab  # (o, i, k...)
+
+    def _adaptive_weight(self):
+        lora_weight = self.conv.weight + self._lora_ab()
+        if self.use_dora:
+            lora_weight = self._dora_adaptive_weight(lora_weight, has_bs_dim=False)
+        return lora_weight
+
+    def collapse(self, *args, **kwargs) -> nn.modules.conv._ConvNd:
+        """Collapse the LoRA layer into a regular nn.ConvNd layer."""
+        weight = self._adaptive_weight()
+        new_module = deepcopy(self.conv)
+        new_module.weight.data = weight
+        if self.conv.bias is not None:
+            new_module.bias.data = self.conv.bias.data
+        return new_module
 
     def forward(self, x):
         """Forward pass of the LoRA layer."""
-        if self.r > 0 and not self.merged:
-            return self.conv._conv_forward(
-                x,
-                self.conv.weight
-                + (self.lora_B @ self.lora_A).view(self.conv.weight.shape)
-                * self.scaling,
-                self.conv.bias,
-            )
-        return self.conv(x)
+        result = self.conv._conv_forward(
+            x, weight=self._adaptive_weight(), bias=self.conv.bias
+        )
+        result = self.lora_dropout(result)
+        return result
 
     @classmethod
     def from_nn(
@@ -379,7 +401,6 @@ class LoRAConv(nn.Module, LoRALayer):
             r=rank,
             lora_alpha=alpha,
             lora_dropout=lora_dropout,
-            merge_weights=True,
             stride=conv_module.stride,
             padding=conv_module.padding,
             dilation=conv_module.dilation,

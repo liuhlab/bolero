@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torchmetrics import Metric
+
+from .utils import clamp_sqrt_large_value
 
 
 class MeanPearsonCorrCoefPerChannel(Metric):
@@ -108,17 +109,30 @@ def get_position_weights(
     return position_weights
 
 
+def _log(t, eps=1e-20):
+    return torch.log(t.clamp(min=eps))
+
+
+def poisson_loss(pred, target):
+    """Compute Poisson loss."""
+    return pred - target * _log(pred)
+
+
 def poisson_multinomial(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
+    soft_clamp: Union[int, torch.Tensor, None] = None,
     total_weight: float = 1,
     weight_range: float = 1,
     weight_exp: int = 4,
     epsilon: float = 1e-7,
     rescale: bool = False,
+    return_breakdown: bool = False,
 ):
     """
     Compositional loss containing the overall poisson term and position-wise multinomial term.
+
+    NaN values in y_true are ignored in the loss computation.
 
     Args:
         y_true (torch.Tensor): Ground truth tensor of shape (bs, c, seq_len).
@@ -132,11 +146,16 @@ def poisson_multinomial(
     """
     seq_len = y_true.shape[-1]
 
+    if soft_clamp is not None:
+        y_true = clamp_sqrt_large_value(y_true, soft_clamp)
+
+    valid_mask = torch.isfinite(y_true)
+
     # Position-specific weights (similar to TensorFlow code)
     if weight_range < 1:
         raise ValueError("Poisson Multinomial weight_range must be >=1")
     elif weight_range == 1:
-        weight_scale = seq_len
+        weight_scale = valid_mask.sum(dim=-1).float()
     else:
         position_weights = get_position_weights(
             seq_len, weight_range, weight_exp, y_true.device
@@ -148,24 +167,22 @@ def poisson_multinomial(
         weight_scale = torch.sum(position_weights)
 
     # Poisson loss computation (sum across lengths, then compute loss)
-    s_true = torch.sum(y_true, dim=-1)  # (bs, c)
-    s_pred = torch.sum(y_pred, dim=-1)  # (bs, c)
+    s_true = torch.nansum(y_true, dim=-1)  # (bs, c)
+    s_pred = torch.nansum(y_pred, dim=-1)  # (bs, c)
 
-    poisson_term = F.poisson_nll_loss(
-        s_pred, s_true, log_input=False, reduction="none"
-    )  # B x T
+    poisson_term = poisson_loss(s_pred, s_true)  # (bs, c)
     poisson_term /= weight_scale
 
     # Add epsilon to avoid log(0)
-    y_true += epsilon
-    y_pred += epsilon
+    y_true = y_true + epsilon
+    y_pred = y_pred + epsilon
 
     # Normalize predictions to sum to one (multinomial probability)
     p_pred = y_pred / s_pred.unsqueeze(-1)  # (bs, c, seq_len)
 
     # Multinomial loss
     pl_pred = torch.log(p_pred)  # (bs, c, seq_len)
-    multinomial_term = torch.sum(-y_true * pl_pred, dim=-1)  # (bs, c)
+    multinomial_term = torch.nansum(-y_true * pl_pred, dim=-1)  # (bs, c)
     multinomial_term /= weight_scale
 
     # Combine Poisson and Multinomial terms
@@ -177,4 +194,12 @@ def poisson_multinomial(
     else:
         loss_rescale = loss_raw
 
-    return loss_rescale
+    loss_breakdown = {
+        "multinomial": multinomial_term.detach(),
+        "poisson": poisson_term.detach(),
+    }
+
+    if return_breakdown:
+        return loss_rescale, loss_breakdown
+    else:
+        return loss_rescale

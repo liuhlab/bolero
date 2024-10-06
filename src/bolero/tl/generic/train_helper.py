@@ -1,10 +1,13 @@
 import math
 import pathlib
+from collections import defaultdict
 from typing import Union
 
+import joblib
 import numpy as np
 import torch
 from scipy.stats import pearsonr
+from torch.optim.lr_scheduler import LinearLR, SequentialLR
 from tqdm import tqdm
 
 hg38_splits = [None] * 5
@@ -430,7 +433,7 @@ class CumulativePearson:
         """
         nx = self.x_counter.count
         ny = self.y_counter.count
-        assert nx == ny, "Length mismatch between x and y"
+        assert nx == ny, f"Length mismatch between x and y, {nx} != {ny}"
         count = nx
 
         if nx == 0:
@@ -677,3 +680,72 @@ class FakeWandb:
 
     def __exit__(self, *args):
         pass
+
+
+class GradNormCollector:
+    """
+    A class to collect the gradient norms of a model during training.
+    """
+
+    def __init__(self):
+        self.grad_norms = defaultdict(list)
+
+    def collect(self, model):
+        """
+        Collect the gradient norms of the model.
+        """
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                self.grad_norms[name].append(param.grad.norm().item())
+        return
+
+    def __getitem__(self, key):
+        return self.grad_norms[key]
+
+    def items(self):
+        """Iterate over the collected gradient norms."""
+        return self.grad_norms.items()
+
+    def save(self, path):
+        """
+        Save the collected gradient norms to a file.
+        """
+        joblib.dump(self.grad_norms, path)
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load the collected gradient norms from a file.
+        """
+        collector = cls()
+        collector.grad_norms = joblib.load(path)
+        return collector
+
+    def reset(self):
+        """
+        Reset the collected gradient norms.
+        """
+        self.grad_norms = defaultdict(list)
+        return
+
+
+def make_borzoi_scheduler(optimizer, warmup_steps=10000, total_steps=1000000):
+    """
+    Create a learning rate scheduler with warmup.
+    """
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=1e-7,
+        end_factor=1,
+        total_iters=warmup_steps,
+    )
+    train_scheduler = LinearLR(
+        optimizer,
+        start_factor=1.0,
+        end_factor=1e-4,
+        total_iters=total_steps - warmup_steps,
+    )
+    scheduler = SequentialLR(
+        optimizer, [warmup_scheduler, train_scheduler], [warmup_steps]
+    )
+    return scheduler

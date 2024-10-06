@@ -2,6 +2,7 @@ import pathlib
 from collections import OrderedDict
 from typing import Any, Iterable
 
+import numpy as np
 import ray
 
 from bolero.tl.dataset.ray_dataset import (
@@ -14,9 +15,41 @@ from bolero.tl.dataset.transforms import (
 )
 from bolero.utils import get_global_coords, understand_regions
 
-from .utils import BorzoiRegions, clamp_sqrt_large_value
+from .utils import BorzoiRegions
 
 DNA_NAME = "dna_one_hot"
+
+
+class MaskBlacklist:
+    def __init__(self, blacklist_global_coords, chrom_offsets, region_key, data_key):
+        self.blacklist_global_coords = blacklist_global_coords
+        self.chrom_offsets = chrom_offsets
+        self.region_key = region_key
+        self.data_key = data_key
+
+    def _get_region_chrom(self, region):
+        chrom, coords = region.split(":")
+        start, end = map(int, coords.split("-"))
+        chorm_start = self.chrom_offsets.loc[chrom, "global_start"]
+        global_coords = (chorm_start + start, chorm_start + end)
+        return global_coords
+
+    def __call__(self, batch):
+        """Mask the blacklist regions in the dataset."""
+        bl_coords = self.blacklist_global_coords
+
+        for region_id, region in enumerate(batch[self.region_key]):
+            r_gstart, r_gend = self._get_region_chrom(region)
+            overlap_bl_regions = bl_coords[
+                (bl_coords[:, 0] < r_gend) & (bl_coords[:, 1] > r_gstart)
+            ].copy()
+            overlap_bl_regions -= r_gstart
+            region_length = r_gend - r_gstart
+
+            for bl_start, bl_end in overlap_bl_regions:
+                nan_slice = slice(max(0, bl_start), min(region_length, bl_end))
+                batch[self.data_key][region_id, :, nan_slice] = np.NaN
+        return batch
 
 
 class BorzoiDataset(RayGenomeChunkDataset):
@@ -30,9 +63,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "reverse_complement": True,
         "max_jitter": 3,
         "n_pseudobulks": 100,
-        "clamp_sqrt_threshold": None,
         "shuffle_files": True,
         "read_parquet_kwargs": None,
+        "min_cov": 100,
     }
 
     def __init__(
@@ -45,9 +78,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
         max_jitter: int = 3,
         n_pseudobulks: int = 100,
         cov_filter_name: str = None,
-        clamp_sqrt_threshold: int = None,
         shuffle_files=False,
         read_parquet_kwargs=None,
+        min_cov: int = 100,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -64,14 +97,21 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.reverse_complement = reverse_complement
         self.n_pseudobulks = n_pseudobulks
         self.cov_filter_name = cov_filter_name
-        self.clamp_sqrt_threshold = clamp_sqrt_threshold
+        self.min_cov = min_cov
 
         self.name_to_pseudobulker = OrderedDict()
 
         self.borzoi_regions = BorzoiRegions()
         return
 
-    def get_train_valid_test(self, fold):
+    def get_train_valid_test(
+        self,
+        fold,
+        downsample_train_region=None,
+        downsample_valid_region=None,
+        downsample_test_region=None,
+        seed=0,
+    ):
         """Get the train, valid, and test folds and regions for the given fold."""
         fold_split = self.borzoi_regions.fold_splits[fold]
         train_folds = fold_split["train"]
@@ -83,6 +123,27 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 self.genome.name, split_id=fold, region_length=self.dna_window
             )
         )
+
+        if downsample_train_region and (
+            downsample_train_region < train_regions.shape[0]
+        ):
+            train_regions = train_regions.sample(
+                downsample_train_region, random_state=seed
+            )
+            print(f"Downsampled train regions to {downsample_train_region}")
+        if downsample_valid_region and (
+            downsample_valid_region < valid_regions.shape[0]
+        ):
+            valid_regions = valid_regions.sample(
+                downsample_valid_region, random_state=seed
+            )
+            print(f"Downsampled valid regions to {downsample_valid_region}")
+        if downsample_test_region and (downsample_test_region < test_regions.shape[0]):
+            test_regions = test_regions.sample(
+                downsample_test_region, random_state=seed
+            )
+            print(f"Downsampled test regions to {downsample_test_region}")
+
         return (
             train_folds,
             valid_folds,
@@ -101,7 +162,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         )
         return _str
 
-    def _get_dna_one_hot(self, dataset, concurrency):
+    def _get_dna_one_hot(self, dataset, concurrency, batch_size=16):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {
             "random_shift": self.max_jitter if self._dataset_mode == "train" else 0,
@@ -114,11 +175,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
             fn_constructor_kwargs=fn_constructor_kwargs,
             fn_kwargs=fn_kwargs,
             concurrency=concurrency,
+            batch_size=batch_size,
         )
         self.dna_column = DNA_NAME
         return dataset
 
-    def _get_reverse_complement_region(self, dataset) -> None:
+    def _get_reverse_complement_region(self, dataset, batch_size=16) -> None:
         """
         Reverse complement the DNA sequences by 50% probability.
 
@@ -130,7 +192,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             dna_key=self.dna_column,
             signal_key=self.signal_columns,
         )
-        dataset = dataset.map_batches(_rc)
+        dataset = dataset.map_batches(_rc, batch_size=16)
         return dataset
 
     def add_pseudobulker(self, name: str, cls, pseudobulker_kwargs: dict):
@@ -177,7 +239,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         )
         return dataset
 
-    def _process_region_columns(self, dataset, keep_regions=False):
+    def _process_region_columns(self, dataset, keep_regions=False, batch_size=16):
         """
         Keep the regions by converting them to global coordinates OR remove the region columns.
         """
@@ -193,7 +255,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 batch["region"] = global_coords
                 return batch
 
-            dataset = dataset.map_batches(_region_to_global_coords)
+            dataset = dataset.map_batches(
+                _region_to_global_coords, batch_size=batch_size
+            )
         else:
             dataset = dataset.drop_columns(["region"])
         return dataset
@@ -223,21 +287,58 @@ class BorzoiDataset(RayGenomeChunkDataset):
         )
         return _dataset
 
-    def _add_clamp_sqrt(self, dataset):
-        if self.clamp_sqrt_threshold is None:
-            return dataset
+    def _filter_min_cov(
+        self,
+        dataset,
+        concurrency=2,
+        batch_size=16,
+    ):
+        def _fn(batch: dict, filter_key, min_cov):
+            """Filter regions based on coverage."""
+            data = batch[filter_key]
 
-        signal_columns = self.signal_columns
-        threshold = self.clamp_sqrt_threshold
+            region_sum = data.sum(axis=(1, 2))
 
-        def _oprator(batch):
-            for key in signal_columns:
-                batch[key] = clamp_sqrt_large_value(batch[key], threshold=threshold)
+            use_rows = region_sum > min_cov
+            if use_rows.sum() == 0:
+                # keep at least one region
+                use_rows[0] = True
+
+            # apply filter to all keys
+            batch = {
+                k: v[use_rows, ...].copy()  # if v.ndim > 1 else v[use_rows]
+                for k, v in batch.items()
+            }
             return batch
 
+        # TODO: prefix pseudobulk may change
+        fn_kwargs = {
+            "filter_key": "pseudobulk:bulk_data",
+            "min_cov": self.min_cov,
+        }
         dataset = dataset.map_batches(
-            fn=_oprator,
-            concurrency=(1, 4),
+            fn=_fn,
+            fn_kwargs=fn_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def _mask_blacklist(self, dataset, concurrency=(1, 2), batch_size=16):
+        """Mask the blacklist regions in the dataset."""
+        fn = MaskBlacklist
+        bl_coords = self.genome.get_global_coords(self.genome.blacklist_bed)
+        fn_constructor_kwargs = {
+            "blacklist_global_coords": bl_coords,
+            "chrom_offsets": self.genome.chrom_offsets,
+            "region_key": "region",
+            "data_key": "pseudobulk:bulk_data",
+        }
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
         )
         return dataset
 
@@ -311,6 +412,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         return_cells: bool = False,
         return_regions: bool = True,
         concurrency: int = 16,
+        batch_size: int = 16,
     ) -> None:
         """
         Process the dataset and return the processed dataset.
@@ -327,9 +429,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         - work_ds (Dataset): The processed dataset.
 
         """
-        # standard_length = self.dna_window
-        # region_bed = self.standard_region_length(region_bed, standard_length)
-
         work_ds = self._get_processed_dataset(
             folds=folds,
             region_bed=region_bed,
@@ -340,22 +439,36 @@ class BorzoiDataset(RayGenomeChunkDataset):
             concurrency=concurrency,
         )
 
+        # mask blacklist as nan
+        # work_ds = self._mask_blacklist(
+        #     dataset=work_ds,
+        #     concurrency=(1, 2),
+        #     batch_size=batch_size,
+        # )
+
+        # filter min cov
+        work_ds = self._filter_min_cov(
+            dataset=work_ds,
+            concurrency=2,
+            batch_size=batch_size,
+        )
+
         # add dna one hot
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
             concurrency=1,
+            batch_size=batch_size,
         )
 
         if self.reverse_complement and self._dataset_mode == "train":
-            work_ds = self._get_reverse_complement_region(work_ds)
+            work_ds = self._get_reverse_complement_region(
+                work_ds, batch_size=batch_size
+            )
 
         # remove region column OR turn it into global coordinates (str to numbers)
         work_ds = self._process_region_columns(
-            dataset=work_ds, keep_regions=return_regions
+            dataset=work_ds, keep_regions=return_regions, batch_size=batch_size
         )
-
-        # add clamp sqrt
-        work_ds = self._add_clamp_sqrt(work_ds)
         return work_ds
 
     def get_dataloader(

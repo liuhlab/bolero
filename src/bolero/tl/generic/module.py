@@ -2,8 +2,6 @@ import copy
 import math
 
 import torch
-import torch.nn.functional as F
-from einops import rearrange, repeat
 from torch import nn
 
 from bolero.utils import validate_config
@@ -114,36 +112,25 @@ class GroupedLinear(nn.Module):
         return x
 
 
-class Conv1dWrapper(nn.Module):
+class Conv1dWrapper(nn.Conv1d):
     """Conv1d Layer Wrapper that support modes."""
 
     def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv1d(*args, **kwargs)
-        self.weight = self.conv.weight
-        self.bias = self.conv.bias
+        super().__init__(*args, **kwargs)
 
-    def forward(self, X, *args, modes=None, **kwargs):
+    @property
+    def conv(self):
+        """For backward compatibility."""
+        return self
+
+    def forward(self, X, *args, **kwargs):
         """Forward pass of the Conv1dWrapper module."""
-        # The args, and kwargs are just placeholders,
-        # in case the LoRA version of the model needs to pass additional
-        # arguments to the forward pass of the Conv1dWrapper module.
-        # Use modes to select a subset of the weights
-        return (
-            self.conv(X)
-            if modes is None
-            else F.conv1d(
-                X,
-                self.conv.weight[modes],
-                self.conv.bias[modes],
-                padding=self.conv.padding[0],
-            )
-        )
+        return self._conv_forward(X, self.weight, self.bias)
 
 
 def _get_activation(activation):
     if not isinstance(activation, str):
-        return activation
+        return copy.deepcopy(activation)
 
     activation = activation.lower()
     if activation == "relu":
@@ -457,124 +444,3 @@ class ConvBlockModule(nn.Module):
         X = self.conv2(X, *args, **kwargs)
         X = self.block2(X)
         return X
-
-
-class DiscreteKeyValueBottleneckNoVQ(nn.Module):
-    def __init__(
-        self,
-        num_memories=256,
-        dim_memory=64,
-        num_memory_codebooks=2,
-        average_pool_memories=False,
-    ):
-        """
-        A simple implementation of a discrete key-value bottleneck without VQ part.
-
-        Adapted from https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/tree/main
-
-        Parameters
-        ----------
-        num_memories: int
-            number of memories, which is the codebook size in VQ
-        dim_memory: int
-            dimension of memory vector in each codebook
-        num_memory_codebooks: int
-            number of codebooks, which is the number of heads in multi-head VQ
-        """
-        super().__init__()
-        self.values = nn.Parameter(
-            torch.clamp(
-                torch.randn(num_memory_codebooks, num_memories, dim_memory),
-                min=-3,
-                max=3,
-            ),
-        )
-        # self.values.shape (h, n, d)
-
-        self.num_memory_codebooks = num_memory_codebooks
-        self.dim_memory = dim_memory
-        self.num_memories = num_memories
-
-        self.average_pool_memories = average_pool_memories
-
-    def forward(
-        self,
-        vq_indices,
-    ):
-        """Turn vq indices into memory embeddings."""
-        input_shape = vq_indices.shape
-        if vq_indices.ndim == 2:
-            vq_indices = rearrange(vq_indices, "bs h -> bs 1 h")
-        vq_indices = rearrange(vq_indices, "b n h -> b h n")
-
-        values = repeat(self.values, "h n d -> b h n d", b=input_shape[0])
-        vq_indices = repeat(vq_indices, "b h n -> b h n d", d=values.shape[-1])
-        memories = values.gather(2, vq_indices)
-
-        if self.average_pool_memories:
-            memories = memories.mean(dim=1)
-        else:
-            memories = rearrange(memories, "b h n d -> b n (h d)")
-
-        if len(input_shape) == 2:
-            memories = memories.squeeze(1)
-        return memories
-
-
-class KVBottleNeckMixin:
-    kv_bottleneck: DiscreteKeyValueBottleneckNoVQ
-
-    def setup_kv_bottleneck(
-        self,
-        num_memory_codebooks,
-        num_memories,
-        dim_memory,
-        additional_embs,
-    ):
-        """
-        Setup the key-value bottleneck for converting indices to embeddings.
-
-        Parameters
-        ----------
-        num_memory_codebooks: int
-            number of codebooks
-        num_memories: int
-            number of memories in each codebook
-        dim_memory: int
-            dimension of memory vector in each codebook
-        additional_embs: int
-            number of additional embeddings to be concatenated with the memory embeddings
-
-        Returns
-        -------
-        kv_bottleneck: nn.Module
-            key-value bottleneck module
-        emb_input_features: int
-            number of input features for the embeddings after concatenating the additional embeddings
-        """
-        # key-value bottleneck for converting indices to embeddings
-        self.additional_embs = additional_embs
-        self.num_memory_codebooks = num_memory_codebooks
-        self.num_memories = num_memories
-        self.dim_memory = dim_memory
-        kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
-            num_memories=num_memories,
-            dim_memory=dim_memory,
-            num_memory_codebooks=num_memory_codebooks,
-            average_pool_memories=False,
-        )
-        emb_input_features = num_memory_codebooks * dim_memory + additional_embs
-        return kv_bottleneck, emb_input_features
-
-    def vq_ind_to_emb(self, emb_data):
-        """
-        VQ index to embedding.
-
-        (bs, n_cbs + additional_embs) -> (bs, n_cbs * dim_memory + additional_embs).
-        """
-        n_cbs = self.kv_bottleneck.num_memory_codebooks
-        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
-        other_emb_data = emb_data[:, n_cbs:]
-        emb_data = self.kv_bottleneck(vq_ind)
-        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
-        return emb_data
