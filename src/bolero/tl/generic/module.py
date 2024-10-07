@@ -211,8 +211,6 @@ class DNA_CNN(GenericModule):
             Number of input channels. Default is 4.
 
         """
-        activation = _get_activation(activation)
-
         super().__init__()
 
         self.in_channels = in_channels
@@ -225,7 +223,7 @@ class DNA_CNN(GenericModule):
             kernel_size=dna_kernel_size,
             padding=dna_kernel_size // 2,
         )
-        self.activation = copy.deepcopy(activation)
+        self.activation = _get_activation(activation)
 
     def forward(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """
@@ -340,12 +338,12 @@ class DilatedCNN(GenericModule):
         """
         if self.bipass_connect:
             X0 = X.clone()
-            for i in range(self.n_blocks):
-                X = self.layers[i](X, *args, **kwargs)
+            for layer in self.layers:
+                X = layer(X, *args, **kwargs)
             X += X0
         else:
-            for i in range(self.n_blocks):
-                X = self.layers[i](X, *args, **kwargs)
+            for layer in self.layers:
+                X = layer(X, *args, **kwargs)
         return X
 
 
@@ -360,7 +358,6 @@ class ConvBlockModule(nn.Module):
         batch_norm=True,
         batch_norm_momentum=0.1,
         groups=8,
-        inception_version=2,
     ):
         """
         Parameters
@@ -388,8 +385,8 @@ class ConvBlockModule(nn.Module):
         self.dilation = dilation
         self.activation = activation
         self.batch_norm = batch_norm
-        self.inception_version = inception_version
         self.bottleneck = bottleneck
+        self.groups = groups
 
         self.conv1 = Conv1dWrapper(
             in_channels=n_filters,

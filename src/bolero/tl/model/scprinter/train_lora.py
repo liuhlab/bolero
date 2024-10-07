@@ -1,12 +1,12 @@
 import pathlib
 from copy import deepcopy
 
-import numpy as np
+import ray
 import torch
 import wandb
 
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
-from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
+from bolero.tl.model.scprinter.model import seq2PRINTLoRA
 from bolero.tl.model.scprinter.train_base import scFootprintTrainerMixin
 from bolero.tl.pseudobulk.generator import PredefinedPseudobulkGenerator
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
@@ -23,8 +23,6 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "lr": 0.0001,
             # Lora related files
             "accumulate_grad": 8,
-            "pretrained_model": "REQUIRED",
-            "output_adjusted_model": None,
             "cell_embedding": "REQUIRED",
             "cell_coverage": "REQUIRED",
             "pseudobulk_path": "REQUIRED",
@@ -38,66 +36,10 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
     model_class = seq2PRINTLoRA
     pseudobulk_class = PredefinedPseudobulkGenerator
 
-    def _setup_pretrain_model_for_adjust_output(self):
-        pretrain_model_path = self.config["pretrained_model"]
-        checkpoint = torch.load(pretrain_model_path, weights_only=False)
-        print(type(checkpoint))
-        if isinstance(checkpoint, seq2PRINT):
-            acc_model = checkpoint
-        else:
-            acc_model = seq2PRINT.create_from_config(self.config)
-            acc_model.load_state_dict(checkpoint)
-
-        # set all parameters to fixed, except the profile cnn's w&b
-        acc_model.to(self.device)
-        for p in acc_model.parameters():
-            p.requires_grad = False
-        for p in acc_model.footprint_head.parameters():
-            p.requires_grad = True
-        for p in acc_model.coverage_head.parameters():
-            p.requires_grad = True
-        return acc_model
-
-    def _setup_pretrain_model_for_lora(self):
-        config_for_lora = deepcopy(self.config)
-
-        # this file should be created during dataset setup
-        adj_output_model_path = self.config["output_adjusted_model"]
-
-        if adj_output_model_path is None:
-            # if not provided, use the best model from the adj_output stage
-            adj_output_model_path = f"{self.savename}.adj_output.best_model.pt"
-
-        # load output adjusted model and fix all parameters
-        try:
-            acc_model: seq2PRINT = torch.load(adj_output_model_path, weights_only=False)
-        except FileNotFoundError:
-            acc_model = self._setup_pretrain_model_for_adjust_output()
-
-        for p in acc_model.parameters():
-            p.requires_grad = False
-        acc_model = acc_model.cpu()
-        _kwargs = {
-            "base_model": acc_model,
-        }
-        config_for_lora.update(_kwargs)
-
-        acc_model = seq2PRINTLoRA.create_from_config(config_for_lora)
-        acc_model.cuda()
-        return acc_model
-
     def _setup_model(self):
-        mode = self.mode
-
-        if mode == "adj_output":
-            self.model = self._setup_pretrain_model_for_adjust_output()
-        elif mode == "lora":
-            self.model = self._setup_pretrain_model_for_lora()
-        else:
-            raise ValueError(
-                f"Incorrect mode: {mode}, should be 'adj_output' or 'lora'."
-            )
-
+        config_for_lora = deepcopy(self.config)
+        self.model = seq2PRINTLoRA.create_from_config(config_for_lora)
+        self.model.cuda()
         self._set_total_params()
         return
 
@@ -158,54 +100,19 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
 
         return y_footprint, y_coverage, pred_footprint, pred_coverage, fp_loss, cov_loss
 
-    def _check_output_adjust_model(self):
-        output_adj_model_path = self.config["output_adjusted_model"]
-        if output_adj_model_path is None:
-            return False
-        elif pathlib.Path(output_adj_model_path).exists():
-            return True
-        else:
-            print(f"Output adjusted model path {output_adj_model_path} does not exist.")
-            return False
-
-    def train(self, skip_adj_output=False) -> None:
+    def train(self) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
         wandb_run = self._setup_wandb()
         if wandb_run is None:
             return
 
         with wandb_run:
-            # Fit the pretrained model on the profile CNN only with pseudobulk data
-            if self._check_output_adjust_model():
-                print(
-                    f'Using pretrain output adjusted model at {self.config["output_adjusted_model"]}.'
-                )
-            else:
-                if self._check_stage_flag("adj_output"):
-                    print("Pretrain output exists, skipping pretrain.")
-                else:
-                    self.mode = "adj_output"
-                    self.checkpoint = self._has_last_checkpoint()
-                    self._setup_model()
-                    self._setup_fit()
-
-                    # only train some batches to adjust the output layer
-                    max_epochs = int(np.ceil(9000 / self.train_batches))
-                    max_epochs = min(max_epochs, self.config["max_epochs"])
-                    if not skip_adj_output:
-                        self._fit(max_epochs=max_epochs)
-                    self._save_stage_flag("adj_output")
-                    self._cleanup_env()
-                    self.config["output_adjusted_model"] = (
-                        f"{self.savename}.adj_output.best_model.pt"
-                    )
-
             self.mode = "lora"
-
             flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
             if flag.exists():
                 print(f"Training already finished, found flag file: {flag}.")
                 return
+
             # Fit LoRA
             self.checkpoint = self._has_last_checkpoint()
             self._setup_model()
@@ -226,13 +133,11 @@ class scFootprintLoRATrainerRNA(scFootprintLoRATrainer):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 0.0003,
+            "lr": 0.0001,
             # Lora related files
             "accumulate_grad": 8,
-            "pretrained_model": "REQUIRED",
-            "output_adjusted_model": None,
             "vq_records_path": "REQUIRED",
-            "use_vq_emb": True,
+            "use_vq_emb": False,
             "prefix": "REQUIRED",
             "standard_cov": 8e6,
         }
@@ -269,3 +174,47 @@ class scFootprintLoRATrainerRNA(scFootprintLoRATrainer):
             f"{self.savename}.cell_embedding_scaler.joblib"
         )
         return dataset
+
+
+class scFootprintLoRATester(scFootprintLoRATrainerRNA):
+    trainer_config = scFootprintLoRATrainerRNA.trainer_config.copy()
+    trainer_config["checkpoint_path"] = "REQUIRED"
+
+    def _setup_model(self):
+        checkpoint = torch.load(self.config["checkpoint_path"], weights_only=False)
+        if isinstance(checkpoint, dict):
+            super()._setup_model()
+            self.model.load_state_dict(checkpoint["state_dict"])
+        else:
+            self.model = checkpoint
+
+        self.model.eval()
+        return
+
+    @staticmethod
+    def save_batches(data_batches, saveas, num_rows_per_file=100):
+        """Save the data batches to parquet."""
+        dataset = ray.data.from_items(data_batches)
+        dataset.write_parquet(saveas, num_rows_per_file=num_rows_per_file)
+        return
+
+    @torch.inference_mode()
+    def test(self, saveas=None, device="cuda"):
+        """Test the Borzoi LoRA model."""
+        self._setup_model()
+        model = self.model.to(device)
+
+        dataloader = self.get_test_dataloader(batches=None)
+        *_, data_batches = self._model_validation_step(
+            model=model,
+            dataloader=dataloader,
+            val_batches=None,
+            collect_data=True,
+        )
+        self._cleanup_env()
+
+        if saveas is None:
+            return data_batches
+        else:
+            self.save_batches(data_batches, saveas)
+        return

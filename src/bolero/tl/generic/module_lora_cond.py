@@ -1,10 +1,5 @@
 """
-Code adapted from original LoRA repo: https://github.com/microsoft/LoRA/tree/main
-
-LoRA paper: https://arxiv.org/abs/2106.09685
-Example LoRA implementation https://github.com/hkproj/pytorch-lora
-And Learn this great youtube video: https://www.youtube.com/watch?v=PXWYUTMt-AU&t=1367s
-Also video from the LoRA author: https://www.youtube.com/watch?v=DhRoTONcyZE
+Making LoRA fine tuning weights conditionally depending on the embedding input.
 """
 
 from copy import deepcopy
@@ -73,7 +68,7 @@ class ConditionalLoRALayer:
         if lora_dropout > 0.0:
             self.lora_dropout = nn.Dropout(p=lora_dropout)
         else:
-            self.lora_dropout = lambda x: x
+            self.lora_dropout = nn.Identity()
 
         r_a, in_features = shape_a
         out_features, r_b = shape_b

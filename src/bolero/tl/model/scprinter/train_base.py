@@ -23,13 +23,12 @@ class scFootprintTrainerMixin(GenericTrainer):
     trainer_config = GenericTrainer.trainer_config.copy()
     trainer_config.update(
         {
-            "max_epochs": 100,
+            "max_epochs": 80,
             "patience": 10,
-            "start_early_stop_after_epoch": 15,
+            "start_early_stop_after_epoch": 20,
             "train_batches": 5000,
             "val_batches": 1000,
-            "train_epoch_chroms": 15,
-            "global_clipnorm": 1.0,
+            "global_clipnorm": 0.2,
             "scheduler": True,
             "warmup_steps": 10000,
             "weight_decay": 1e-4,
@@ -59,25 +58,6 @@ class scFootprintTrainerMixin(GenericTrainer):
         super()._setup_dataset()
         self.footprinter = self.dataset.get_footprinter(prefix=self.prefix)
 
-    def get_train_dataloader(self, batches):
-        """Training dataloader."""
-        # choose random chromosomes for training
-        n_chroms = self.config["train_epoch_chroms"]
-        if n_chroms is None:
-            n_chroms = len(self.train_chroms)
-        else:
-            n_chroms = min(n_chroms, len(self.train_chroms))
-        use_chrom = np.random.choice(self.train_chroms, n_chroms, replace=False)
-        print(f"Using chrom {use_chrom} for training.")
-
-        self.dataset.train()
-        dataloader = self.dataset.get_dataloader(
-            chroms=use_chrom,
-            region_bed_path=self.config["region_bed_path"],
-            n_batches=batches,
-        )
-        return dataloader
-
     # =============================
     # Model training and validation
     # =============================
@@ -106,6 +86,7 @@ class scFootprintTrainerMixin(GenericTrainer):
         model,
         dataloader,
         val_batches,
+        collect_data=False,
     ):
         print_step = max(5, val_batches // 20)
         # if val batches is None, use all batches in the dataset
@@ -123,6 +104,7 @@ class scFootprintTrainerMixin(GenericTrainer):
         across_batch_pearson_cov = CumulativePearson()
 
         example_batches = []  # collect example batches for making images
+        data_collector = []  # collect data for further analysis
         for batch_id, batch in enumerate(dataloader):
             (
                 y_footprint,
@@ -172,6 +154,26 @@ class scFootprintTrainerMixin(GenericTrainer):
                 )
                 print(desc_str)
 
+            # Collect batch data for validation
+            if collect_data:
+                # add addtional data into batch dict
+                batch_data = {
+                    "pred_footprint": pred_footprint,
+                    "pred_coverage": pred_coverage,
+                    "loss_footprint": loss_footprint,
+                    "loss_coverage": loss_coverage,
+                    "true_footprint": y_footprint,
+                    "true_coverage": y_coverage,
+                    f"{prefix}:pseudobulk_ids": batch[f"{prefix}:pseudobulk_ids"],
+                    "region": batch["region"],
+                }
+                data_collector.append(
+                    {
+                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+                        for k, v in batch_data.items()
+                    }
+                )
+
         del dataloader
         self._cleanup_env()
 
@@ -196,7 +198,10 @@ class scFootprintTrainerMixin(GenericTrainer):
             across_batch_pearson_fp.corr(),
             across_batch_pearson_cov.corr(),
         ]
-        return val_loss, profile_pearson, across_corr, wandb_images
+        if collect_data:
+            return val_loss, profile_pearson, across_corr, wandb_images, data_collector
+        else:
+            return val_loss, profile_pearson, across_corr, wandb_images
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
@@ -353,6 +358,7 @@ class scFootprintTrainerMixin(GenericTrainer):
                         dtype=torch.float16,
                         enabled=self.use_amp,
                     )
+
                 with auto_cast_context:
                     *_, loss_footprint, loss_coverage = self._model_forward_pass(
                         self.model, batch
@@ -525,7 +531,6 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             "standard_cov": None,
             "standard_cell": None,
             "prefix": "bulk",
-            "train_epoch_chroms": 15,
         }
     )
 
@@ -645,10 +650,3 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             wandb.finish()
         flag.touch()
         return
-
-
-class scFootprintFineTuneTrainer(scFootprintBaseTrainer):
-    # everything is the same as scFootprintBaseTrainer
-    # except for the mode and default learning rate
-    trainer_config = scFootprintBaseTrainer.trainer_config.copy()
-    trainer_config.update({"mode": "finetune", "lr": 0.0003})

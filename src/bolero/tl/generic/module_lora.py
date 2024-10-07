@@ -21,7 +21,7 @@ class DoRAMixin:
     """
     Mixin class to add DoRA to LoRA layers.
 
-    Weight-Decomposed Low-Rank Adaptation (DoRA) is an improvment to LoRA.
+    Weight-Decomposed Low-Rank Adaptation (DoRA) is an potential improvment to LoRA.
     https://github.com/NVlabs/DoRA
 
     This class should work for both linear and conv layers.

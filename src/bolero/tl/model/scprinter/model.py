@@ -1,5 +1,5 @@
 """
-scFootprintBPNetLoRA
+seq2PRINT / seq2PRINTLoRA model
 
 This model composed of three parts
 1. DNA CNN Model:
@@ -8,18 +8,22 @@ Input Shape: (batch_size, dna_channels, dna_len), default (64, 4, 1840)
 Output Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 
 2. Hidden Layer Model:
-Description: A multi-layer residual connect CNN model for encoding sequence information.
+Description: A multi-layer residual connect dilated CNN model for encoding sequence information, receptive field is 256.
 Layers: 8 layers of ConvBlocks, each block contains a dialated, grouped CNN layer and a pointwise feedforward CNN layer; connected by residual connections.
 Input Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 Output Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 
 3. Profile CNN Model:
 Description: A output model for predicting multi-mode footprint (mode as channels) or coverage signals.
+Coverage head is detached from the main chunk and updated separately during training.
 Input Shape: (batch_size, n_filters, dna_len), default (64, 1024, 1840)
 Output Shape:
     - Footprint, (batch_size, n_modes, output_len), default (64, 99, 800)
-    - Coverage (log10(cov_mean) of the region), (batch_size, 1), default (64, 1)
+    - Coverage (coverage count of the region), (batch_size, 1), default (64, 1)
 
+Losses:
+- Footprint: Mean Squared Error Loss (MSE) on footprint unprocessed z-scores.
+- Coverage: Poisson Negative Log Likelihood Loss (Poisson NLL) on raw coverage.
 """
 
 from copy import deepcopy
@@ -41,7 +45,7 @@ from bolero.utils import validate_config
 
 
 class seq2PRINT(nn.Module):
-    """scFootprintBPNet bulk model."""
+    """seq2PRINT base model."""
 
     default_config = {
         "n_filters": 1024,
@@ -114,10 +118,12 @@ class seq2PRINT(nn.Module):
             output_scales=output_scales,
         )
         self.coverage_head = CoverageHead(n_filters=n_filters)
+
         self.dna_len = dna_len
         self.output_len = output_len
+        return
 
-    def forward(self, X, *args, output_len=None, modes=None, **kwargs):
+    def forward(self, X, *args, output_len=None, **kwargs):
         """
         Forward pass of the model.
 
@@ -125,7 +131,6 @@ class seq2PRINT(nn.Module):
         ----------
             X: The input tensor.
             output_len: The length of the output.
-            modes: The modes tensor.
             args, kwargs: placeholder parameters for conditional LoRA layers.
 
         Returns
@@ -142,9 +147,7 @@ class seq2PRINT(nn.Module):
         X = self.hidden_layer_model(X, *args, **kwargs)
 
         # get the profile
-        fp_score = self.footprint_head(
-            X, *args, output_len=output_len, modes=modes, **kwargs
-        )
+        fp_score = self.footprint_head(X, *args, output_len=output_len, **kwargs)
         coverage = self.coverage_head(X, *args, **kwargs)
         return fp_score, coverage
 
@@ -210,7 +213,7 @@ class seq2PRINT(nn.Module):
             yield params
 
     def coverage_parameters(self):
-        """Get the parameters for the coverage head."""
+        """Get the parameters for the coverage head ONLY."""
         for name, params in self.named_parameters():
             if "coverage_head" in name:
                 yield params
@@ -221,51 +224,42 @@ def make_lora_config(
     hidden_dim=256,
     hidden_layers=1,
     output_layer_groups=4,
-    lora_dropout=0.01,
+    lora_dropout=0,
     lora_output=False,
+    use_dora=False,
 ):
     """Make LoRA configuration for the Borzoi model."""
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "hidden_dim": hidden_dim,
+        "hidden_layers": hidden_layers,
+        "output_layer_groups": output_layer_groups,
+        "convert_conv": True,
+        "lora_dropout": lora_dropout,
+        "use_dora": use_dora,
+    }
+
     lora_config = {
         "dna_cnn_model": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 4,  # total rank 4 * 21
-            "lora_dropout": lora_dropout,
         },
         "hidden_layer_model": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 32,  # total rank 32 * 3 conv1 + 32 * 1 conv2
-            "lora_dropout": lora_dropout,
         },
     }
     if lora_output:
         lora_config["footprint_head"] = (
             {
-                "emb_input_features": emb_input_features,
-                "hidden_dim": hidden_dim,
-                "hidden_layers": hidden_layers,
-                "output_layer_groups": output_layer_groups,
-                "convert_conv": True,
+                **shared_config,
                 "rank": 32,  # total rank 32 * 1
-                "lora_dropout": lora_dropout,
             },
         )
         lora_config["coverage_head"] = (
             {
-                "emb_input_features": emb_input_features,
-                "hidden_dim": hidden_dim,
-                "hidden_layers": hidden_layers,
-                "output_layer_groups": output_layer_groups,
-                "convert_conv": True,
+                **shared_config,
                 "rank": 1,  # total rank 1 * 1
-                "lora_dropout": lora_dropout,
             },
         )
     return lora_config
@@ -278,19 +272,22 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
 
     default_config.update(
         {
-            "base_model": None,
+            "base_model": "REQUIRED",
+            # LoRA configuration
             "emb_input_features": "REQUIRED",
-            "n_lora_layers": 1,
-            "lora_hidden_dim": 512,
-            "lora_output_layer_groups": 1,
-            "lora_dropout": 0.01,
-            "conditional_b": False,
-            "kv_bottleneck": None,
+            "n_lora_layers": 0,
+            "lora_hidden_dim": 256,
+            "lora_output_layer_groups": 4,
+            "lora_dropout": 0,
+            "use_dora": False,
+            "conditional_b": True,
+            "lora_output": False,
+            # KV Bottleneck
+            "kv_bottleneck": "local",
             "num_memories": 256,
             "dim_memory": 64,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
-            "lora_output": False,
         }
     )
 
@@ -309,18 +306,21 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
     def __init__(
         self,
         base_model: Union[str, seq2PRINT],
+        # LoRA configuration
         emb_input_features: int,
         n_lora_layers: int = 0,
         lora_hidden_dim: Optional[int] = 256,
-        lora_output_layer_groups: Optional[int] = 1,
-        lora_dropout: float = 0.01,
+        lora_output_layer_groups: Optional[int] = 4,
+        lora_dropout: float = 0,
+        use_dora: bool = False,
         conditional_b: bool = False,
+        lora_output: bool = False,
+        # KV Bottleneck
         kv_bottleneck: bool = None,
         num_memories: int = 256,
         dim_memory: int = 20,
         num_memory_codebooks: int = 2,
         additional_embs: int = 1,
-        lora_output: bool = False,
         **base_kwargs,
     ):
         # ===============
@@ -334,7 +334,11 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         elif base_model is None:
             raise ValueError("base_model is required.")
         else:
-            self.load_state_dict(torch.load(base_model, weights_only=False))
+            checkpoint = torch.load(base_model, weights_only=False)
+            if isinstance(checkpoint, dict):
+                self.load_state_dict(checkpoint["model_state_dict"])
+            else:
+                self.load_state_dict(checkpoint.state_dict())
 
         # key-value bottleneck for converting indices to embeddings
         if kv_bottleneck == "local":
@@ -374,6 +378,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             n_lora_layers=n_lora_layers,
             lora_output_layer_groups=lora_output_layer_groups,
             lora_dropout=lora_dropout,
+            use_dora=use_dora,
             conditional_b=conditional_b,
             lora_output=lora_output,
         )
@@ -386,6 +391,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         n_lora_layers,
         lora_output_layer_groups,
         lora_dropout,
+        use_dora,
         conditional_b,
         lora_output=False,
     ):
@@ -396,6 +402,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             hidden_layers=n_lora_layers,
             output_layer_groups=lora_output_layer_groups,
             lora_dropout=lora_dropout,
+            use_dora=use_dora,
             lora_output=lora_output,
         )
 

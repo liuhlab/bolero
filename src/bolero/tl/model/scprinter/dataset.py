@@ -13,7 +13,6 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
 )
 from bolero.tl.footprint import FootPrintModel
-from bolero.utils import get_global_coords, understand_regions
 
 
 class BatchFootPrint(FootPrintModel):
@@ -342,33 +341,12 @@ class scPrinterDataset(RayGenomeChunkDataset):
         )
         return dataset
 
-    def _process_region_columns(self, dataset, keep_regions=False):
-        """
-        Keep the regions by converting them to global coordinates OR remove the region columns.
-        """
-        if keep_regions:
-            chrom_offsets = self.genome.chrom_offsets.copy()
-
-            def _region_to_global_coords(batch):
-                region_df = understand_regions(batch.pop("region"))
-                global_coords = get_global_coords(
-                    chrom_offsets=chrom_offsets,
-                    region_bed_df=region_df,
-                )
-                batch["region"] = global_coords
-                return batch
-
-            dataset = dataset.map_batches(_region_to_global_coords)
-        else:
-            dataset = dataset.drop_columns(["region"])
-        return dataset
-
     def get_processed_dataset(
         self,
         chroms: list[str],
         region_bed_path: str,
         return_cells: bool = False,
-        return_regions: bool = False,
+        return_regions: bool = True,
         concurrency=16,
     ) -> None:
         """
@@ -379,7 +357,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         - chroms (list): List of chromosomes to include in the dataset.
         - region_bed_path (str): Path to the BED file containing the regions.
         - return_cells (bool): Whether to return the cells in the dataset. Default is False.
-        - return_regions (bool): Whether to return the regions in the dataset. Default is False.
+        - return_regions (bool): Whether to return the regions in the dataset. Default is True.
 
         Returns
         -------
@@ -451,7 +429,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         chroms,
         region_bed_path,
         as_torch=True,
-        return_regions=False,
+        return_regions=True,
         return_cells=False,
         n_batches=None,
         concurrency=16,

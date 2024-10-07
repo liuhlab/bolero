@@ -14,7 +14,7 @@ from bolero.tl.dataset.sc_transforms import (
 )
 from bolero.tl.dataset.transforms import FetchRegionOneHot
 from bolero.tl.generic.dataset import GenericDataset
-from bolero.utils import understand_regions
+from bolero.utils import get_global_coords, understand_regions
 
 DNA_NAME = "dna_one_hot"
 
@@ -227,6 +227,29 @@ class RayGenomeChunkDataset(GenericDataset):
             fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
         )
         self.dna_column = DNA_NAME
+        return dataset
+
+    def _process_region_columns(self, dataset, keep_regions=False, batch_size=512):
+        """
+        Keep the regions by converting them to global coordinates OR remove the region columns.
+        """
+        if keep_regions:
+            chrom_offsets = self.genome.chrom_offsets.copy()
+
+            def _region_to_global_coords(batch):
+                region_df = understand_regions(batch.pop("region"))
+                global_coords = get_global_coords(
+                    chrom_offsets=chrom_offsets,
+                    region_bed_df=region_df,
+                )
+                batch["region"] = global_coords
+                return batch
+
+            dataset = dataset.map_batches(
+                _region_to_global_coords, batch_size=batch_size
+            )
+        else:
+            dataset = dataset.drop_columns(["region"])
         return dataset
 
     def _get_processed_dataset(

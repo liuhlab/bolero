@@ -28,6 +28,7 @@ dependencies:
   - scikit-image
   - pip:
       - black
+      - einops
       - isort
       - jupyterlab-code-formatter
       - jupyterlab_execute_time
@@ -35,4 +36,4 @@ dependencies:
       - qnorm
       - torchinfo
       - torchmetrics
-      - einops
+      - scvi-tools

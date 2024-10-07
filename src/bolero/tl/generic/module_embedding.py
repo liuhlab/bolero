@@ -566,8 +566,12 @@ class ConditionalConv1dHead(nn.Module):
         """
         Parameters
         ----------
-        x: torch.tensor, shape=(bs, channels, seq_len)
+        x: torch.tensor, shape=(bs, input_dim, seq_len)
         embedding: torch.tensor, shape=(bs, emb_dim)
+
+        Returns
+        -------
+        torch.tensor, shape=(bs, output_dim, seq_len)
         """
         # (bs, i, l) -> (bs, i, l)
         x = self.pre_embedding_conv(x)

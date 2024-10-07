@@ -13,7 +13,6 @@ from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
 )
-from bolero.utils import get_global_coords, understand_regions
 
 from .utils import BorzoiRegions
 
@@ -237,29 +236,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
             concurrency=concurrency,
             batch_size=batch_size,
         )
-        return dataset
-
-    def _process_region_columns(self, dataset, keep_regions=False, batch_size=16):
-        """
-        Keep the regions by converting them to global coordinates OR remove the region columns.
-        """
-        if keep_regions:
-            chrom_offsets = self.genome.chrom_offsets.copy()
-
-            def _region_to_global_coords(batch):
-                region_df = understand_regions(batch.pop("region"))
-                global_coords = get_global_coords(
-                    chrom_offsets=chrom_offsets,
-                    region_bed_df=region_df,
-                )
-                batch["region"] = global_coords
-                return batch
-
-            dataset = dataset.map_batches(
-                _region_to_global_coords, batch_size=batch_size
-            )
-        else:
-            dataset = dataset.drop_columns(["region"])
         return dataset
 
     def _get_folds_dir(self, folds):
