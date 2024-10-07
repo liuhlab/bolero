@@ -4,10 +4,10 @@
 
 resources:
   cloud: gcp
-  cpus: 32+
-  memory: 128+
+  cpus: 64+
+  memory: 256+
   region: us-central1
-  disk_size: 256
+  disk_size: 512
   image_id: projects/hms-dev-greenberg-4923/global/images/bolero-240430
 
 file_mounts:
@@ -35,11 +35,16 @@ setup: |
     echo "Skip setup"
   else
     # install inhouse packages
+    mamba install -c conda-forge -n ray -y samtools pysam
     pip install wandb --upgrade
     pip install git+https://github.com/lhqing/scmallet.git
-    pip install -e /mnt/filestore/pkg/bolero-process
-    pip install -e /mnt/filestore/pkg/bolero
-    pip install -e /mnt/filestore/pkg/scPrinter
+
+    gsutil -m cp -r gs://hms-hanqing-reference/pkg/bolero-process ~/ 
+    pip install -e ~/bolero-process
+    gsutil -m cp -r gs://hms-hanqing-reference/pkg/bolero ~/
+    pip install -e ~/bolero
+    gsutil -m cp -r gs://hms-hanqing-reference/pkg/scPrinter ~/
+    pip install -e ~/scPrinter
     touch $HOME/.SKIPSETUP
   fi
 
