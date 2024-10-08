@@ -456,19 +456,20 @@ class BorzoiDatasetOnline(RayRegionDataset):
         clamp_sqrt_threshold: int = None,
         shuffle_files=False,
     ):
+    
         super().__init__(
             bed=bed,
-            leg_map=leg_map,
-            lora=lora,
             genome=genome,
-            # embedding_paths=embedding_paths,
-            shuffle_files=shuffle_files,
+            standard_length=dna_window,
+            batch_size=batch_size
         )
+
+        # Bigwig Files
+        self.bigwig_paths = bigwig_paths
         self.batch_size = batch_size
         self.keys = keys
         self.leg_map = leg_map
         self.lora = lora
-        self.genome_choice = genome_choice
         # region properties
         self.dna_window = dna_window
         self.signal_window = dna_window
@@ -800,12 +801,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         bw_concurrency = (1,concurrency // 2)
         embedding_concurrency = (1,concurrency // 2)
 
-        dataset = super()._get_processed_dataset(
-                folds=folds,
-                region_bed=region_bed,
-        )
-
-
         #1. Get the ATAC signals, add them to the dataset under 'atac' key.
         dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None)
 
@@ -859,7 +854,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
             folds=folds,
             region_bed=region_bed,
             cell_type_dict=self.cell_type_dict,
-            inplace=False,
             concurrency=concurrency,
         )
 
@@ -893,7 +887,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         return_regions=True,
         return_cells=False,
         n_batches=None,
-        shuffle_rows=500,
         concurrency=20,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
@@ -934,7 +927,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
             dataset_kwargs=dataset_kwargs,
             data_iter_kwargs=data_iter_kwargs,
             as_torch=as_torch,
-            shuffle_rows=shuffle_rows,
             n_batches=n_batches,
             batch_size=self.batch_size,
         )
