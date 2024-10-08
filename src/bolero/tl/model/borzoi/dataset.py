@@ -806,6 +806,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
         bw_concurrency = (1,concurrency // 2)
         embedding_concurrency = (1,concurrency // 2)
 
+
+        #before region selection, here do the folds selection
+
         #1. Get the ATAC signals, add them to the dataset under 'atac' key.
         dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None)
 
@@ -828,6 +831,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
             
         return dataset
     
+
+
+#copy get_processed_dataset from super rayregion class and do bed tools interesdect
+#write docstring appropriately (copied from ____)
 
     def get_processed_dataset(
         self,

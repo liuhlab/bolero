@@ -515,7 +515,7 @@ class RayRegionDataset(GenericDataset):
 
         if chroms is not None:
             bedfilter = bed["Chromosome"].isin(chroms)
-            bed = bed.loc[bedfilter].copy()
+            bed = bed.loc[bedfilter].copy() #another bed filter use pybedtools to select regions will help process two bed files and select overlap (intersect to selcet overlapping)
         assert bed.shape[0] > 0, "No regions found in the bed file."
 
         n_blocks = min(len(bed) // self._block_size + 1, self._max_blocks)
