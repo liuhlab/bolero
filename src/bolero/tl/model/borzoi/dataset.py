@@ -689,7 +689,12 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     batch_size=batch_size,
                 )
 
-                
+            #1. Bed file corresponding to each fold
+            #2. Save that in class (borzoidatasetonline)
+            #3, Each time you call getbigwig, fold as input param
+            #4. only enumerate in the region of corresponding fold
+            #do pybedtools overlap
+            #when load bed file separate directly into different fold
             total_chunks = idx + 1
 
             # add a final concat function to merge all the chunks
