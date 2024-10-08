@@ -678,7 +678,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 fn = FetchRegionBigWigs
                 fn_constructor_kwargs = {
                     "bw_paths": chunk_paths,
-                    "region_key": "Original_Name", #this is what determines the signal fetched, 'region' is 1840 and 'Original_Name' is 1000
+                    "region_key": "Original_Name", #this is what determines the signal fetched 
                     "data_key": f"{data_key}_{idx}",
                     "norm_mode": norm_mode,
                 }
