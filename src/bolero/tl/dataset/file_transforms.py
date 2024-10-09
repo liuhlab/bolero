@@ -376,7 +376,7 @@ class FetchRegionBigWigs:
         n_bw = len(self.bw_paths)
 
         total_values = np.zeros(
-            shape=(n_regions, n_bw, region_length), dtype=np.float32
+            shape=(n_regions, n_bw, region_length), dtype=np.float32 #
         )
         for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
             for idy, bw_handle in enumerate(self.bw_handles):
@@ -511,11 +511,12 @@ class GetEmbedding:
         """
         if isinstance(data_paths, (str, pathlib.Path)):
             data_paths = [data_paths]
-        self.data_paths = data_paths
+        self.data_paths = data_paths #don't rely on path, try to provide information directly
         self.region_key = region_key
         self.data_key = data_key
-        self.leg_map = leg_map
-
+        self.leg_map = leg_map #Suggestion: cell type as key and track, when you query path in fetchbigwig operator of prev step, organise matrix here / path, add key to data dict which is name of cell types
+        #get cell class directly from data dict to turn to number
+        #can save embedding directly, use consistent cell type name
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
         Fetch region BigWigs.
