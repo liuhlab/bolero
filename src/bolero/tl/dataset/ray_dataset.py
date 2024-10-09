@@ -456,6 +456,7 @@ class RayRegionDataset(GenericDataset):
             )
             bins["Original_Name"] = bins["region"].copy()
             self.bed = bins
+        # elif bed == 'path':
         else:
             # standardize the region length to standard_length size
             standard_bed = self.genome.standard_region_length(
@@ -471,6 +472,10 @@ class RayRegionDataset(GenericDataset):
             standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
             standard_bed.rename(columns={"Name": "region"}, inplace=True)
             self.bed = standard_bed
+        
+        # elif bed == 'borzoi': #do nothing as we have a different way of processing regions
+        #     print('here')
+        #     pass
 
         self.batch_size = batch_size
         self.dna = dna
@@ -522,7 +527,7 @@ class RayRegionDataset(GenericDataset):
         dataset = ray.data.from_pandas(bed).repartition(n_blocks).materialize()
 
         if self.dna:
-            dataset = self._get_dna_one_hot(dataset)
+            dataset = self._get_dna_one_hot(dataset) #TODO: set self.dna to false, might be by default, not early in process
 
         dataset = self._select_columns(dataset)
         return dataset

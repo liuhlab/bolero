@@ -470,6 +470,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.keys = keys
         self.leg_map = leg_map
         self.lora = lora
+
         # region properties
         self.dna_window = dna_window
         self.signal_window = dna_window
@@ -480,8 +481,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.clamp_sqrt_threshold = clamp_sqrt_threshold
 
         self.cell_type_dict = OrderedDict()
-
-
 
         self.borzoi_regions = BorzoiRegions()
         return
@@ -495,7 +494,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         train_regions, valid_regions, test_regions = (
             self.borzoi_regions.get_train_valid_test_regions(
-                self.genome_choice, split_id=fold, region_length=self.dna_window
+                self.genome.name, split_id=fold, region_length=self.dna_window
             )
         )
         return (
@@ -544,7 +543,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         -------
         None
         """
-        _rc = ReverseComplement(
+        _rc = ReverseComplement( #make sure rc correctly
             dna_key=self.dna_column,
             signal_key=self.signal_columns,
         )
@@ -675,7 +674,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 chunk_end = min(len(self.bigwig_paths), chunk_start + _chunk_size)
                 chunk_paths = self.bigwig_paths[chunk_start:chunk_end]
 
-                fn = FetchRegionBigWigs
+                fn = FetchRegionBigWigs #TODO: subclass fetchregion add a function to get 32bp here
                 fn_constructor_kwargs = {
                     "bw_paths": chunk_paths,
                     "region_key": "Original_Name", #this is what determines the signal fetched 
@@ -689,10 +688,12 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     batch_size=batch_size,
                 )
 
+            
+
             #1. Bed file corresponding to each fold
             #2. Save that in class (borzoidatasetonline)
             #3, Each time you call getbigwig, fold as input param
-            #4. only enumerate in the region of corresponding fold
+            #4. only enumerate in the region of corresponding fold, just traning fold
             #do pybedtools overlap
             #when load bed file separate directly into different fold
             total_chunks = idx + 1
@@ -744,6 +745,14 @@ class BorzoiDatasetOnline(RayRegionDataset):
             dataset : RayRegionDataset
                 The dataset with bigwig data oprator mapped.
             """
+
+            #simplify step
+            #query dict for integer
+            #make it more lightweight
+            #if small dataset, you can do cell type key and integer info at benginning, at start
+            #just need to add batch cell type key
+            #store bigwig file as dictionary so key is cell type name and value is the path
+            #corresponding int to cell type
             _chunk_size = max(5, len(self.bigwig_paths) // n_operators)
 
             for idx, chunk_start in enumerate(range(0, len(self.bigwig_paths), _chunk_size)):
@@ -787,9 +796,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         )
         self.dna_column = DNA_NAME
         return dataset
-    
-
-
 
     def _get_processed_dataset(
         self,
@@ -806,20 +812,21 @@ class BorzoiDatasetOnline(RayRegionDataset):
         bw_concurrency = (1,concurrency // 2)
         embedding_concurrency = (1,concurrency // 2)
 
+        #gets the bed in dataframe with ray (region_bed has been determined using train_regions for example)
+        #TODO: this needs to account for folds this step, doesn't right now
+        dataset = super().get_processed_dataset()
 
-        #before region selection, here do the folds selection
-
-        #1. Get the ATAC signals, add them to the dataset under 'atac' key.
+        #1. Get the ATAC signals, add them to the dataset under 'bw_values' key.
         dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None)
 
         #Expectation for this step is that the data is dictionary with region with corresponding
         #modality and the embedding for each corresponding cell type 
         
         #2. Filter the atac signals.
-        if filter_regions:
-            dataset = self._filter_bed_regions(dataset)
+        # if filter_regions:
+        #     dataset = self._filter_bed_regions(dataset)
 
-        
+
         #3. Get embeddings for each cell type.
         if self.lora:
             dataset = self._get_embedding_data(
@@ -866,10 +873,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
             folds=folds,
             region_bed=region_bed,
             cell_type_dict=self.cell_type_dict,
-            concurrency=concurrency,
+            concurrency=concurrency, #10 pseudobulk = 1000, change depenfing on pipeline
         )
 
-        # add dna one hot
+        # add dna one hot, add bool datatype
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
             concurrency=1,
@@ -879,16 +886,16 @@ class BorzoiDatasetOnline(RayRegionDataset):
             work_ds = self._get_reverse_complement_region(work_ds)
 
         # remove region column OR turn it into global coordinates (str to numbers)
-        work_ds = self._process_region_columns(
+        work_ds = self._process_region_columns( #TODO: check bolero genome has global to region functions
             dataset=work_ds, keep_regions=return_regions
         )
 
         # add clamp sqrt
-        work_ds = self._add_clamp_sqrt(work_ds)
+        work_ds = self._add_clamp_sqrt(work_ds) #TODO: ignore, RNA processing
 
 
-        work_ds = self._convert_to_list_dict(work_ds)
-        
+        work_ds = self._convert_to_list_dict(work_ds) #TODO: remember to add batch size to all previous steps
+        #default is 1024, maybe 
         return work_ds
 
     def get_dataloader(
@@ -942,6 +949,20 @@ class BorzoiDatasetOnline(RayRegionDataset):
             n_batches=n_batches,
             batch_size=self.batch_size,
         )
+
+        #TODO: what is key / shape of final
+        #if works correclty: iter torch batches should have dictionary of tensor, first key is region 2x2 (start,end)
+        #second key is dna_one_hot (2, 4, 525k)
+        #third key is pseudobulk id (2,1)
+        #fourth key is the data (2, 16k), can combine by number of tracks or can save by 2 x numbe of methylation type or RNA etc. added incrementally
+        #load into embedding, requires grad false freezes
+        #get vector tensor
+        #actual model expects the embedding of course
+
+
+        #manually collect with pybigwig to check regions
+        #manually check dna one hot
+        #once these ar echecked train
         return loader
 
     def _convert_to_list_dict(
@@ -965,9 +986,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 for i in range(num_cell_types):
                     new_data_dict = {}
                     for feature in data_keys:
-                        new_data_dict[feature] = data_dict[feature][i, :]
+                        new_data_dict[feature] = data_dict[feature][i, :] #need to know 
 
-                    new_data_dict[dna_key] = data_dict[dna_key]
+                    new_data_dict[dna_key] = data_dict[dna_key] #copy whatever is not in data key, copy entire into new dict
                     list_data_dict.append(new_data_dict)
                 return list_data_dict
 
@@ -975,6 +996,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 fn=_convert_data,
                 concurrency=concurrency,
             )
-
+            
             return dataset
     
