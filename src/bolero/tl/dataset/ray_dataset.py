@@ -403,6 +403,7 @@ class RayRegionDataset(GenericDataset):
         "signal_length": "given",
         "dna": True,
         "batch_size": "REQUIRED",
+        "use_borzoi_regions": False,
     }
 
     def __init__(
@@ -415,6 +416,7 @@ class RayRegionDataset(GenericDataset):
         window_size=None,
         step=None,
         dna=True,
+        use_borzoi_regions=False,
         boarder_strategy="drop",
         remove_blacklist=True,
         _block_size=20,
@@ -441,7 +443,8 @@ class RayRegionDataset(GenericDataset):
             genome = Genome(genome)
         self.genome = genome
 
-        if bed is None:
+        if bed is None and not use_borzoi_regions:
+            
             # make a genome windows
             assert window_size is not None, "window_size is required when bed is None"
             bins = genome.make_windows(
@@ -456,8 +459,9 @@ class RayRegionDataset(GenericDataset):
             )
             bins["Original_Name"] = bins["region"].copy()
             self.bed = bins
-        # elif bed == 'path':
-        else:
+
+        elif bed is not None and not use_borzoi_regions:
+            
             # standardize the region length to standard_length size
             standard_bed = self.genome.standard_region_length(
                 bed,
@@ -472,10 +476,11 @@ class RayRegionDataset(GenericDataset):
             standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
             standard_bed.rename(columns={"Name": "region"}, inplace=True)
             self.bed = standard_bed
-        
-        # elif bed == 'borzoi': #do nothing as we have a different way of processing regions
-        #     print('here')
-        #     pass
+
+        elif bed is not None and use_borzoi_regions:
+            
+            bed["Chromosome"] = bed["Chromosome"].astype(str)
+            bed.rename(columns={"Name": "region"}, inplace=True)
 
         self.batch_size = batch_size
         self.dna = dna
@@ -500,7 +505,7 @@ class RayRegionDataset(GenericDataset):
         return dataset
 
     def _select_columns(self, dataset):
-        keep_cols = ["region", "Original_Name"]
+        keep_cols = ["region", "Original_Name"]  #TODO: better handling
         if self.dna:
             keep_cols.append(DNA_NAME)
         dataset = dataset.select_columns(keep_cols)
@@ -527,9 +532,9 @@ class RayRegionDataset(GenericDataset):
         dataset = ray.data.from_pandas(bed).repartition(n_blocks).materialize()
 
         if self.dna:
-            dataset = self._get_dna_one_hot(dataset) #TODO: set self.dna to false, might be by default, not early in process
+            dataset = self._get_dna_one_hot(dataset) #TODO (complete): set self.dna to false, might be by default, not early in process
 
-        dataset = self._select_columns(dataset)
+        dataset = self._select_columns(dataset) #TODO: Currently the regions col does not have 'region', can I just rename?
         return dataset
 
     def get_dataloader(self, chroms=None, shuffle_bed=False, as_torch=False, **kwargs):

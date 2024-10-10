@@ -396,6 +396,94 @@ class FetchRegionBigWigs:
         return data
 
 
+class FetchRegionBigWigsReduced(FetchRegionBigWigs):
+    def __init__(
+        self,
+        bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_key: str = "bw_values",
+        norm_mode: str = "log",
+        resolution: int = 32,
+    ):
+        """
+        Initialize FetchRegionBigWigsReduced.
+
+        Parameters
+        ----------
+        - bw_paths: Path(s) to the BigWig file(s).
+        - region_key: Key in the data_dict that represents the region.
+        - data_key: Key in the data_dict to store the reduced fetched data.
+        - norm_mode: Normalization mode. Default is "log".
+        - resolution: Size of each bin in base pairs. Default is 32.
+
+        Returns
+        -------
+        None
+        """
+        super().__init__(bw_paths, region_key, data_key, norm_mode)
+        self.resolution = resolution
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch region BigWigs and reduce the data to specified bin size.
+
+        Parameters
+        ----------
+        - data_dict: Dictionary containing region information.
+
+        Returns
+        -------
+        - data_dict with reduced total_values.
+        """
+
+        # Call the superclass method to fetch the original total_values
+        data_dict = super().__call__(data_dict)
+
+        # Retrieve the fetched data
+        total_values = data_dict[self.data_key]  # Shape: (n_regions, n_bw, region_length)
+
+        # Get the shape parameters
+        n_regions, n_bw, region_length = total_values.shape
+
+        # Define the bin size
+        bin_size = self.resolution
+
+        # Calculate the number of bins
+        n_bins = region_length // bin_size
+
+        # Check if the region_length is divisible by bin_size
+        if region_length % bin_size != 0:
+            # If not, trim the excess data to make it divisible
+            trimmed_length = n_bins * bin_size
+            total_values = total_values[:, :, :trimmed_length]
+            print(
+                f"Warning: region_length ({region_length}) is not divisible by bin_size ({bin_size}). "
+                f"Trimmed to {trimmed_length}."
+            )
+
+        # Reshape and aggregate the data to reduce the resolution
+        # New shape will be (n_regions, n_bw, n_bins, bin_size)
+        reshaped = total_values.reshape(n_regions, n_bw, n_bins, bin_size)
+
+        # Aggregate by taking the mean across the bin_size axis
+        # Resulting shape: (n_regions, n_bw, n_bins)
+        total_values = reshaped.mean(axis=-1)
+
+        # If normalization is set to "log", apply log transformation
+        if self.norm_mode == "log":
+            if np.min(total_values) < 0:
+                raise ValueError("The reduced matrix contains negative values, cannot apply log normalization.")
+            total_values = np.log(total_values + 1)
+
+        # Update the data_dict with the reduced data
+        data_dict[self.data_key] = total_values
+
+        return data_dict
+
+
+
+
+
 class ReverseCompHicData:
     def __init__(
         self,
