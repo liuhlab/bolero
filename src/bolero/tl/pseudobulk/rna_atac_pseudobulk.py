@@ -66,8 +66,8 @@ class RNAVQPseudobulker:
         self.pseudobulk_ids = pd.Index(vq_records.keys())
         self.n_pids = self.pseudobulk_ids.size
         for idx, (vq, data) in enumerate(vq_records.items()):
-            rows = data["atac_cluster_ids"]
-            prefix_to_rows = {prefix_name: data["atac_cluster_ids"]}
+            rows = data["cluster_ids"]
+            prefix_to_rows = {prefix_name: data["cluster_ids"]}
             emb_data = data[emb_key]
             cov_value = np.array([np.log2(data[cov_key] / target_cov)])
             # last item of emb_data is cov_value

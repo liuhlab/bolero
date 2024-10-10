@@ -322,7 +322,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         self.scaler: torch.amp.GradScaler = None
         self.ema: EMA = None
         self.grad_norm_collector: GradNormCollector = (
-            GradNormCollector() if config["grad_norm_collector"] else None
+            GradNormCollector() if config.get("grad_norm_collector", False) else None
         )
 
         # epoch info

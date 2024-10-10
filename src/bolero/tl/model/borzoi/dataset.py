@@ -20,11 +20,11 @@ DNA_NAME = "dna_one_hot"
 
 
 class MaskBlacklist:
-    def __init__(self, blacklist_global_coords, chrom_offsets, region_key, data_key):
+    def __init__(self, blacklist_global_coords, chrom_offsets, region_key, data_keys):
         self.blacklist_global_coords = blacklist_global_coords
         self.chrom_offsets = chrom_offsets
         self.region_key = region_key
-        self.data_key = data_key
+        self.data_keys = data_keys
 
     def _get_region_chrom(self, region):
         chrom, coords = region.split(":")
@@ -47,7 +47,8 @@ class MaskBlacklist:
 
             for bl_start, bl_end in overlap_bl_regions:
                 nan_slice = slice(max(0, bl_start), min(region_length, bl_end))
-                batch[self.data_key][region_id, :, nan_slice] = np.NaN
+                for data_key in self.data_keys:
+                    batch[data_key][region_id, :, nan_slice] = np.NaN
         return batch
 
 
@@ -64,7 +65,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "n_pseudobulks": 100,
         "shuffle_files": True,
         "read_parquet_kwargs": None,
-        "min_cov": 100,
+        "min_cov": 0,
     }
 
     def __init__(
@@ -191,7 +192,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             dna_key=self.dna_column,
             signal_key=self.signal_columns,
         )
-        dataset = dataset.map_batches(_rc, batch_size=16)
+        dataset = dataset.map_batches(_rc, batch_size=batch_size)
         return dataset
 
     def add_pseudobulker(self, name: str, cls, pseudobulker_kwargs: dict):
@@ -268,6 +269,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         dataset,
         concurrency=2,
         batch_size=16,
+        filter_prefix="pseudobulk",
     ):
         def _fn(batch: dict, filter_key, min_cov):
             """Filter regions based on coverage."""
@@ -287,9 +289,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
             }
             return batch
 
-        # TODO: prefix pseudobulk may change
         fn_kwargs = {
-            "filter_key": "pseudobulk:bulk_data",
+            "filter_key": f"{filter_prefix}:bulk_data",
             "min_cov": self.min_cov,
         }
         dataset = dataset.map_batches(
@@ -308,7 +309,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
             "blacklist_global_coords": bl_coords,
             "chrom_offsets": self.genome.chrom_offsets,
             "region_key": "region",
-            "data_key": "pseudobulk:bulk_data",
+            "data_keys": [
+                f"{name}:bulk_data" for name in self.name_to_pseudobulker.keys()
+            ],
         }
         dataset = dataset.map_batches(
             fn=fn,
@@ -423,11 +426,13 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # )
 
         # filter min cov
-        work_ds = self._filter_min_cov(
-            dataset=work_ds,
-            concurrency=2,
-            batch_size=batch_size,
-        )
+        if self.min_cov > 0:
+            work_ds = self._filter_min_cov(
+                dataset=work_ds,
+                concurrency=2,
+                batch_size=batch_size,
+                filter_prefix="pseudobulk",
+            )
 
         # add dna one hot
         work_ds = self._get_dna_one_hot(

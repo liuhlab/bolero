@@ -223,6 +223,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "downsample_train_region": None,
         "downsample_valid_region": None,
         "downsample_test_region": None,
+        "grad_norm_collector": False,
     }
 
     def __init__(self, config):
@@ -339,14 +340,23 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             if idx >= self.plot_example_per_epoch:
                 break
 
+            power = self.config.get("cov_power", None)
+            threshold = self.config.get("cov_soft_clamp", None)
+            if (power is not None) and (threshold is not None):
+                soft_clamp = True
+
             plotter = BorzoiExamplePlotter(
                 genome=self.dataset.genome,
                 zoomin_radius=1000,
                 true_key="true_data",
                 pred_key="pred_data",
                 id_key="sample_id",
+                power=power,
+                threshold=threshold,
             )
-            fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
+            fig = plotter.plot(
+                batch, channel=0, nrows=2, return_array=True, soft_clamp=soft_clamp
+            )
 
             wandb_images.append(
                 wandb.Image(
@@ -508,6 +518,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             )
 
         moving_norm = MovingMetric(window_size=100)
+        total_norm = 999
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -543,7 +554,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
             train_example_batches = []
-            total_norm = 999
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -756,6 +766,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
             "downsample_vq": None,
+            "cov_power": None,
             "cov_soft_clamp": None,
         }
     )
@@ -808,6 +819,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
         embedding_key = f"{self.prefix}:embedding_data"
+        power = self.config["cov_power"]
         soft_clamp = self.config["cov_soft_clamp"]
 
         # ==========
@@ -823,15 +835,15 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         y_pred = model(X, embedding=embedding)
 
         loss, loss_breakdown = model.loss(
-            y_true=y_true, y_pred=y_pred, soft_clamp=soft_clamp
+            y_true=y_true, y_pred=y_pred, power=power, soft_clamp=soft_clamp
         )
 
         with torch.no_grad():
             y_true_crop = model.crop(y_true).detach()
             y_pred = y_pred.detach()
-            if soft_clamp is not None:
+            if (soft_clamp is not None) and (power is not None):
                 # reverse clamp of pred
-                y_pred = reverse_clamp_sqrt(y_pred, soft_clamp)
+                y_pred = reverse_clamp_sqrt(y_pred, power=power, threshold=soft_clamp)
         return y_true_crop, y_pred, loss, loss_breakdown
 
     def _print_banner(self, text):

@@ -14,6 +14,7 @@ from .module import (
     TargetLengthCrop,
     TransformerLayer,
 )
+from .utils import clamp_sqrt_large_value
 
 
 def model_summary(
@@ -278,7 +279,7 @@ class Borzoi(nn.Module):
     def __repr__(self):
         return self._model_summary()
 
-    def loss(self, y_pred, y_true, soft_clamp):
+    def loss(self, y_pred, y_true, power=None, soft_clamp=None):
         """
         Compute the loss for the Borzoi model.
 
@@ -288,11 +289,18 @@ class Borzoi(nn.Module):
             Predicted values, shape (batch_size, out_channels, seq_len).
         y_true : torch.Tensor
             True values, shape (batch_size, out_channels, seq_len).
+        power : float
+            Power value for convert the y_true before calculating loss.
         """
-        y_true_crop = self.crop(y_true)
+        with torch.no_grad():
+            y_true = self.crop(y_true)
+            if (soft_clamp is not None) and (power is not None):
+                y_true = clamp_sqrt_large_value(
+                    y_true, power=power, threshold=soft_clamp
+                )
 
         _loss, loss_breakdown = poisson_multinomial(
-            y_true=y_true_crop,
+            y_true=y_true,
             y_pred=y_pred,
             total_weight=self.loss_total_weight,
             weight_range=1,  # 1 means not use the position weighted loss
@@ -300,7 +308,6 @@ class Borzoi(nn.Module):
             epsilon=1e-7,  # this is smallest for float16
             rescale=False,
             return_breakdown=True,
-            soft_clamp=soft_clamp,
         )
 
         # loss is averaged across batch and channels

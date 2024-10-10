@@ -146,26 +146,30 @@ def compute_total_grad_norm(parameters, norm_type=2):
     return total_norm ** (1.0 / norm_type)
 
 
-def clamp_sqrt_large_value(data: torch.Tensor, threshold=50):
+def clamp_sqrt_large_value(data: torch.Tensor, power=0.75, threshold=200):
     """
-    Clamp and sqrt the large values in the data, as performed in the Borzoi model.
+    This is special data transformation used for RNA-seq in the Borzoi model.
+    Power the data, then clamp and sqrt the large residual values in the data.
 
     Parameters
     ----------
     data : torch.Tensor
         Count data.
+    power : float, optional
+        The power value, by default 0.75.
     threshold : int, optional
-        The threshold value, by default 50.
+        The threshold value, by default 200.
         Values <= threshold are not changed.
         Values > threshold will become threshold + sqrt(value - threshold).
     """
+    data = torch.pow(data, power)
     data = torch.clamp_max(data, threshold) + torch.sqrt(
         torch.clamp_min(data - threshold, 0)
     )
     return data
 
 
-def reverse_clamp_sqrt(data: torch.Tensor, threshold=50):
+def reverse_clamp_sqrt(data: torch.Tensor, power=0.75, threshold=200):
     """
     Reverse the clamp and sqrt operation in the Borzoi model.
 
@@ -173,14 +177,17 @@ def reverse_clamp_sqrt(data: torch.Tensor, threshold=50):
     ----------
     data : torch.Tensor
         Count data.
+    power : float, optional
+        The power value, by default 0.75.
     threshold : int, optional
-        The threshold value, by default 50.
+        The threshold value, by default 200.
         Values <= threshold are not changed.
         Values > threshold will become threshold + (value - threshold)^2.
     """
     data = torch.clamp_max(data, threshold) + torch.pow(
         torch.clamp_min(data - threshold, 0), 2
     )
+    data = torch.pow(data, 1 / power)
     return data
 
 

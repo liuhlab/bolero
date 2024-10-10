@@ -68,12 +68,12 @@ class SCVIVQ(SCVI):
             # validate new anndata against old model
             scvi_model._validate_anndata(adata)
 
-        scanvi_model = cls(adata, **non_kwargs, **kwargs, **scvivq_kwargs)
+        scvivq_model = cls(adata, **non_kwargs, **kwargs, **scvivq_kwargs)
         scvi_state_dict = scvi_model.module.state_dict()
-        scanvi_model.module.load_state_dict(scvi_state_dict, strict=False)
-        scanvi_model.was_pretrained = True
+        scvivq_model.module.load_state_dict(scvi_state_dict, strict=False)
+        scvivq_model.was_pretrained = True
 
-        return scanvi_model
+        return scvivq_model
 
     def get_latent_representation(
         self,

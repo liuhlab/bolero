@@ -1,10 +1,8 @@
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
 from torchmetrics import Metric
-
-from .utils import clamp_sqrt_large_value
 
 
 class MeanPearsonCorrCoefPerChannel(Metric):
@@ -121,7 +119,6 @@ def poisson_loss(pred, target):
 def poisson_multinomial(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
-    soft_clamp: Union[int, torch.Tensor, None] = None,
     total_weight: float = 1,
     weight_range: float = 1,
     weight_exp: int = 4,
@@ -145,9 +142,6 @@ def poisson_multinomial(
         rescale (bool): Rescale loss after re-weighting.
     """
     seq_len = y_true.shape[-1]
-
-    if soft_clamp is not None:
-        y_true = clamp_sqrt_large_value(y_true, soft_clamp)
 
     valid_mask = torch.isfinite(y_true)
 

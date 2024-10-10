@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 from bolero import Genome
+from bolero.tl.model.borzoi.utils import clamp_sqrt_large_value
 
 from .utils import figure_to_array
 
@@ -15,20 +16,33 @@ class BorzoiExamplePlotter:
         true_key="true_data",
         pred_key="pred_data",
         id_key="sample_id",
+        power=0.75,
+        threshold=200,
     ):
         self.genome = genome
         self.zoomin_radius = zoomin_radius
         self.true_key = true_key
         self.pred_key = pred_key
         self.id_key = id_key
+        self.power = power
+        self.threshold = threshold
         return
 
-    def plot(self, batch, channel=0, nrows=2, return_array=False):
+    def plot(self, batch, channel=0, nrows=2, return_array=False, soft_clamp=False):
         """Plot the true and predicted data for a batch of examples."""
         y_true = batch[self.true_key]
+        y_pred = batch[self.pred_key]
+
+        if soft_clamp:
+            y_true = clamp_sqrt_large_value(
+                y_true, power=self.power, threshold=self.threshold
+            )
+            y_pred = clamp_sqrt_large_value(
+                y_pred, power=self.power, threshold=self.threshold
+            )
+
         if isinstance(y_true, torch.Tensor):
             y_true = y_true.cpu().numpy()
-        y_pred = batch[self.pred_key]
         if isinstance(y_pred, torch.Tensor):
             y_pred = y_pred.cpu().numpy()
         sample_ids = batch[self.id_key]
