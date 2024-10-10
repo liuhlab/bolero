@@ -27,6 +27,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "hidden_layers": 1,
             "output_layer_groups": 4,
             "lora_dropout": 0.01,
+            "lora_alpha": 1,
             "final_output_dropout": 0.01,
             "loss_total_weight": 0.2,
             "conditional_b": True,
@@ -58,6 +59,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
+        lora_alpha=1,
         final_output_dropout=0.01,
         loss_total_weight=0.2,
         conditional_b=True,
@@ -185,11 +187,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # convert model to LoRA
         self.lora_config = self.make_lora_config(
-            emb_input_features,
-            hidden_dim,
-            hidden_layers,
-            output_layer_groups,
-            lora_dropout,
+            emb_input_features=emb_input_features,
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            output_layer_groups=output_layer_groups,
+            lora_dropout=lora_dropout,
+            lora_alpha=lora_alpha,
             preset=lora_preset,
         )
         self.conditional_b = conditional_b
@@ -238,6 +241,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
+        lora_alpha=1,
         preset="all_conditional",
     ):
         """Make LoRA configuration for the Borzoi model."""
@@ -247,6 +251,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "hidden_layers": hidden_layers,
             "output_layer_groups": output_layer_groups,
             "lora_dropout": lora_dropout,
+            "lora_alpha": lora_alpha,
         }
         if preset == "all_conditional":
             lora_config = make_all_conditional_lora_config(**kwargs)

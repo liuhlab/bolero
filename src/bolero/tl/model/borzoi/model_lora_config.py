@@ -4,27 +4,32 @@ def make_output_conditional_lora_config(
     hidden_layers=1,
     output_layer_groups=1,
     lora_dropout=0.01,
+    lora_alpha=1,
 ):
     """
     All layers using simple LoRA, except the final output head which uses conditional LoRA.
     """
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "lora_dropout": lora_dropout,
+        "lora_alpha": lora_alpha,
+        "convert_conv": True,
+        "convert_linear": True,
+    }
+
     lora_config = {
         # Normal LoRA
         "conv_dna": {
-            "emb_input_features": emb_input_features,
-            "convert_conv": True,
+            **shared_config,
             "rank": 3,  # total rank 3 * 15
-            "lora_dropout": lora_dropout,
             "default_conditional": False,
         },
         (
             "res_tower",
             "unet1",
         ): {
-            "emb_input_features": emb_input_features,
-            "convert_conv": True,
+            **shared_config,
             "rank": 9,  # total rank 9 * 5
-            "lora_dropout": lora_dropout,
             "default_conditional": False,
         },
         (
@@ -36,32 +41,25 @@ def make_output_conditional_lora_config(
             "separable0",
             "separable1",
         ): {
-            "emb_input_features": emb_input_features,
-            "convert_linear": True,
-            "convert_conv": True,
+            **shared_config,
             "rank": 15,  # total rank 15 * 1
-            "lora_dropout": lora_dropout,
             "default_conditional": False,
         },
         # Conditional LoRA
         "final_joined_convs": {
-            "emb_input_features": emb_input_features,
+            **shared_config,
             "hidden_dim": hidden_dim,
             "hidden_layers": hidden_layers,
             "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
             "rank": 50,
-            "lora_dropout": lora_dropout,
             "default_conditional": True,
         },
         "final_output_head": {
-            "emb_input_features": emb_input_features,
+            **shared_config,
             "hidden_dim": hidden_dim,
             "hidden_layers": hidden_layers,
             "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
             "rank": 1,
-            "lora_dropout": lora_dropout,
             "default_conditional": True,
         },
     }
@@ -71,30 +69,33 @@ def make_output_conditional_lora_config(
 def make_classic_lora_config(
     *args,
     lora_dropout=0.01,
+    lora_alpha=1,
     **kwargs,
 ):
     """
     All layers using simple LoRA, except the final output head which uses conditional LoRA.
     """
-    emb_input_features = 10  # not really used
+    shared_config = {
+        "emb_input_features": 10,  # not really used
+        "lora_dropout": lora_dropout,
+        "lora_alpha": lora_alpha,
+        "default_conditional": False,
+        "convert_conv": True,
+        "convert_linear": True,
+    }
+
     lora_config = {
         # Normal LoRA
         "conv_dna": {
-            "emb_input_features": emb_input_features,
-            "convert_conv": True,
+            **shared_config,
             "rank": 3,  # total rank 3 * 15
-            "lora_dropout": lora_dropout,
-            "default_conditional": False,
         },
         (
             "res_tower",
             "unet1",
         ): {
-            "emb_input_features": emb_input_features,
-            "convert_conv": True,
+            **shared_config,
             "rank": 9,  # total rank 9 * 5
-            "lora_dropout": lora_dropout,
-            "default_conditional": False,
         },
         (
             "transformer",
@@ -106,12 +107,8 @@ def make_classic_lora_config(
             "separable1",
             "final_joined_convs",
         ): {
-            "emb_input_features": emb_input_features,
-            "convert_linear": True,
-            "convert_conv": True,
+            **shared_config,
             "rank": 15,  # total rank 15 * 1
-            "lora_dropout": lora_dropout,
-            "default_conditional": False,
         },
     }
     return lora_config
@@ -123,38 +120,35 @@ def make_all_conditional_large_lora_config(
     hidden_layers=1,
     output_layer_groups=4,
     lora_dropout=0.01,
+    lora_alpha=1,
 ):
     """Make LoRA configuration for the Borzoi model."""
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "hidden_dim": hidden_dim,
+        "hidden_layers": hidden_layers,
+        "output_layer_groups": output_layer_groups,
+        "lora_dropout": lora_dropout,
+        "lora_alpha": lora_alpha,
+        "convert_conv": True,
+        "convert_linear": True,
+    }
+
     lora_config = {
         "conv_dna": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 5,  # total rank 3 * 15
-            "lora_dropout": lora_dropout,
         },
         (
             "res_tower",
             "unet1",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 9,  # total rank 9 * 5
-            "lora_dropout": lora_dropout,
         },
         "transformer": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_linear": True,
+            **shared_config,
             "rank": 20,
-            "lora_dropout": lora_dropout,
             "exclude_cond_lora_patterns": [
                 "to_rel_k",
             ],
@@ -166,34 +160,20 @@ def make_all_conditional_large_lora_config(
             "upsampling_unet1",
             "final_joined_convs",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 45,  # total rank 15 * 1
-            "lora_dropout": lora_dropout,
         },
         (
             "separable0",
             "separable1",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 15,  # total rank 15 * 3
-            "lora_dropout": lora_dropout,
         },
         "final_output_head": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
+            **shared_config,
             "output_layer_groups": 1,
-            "convert_conv": True,
             "rank": 1,
-            "lora_dropout": lora_dropout,
         },
     }
     return lora_config
@@ -205,38 +185,34 @@ def make_all_conditional_lora_config(
     hidden_layers=1,
     output_layer_groups=4,
     lora_dropout=0.01,
+    lora_alpha=1,
 ):
     """Make LoRA configuration for the Borzoi model."""
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "hidden_dim": hidden_dim,
+        "hidden_layers": hidden_layers,
+        "output_layer_groups": output_layer_groups,
+        "lora_dropout": lora_dropout,
+        "lora_alpha": lora_alpha,
+        "convert_conv": True,
+        "convert_linear": True,
+    }
     lora_config = {
         "conv_dna": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 3,  # total rank 3 * 15
-            "lora_dropout": lora_dropout,
         },
         (
             "res_tower",
             "unet1",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 9,  # total rank 9 * 5
-            "lora_dropout": lora_dropout,
         },
         "transformer": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_linear": True,
+            **shared_config,
             "rank": 15,
-            "lora_dropout": lora_dropout,
             "exclude_cond_lora_patterns": [
                 "to_q",
                 "to_k",
@@ -252,34 +228,20 @@ def make_all_conditional_lora_config(
             "upsampling_unet1",
             "final_joined_convs",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 15,  # total rank 15 * 1
-            "lora_dropout": lora_dropout,
         },
         (
             "separable0",
             "separable1",
         ): {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
-            "output_layer_groups": output_layer_groups,
-            "convert_conv": True,
+            **shared_config,
             "rank": 15,  # total rank 15 * 3
-            "lora_dropout": lora_dropout,
         },
         "final_output_head": {
-            "emb_input_features": emb_input_features,
-            "hidden_dim": hidden_dim,
-            "hidden_layers": hidden_layers,
+            **shared_config,
             "output_layer_groups": 1,
-            "convert_conv": True,
             "rank": 1,
-            "lora_dropout": lora_dropout,
         },
     }
     return lora_config

@@ -126,7 +126,7 @@ class ConditionalLoRALayer:
     def _lora_ab(self, *args, **kwargs):
         a = rearrange(self.lora_A(*args, **kwargs), "b r i -> b i r")
         b = rearrange(self.lora_B(*args, **kwargs), "b o r -> b r o")
-        ab = einsum(a, b, "b i r, b r o -> b i o")
+        ab = einsum(a, b, "b i r, b r o -> b i o") * self.scaling
         return ab
 
     def reset_lora_parameters(self):
@@ -206,7 +206,7 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
 
     def _lora_adaptive_weight(self, *args, **kwargs):
         # (bs, i, o) -> (bs, o, i)
-        lora_weight = (self._lora_ab(*args, **kwargs) * self.scaling).transpose(1, 2)
+        lora_weight = self._lora_ab(*args, **kwargs).transpose(1, 2)
         # (o, i) -> (1, o, i)
         base_weight = rearrange(self.weight, "o i -> 1 o i")
         weight = lora_weight + base_weight
@@ -399,9 +399,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         lora_weights = self._lora_ab(*args, **kwargs)
         _i = self.in_channels // self.groups
         _k = self.kernel_size
-        lora_weights = (
-            rearrange(lora_weights, "b (i k) o -> b o i k", i=_i, k=_k) * self.scaling
-        )
+        lora_weights = rearrange(lora_weights, "b (i k) o -> b o i k", i=_i, k=_k)
 
         base_weights = rearrange(self.conv.weight, "o i k -> 1 o i k")
 
@@ -428,11 +426,8 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         _i = self.in_channels // self.groups
         _o = self.out_channels
         _k = self.kernel_size
-        lora_weights = (
-            rearrange(
-                lora_weights, "b (i k1) (o k2) -> b o i k1 k2", i=_i, o=_o, k1=_k, k2=_k
-            )
-            * self.scaling
+        lora_weights = rearrange(
+            lora_weights, "b (i k1) (o k2) -> b o i k1 k2", i=_i, o=_o, k1=_k, k2=_k
         )
 
         base_weights = rearrange(self.conv.weight, "o i k1 k2 -> 1 o i k1 k2")
@@ -453,11 +448,9 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
     def collapse(self, *args, **kwargs) -> nn.modules.conv._ConvNd:
         """Collapse the LoRA layer."""
         new_conv = deepcopy(self.conv)
-        new_conv.weight.data = (
-            self.conv.weight
-            + self._lora_ab(*args, **kwargs).reshape(self.conv.weight.shape)
-            * self.scaling
-        )
+        new_conv.weight.data = self.conv.weight + self._lora_ab(
+            *args, **kwargs
+        ).reshape(self.conv.weight.shape)
         return new_conv
 
     def forward(self, x, *args, **kwargs):
