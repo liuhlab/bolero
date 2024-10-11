@@ -470,8 +470,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         # Bigwig Files
         self.bigwig_paths = bigwig_paths
-        #TODO: potentially bigwig path dict init here
-                    
+        
+        #dictionary with cell type name and path to             
         self.bigwig_names_dict = OrderedDict()
         for path in bigwig_paths:
             self.bigwig_names_dict[pathlib.Path(path).name.rsplit('.',1)[0]] = path
@@ -802,7 +802,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         )
 
         if self.reverse_complement and self._dataset_mode == "train":
-            self.signal_columns = 'bw_values' #TODO: better way to do this surely
+            self.signal_columns = 'bw_values' #TODO: need to do this a better way
             work_ds = self._get_reverse_complement_region(work_ds)
 
         # remove region column OR turn it into global coordinates (str to numbers)
@@ -902,7 +902,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "bw_values",
                 # "ctcf",
             ),
-            concurrency=16,
+            concurrency=32,
         ):
             """
             Convert the data to list of dict.
@@ -911,24 +911,32 @@ class BorzoiDatasetOnline(RayRegionDataset):
             
             # num_cell_types = len(self.bigwig_paths)
             def _convert_data(data_dict):
-                
+                # print(f'Shape is {data_dict[feature].shape}')
+                # print(data_dict.keys())
+                # print(data_dict['dna_one_hot'].shape)
+                # print(data_dict['bw_values'].shape)
+                # keys = ['Original_Name', 'bw_values', 'dna_one_hot', 'region']
+                # for key in keys:
+                #     print(data_dict[key])
                 list_data_dict = []
                 for i, cell_type in enumerate(self.bigwig_names_dict): #enumerate bw list
-                    new_data_dict = {}
+                    new_data_dict = OrderedDict()
                     new_data_dict['cell_type_id'] = self.leg_map[cell_type] 
                     
 
                     for feature in data_keys:
-                        # print(data_dict[feature])
-                        # print(data_dict)
+
                         new_data_dict[feature] = data_dict[feature][i,:] #this only works because bw names are enumerated in order of cell type
+                    
+                    
 
                     new_data_dict[dna_key] = data_dict[dna_key]
-                    
+
                     #copy whatever is not in data key (as in make sure to keep track of everything 
                     #other than the data key argument), copy entire into new dict
                     for k in data_dict.keys():
-                        if k != dna_key:
+                        if k not in data_keys:
+                        # if k!=dna_key:
                             new_data_dict[k] = data_dict[k]
 
                     list_data_dict.append(new_data_dict)

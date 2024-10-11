@@ -446,7 +446,9 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
         total_values = data_dict[self.data_key]  # Shape: (n_regions, n_bw, region_length)
 
         # Get the shape parameters
+        
         n_regions, n_bw, region_length = total_values.shape
+        # assert n_bw == 1, 'we have 3 cell types this should be 3'
 
         # Define the bin size
         bin_size = self.resolution
