@@ -400,6 +400,7 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
     def __init__(
         self,
         bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        leg_map: dict, 
         region_key: str = "region",
         data_key: str = "bw_values",
         norm_mode: str = "log",
@@ -421,7 +422,9 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
         None
         """
         super().__init__(bw_paths, region_key, data_key, norm_mode)
+
         self.resolution = resolution
+        self.leg_map = leg_map
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -477,6 +480,8 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
 
         # Update the data_dict with the reduced data
         data_dict[self.data_key] = total_values
+        
+        #add the cell type information with an id based on the leg map
 
         return data_dict
 
