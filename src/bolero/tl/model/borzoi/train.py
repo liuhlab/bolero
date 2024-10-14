@@ -849,7 +849,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             print(f"Training already finished, found flag file: {flag}.")
             return
 
-        wandb_run = self._setup_wandb()
+        # wandb_run = self._setup_wandb()
+        wandb_run = self._setup_wandb(use_wandb=False)
         if wandb_run is None:
             return
 
