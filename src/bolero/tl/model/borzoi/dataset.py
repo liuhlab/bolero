@@ -3,6 +3,7 @@ from collections import OrderedDict
 from typing import Any, Iterable
 
 import ray
+import anndata
 import numpy as np
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset, RayRegionDataset
@@ -13,8 +14,9 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
 )
 
+
 from bolero.utils import get_global_coords, understand_regions
-from bolero.tl.dataset.file_transforms import FetchRegionBigWigs, GetEmbedding, FetchRegionBigWigsReduced
+from bolero.tl.dataset.file_transforms import FetchRegionBigWigs, FetchRegionBigWigsReduced
 from .utils import BorzoiRegions, clamp_sqrt_large_value
 import pandas as pd
 DNA_NAME = "dna_one_hot"
@@ -424,7 +426,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "bigwig_paths": "REQUIRED",
         # "embedding_paths": "REQUIRED",
         "bed": "REQUIRED",
-        "leg_map": "REQUIRED",
+        "embeddings_path": "REQUIRED",
         "lora": "REQUIRED",
         "genome": "hg38",
         "batch_size": 2,
@@ -435,8 +437,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "max_jitter": 0,
         "clamp_sqrt_threshold": None,
         "shuffle_files": True,
-        "read_parquet_kwargs": None,
-        "borzoi_regions": False,
+        "use_borzoi_regions": True,
     }
 
     def __init__(
@@ -444,7 +445,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         bigwig_paths = list[str],
         bed = str,
         # embedding_paths=list[str],
-        leg_map=None,
+        embeddings_path=None,
         keys = list[str],
         lora=bool,
         genome=str,
@@ -456,7 +457,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         cov_filter_name: str = None,
         clamp_sqrt_threshold: int = None,
         shuffle_files=False,
-        use_borzoi_regions=False,
+        use_borzoi_regions=True,
     ):
     
         super().__init__(
@@ -465,7 +466,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             standard_length=dna_window,
             batch_size=batch_size,
             use_borzoi_regions=use_borzoi_regions,
-            dna=False, #TODO: Check this
+            dna=False,
         )
 
         # Bigwig Files
@@ -478,9 +479,26 @@ class BorzoiDatasetOnline(RayRegionDataset):
         
         assert len(self.bigwig_names_dict) == len(bigwig_paths), 'bw names dict not same length as bw paths'
 
+
+        #embeddings map generation
+        self.embeddings_path = embeddings_path
+        adata = anndata.read_h5ad(embeddings_path)
+        scvi_embedding = adata.obsm['X_scVI']
+        # Create a DataFrame with embeddings and cell types
+        df = pd.DataFrame(scvi_embedding, index=adata.obs.index)
+        df['cell_type'] = adata.obs['MajorType']
+        
+        # Group by cell type
+        grouped = df.groupby('cell_type').mean()
+        
+        # Get embedding
+        recalculated_embedding = grouped.to_numpy()
+
+        self.leg_map = {item: recalculated_embedding[index] for index, item in enumerate(grouped.index.to_list())}
+        
         self.batch_size = batch_size
         self.keys = keys
-        self.leg_map = leg_map
+        
         self.lora = lora
 
         # region properties
@@ -651,7 +669,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
     def _get_bigwig_data(
             self,
             dataset,
-            leg_map,
             data_key="bw_values",
             concurrency=(1, 6),
             n_operators=5,
@@ -701,7 +718,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     "data_key": f"{data_key}_{idx}",
                     "norm_mode": norm_mode,
                     "resolution": resolution,
-                    "leg_map": leg_map,
                 }
                 dataset = dataset.map_batches(
                     fn=fn,
@@ -755,7 +771,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         dataset = super().get_processed_dataset(bed=region_bed) #comes directly preprocessed as dataframe for fold split we're using 
 
         #Get the ATAC signals, add them to the dataset under 'bw_values' key.
-        dataset = self._get_bigwig_data(dataset, leg_map, concurrency=bw_concurrency, norm_mode=None, resolution=self.pos_resolution)
+        dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None, resolution=self.pos_resolution)
         
 
         return dataset
@@ -902,7 +918,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "bw_values",
                 # "ctcf",
             ),
-            concurrency=32,
+            concurrency=(1,32),
         ):
             """
             Convert the data to list of dict.
@@ -919,9 +935,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 # for key in keys:
                 #     print(data_dict[key])
                 list_data_dict = []
-                for i, cell_type in enumerate(self.bigwig_names_dict): #enumerate bw list
+                for i, cell_type_id in enumerate(self.bigwig_names_dict): #enumerate bw list
                     new_data_dict = OrderedDict()
-                    new_data_dict['cell_type_id'] = self.leg_map[cell_type] 
+                    new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] 
                     
 
                     for feature in data_keys:
