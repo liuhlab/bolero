@@ -47,7 +47,7 @@ class MeanPearsonCorrCoefPerChannel(Metric):
 
     def update(self, preds: torch.Tensor, target: torch.Tensor):
         """Updates the metric with new predictions and target"""
-        assert preds.shape == target.shape
+        assert preds.shape == target.shape, f"Preds shape: {preds.shape}\n Targets shape: {target.shape}"
 
         self.product += torch.sum(preds * target, dim=self.reduce_dims)
         self.true += torch.sum(target, dim=self.reduce_dims)

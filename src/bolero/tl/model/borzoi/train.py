@@ -7,7 +7,7 @@ import wandb
 from bolero.pl.borzoi import BorzoiExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import CumulativeCounter
-from bolero.tl.model.borzoi.dataset import BorzoiDataset
+from bolero.tl.model.borzoi.dataset import BorzoiDataset, BorzoiDatasetOnline
 from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
@@ -62,14 +62,16 @@ class TrainerBorzoiDatasetMixin:
         Get the test dataloader.
     """
 
-    dataset_class = BorzoiDataset
+    # dataset_class = BorzoiDataset
+    dataset_class = BorzoiDatasetOnline
 
     def _setup_dataset(self):
         """
         Set up the dataset by splitting it into train, valid, and test sets.
         """
         # create dataset
-        self.dataset: BorzoiDataset = self._get_dataset()
+        # self.dataset: BorzoiDataset = self._get_dataset()
+        self.dataset: BorzoiDatasetOnline = self._get_dataset()
 
         # train, valid, test split by fold
         (
@@ -136,7 +138,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.train_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            # shuffle_rows=self.config["shuffle_rows"],
         )
         return dataloader
 
@@ -159,7 +161,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.valid_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            # shuffle_rows=self.config["shuffle_rows"],
         )
         return dataloader
 
@@ -182,7 +184,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.test_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            # shuffle_rows=self.config["shuffle_rows"],
         )
         return dataloader
 
@@ -222,7 +224,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
         # the prefix of pseudobulk data in the batch dict
         # this is the pseudobulker name passed to dataset
-        self.prefix = config["prefix"]
+        # self.prefix = config["prefix"]
 
         self.model: torch.nn.Module = None
         self._setup_env()
@@ -266,9 +268,12 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 batch["pred_data"] = y_pred
                 batch["true_data"] = y_true
 
-                pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
-                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                # pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+                # id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                # batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                
+                batch["sample_id"] = "None"
+                
 
                 example_batches.append(batch)
 
@@ -596,10 +601,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         batch["pred_data"] = y_pred
                         batch["true_data"] = y_true
 
-                        pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
-                        id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                        batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
-
+                        # pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+                        # id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                        # batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                        batch["sample_id"] = "None"
                         train_example_batches.append(batch)
 
             del dataloader
@@ -700,14 +705,15 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "warmup_steps": 10000,
             "scheduler": True,
             # pseudobulk related
-            "vq_records": "REQUIRED",
-            "target_cov": "REQUIRED",
-            "use_vq_emb": "REQUIRED",
-            "prefix": "pseudobulk",
+            # "vq_records": "REQUIRED",
+            # "target_cov": "REQUIRED",
+            # "use_vq_emb": "REQUIRED",
+            # "prefix": "pseudobulk",
         }
     )
 
-    dataset_class = BorzoiDataset
+    # dataset_class = BorzoiDataset
+    dataset_class = BorzoiDatasetOnline
     model_class = BorzoiLoRA
 
     def _setup_model(self):
@@ -725,48 +731,51 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         dataset = super()._get_dataset()
 
         # setup pseudobulker params for sc dataset
-        pseudobulker_params = {
-            "vq_records": self.config["vq_records"],
-            "target_cov": self.config["target_cov"],
-            "use_vq_emb": self.config["use_vq_emb"],
-            "prefix_name": self.config["prefix"],
-        }
+        # pseudobulker_params = {
+        #     "vq_records": self.config["vq_records"],
+        #     "target_cov": self.config["target_cov"],
+        #     "use_vq_emb": self.config["use_vq_emb"],
+        #     "prefix_name": self.config["prefix"],
+        # }
 
-        use_vq_emb = self.config["use_vq_emb"]
-        kv_bottleneck = self.config["kv_bottleneck"]
-        if use_vq_emb:
-            assert (
-                not kv_bottleneck
-            ), "Cannot set both kv_bottleneck and use_vq_emb to True."
-        elif kv_bottleneck:
-            assert (
-                not use_vq_emb
-            ), "Cannot set both kv_bottleneck and use_vq_emb to True."
+        # use_vq_emb = self.config["use_vq_emb"]
+        # kv_bottleneck = self.config["kv_bottleneck"]
+        # if use_vq_emb:
+        #     assert (
+        #         not kv_bottleneck
+        #     ), "Cannot set both kv_bottleneck and use_vq_emb to True."
+        # elif kv_bottleneck:
+        #     assert (
+        #         not use_vq_emb
+        #     ), "Cannot set both kv_bottleneck and use_vq_emb to True."
 
-        dataset.add_pseudobulker(
-            name=self.prefix,
-            cls=RNAVQPseudobulker,
-            pseudobulker_kwargs=pseudobulker_params,
-        )
+        # dataset.add_pseudobulker(
+        #     name=self.prefix,
+        #     cls=RNAVQPseudobulker,
+        #     pseudobulker_kwargs=pseudobulker_params,
+        # )
         return dataset
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        data_key = f"{self.prefix}:bulk_data"
+        # data_key = f"{self.prefix}:bulk_data"
+        data_key = "bw_values"
         dna_key = "dna_one_hot"
-        embedding_key = f"{self.prefix}:embedding_data"
+        # embedding_key = f"{self.prefix}:embedding_data"
+        embedding_key = "cell_type_embedding"
 
         # ==========
         # Get batch data
         # ==========
         X = batch[dna_key]
         embedding = batch.get(embedding_key, None)
-        y_true = batch[data_key]
+        y_true = batch[data_key].unsqueeze(1) #TODO: Better way of doing this
 
         # ==========
         # Forward and Loss
         # ==========
         y_pred = model(X, embedding=embedding)
 
+        # assert y_true.shape == y_pred.shape, f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
         loss = model.loss(y_true=y_true, y_pred=y_pred)
 
         with torch.no_grad():
@@ -789,8 +798,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             output_lr = 0.01
         lr = self.config["lr"]
         self.config["lr"] = output_lr
-        n_pseudobulk = self.dataset.n_pseudobulks
-        self.dataset.n_pseudobulks = 1
+        # n_pseudobulk = self.dataset.n_pseudobulks
+        # self.dataset.n_pseudobulks = 1
         mode = self.config["mode"]
         self.config["mode"] = "output_layer"
         self.mode = "output_layer"
@@ -808,7 +817,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
 
         # change things back
         self.config["lr"] = lr
-        self.dataset.n_pseudobulks = n_pseudobulk
+        # self.dataset.n_pseudobulks = n_pseudobulk
         self.config["mode"] = mode
         self.mode = mode
         self.train_batches = train_batches

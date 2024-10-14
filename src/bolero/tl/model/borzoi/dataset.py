@@ -918,7 +918,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "bw_values",
                 # "ctcf",
             ),
-            concurrency=(1,32),
+            concurrency=32,
         ):
             """
             Convert the data to list of dict.
