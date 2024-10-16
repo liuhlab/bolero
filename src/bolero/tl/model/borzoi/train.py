@@ -272,7 +272,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
                 # batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
                 
-                batch["sample_id"] = "None"
+
+                batch["sample_id"] = batch["cell_type_id"]
+                # batch["sample_id"] = "None"
                 
 
                 example_batches.append(batch)
@@ -604,7 +606,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         # pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
                         # id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
                         # batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
-                        batch["sample_id"] = "None"
+                        # id_array = batch["cell_type_id"].cpu().numpy()
+                        # batch["sample_id"] = id_array
+                        batch["sample_id"] = batch["cell_type_id"]
+                        
                         train_example_batches.append(batch)
 
             del dataloader
@@ -827,7 +832,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     def train_lora(self):
         """Train the LoRA model."""
         self._print_banner("Training LoRA model")
-        self.model.convert_to_lora()
+        self.model.convert_to_lora() #TODO: wrok
         self.model.to(self.device)
         print(self.model)
 
@@ -858,8 +863,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             print(f"Training already finished, found flag file: {flag}.")
             return
 
-        # wandb_run = self._setup_wandb()
-        wandb_run = self._setup_wandb(use_wandb=False)
+        wandb_run = self._setup_wandb()
+        # wandb_run = self._setup_wandb(use_wandb=False)
         if wandb_run is None:
             return
 

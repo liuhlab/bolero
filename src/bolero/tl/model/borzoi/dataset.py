@@ -371,7 +371,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         return_cells=False,
         n_batches=None,
         shuffle_rows=500,
-        concurrency=20,
+        concurrency=16,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -474,8 +474,11 @@ class BorzoiDatasetOnline(RayRegionDataset):
         
         #dictionary with cell type name and path to             
         self.bigwig_names_dict = OrderedDict()
-        for path in bigwig_paths:
-            self.bigwig_names_dict[pathlib.Path(path).name.rsplit('.',1)[0]] = path
+        self.bigwig_id_dict = OrderedDict()
+        for i, path in enumerate(bigwig_paths):
+            cell_type = pathlib.Path(path).name.rsplit('.',1)[0]
+            self.bigwig_names_dict[cell_type] = path
+            self.bigwig_id_dict[cell_type] = i
         
         assert len(self.bigwig_names_dict) == len(bigwig_paths), 'bw names dict not same length as bw paths'
 
@@ -765,7 +768,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
 
 
-        bw_concurrency = (1,concurrency)
+        bw_concurrency = (1, 6)
 
         #gets the bed in dataframe with ray (region_bed has been determined using train_regions for example)        
         dataset = super().get_processed_dataset(bed=region_bed) #comes directly preprocessed as dataframe for fold split we're using 
@@ -782,7 +785,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         region_bed: str,
         return_cells: bool = False,
         return_regions: bool = True,
-        concurrency: int = 16,
+        concurrency: int = 32,
     ) -> None:
         """
         Process the dataset and return the processed dataset.
@@ -937,7 +940,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 list_data_dict = []
                 for i, cell_type_id in enumerate(self.bigwig_names_dict): #enumerate bw list
                     new_data_dict = OrderedDict()
-                    new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] 
+                    new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] #puts in embeddings
+                    new_data_dict['cell_type_id'] = self.bigwig_id_dict[cell_type_id] #puts in corresponding int id
+                    
+
                     
 
                     for feature in data_keys:
@@ -958,6 +964,38 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     list_data_dict.append(new_data_dict)
 
                 return list_data_dict
+
+            # def _convert_data_optimized(data_dict):
+
+            #     """
+            #     Optimized conversion of data_dict to a list of dictionaries for each cell type.
+            #     """
+            #     # Extract cell type IDs and their corresponding embeddings once
+            #     cell_type_ids = list(self.bigwig_names_dict.keys())
+            #     cell_type_embeddings = [self.leg_map[ct_id] for ct_id in cell_type_ids]
+
+            #     # Extract feature arrays for faster access
+            #     feature_arrays = {feature: data_dict[feature] for feature in data_keys}
+
+            #     # Extract dna_one_hot once
+            #     dna_one_hot = data_dict.get('dna_one_hot', None)  # Replace 'dna_one_hot' with actual dna_key if different
+
+            #     # Extract other keys once to avoid checking inside the loop
+            #     other_keys = {k: v for k, v in data_dict.items() if k not in self.keys and k != 'dna_one_hot'}
+
+            #     # Use list comprehension for faster execution
+            #     list_data_dict = [
+            #         {
+            #             'cell_type_embedding': cell_type_embeddings[i],
+            #             **{feature: feature_arrays[feature][i, :] for feature in self.keys},
+            #             'dna_one_hot': dna_one_hot,
+            #             **other_keys
+            #         }
+            #         for i in range(len(cell_type_ids))
+            #     ]
+            #     return list_data_dict
+            
+
 
             dataset = dataset.flat_map(
                 fn=_convert_data,
