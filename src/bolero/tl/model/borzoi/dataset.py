@@ -502,7 +502,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.batch_size = batch_size
         self.keys = keys
         
-        self.lora = lora
+        self.lora = lora    
 
         # region properties
         self.dna_window = dna_window
@@ -585,31 +585,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
             signal_key=self.signal_columns,
         )
         dataset = dataset.map_batches(_rc)
-        return dataset
-
-    def _filter_bed_regions(
-        self,
-        dataset,
-        cov_filter_key,
-        min_cov,
-        max_cov,
-        low_cov_ratio,
-        batch_size,
-        concurrency,
-    ):
-        fn = FilterRegions
-        fn_constructor_kwargs = {
-            "cov_filter_key": cov_filter_key,
-            "min_cov": min_cov,
-            "max_cov": max_cov,
-            "low_cov_ratio": low_cov_ratio,
-        }
-        dataset = dataset.map_batches(
-            fn=fn,
-            fn_constructor_kwargs=fn_constructor_kwargs,
-            concurrency=concurrency,
-            batch_size=batch_size,
-        )
         return dataset
 
     def _process_region_columns(self, dataset, keep_regions=False):
