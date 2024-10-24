@@ -53,16 +53,16 @@ class mcExamplePlotter:
         region = region[idx]
 
         return mc_target, mc_predict, atac_target, atac_prediction, region
-    
+
     def plot_alltrack(
-            self,
-            batch: dict,
-            figsize: tuple[int, int] = (12, 12),  # Increased figure size for more subplots
-            dpi: int = 100,
-            example: int = 2,
-            total_channel: int = 2,
-            moving_ave_window: int = None,
-        ) -> tuple[plt.Figure, list[plt.Axes]]:
+        self,
+        batch: dict,
+        figsize: tuple[int, int] = (12, 12),  # Increased figure size for more subplots
+        dpi: int = 100,
+        example: int = 2,
+        total_channel: int = 2,
+        moving_ave_window: int = None,
+    ) -> tuple[plt.Figure, list[plt.Axes]]:
         """
         Plot the target and predicted data with additional data tracks.
 
@@ -80,22 +80,21 @@ class mcExamplePlotter:
         - tuple[plt.Figure, list[plt.Axes]]: A tuple containing the figure and a list of axes.
         """
         nrows = example * total_channel * 2
-        ncols = 1  
+        ncols = 1
         plot_channel = 0
-        
+
         fig = plt.figure(figsize=figsize, dpi=dpi, constrained_layout=True)
         gs = fig.add_gridspec(nrows=nrows, ncols=ncols)
         axes = [fig.add_subplot(gs[i, j]) for i in range(nrows) for j in range(ncols)]
 
         # New function returns 8 sample data (2 samples x 4 tracks each)
-        mc_target_data, mc_pred_data, atac_target_data, atac_pred_data, regions = self._select_example(
-            batch, example, plot_channel
+        mc_target_data, mc_pred_data, atac_target_data, atac_pred_data, regions = (
+            self._select_example(batch, example, plot_channel)
         )
-        
+
         for i, (mc_target, mc_pred, atac_target, atac_pred, re) in enumerate(
             zip(mc_target_data, mc_pred_data, atac_target_data, atac_pred_data, regions)
-            ):
-
+        ):
             base = int(i * total_channel * 2)
             ax = axes[base + 0]
             if moving_ave_window is None:
@@ -106,7 +105,7 @@ class mcExamplePlotter:
                     color="steelblue",
                 )
             ax.set_title("mC Target", fontsize=8)
-            
+
             ax = axes[base + 1]
             if moving_ave_window is None:
                 ax.plot(mc_pred, color="salmon")
@@ -115,8 +114,8 @@ class mcExamplePlotter:
                     self.moving_average(mc_pred, moving_ave_window),
                     color="salmon",
                 )
-            ax.set_title(f"mC Predict", fontsize=8)
-            
+            ax.set_title("mC Predict", fontsize=8)
+
             # Plot additional data tracks
             ax = axes[base + 2]
             if moving_ave_window is None:
@@ -127,7 +126,7 @@ class mcExamplePlotter:
                     color="green",
                 )
             ax.set_title(f"ATAC Target with {re}", fontsize=8)
-            
+
             ax = axes[base + 3]
             if moving_ave_window is None:
                 ax.plot(atac_pred, color="orange")
@@ -142,6 +141,5 @@ class mcExamplePlotter:
         for ax in axes:
             ax.set(xlim=(0, len(mc_target)))  # Adjusted to length of the target
             sns.despine(ax=ax)
-        
-        return fig, axes
 
+        return fig, axes

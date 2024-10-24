@@ -1,7 +1,40 @@
 import torch
 import torch.nn as nn
+from torchinfo import summary
 
 import bolero.tl.model.corigami.module as blocks
+from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
+from bolero.tl.model.corigami.model_lora_config import (
+    make_all_conditional_lora_config,
+    make_classic_lora_config,
+    make_output_conditional_lora_config,
+    make_partial_conditional_lora_config,
+)
+
+
+def model_summary(
+    model,
+    row_settings=("var_names",),
+    input_size=None,
+    input_data=None,
+    depth=3,
+    cache_forward_pass=True,
+    col_names=("num_params",),
+):
+    """Print model summary."""
+    device = next(model.parameters()).device
+
+    s = summary(
+        model,
+        depth=depth,
+        row_settings=row_settings,
+        input_size=input_size,
+        input_data=input_data,
+        cache_forward_pass=cache_forward_pass,
+        col_names=col_names,
+        device=device,
+    ).__repr__()
+    return s
 
 
 class ConvModel(nn.Module):
@@ -244,7 +277,14 @@ class ConvTransModel(ConvModel):
             image_scale=image_scale,
         )
 
-    def __init__(self, encoder, attn, decoder, record_attn=False, image_scale=256):
+    def __init__(
+        self,
+        encoder,
+        attn,
+        decoder,
+        record_attn=False,
+        image_scale=256,
+    ):
         super().__init__()
         print("Initializing ConvTransModel")
         self.encoder = encoder
@@ -321,3 +361,223 @@ class ConvTransModelSeqOnly(ConvTransModel):
             record_attn=record_attn,
             image_scale=image_scale,
         )
+
+
+class ConvTransModelLora(ConvTransModel):
+    """
+    This class adapts from C.Origami's ConvTransModel and added Lora
+    """
+
+    default_config = {
+        "encoder_in_channel": 5,
+        "encoder_num_epi": 2,
+        "encoder_output_channel": 256,
+        "encoder_filter_size": 5,
+        "encoder_num_blocks": 12,
+        "attn_layers": 8,
+        "record_attn": False,
+        "decoder_mid_hidden": 256,
+        "decoder_filter_size": 3,
+        "decoder_num_blocks": 5,
+        "image_scale": 256,
+        "recalculated_embedding": None,
+        # lora
+        "out_channels": 1,
+        "hidden_dim": 256,  # larger than cell type embedding
+        "hidden_layers": 1,
+        "output_layer_groups": 4,  # decrease if GPU can handle
+        "lora_dropout": 0.01,
+        "base_checkpoint_path": None,
+        "loss_total_weight": 0.2,
+        "kv_bottleneck": False,
+        "rank": 8,
+        "alpha": 16,
+        "preset": "REQUIRED",
+    }
+
+    def make_lora_config(
+        self,
+        emb_input_features,
+        preset,
+        hidden_dim=256,
+        hidden_layers=1,
+        output_layer_groups=4,
+        lora_dropout=0.01,
+        rank=4,
+        alpha=1,
+    ):
+        """Make LoRA configuration for the Corigami model."""
+        kwargs = {
+            "emb_input_features": emb_input_features,
+            "hidden_dim": hidden_dim,
+            "hidden_layers": hidden_layers,
+            "output_layer_groups": output_layer_groups,
+            "lora_dropout": lora_dropout,
+            "rank": rank,
+            "alpha": alpha,
+        }
+        if preset == "all_conditional":
+            lora_config = make_all_conditional_lora_config(**kwargs)
+        elif preset == "classic":
+            lora_config = make_classic_lora_config(**kwargs)
+        elif preset == "partial_conditional":
+            lora_config = make_partial_conditional_lora_config(**kwargs)
+        elif preset == "output_conditional":
+            lora_config = make_output_conditional_lora_config(**kwargs)
+        else:
+            raise ValueError(f"preset {preset} not recognized")
+        return lora_config
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        encoder = blocks.EncoderSplit(
+            in_channel=config["encoder_in_channel"],
+            num_epi=config["encoder_num_epi"],
+            output_size=config["encoder_output_channel"],
+            filter_size=config["encoder_filter_size"],
+            num_blocks=config["encoder_num_blocks"],
+        )
+        attn = blocks.AttnModule(
+            hidden=config["encoder_output_channel"],
+            layers=config["attn_layers"],
+            record_attn=config["record_attn"],
+            input_dim=config["image_scale"],
+        )
+        decoder = blocks.Decoder(
+            in_channel=config["encoder_output_channel"] * 2,
+            hidden=config["decoder_mid_hidden"],
+            filter_size=config["decoder_filter_size"],
+            num_blocks=config["decoder_num_blocks"],
+        )
+        record_attn = config["record_attn"]
+        image_scale = config["image_scale"]
+        recalculated_embedding = (
+            torch.tensor(config["recalculated_embedding"])
+            if config["recalculated_embedding"] is not None
+            else None
+        )
+
+        return cls(
+            encoder=encoder,
+            attn=attn,
+            decoder=decoder,
+            record_attn=record_attn,
+            image_scale=image_scale,
+            recalculated_embedding=recalculated_embedding,
+        )
+
+    def convert_to_lora(self, configs):
+        """Convert the model to LoRA."""
+        self.lora_config = self.make_lora_config(
+            emb_input_features=self.recalculated_embedding.shape[1]
+            if self.recalculated_embedding is not None
+            else None,
+            preset=configs["preset"],
+            hidden_dim=configs["hidden_dim"],
+            hidden_layers=configs["hidden_layers"],
+            output_layer_groups=configs["output_layer_groups"],
+            lora_dropout=configs["lora_dropout"],
+            rank=configs["rank"],
+            alpha=configs["alpha"],
+        )
+        for module_names, config in self.lora_config.items():
+            if isinstance(module_names, str):
+                module_names = (module_names,)
+
+            for module_name in module_names:
+                module = getattr(self, module_name)
+                module = convert_to_conditional_lora_model(module, **config)
+                setattr(self, module_name, module)
+        return
+
+    def init_embedding(self):
+        """Initialize the cell type embedding."""
+        if self.recalculated_embedding is None:
+            raise ValueError("recalculated_embedding is required for conditional LoRA")
+        self.cell_type_embedding = nn.Embedding(
+            self.recalculated_embedding.shape[0], self.recalculated_embedding.shape[1]
+        )  # N cell types, 50 dim embedding vector
+        self.cell_type_embedding.weight.data = self.recalculated_embedding
+        self.cell_type_embedding.weight.requires_grad = False
+        return
+
+    def __init__(
+        self,
+        encoder,
+        attn,
+        decoder,
+        record_attn=False,
+        image_scale=256,
+        recalculated_embedding=None,
+    ):
+        super().__init__(encoder, attn, decoder, record_attn, image_scale)
+        print("Initializing ConvTransModelLora")
+        self.encoder = encoder
+        self.attn = attn
+        self.decoder = decoder
+        self.record_attn = record_attn
+        self.image_scale = image_scale
+        self.recalculated_embedding = recalculated_embedding
+
+    def forward(self, x, embedding):
+        """
+        Input feature:
+        batch_size, feature_dim, length
+        """
+        # 1. if you don't have cell type embedding, you pass in the cell type emb vector which will be in shape of (batch_size, 512)
+        # 2. if you have the cell type embedding layer, and you only pass in the cell type id, then you will need to put in (batch_size, 1)
+        # I'm implement the second one here
+
+        if (
+            embedding is not None
+            and embedding.shape[-1] == 1
+            and self.recalculated_embedding is not None
+        ):
+            embedding = self.cell_type_embedding(embedding).view(
+                embedding.shape[0], self.recalculated_embedding.shape[1]
+            )  # (batch_size, 1) -> (batch_size, 50)
+
+        x = self.encoder(x, embedding=embedding)
+        if x.shape[-1] > self.image_scale:
+            x = self.trim_encoder_output(x)
+        x = self.move_feature_forward(x)
+        if self.record_attn:
+            x, attn_weights = self.attn(x, embedding=embedding)
+        else:
+            x = self.attn(x, embedding=embedding)
+        x = self.move_feature_forward(x)
+        x = self.diagonalize(x)
+        x = self.decoder(x, embedding=embedding).squeeze(1)
+        if self.record_attn:
+            return x, attn_weights
+        else:
+            return x
+
+    def _model_summary(
+        self,
+        input_data=None,
+        depth=3,
+        col_names=("input_size", "output_size", "num_params"),
+        cache_forward_pass=False,
+    ):
+        if self.recalculated_embedding is None:
+            emb_example = None
+        else:
+            emb_example = torch.randint(
+                size=(1, 1), low=0, high=self.recalculated_embedding.shape[0]
+            )
+        if input_data is None:
+            input_data = {
+                "x": torch.ones(1, 6, 2097152),
+                "embedding": emb_example,
+            }
+        summary_str = model_summary(
+            self,
+            input_size=None,
+            input_data=input_data,
+            depth=depth,
+            col_names=col_names,
+            cache_forward_pass=cache_forward_pass,
+        )
+        return summary_str

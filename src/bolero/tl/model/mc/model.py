@@ -14,12 +14,12 @@ class MultiTrackmCModel(nn.Module):
         "dia_kernel_size": 3,
         "output_kernel_size": 1,
         "input_channels": 4,
-        "output_channels": "REQUIRED", # changed from 1 to "REQUIRED"
+        "output_channels": "REQUIRED",  # changed from 1 to "REQUIRED"
         "dna_len": "auto",
-        "output_len": 1000, # changed from 1000 to 1
+        "output_len": 1000,  # changed from 1000 to 1
         "activation": "gelu",
-        "conv_groups": 8, # changed from 8 to 2
-        "hidden_conv_blocks": 8, # changed from 8 to 2
+        "conv_groups": 8,  # changed from 8 to 2
+        "hidden_conv_blocks": 8,  # changed from 8 to 2
         "dilation_func": None,
         "batch_norm": True,
         "batch_norm_momentum": 0.1,
@@ -94,7 +94,7 @@ class MultiTrackmCModel(nn.Module):
         dna_len: int = 1840,
         output_len: int = 1000,
     ):
-        # ===============   
+        # ===============
         # Initialize the model
         # ===============
         super().__init__()

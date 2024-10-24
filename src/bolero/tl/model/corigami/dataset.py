@@ -6,6 +6,7 @@ from bolero.tl.dataset.file_transforms import (
     AddGaussianNoise,
     FetchRegionBigWigs,
     FetchRegionCools,
+    GetEmbedding,
     ReverseCompHicData,
 )
 from bolero.tl.dataset.ray_dataset import RayRegionDataset
@@ -28,6 +29,13 @@ class HiCTrackDataset(RayRegionDataset):
         "standard_length": "REQUIRED",
         "dna_fifth_channel": False,
         "data_1d_keys": "REQUIRED",
+        "smooth_moving_average": "REQUIRED",
+        "kernel_size": "REQUIRED",
+        "cool_data_norm_mode": "REQUIRED",
+        "dim_shift": "REQUIRED",
+        "lora": "REQUIRED",
+        "leg_map": None,
+        "cap_value": None,
     }
 
     def __init__(
@@ -50,6 +58,13 @@ class HiCTrackDataset(RayRegionDataset):
         dna_fifth_channel=False,
         boarder_strategy="drop",
         remove_blacklist=False,
+        smooth_moving_average=False,
+        kernel_size=None,
+        cool_data_norm_mode="log",
+        dim_shift=True,
+        lora=False,
+        leg_map=None,
+        cap_value=None,
     ) -> None:
         """
         Initialize the HiCTrackDataset.
@@ -80,6 +95,8 @@ class HiCTrackDataset(RayRegionDataset):
             self.cool_names = cool_names
         assert len(cool_paths) == len(cool_names)
 
+        self.num_cell_types = len(cool_paths)
+
         # Bigwig Files
         self.atac_paths = atac_paths
         if atac_names is None and atac_paths is not None:
@@ -98,6 +115,13 @@ class HiCTrackDataset(RayRegionDataset):
         self.step = step
         self.dna_fifth_channel = dna_fifth_channel
         self.data_1d_keys = data_1d_keys
+        self.smooth_moving_average = smooth_moving_average
+        self.kernel_size = kernel_size
+        self.cool_data_norm_mode = cool_data_norm_mode
+        self.dim_shift = dim_shift
+        self.lora = lora
+        self.leg_map = leg_map
+        self.cap_value = cap_value
 
     def _get_cool_data(
         self,
@@ -146,6 +170,7 @@ class HiCTrackDataset(RayRegionDataset):
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,  # Note: if the data is HBA data, no need to log transform, otherwise, log transform the data
                 "image_scale": image_scale,
+                "cap_value": self.cap_value,
             }
             dataset = dataset.map_batches(
                 fn=fn,
@@ -164,6 +189,68 @@ class HiCTrackDataset(RayRegionDataset):
 
         dataset = dataset.map_batches(
             fn=_concat_cool_chunks,
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def _get_embedding_data(
+        self,
+        dataset,
+        data_key="embedding",
+        concurrency=(1, 6),
+        batch_size=8,
+        n_oprators=5,
+    ):
+        """
+        Get the cool data for the dataset
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be processed.
+        concurrency : tuple
+            The concurrency for the dataset, min and max.
+        n_oprators : int
+            The number of oprators to be used when dataset contains multiple cool paths.
+            Each operator will process a chunk of the cool paths and saved in separate data_key.
+        batch_size : int
+            The batch size for the cool operator.
+            Small batch size will increase data fetching batch number and increase the concurrency.
+
+        Returns
+        -------
+        dataset : RayRegionDataset
+            The dataset with embedding data
+        """
+        _chunk_size = max(5, len(self.cool_paths) // n_oprators)
+
+        for idx, chunk_start in enumerate(range(0, len(self.cool_paths), _chunk_size)):
+            chunk_end = min(len(self.cool_paths), chunk_start + _chunk_size)
+            chunk_paths = self.cool_paths[chunk_start:chunk_end]
+
+            fn = GetEmbedding
+            fn_constructor_kwargs = {
+                "cool_paths": chunk_paths,
+                "data_key": f"{data_key}_{idx}",
+                "leg_map": self.leg_map,
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=batch_size,
+            )
+        total_chunks = idx + 1
+
+        # add a final concat function to merge all the chunks
+        def _concat_chunks(data):
+            embedding_keys = [f"{data_key}_{idx}" for idx in range(total_chunks)]
+            embedding_data = [data.pop(key) for key in embedding_keys]
+            data[data_key] = np.concatenate(embedding_data, axis=1)
+            return data
+
+        dataset = dataset.map_batches(
+            fn=_concat_chunks,
             batch_size=batch_size,
         )
         return dataset
@@ -215,6 +302,8 @@ class HiCTrackDataset(RayRegionDataset):
                 "region_key": "region",
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,
+                "smooth_moving_average": self.smooth_moving_average,
+                "kernel_size": self.kernel_size,
             }
             dataset = dataset.map_batches(
                 fn=fn,
@@ -376,12 +465,49 @@ class HiCTrackDataset(RayRegionDataset):
         )
         return dataset
 
+    def _convert_to_list_dict(
+        self,
+        dataset,
+        dna_key="dna_one_hot",
+        data_1d_keys=(
+            "atac",
+            "ctcf",
+        ),
+        data_2d_keys=("values",),
+        concurrency=6,
+    ):
+        """
+        Convert the data to list of dict.
+        """
+
+        def _convert_data(data_dict):
+            list_data_dict = []
+            for i in range(self.num_cell_types):
+                new_data_dict = {}
+                for feature in data_2d_keys:
+                    new_data_dict[feature] = data_dict[feature][i, :, :]
+
+                if data_1d_keys is not None:
+                    for feature in data_1d_keys:
+                        if feature in data_dict:
+                            new_data_dict[feature] = data_dict[feature][i, :]
+                new_data_dict[dna_key] = data_dict[dna_key]
+                list_data_dict.append(new_data_dict)
+            return list_data_dict
+
+        dataset = dataset.flat_map(
+            fn=_convert_data,
+            concurrency=concurrency,
+        )
+
+        return dataset
+
     def get_processed_dataset(self, chroms, shuffle_bed, drop_str=True):
         """
         Get the processed dataset with many oprators applied.
         """
         # if multiple oprator is used, decrease the max concurrency to allow them parallel evenly
-        max_concurrency = 6
+        max_concurrency = 3
 
         _bed = self.bed.copy()
 
@@ -395,7 +521,9 @@ class HiCTrackDataset(RayRegionDataset):
         )
 
         dataset = self._get_cool_data(
-            dataset, concurrency=(1, int(max_concurrency / 2))
+            dataset,
+            norm_mode=self.cool_data_norm_mode,
+            concurrency=(1, int(max_concurrency)),
         )
 
         if self.atac_paths is not None:
@@ -403,7 +531,7 @@ class HiCTrackDataset(RayRegionDataset):
                 dataset,
                 bigwig_paths=self.atac_paths,
                 data_key="atac",
-                concurrency=(1, max_concurrency),
+                concurrency=(1, int(max_concurrency)),
                 norm_mode="log",
             )
 
@@ -412,27 +540,35 @@ class HiCTrackDataset(RayRegionDataset):
                 dataset,
                 bigwig_paths=self.ctcf_paths,
                 data_key="ctcf",
-                concurrency=(1, max_concurrency),
+                concurrency=(1, int(max_concurrency)),
                 norm_mode=None,
+            )
+
+        if self.lora:
+            dataset = self._get_embedding_data(
+                dataset,
+                data_key="embedding",
+                concurrency=(1, int(max_concurrency)),
+                batch_size=8,
             )
 
         dataset = self._get_dna_one_hot(
             dataset=dataset,
-            dtype="float32",
-            concurrency=(1, max_concurrency),
+            dtype="bool",
+            concurrency=(1, int(max_concurrency)),
             batch_size=8,
         )
 
         if self.dataset_mode == "train":
-            dataset = self._add_gaussian_noise(
-                dataset,
-                data_1d_keys=self.data_1d_keys,
-                concurrency=(1, max_concurrency),
-            )
+            # dataset = self._add_gaussian_noise(
+            #     dataset,
+            #     data_1d_keys=self.data_1d_keys,
+            #     concurrency=(1, int(max_concurrency*2)),
+            # )
             dataset = self._reverse_comp_hic_data(
                 dataset,
                 data_1d_keys=self.data_1d_keys,
-                concurrency=(1, int(max_concurrency / 2)),
+                concurrency=(1, int(max_concurrency)),
             )
 
         if self.dna_fifth_channel:
@@ -441,13 +577,24 @@ class HiCTrackDataset(RayRegionDataset):
             # Must do this AFTER the self._reverse_comp_hic_data step, because ACGTN[::-1] -> NACGT is wrong
             dataset = self._add_fifth_dna_channel(dataset, concurrency=max_concurrency)
 
-        dataset = self._add_corigami_dim_shift(
-            dataset, data_1d_keys=self.data_1d_keys, concurrency=max_concurrency
-        )
-
         if drop_str:
             # in order to set as_torch=True, we need to drop the string columns
             dataset = dataset.drop_columns(["region", "Original_Name"])
+
+        if self.dim_shift:
+            dataset = self._add_corigami_dim_shift(
+                dataset, data_1d_keys=self.data_1d_keys, concurrency=max_concurrency
+            )
+        else:
+            dataset = self._convert_to_list_dict(
+                dataset,
+                data_1d_keys=self.data_1d_keys + ("embedding",)
+                if self.lora
+                else self.data_1d_keys,
+                data_2d_keys=("values",),
+                concurrency=max_concurrency,
+            )
+
         return dataset
 
     def get_dataloader(

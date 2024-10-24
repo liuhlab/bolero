@@ -27,6 +27,9 @@ config = {
     "standard_length": 2097152,
     "dna_fifth_channel": True,
     "data_1d_keys": None,
+    "smooth_moving_average": False,
+    "kernel_size": None,
+    "cool_data_norm_mode":"log",
     # model
     "image_scale": 256,
     "encoder_in_channel": 5,
@@ -39,11 +42,13 @@ config = {
     "train_batches": 2000,
     "val_batches": 50,
     "std": 0.1,
-    "lr": 0.002,
+    "lr": 0.0002,
     "use_ema": False,
+    "plot_vmin": 0,
+    "plot_vmax": 5,
     # save data
-    "output_dir": "corigami_09_06_ema_disabled_5_channel_dna_seq_only", # NEED TO CHANGE
-    "wandb_project": "corigami_09_06_ema_disabled_5_channel_dna_seq_only", # NEED TO CHANGE
+    "output_dir": "corigami_09_12_ema_disabled_5_channel_dna_seq_only_small_learning_rate", # NEED TO CHANGE
+    "wandb_project": "corigami_09_12_ema_disabled_5_channel_dna_seq_only_small_learning_rate", # NEED TO CHANGE
     "wandb_job_type": "train",
     "wandb_name": "corigami_dna_seq_only",
     "wandb_group": None,

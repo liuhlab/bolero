@@ -1,7 +1,6 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap
 
 from bolero.pl.track1d import Track1DExamplePlotter, per_row_mse, per_row_pearsonr
 
@@ -95,6 +94,8 @@ class HicExamplePlotter(Track1DExamplePlotter):
         top_example: int = 2,
         bottom_example: int = 2,
         plot_channel: int = 0,
+        vmin: float = -2,
+        vmax: float = 2,
     ):
         """
         Plot the target and predicted values in the batch.
@@ -121,12 +122,12 @@ class HicExamplePlotter(Track1DExamplePlotter):
         ):
             # normalized_target = self._diagonal_normalization(target)
             # normalized_predict = self._diagonal_normalization(predict)
-            color_map = LinearSegmentedColormap.from_list(
-                "bright_red", [(1, 1, 1), (1, 0, 0)]
-            )
+            # color_map = LinearSegmentedColormap.from_list(
+            #     "bright_red", [(1, 1, 1), (1, 0, 0)]
+            # )
             base = int(i * 2)
             ax = axes.flatten()[base]
-            ax.imshow(target, cmap=color_map, vmin=0, vmax=5)
+            ax.imshow(target, cmap="bwr", vmin=vmin, vmax=vmax)
             ax.set_title(f"Target - Corr: {corr:.2f}, MSE: {mse:.2f}")
             ax.text(
                 0.01,
@@ -138,7 +139,7 @@ class HicExamplePlotter(Track1DExamplePlotter):
                 transform=ax.transAxes,
             )
             ax_2 = axes.flatten()[base + 1]
-            ax_2.imshow(predict, cmap=color_map, vmin=0, vmax=5)
+            ax_2.imshow(predict, cmap="bwr", vmin=vmin, vmax=vmax)
             ax_2.set_title(f"Predict - Corr: {corr:.2f}, MSE: {mse:.2f}")
             ax_2.text(
                 0.01,

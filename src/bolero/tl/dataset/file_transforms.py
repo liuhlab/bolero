@@ -134,6 +134,7 @@ class FetchRegionCools:
         data_key="values",
         norm_mode="log",
         image_scale=256,
+        cap_value=0.02,
     ) -> None:
         """
         Initialize FetchRegionCools.
@@ -170,6 +171,7 @@ class FetchRegionCools:
         self.data_key = data_key
         self.norm_mode = norm_mode
         self.image_scale = image_scale
+        self.cap_value = cap_value
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -216,7 +218,9 @@ class FetchRegionCools:
             # norm_mode "log" only works on count matrix,
             # if your data is normalized or balanced, should not do this step
             assert np.min(total_values) >= 0, "The matrix contains negative values."
-            total_values = np.log1p(total_values + 1)
+            total_values = np.log1p(total_values)
+        if self.cap_value is not None:
+            total_values = np.clip(total_values, None, self.cap_value)
 
         total_values = resize(
             total_values,
@@ -333,6 +337,8 @@ class FetchRegionBigWigs:
         region_key: str = "region",
         data_key="bw_values",
         norm_mode="log",
+        smooth_moving_average=False,
+        kernel_size=None,
     ):
         """
         Initialize FetchRegionBigWigs.
@@ -355,6 +361,8 @@ class FetchRegionBigWigs:
         self.bw_handles = [pyBigWig.open(path) for path in bw_paths]
         self.data_key = data_key
         self.norm_mode = norm_mode
+        self.smooth_moving_average = smooth_moving_average
+        self.kernel_size = kernel_size
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -393,7 +401,68 @@ class FetchRegionBigWigs:
         data = bw_handle.values(chrom, start, end, numpy=True)
         # fill the nan value with 0
         data = np.nan_to_num(data)
-        return data
+        if self.smooth_moving_average and self.kernel_size:
+            conv_data = np.convolve(
+                data, np.ones(self.kernel_size) / self.kernel_size, mode="same"
+            )
+            return conv_data
+        else:
+            return data
+
+
+class GetEmbedding:
+    def __init__(
+        self,
+        cool_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_key="embedding",
+        leg_map: Dict[str, int] = None,
+    ):
+        """
+        Initialize FetchRegionBigWigs.
+
+        Parameters
+        ----------
+        - cool_paths: Path(s) to the cool file(s).
+        - region_key: Key in the data_dict that represents the region.
+        - data_key: Key in the data_dict to store the fetched data.
+
+        Returns
+        -------
+        None
+        """
+        if isinstance(cool_paths, (str, pathlib.Path)):
+            cool_paths = [cool_paths]
+        self.cool_paths = cool_paths
+        self.region_key = region_key
+        self.data_key = data_key
+        self.leg_map = leg_map
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fetch region BigWigs.
+        """
+        # region is an array of strings np.array["chr1:100-200", "chr2:300-400"]
+        region_ = data_dict[self.region_key]
+
+        if isinstance(region_, str):
+            region_ = [region_]
+        regions = understand_regions(region_, as_df=True)
+        assert (regions["End"] - regions["Start"]).unique().shape[
+            0
+        ] == 1, "Regions must have the same length."
+        # regions is a bed dataframe with columns ["Chromosome", "Start", "End"]
+
+        n_regions = len(region_)
+        n_cool = len(self.cool_paths)
+
+        total_values = np.zeros(shape=(n_regions, n_cool, 1), dtype=np.int64)
+        for idx in range(n_regions):
+            for idy, cool_path in enumerate(self.cool_paths):
+                leg = cool_path.split("::")[0].split("/")[-1].split(".")[0]
+                total_values[idx, idy, :] = self.leg_map[leg]
+        data_dict[self.data_key] = total_values
+        return data_dict
 
 
 class ReverseCompHicData:

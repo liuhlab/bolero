@@ -255,7 +255,14 @@ class Decoder(nn.Module):
 class TransformerLayer(torch.nn.TransformerEncoderLayer):
     # Pre-LN structure
 
-    def forward(self, src, src_mask=None, src_key_padding_mask=None, *args, **kwargs):
+    def forward(
+        self,
+        src,
+        src_mask=None,
+        src_key_padding_mask=None,
+        *args,
+        **kwargs,
+    ):
         """
         The forward pass of the TransformerLayer
         """

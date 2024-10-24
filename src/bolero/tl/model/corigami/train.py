@@ -16,8 +16,13 @@ from bolero.tl.generic.train_helper import (
     batch_pearson_correlation,
     insulation_pearson,
 )
+from bolero.tl.model.borzoi.utils import MovingMetric
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
-from bolero.tl.model.corigami.model import ConvTransModel, ConvTransModelSeqOnly
+from bolero.tl.model.corigami.model import (
+    ConvTransModel,
+    ConvTransModelLora,
+    ConvTransModelSeqOnly,
+)
 
 
 class CorigamiSeqOnlyTrainer(GenericTrainer):
@@ -38,11 +43,16 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         "lr": 0.002,
         "weight_decay": 0,
         "accumulate_grad": 1,
+        "grad_norm_collector": False,
         "std": 0.1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
+        "batch_size": "REQUIRED",
         "loss_tolerance": 0.0,
         "pretrained_model": "REQUIRED",
+        "plot_vmin": -2,
+        "plot_vmax": 2,
+        "clip_grad_norm": 1,
         # loss cov cutoff
         "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
@@ -59,32 +69,14 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         self.image_scale = config["image_scale"]
         self.std = config["std"]
         self.val_batches = config["val_batches"]
+        self.clip_grad_norm = config["clip_grad_norm"]
+        self.batch_size = config["batch_size"]
 
         self._setup_env()
         self._setup_dataset()
         return
 
-    def _setup_model_from_config(self):
-        print("Setting up model from config")
-        model = self.model_class.create_from_config(self.config)
-        model.to(self.device)
-        return model
-
-    def _setup_model_from_pretrain(self):
-        # load model from path, set parameter to requires_grad, and model to train
-        model_path = self.config["pretrained_model"]
-        if model_path is None:
-            raise ValueError("Pretrained model path is required.")
-        print(f"Setting up model from pretrain model at {model_path}")
-
-        model = torch.load(model_path)
-        model.train()
-        for param in model.parameters():
-            param.requires_grad = True
-        return model
-
-    def _setup_model_from_checkpoint(self):
-        # load model from path, set parameter to requires_grad, and model to train
+    def _load_model_weights(self):
         model_path = self.config["pretrained_model"]
         if model_path is None:
             raise ValueError("Pretrained model path is required.")
@@ -94,12 +86,42 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         model_weights = checkpoint["state_dict"]
         for key in list(model_weights):
             model_weights[key.replace("model.", "")] = model_weights.pop(key)
+        return model_weights
+
+    def _setup_model_from_config(self):
+        print("Setting up model from config")
         model = self.model_class.create_from_config(self.config)
-        model.to(self.device)
+        model = model.to(self.device)
+        return model
+
+    def _setup_model_from_checkpoint(self):
+        # load model from path, set parameter to requires_grad, and model to train
+        model_weights = self._load_model_weights()
+        model = self._setup_model_from_config()
         model.load_state_dict(model_weights)
         model.train()
         for param in model.parameters():
             param.requires_grad = True
+        return model
+
+    def _setup_model_for_lora(self):
+        # load model from path, set parameter to requires_grad, and model to train
+        model_weights = self._load_model_weights()
+        model = self._setup_model_from_config()
+        model.load_state_dict(model_weights)
+        model.convert_to_lora(self.config)
+        model.train()
+        return model
+
+    def _setup_model_for_conditional_lora(self):
+        # load model from path, set parameter to requires_grad, and model to train
+        model_weights = self._load_model_weights()
+        model = self._setup_model_from_config()
+        model.load_state_dict(model_weights)
+        model.convert_to_lora(self.config)
+        model.init_embedding()
+        model.to(self.device)
+        model.train()
         return model
 
     def _get_optimizer(self):
@@ -121,11 +143,13 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
     def _setup_model(self):
         mode = self.mode
 
-        if mode == "finetune":
-            self.model = self._setup_model_from_pretrain()
-        elif mode == "base":
+        if mode == "base":
             self.model = self._setup_model_from_config()
-        elif mode == "checkpoint":
+        elif mode == "lora_finetune":
+            self.model = self._setup_model_for_lora()
+        elif mode == "conditional_lora_finetune":
+            self.model = self._setup_model_for_conditional_lora()
+        elif mode == "finetune":
             self.model = self._setup_model_from_checkpoint()
         else:
             raise ValueError(
@@ -165,6 +189,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 top_example=2,
                 bottom_example=2,
                 plot_channel=0,
+                vmin=self.config["plot_vmin"],
+                vmax=self.config["plot_vmax"],
             )
             fig_array = figure_to_array(fig)
 
@@ -401,8 +427,9 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         stop_flag = self.early_stopping_counter >= self.patience
         if self.cur_epoch > 0:
             print(
-                f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
+                f"Resuming training from epoch {self.cur_epoch}, with {max_epochs} epochs in total."
             )
+        moving_norm = MovingMetric(window_size=100)
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -430,6 +457,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             moving_avg_loss = 0
             cur_loss = 1e10
             nan_loss = False
+            total_norm = 999
 
             if self.train_batches is None:
                 print_steps = 10
@@ -451,7 +479,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    optimizer.zero_grad()
                     y, pred_y = self._model_forward_pass(self.model, batch)
                     loss = F.mse_loss(pred_y, y)
                     loss = loss / self.accumulate_grad
@@ -476,9 +503,25 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         optimizer
                     )  # Unscale gradients for clipping without inf/nan gradients affecting the model
 
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1)
+                    total_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_norm=self.clip_grad_norm
+                    )
+                    total_norm = total_norm.item()
+
+                    # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
+                    # this is to prevent outlier gradients from messing up the training
+                    moving_norm.update(total_norm)
+                    threshold = moving_norm.quantile(0.99).item()
+                    if (total_norm > threshold) and moving_norm.full:
+                        print(
+                            f"Gradient norm is too large: {total_norm:.4f}, "
+                            f"threshold: {threshold:.4f}, prevent update."
+                        )
+                        optimizer.zero_grad()
+
                     scaler.step(optimizer)
                     scaler.update()
+                    optimizer.zero_grad()
 
                     if ema:
                         ema.update()
@@ -489,7 +532,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     desc_str = (
                         f" - (Training) {self.cur_epoch} {batch_id} "
                         f"Loss: {_loss:.4f} "
-                        f"Learning rate: {_cur_lr:.4f}"
+                        f"Learning rate: {_cur_lr:.4f} "
+                        f"Total norm: {total_norm:.4f} "
                     )
 
                     if _loss > (cur_loss + 0.5):
@@ -503,8 +547,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
                     cur_loss = _loss
                     print(desc_str)
-            if scheduler is not None:
-                scheduler.step()
 
             del dataloader
             self._cleanup_env()
@@ -520,6 +562,9 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             print(
                 f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
             )
+
+            if scheduler is not None:
+                scheduler.step()
 
             (
                 self.val_loss,
@@ -540,9 +585,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
                 break
-
-            if scheduler is not None:
-                scheduler.step()
 
         self._cleanup_env()
         return
@@ -623,11 +665,16 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         "lr": 0.002,
         "weight_decay": 0,
         "accumulate_grad": 1,
+        "grad_norm_collector": True,
         "std": "REQUIRED",
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
+        "batch_size": "REQUIRED",
         "loss_tolerance": 0.0,
         "pretrained_model": None,
+        "plot_vmin": -2,
+        "plot_vmax": 2,
+        "clip_grad_norm": 1,
         # loss cov cutoff
         "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
@@ -638,16 +685,30 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
     def __init__(self, config):
         super().__init__(config)
 
+    def _gaussian_noise(self, inputs, std=0.1):
+        """Add Gaussian noise to the input tensor."""
+        return inputs + torch.randn_like(inputs) * std
+
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         # ==========
         # X
         # ==========
         start = time.time()
         dna_seq = batch["dna_one_hot"]
-        feature_list = [batch[feat] for feat in self.config["data_1d_keys"]]
+        if torch.is_autocast_enabled():
+            if dna_seq.dtype != torch.float16:
+                dna_seq = dna_seq.half()
+        else:
+            if dna_seq.dtype != torch.float32:
+                dna_seq = dna_seq.float()
+        dna_seq = self._gaussian_noise(dna_seq, self.std)
+
+        feature_list = [
+            self._gaussian_noise(batch[feat], self.std)
+            for feat in self.config["data_1d_keys"]
+        ]
         features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
         X = torch.cat([dna_seq, features], dim=1)
-
         # ==========
         # y_hic
         # ==========
@@ -659,4 +720,81 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         # Forward
         # ==========
         pred_y = model(X)
+        return y, pred_y
+
+
+class CorigamiLoraTrainer(CorigamiTrainer):
+    trainer_config = {
+        "mode": "REQUIRED",
+        "chrom_split": "REQUIRED",
+        "output_dir": "REQUIRED",
+        "savename": "REQUIRED",
+        "wandb_project": "REQUIRED",
+        "wandb_job_type": "REQUIRED",
+        "wandb_name": "REQUIRED",
+        "wandb_group": None,
+        "max_epochs": 80,
+        "patience": 80,
+        "use_amp": True,
+        "use_ema": False,
+        "scheduler": True,
+        "lr": 0.0001,
+        "weight_decay": 0,
+        "accumulate_grad": 1,
+        "grad_norm_collector": True,
+        "std": "REQUIRED",
+        "train_batches": "REQUIRED",
+        "val_batches": "REQUIRED",
+        "batch_size": "REQUIRED",
+        "loss_tolerance": 0.0,
+        "pretrained_model": None,
+        "plot_vmin": -2,
+        "plot_vmax": 2,
+        "clip_grad_norm": 1,
+        # loss cov cutoff
+        "loss_cov_cutoff": 10,
+        "plot_example_per_epoch": 9,
+    }
+    dataset_class = HiCTrackDataset
+    model_class = ConvTransModelLora
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
+        # ==========
+        # X
+        # ==========
+        start = time.time()
+        dna_seq = batch["dna_one_hot"]
+        if torch.is_autocast_enabled():
+            if dna_seq.dtype != torch.float16:
+                dna_seq = dna_seq.half()
+        else:
+            if dna_seq.dtype != torch.float32:
+                dna_seq = dna_seq.float()
+        if self.dataset._dataset_mode == "train":
+            dna_seq = self._gaussian_noise(dna_seq, self.std)
+
+        if self.dataset._dataset_mode == "train":
+            feature_list = [
+                self._gaussian_noise(batch[feat], self.std)
+                for feat in self.config["data_1d_keys"]
+            ]
+        else:
+            feature_list = [batch[feat] for feat in self.config["data_1d_keys"]]
+        features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
+        X = torch.cat([dna_seq, features], dim=1)
+        # ==========
+        # y_hic
+        # ==========
+        y = batch["values"]
+        embedding = batch.get("embedding", None)
+
+        end = time.time()
+        print(f"Data prep time: {end-start:.3f}")
+        # ==========
+        # Forward
+        # ==========
+        pred_y = model(X, embedding=embedding)
         return y, pred_y
