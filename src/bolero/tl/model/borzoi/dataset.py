@@ -772,7 +772,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         #
 
         work_ds = self._get_processed_dataset(
-            leg_map=self.leg_map,
             region_bed=region_bed,
             concurrency=concurrency, #10 pseudobulk = 1000, change depenfing on pipeline
         )
