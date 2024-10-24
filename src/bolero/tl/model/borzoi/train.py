@@ -773,7 +773,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         X = batch[dna_key]
         embedding = batch.get(embedding_key, None)
-        y_true = batch[data_key].unsqueeze(1) #TODO: Better way of doing this
+        y_true = batch[data_key].unsqueeze(1) #TODO: Make better way of doing this
 
         # ==========
         # Forward and Loss

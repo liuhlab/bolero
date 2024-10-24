@@ -424,7 +424,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
     default_config = {
         "bigwig_paths": "REQUIRED",
-        # "embedding_paths": "REQUIRED",
         "bed": "REQUIRED",
         "embeddings_path": "REQUIRED",
         "lora": "REQUIRED",
@@ -472,7 +471,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # Bigwig Files
         self.bigwig_paths = bigwig_paths
         
-        #dictionary with cell type name and path to             
+        #dictionary with cell type name and path to embeddings          
         self.bigwig_names_dict = OrderedDict()
         self.bigwig_id_dict = OrderedDict()
         for i, path in enumerate(bigwig_paths):
@@ -580,7 +579,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         None
         """
 
-        _rc = ReverseComplement( #TODO: make sure rc correctly
+        _rc = ReverseComplement( 
             dna_key=self.dna_column,
             signal_key=self.signal_columns,
         )
@@ -706,15 +705,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
             
 
-            #1. Bed file corresponding to each fold
-            #2. Save that in class (borzoidatasetonline)
-            #3, Each time you call getbigwig, fold as input param
-            #4. only enumerate in the region of corresponding fold, just traning fold
-            #do pybedtools overlap
-            #when load bed file separate directly into different fold
             total_chunks = idx + 1
 
-            # add a final concat function to merge all the chunks
             def _concat_bw_chunks(data, data_key=data_key, total_chunks=total_chunks):
                 bw_keys = [f"{data_key}_{idx}" for idx in range(total_chunks)]
                 bw_data = [data.pop(key) for key in bw_keys if key in data]
@@ -732,8 +724,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
     def _get_processed_dataset(
         self,
-        folds, #TODO: even necessary?
-        leg_map,
         region_bed,
         concurrency=32,
     ) -> None:
@@ -741,9 +731,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         Preprocess the dataset to return pseudobulk region rows.
         """
 
-
-
-        bw_concurrency = (1, 6)
+        bw_concurrency = (1, concurrency // 4)
 
         #gets the bed in dataframe with ray (region_bed has been determined using train_regions for example)        
         dataset = super().get_processed_dataset(bed=region_bed) #comes directly preprocessed as dataframe for fold split we're using 
@@ -761,6 +749,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         return_cells: bool = False,
         return_regions: bool = True,
         concurrency: int = 32,
+        signal_columns: str = 'bw_values',
     ) -> None:
         """
         Process the dataset and return the processed dataset.
@@ -783,7 +772,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         #
 
         work_ds = self._get_processed_dataset(
-            folds=folds,
             leg_map=self.leg_map,
             region_bed=region_bed,
             concurrency=concurrency, #10 pseudobulk = 1000, change depenfing on pipeline
@@ -796,7 +784,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         )
 
         if self.reverse_complement and self._dataset_mode == "train":
-            self.signal_columns = 'bw_values' #TODO: need to do this a better way
+            self.signal_columns = signal_columns 
             work_ds = self._get_reverse_complement_region(work_ds)
 
         # remove region column OR turn it into global coordinates (str to numbers)
@@ -810,8 +798,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         #sample size by cell type by position
 
-        work_ds = self._convert_to_list_dict(work_ds) #TODO: remember to add batch size to all previous steps
-        #default is 1024, maybe 
+        work_ds = self._convert_to_list_dict(work_ds) 
+
         return work_ds
 
     def get_dataloader(
@@ -873,19 +861,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             batch_size=self.batch_size,
         )
 
-        #TODO: what is key / shape of final
-        #if works correclty: iter torch batches should have dictionary of tensor, first key is region 2x2 (start,end)
-        #second key is dna_one_hot (2, 4, 525k)
-        #third key is pseudobulk id (2,1)
-        #fourth key is the data (2, 16k), can combine by number of tracks or can save by 2 x numbe of methylation type or RNA etc. added incrementally
-        #load into embedding, requires grad false freezes
-        #get vector tensor
-        #actual model expects the embedding of course
 
-
-        #TODO: manually collect with pybigwig to check regions
-        #manually check dna one hot
-        #once these ar echecked train
         return loader
 
     def _convert_to_list_dict(
@@ -903,15 +879,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
             """
 
             
-            # num_cell_types = len(self.bigwig_paths)
+
             def _convert_data(data_dict):
-                # print(f'Shape is {data_dict[feature].shape}')
-                # print(data_dict.keys())
-                # print(data_dict['dna_one_hot'].shape)
-                # print(data_dict['bw_values'].shape)
-                # keys = ['Original_Name', 'bw_values', 'dna_one_hot', 'region']
-                # for key in keys:
-                #     print(data_dict[key])
+
                 list_data_dict = []
                 for i, cell_type_id in enumerate(self.bigwig_names_dict): #enumerate bw list
                     new_data_dict = OrderedDict()
@@ -929,48 +899,15 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
                     new_data_dict[dna_key] = data_dict[dna_key]
 
-                    #copy whatever is not in data key (as in make sure to keep track of everything 
-                    #other than the data key argument), copy entire into new dict
+
                     for k in data_dict.keys():
                         if k not in data_keys:
-                        # if k!=dna_key:
+    
                             new_data_dict[k] = data_dict[k]
 
                     list_data_dict.append(new_data_dict)
 
                 return list_data_dict
-
-            # def _convert_data_optimized(data_dict):
-
-            #     """
-            #     Optimized conversion of data_dict to a list of dictionaries for each cell type.
-            #     """
-            #     # Extract cell type IDs and their corresponding embeddings once
-            #     cell_type_ids = list(self.bigwig_names_dict.keys())
-            #     cell_type_embeddings = [self.leg_map[ct_id] for ct_id in cell_type_ids]
-
-            #     # Extract feature arrays for faster access
-            #     feature_arrays = {feature: data_dict[feature] for feature in data_keys}
-
-            #     # Extract dna_one_hot once
-            #     dna_one_hot = data_dict.get('dna_one_hot', None)  # Replace 'dna_one_hot' with actual dna_key if different
-
-            #     # Extract other keys once to avoid checking inside the loop
-            #     other_keys = {k: v for k, v in data_dict.items() if k not in self.keys and k != 'dna_one_hot'}
-
-            #     # Use list comprehension for faster execution
-            #     list_data_dict = [
-            #         {
-            #             'cell_type_embedding': cell_type_embeddings[i],
-            #             **{feature: feature_arrays[feature][i, :] for feature in self.keys},
-            #             'dna_one_hot': dna_one_hot,
-            #             **other_keys
-            #         }
-            #         for i in range(len(cell_type_ids))
-            #     ]
-            #     return list_data_dict
-            
-
 
             dataset = dataset.flat_map(
                 fn=_convert_data,
