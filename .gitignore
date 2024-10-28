@@ -43,3 +43,7 @@ rune/*
 
 # images
 **/*.jpg
+
+# inference reult
+**/*.npy
+**/*.txt

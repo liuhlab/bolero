@@ -3,6 +3,11 @@ import os
 import numpy as np
 import torch
 
+from bolero.tl.generic.train_helper import (
+    CumulativeCounter,
+    CumulativePearson,
+    batch_pearson_correlation,
+)
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import ConvTransModelLora
 from bolero.tl.model.corigami.train import CorigamiLoraTrainer
@@ -29,6 +34,7 @@ class CorigamiInferencer(CorigamiLoraTrainer):
         "std": 0.1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
+        "batch_size": "REQUIRED",
         "loss_tolerance": 0.0,
         "pretrained_model": "REQUIRED",
         "plot_vmin": -2,
@@ -69,12 +75,13 @@ class CorigamiInferencer(CorigamiLoraTrainer):
 
     @torch.no_grad()
     def infer(self, cell_type):
-        """Generic validation step."""
+        """Inference for a specific cell type."""
         self._setup_model_for_inference()
         self.dataset.eval()
         dataloader = self.dataset.get_dataloader(
             chroms=self.test_chroms,
             n_batches=self.val_batches,
+            batch_size=self.batch_size,
             as_torch=False,
         )
 
@@ -93,4 +100,57 @@ class CorigamiInferencer(CorigamiLoraTrainer):
 
         del dataloader
         self._cleanup_env()
+        return
+
+    @torch.no_grad()
+    def infer_visualize(self):
+        """Generic validation step."""
+        self._setup_model_for_inference()
+        self.dataset.eval()
+        dataloader = self.dataset.get_dataloader(
+            chroms=["chr12", "chr5"],
+            n_batches=self.val_batches,
+            batch_size=self.batch_size,
+            as_torch=False,
+        )
+
+        single_batch_pearson_counter = CumulativeCounter()
+        across_batch_pearson_counter = CumulativePearson()
+        example_batches = []
+        with torch.inference_mode():
+            os.makedirs(self.output_dir, exist_ok=True)
+            for _, batch in enumerate(dataloader):
+                batch.pop("region")
+                batch.pop("Original_Name")
+                batch = {k: torch.tensor(v).to("cuda") for k, v in batch.items()}
+                y, pred_y = self._model_forward_pass(self.model, batch)
+
+                # ==========
+                # within batch pearson
+                corr = batch_pearson_correlation(pred_y, y).detach().cpu()[:, None]
+                single_batch_pearson_counter.update(corr)
+                # across batch pearson
+                across_batch_pearson_counter.update(pred_y, y)
+
+                batch["values"] = y.detach()
+                batch["pred_"] = pred_y.detach()
+                example_batches.append(batch)
+
+            del dataloader
+            self._cleanup_env()
+
+            self._plot_example_images(
+                example_batches, target_key="values", predict_key="pred_"
+            )
+
+            single_batch_pearson = single_batch_pearson_counter.mean()
+            across_batch_pearson = across_batch_pearson_counter.corr()
+            score_dict = {
+                "single_batch_pearson": single_batch_pearson,
+                "across_batch_pearson": across_batch_pearson,
+            }
+
+            with open(f"{self.output_dir}/score.txt", "w") as f:
+                for key, value in score_dict.items():
+                    f.write(f"{key}: {value}\n")
         return

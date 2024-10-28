@@ -128,7 +128,7 @@ class HicExamplePlotter(Track1DExamplePlotter):
             base = int(i * 2)
             ax = axes.flatten()[base]
             ax.imshow(target, cmap="bwr", vmin=vmin, vmax=vmax)
-            ax.set_title(f"Target - Corr: {corr:.2f}, MSE: {mse:.2f}")
+            # ax.set_title(f"Target - Corr: {corr:.2f}, MSE: {mse:.2f}")
             ax.text(
                 0.01,
                 0.99,
@@ -138,17 +138,21 @@ class HicExamplePlotter(Track1DExamplePlotter):
                 va="top",
                 transform=ax.transAxes,
             )
+            ax.set_xticks([])
+            ax.set_yticks([])
             ax_2 = axes.flatten()[base + 1]
             ax_2.imshow(predict, cmap="bwr", vmin=vmin, vmax=vmax)
-            ax_2.set_title(f"Predict - Corr: {corr:.2f}, MSE: {mse:.2f}")
+            # ax_2.set_title(f"Predict - Corr: {corr:.2f}, MSE: {mse:.2f}")
             ax_2.text(
                 0.01,
                 0.99,
-                f"Min: {np.min(predict):.2f}\nMax: {np.max(predict):.2f}",
+                f"Min: {np.min(predict):.2f}\nMax: {np.max(predict):.2f}\nCorr: {corr:.2f}\nMSE: {mse:.2f}",
                 color="black",
                 ha="left",
                 va="top",
                 transform=ax_2.transAxes,
             )
+            ax_2.set_xticks([])
+            ax_2.set_yticks([])
         plt.tight_layout()
         return fig, axes

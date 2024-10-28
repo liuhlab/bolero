@@ -74,6 +74,7 @@ config = {
     "encoder_in_channel": 5,
     "encoder_num_epi": 1,
     "recalculated_embedding": recalculated_embedding.tolist(),
+    "preset": "classic",
     # training
     "mode": "base",
     "chrom_split": corigami_hg38_splits[0],
@@ -141,22 +142,8 @@ trainer._setup_model()
 model = trainer.model
 model.to(trainer.device)
 # %%
-checkpoint = torch.load("./corigami_10_07_L23_IT_pretrain/base.base.best_checkpoint.pt", map_location=torch.device('cuda'))
-model.eval()
-model_weights = checkpoint['state_dict']
-for key in list(model_weights):
-    model_weights[key.replace('model.', '')] = model_weights.pop(key)
-
-# %%
-model.load_state_dict(model_weights)
-# %%
 from torchinfo import summary
 summary(trainer.model, input_data=None, depth=6)
-# %%
-model.convert_to_lora()
-
-# %%
-model.init_embedding()
 # %%
 print(model._model_summary())
 # %%
