@@ -3,7 +3,6 @@ import numpy as np
 import torch
 
 from bolero import Genome
-from bolero.tl.model.borzoi.utils import clamp_sqrt_large_value
 
 from .utils import figure_to_array
 
@@ -16,30 +15,18 @@ class BorzoiExamplePlotter:
         true_key="true_data",
         pred_key="pred_data",
         id_key="sample_id",
-        power=0.75,
-        threshold=200,
     ):
         self.genome = genome
         self.zoomin_radius = zoomin_radius
         self.true_key = true_key
         self.pred_key = pred_key
         self.id_key = id_key
-        self.power = power
-        self.threshold = threshold
         return
 
-    def plot(self, batch, channel=0, nrows=2, return_array=False, soft_clamp=False):
+    def plot(self, batch, channel=0, nrows=2, return_array=False):
         """Plot the true and predicted data for a batch of examples."""
         y_true = batch[self.true_key]
         y_pred = batch[self.pred_key]
-
-        if soft_clamp:
-            y_true = clamp_sqrt_large_value(
-                y_true, power=self.power, threshold=self.threshold
-            )
-            y_pred = clamp_sqrt_large_value(
-                y_pred, power=self.power, threshold=self.threshold
-            )
 
         if isinstance(y_true, torch.Tensor):
             y_true = y_true.cpu().numpy()
@@ -52,7 +39,7 @@ class BorzoiExamplePlotter:
             regions = regions.cpu().numpy()
         regions = self.genome.parse_global_coords(regions)
 
-        row_ids = list(range(nrows))
+        row_ids = list(range(nrows)) if isinstance(nrows, int) else nrows
         fig, axes = plt.subplots(
             figsize=(8, 2.25 * len(row_ids)),
             dpi=150,
@@ -68,7 +55,9 @@ class BorzoiExamplePlotter:
 
             chrom, start, end, *_ = regions.iloc[row_id]
             region = f"{chrom}:{start}-{end}"
-            self._plot_single_region(row_axes, true_data, pred_data, region, sample_id)
+            self._plot_single_region(
+                row_axes, true_data, pred_data, region, sample_id, channel
+            )
 
         for ax in axes.flat:
             ax.tick_params(axis="both", labelsize=8)
@@ -80,7 +69,9 @@ class BorzoiExamplePlotter:
 
         return fig
 
-    def _plot_single_region(self, axes, true_data, pred_data, region, sample_id):
+    def _plot_single_region(
+        self, axes, true_data, pred_data, region, sample_id, channel
+    ):
         zoomin_radius = self.zoomin_radius
         resolution = 32
 
@@ -103,11 +94,15 @@ class BorzoiExamplePlotter:
         )
         ax.set(xlim=(0, seq_len), xticks=[])
         ax.axvspan(zoomin_start, zoomin_end, color="grey", alpha=0.2)
-        corr = np.corrcoef(true_data, pred_data)[0, 1]
+        if true_data.std() == 0:
+            corr = 0
+        else:
+            corr = np.corrcoef(true_data, pred_data)[0, 1]
         true_sum = int(true_data.sum())
         pred_sum = int(pred_data.sum())
         ax.set_title(
-            f"{chrom}:{start:,}-{end:,}; Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
+            f"{chrom}:{start:,}-{end:,} channel{channel}; "
+            f"Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
             fontsize=8,
         )
 
@@ -130,11 +125,15 @@ class BorzoiExamplePlotter:
         rstart = (start + end) // 2 - zoomin_radius * resolution
         rend = (start + end) // 2 + zoomin_radius * resolution
         ax.set(xlim=(0, zoomin_radius * 2), xticks=[])
-        corr = np.corrcoef(true_data[zoomin_slice], pred_data[zoomin_slice])[0, 1]
+        if true_data[zoomin_slice].std() == 0:
+            corr = 0
+        else:
+            corr = np.corrcoef(true_data[zoomin_slice], pred_data[zoomin_slice])[0, 1]
         true_sum = int(true_data[zoomin_slice].sum())
         pred_sum = int(pred_data[zoomin_slice].sum())
         ax.set_title(
-            f"{chrom}:{rstart:,}-{rend:,}; Corr. {corr:.3f}; Sum T/P {true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
+            f"{chrom}:{rstart:,}-{rend:,} channel{channel}; "
+            f"Corr. {corr:.3f}; Sum T/P {true_sum:,}/{pred_sum:,}; VQ={sample_id}",
             fontsize=8,
         )
 

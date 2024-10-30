@@ -358,7 +358,7 @@ class RayGenomeChunkDataset(GenericDataset):
             _kwargs = {
                 "prefetch_batches": 3,
                 "local_shuffle_buffer_size": (
-                    shuffle_rows if self._dataset_mode == "train" else None
+                    shuffle_rows if self.is_train() else None
                 ),
                 "drop_last": True,
                 "batch_size": batch_size,
@@ -532,7 +532,7 @@ class RayRegionDataset(GenericDataset):
         if isinstance(bed, pr.PyRanges):
             bed = bed.df
 
-        if self._dataset_mode == "train" and shuffle_bed:
+        if self.is_train() and shuffle_bed:
             # self.bed is dataframe
             bed = bed.sample(frac=1, replace=False)
 

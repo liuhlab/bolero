@@ -69,6 +69,7 @@ class TrainerAttributesMixin:
     """
 
     savename: str
+    cur_epoch: int
     mode: str
 
     @property
@@ -118,6 +119,20 @@ class TrainerAttributesMixin:
 
         """
         return pathlib.Path(f"{self.savename}.{self.mode}.best_model.pt")
+
+    @property
+    def cur_epoch_model_state_path(self) -> pathlib.Path:
+        """
+        Get the path to the current epoch model state file.
+
+        Returns
+        -------
+            pathlib.Path: The path to the current epoch model state file.
+
+        """
+        return pathlib.Path(
+            f"{self.savename}.{self.mode}.epoch_{self.cur_epoch}.model.pt"
+        )
 
     @property
     def model_log_dir(self) -> pathlib.Path:
@@ -759,6 +774,14 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                 self.model_log_dir / f"epoch_{self.cur_epoch}_grad_norms.json"
             )
             self.grad_norm_collector.reset()
+        return
+
+    def _save_epoch_model_state(self):
+        if self.config["use_ema"]:
+            state_dict = self.ema.ema_model.state_dict()
+        else:
+            state_dict = self.model.state_dict()
+        safe_save(state_dict, self.cur_epoch_model_state_path)
         return
 
     def _save_stage_flag(self, flag_name):

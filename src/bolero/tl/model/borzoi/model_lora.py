@@ -1,16 +1,14 @@
+from collections import defaultdict
+
 import torch
 from torch import nn
 
 from bolero.tl.generic.module_embedding import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
 
+from .metrics import mse_diff_loss
 from .model import Borzoi, model_summary
-from .model_lora_config import (
-    make_all_conditional_large_lora_config,
-    make_all_conditional_lora_config,
-    make_classic_lora_config,
-    make_output_conditional_lora_config,
-)
+from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module import ContextOutputHead, ConvBlock, OutputHead, SequentialwithArgs
 
 
@@ -23,13 +21,15 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "base_checkpoint_path": "REQUIRED",
             "lora_preset": "all_conditional",
             "out_channels": 1,
+            "channel_loss_weight": 1,
+            "learnable_channel_loss_weight": False,
             "hidden_dim": 256,
             "hidden_layers": 1,
             "output_layer_groups": 4,
             "lora_dropout": 0.01,
-            "lora_alpha": 1,
+            "lora_scale": 1,
+            "lora_alpha": None,
             "final_output_dropout": 0.01,
-            "loss_total_weight": 0.2,
             "conditional_b": True,
             "lora_norm": "layer",
             # Key-Value Bottleneck
@@ -44,6 +44,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "transformer_pos_dropout": 0.0,
             "transformer_ff_dropout": 0.0,
             "final_conv_dropout": 0.0,
+            "loss_total_weight": 0.16,
+            "loss_chunks": 1,
+            "power": None,
+            "soft_clamp": None,
+            "soft_clamp_bool": None,
             "n_cycles": 1,
         }
     )
@@ -55,13 +60,15 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         base_checkpoint_path,
         lora_preset="all_conditional",
         out_channels=1,
+        channel_loss_weight=1,
+        learnable_channel_loss_weight=False,
         hidden_dim=256,
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
-        lora_alpha=1,
+        lora_scale=1,
+        lora_alpha=None,
         final_output_dropout=0.01,
-        loss_total_weight=0.2,
         conditional_b=True,
         lora_norm="layer",
         # kv bottleneck
@@ -76,6 +83,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         transformer_pos_dropout=0.0,
         transformer_ff_dropout=0.0,
         final_conv_dropout=0.01,
+        loss_total_weight=0.16,
+        loss_chunks=1,
+        power=None,
+        soft_clamp=None,
+        soft_clamp_bool=None,
         n_cycles=1,
     ):
         """
@@ -112,9 +124,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             transformer_pos_dropout=transformer_pos_dropout,
             transformer_ff_dropout=transformer_ff_dropout,
             final_conv_dropout=final_conv_dropout,
+            loss_total_weight=loss_total_weight,
+            loss_chunks=loss_chunks,
+            power=power,
+            soft_clamp=soft_clamp,
+            soft_clamp_bool=soft_clamp_bool,
         )
         self.out_channels = out_channels
-        self.loss_total_weight = loss_total_weight
 
         # update base model pretrained weights
         print("Loading base model weights from:", base_checkpoint_path)
@@ -177,6 +193,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 in_channels=1920, out_channels=out_channels
             )
 
+        # place holder for other modalities
+        self.rna_output_head = None
+
         # recycling
         self.n_cycles = n_cycles
         if n_cycles > 1:
@@ -192,15 +211,74 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             hidden_layers=hidden_layers,
             output_layer_groups=output_layer_groups,
             lora_dropout=lora_dropout,
-            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             preset=lora_preset,
         )
+        self.hidden_dim = hidden_dim
+        self.hidden_layers = hidden_layers
+        self.lora_dropout = lora_dropout
+        self.lora_alpha = lora_alpha
+        self.lora_scale = lora_scale
         self.conditional_b = conditional_b
         self.lora_norm = lora_norm
         self.emb_input_features = emb_input_features
 
         # make sure batchnorm is frozen
         self.freeze_batchnorms()
+
+        # setup channel loss weights
+        self._setup_channel_loss_weights(
+            channel_loss_weight=channel_loss_weight,
+            learnable_channel_loss_weight=learnable_channel_loss_weight,
+        )
+        return
+
+    def setup_rna_head(self, rna_channels, freeze_other_modules=True):
+        """Setup the RNA head for the Borzoi model."""
+        self.rna_output_head = OutputHead(
+            in_channels=1920,
+            out_channels=rna_channels,
+        )
+
+        # make only the RNA head trainable
+        if freeze_other_modules:
+            for param in self.parameters():
+                param.requires_grad = False
+
+        lora_config = {
+            "emb_input_features": self.emb_input_features,
+            "hidden_dim": self.hidden_dim,
+            "hidden_layers": self.hidden_layers,
+            "output_layer_groups": 1,
+            "lora_dropout": self.lora_dropout,
+            "lora_scale": self.lora_scale,
+            "convert_conv": True,
+            "convert_linear": True,
+            "lora_rank": rna_channels,
+        }
+        self._convert_single_module("rna_output_head", lora_config)
+        return
+
+    def _setup_channel_loss_weights(
+        self, channel_loss_weight, learnable_channel_loss_weight
+    ):
+        # channel loss weight
+        # When enabled, the model will learn the weight for each channel in the loss function.
+        # Based on Kendall et al. 2018, https://arxiv.org/abs/1705.07115
+        # Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics
+        # channel weights for poisson multinomial loss
+        if isinstance(channel_loss_weight, (int, float)):
+            init_weight = torch.tensor([channel_loss_weight] * self.out_channels)
+        else:
+            init_weight = torch.tensor(channel_loss_weight)
+        init_weight = -torch.log(init_weight).float()[:, None]  # (out_channels, 1)
+
+        if self.out_channels == 1:
+            learnable_channel_loss_weight = False
+
+        self.log_var_weight = nn.Parameter(
+            init_weight, requires_grad=learnable_channel_loss_weight
+        )  # (out_channels, 1)
         return
 
     def freeze_batchnorms(self):
@@ -241,7 +319,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
-        lora_alpha=1,
+        lora_scale=1,
         preset="all_conditional",
     ):
         """Make LoRA configuration for the Borzoi model."""
@@ -251,23 +329,23 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "hidden_layers": hidden_layers,
             "output_layer_groups": output_layer_groups,
             "lora_dropout": lora_dropout,
-            "lora_alpha": lora_alpha,
+            "lora_scale": lora_scale,
         }
-        if preset == "all_conditional":
-            lora_config = make_all_conditional_lora_config(**kwargs)
-        elif preset == "all_conditional_large":
-            lora_config = make_all_conditional_large_lora_config(**kwargs)
-        elif preset == "output_conditional":
-            lora_config = make_output_conditional_lora_config(**kwargs)
-        elif preset == "classic":
-            lora_config = make_classic_lora_config(**kwargs)
-        else:
-            raise ValueError(f"Invalid LoRA preset: {preset}")
+
+        config_func = LORA_CONFIG_FUNCTIONS[preset]
+        lora_config = config_func(**kwargs)
 
         if self.context_output:
             # do not lora convert the context output head
             lora_config.pop("final_output_head", None)
         return lora_config
+
+    def _convert_single_module(self, name, config):
+        """Convert a single module to LoRA."""
+        module = getattr(self, name)
+        module = convert_to_conditional_lora_model(module, **config)
+        setattr(self, name, module)
+        return
 
     def convert_to_lora(self):
         """Convert the model to LoRA."""
@@ -287,10 +365,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                     0.1  # if using batchnorm, set momentum to 0.9
                 )
 
+            if self.lora_alpha is not None:
+                config["lora_alpha"] = self.lora_alpha
+                config.pop("lora_scale", None)
+                print("Set all lora_alpha to", self.lora_alpha)
+
             for module_name in module_names:
-                module = getattr(self, module_name)
-                module = convert_to_conditional_lora_model(module, **config)
-                setattr(self, module_name, module)
+                self._convert_single_module(module_name, config)
 
         # also make sure kv_bottleneck is trainable
         for name, param in self.named_parameters():
@@ -365,7 +446,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             return x
 
     def single_forward_pass(
-        self, x: torch.Tensor, output: torch.Tensor, *args, **kwargs
+        self,
+        x: torch.Tensor,
+        output: torch.Tensor,
+        return_dna_embedding=False,
+        *args,
+        **kwargs,
     ):
         """Borzoi forward pass."""
         # change dtype to half if not already
@@ -409,10 +495,14 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         x = self.final_joined_convs(x, *args, **kwargs)
 
         # context output
-        x = self.final_output_head(x, *args, **kwargs)
-        return x
+        output = self.final_output_head(x, *args, **kwargs)
 
-    def forward(self, x, embedding):
+        if return_dna_embedding:
+            return output, x
+
+        return output
+
+    def forward(self, x, embedding, return_dna_embedding=False):
         """Borzoi forward pass to get final output."""
         if self.kv_bottleneck is not None:
             embedding = self.vq_ind_to_emb(embedding)
@@ -428,11 +518,93 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 # get a random n from 1 to n_cycles
                 n = torch.randint(1, self.n_cycles + 1, (1,)).item()
                 for _ in range(n):
-                    output = self.single_forward_pass(x, output, embedding=embedding)
+                    output, x = self.single_forward_pass(x, output, embedding=embedding)
             else:
                 for _ in range(self.n_cycles):
-                    output = self.single_forward_pass(x, output, embedding=embedding)
+                    output, x = self.single_forward_pass(x, output, embedding=embedding)
 
             # crop in the end
             output = self.crop(output)
+
+        if return_dna_embedding:
+            return output, x
         return output
+
+    def weighted_loss_per_channel(self, loss_tensor):
+        """Compute the weighted loss per channel based on Kendall et al. 2018."""
+        weighted_loss = (
+            torch.exp(-self.log_var_weight) * loss_tensor + self.log_var_weight
+        )
+        return weighted_loss
+
+    def loss(self, y_pred, y_true, reduce=True):
+        """
+        Compute the loss for the Borzoi model.
+
+        Parameters
+        ----------
+        y_pred : torch.Tensor
+            Predicted values, shape (batch_size, out_channels, seq_len).
+        y_true : torch.Tensor
+            True values, shape (batch_size, out_channels, seq_len).
+        """
+        loss, loss_breakdown, y_true = super().loss(y_pred, y_true, reduce=reduce)
+        loss = self.weighted_loss_per_channel(loss)
+
+        if reduce:
+            loss = loss.mean()
+        return loss, loss_breakdown, y_true
+
+    def paired_loss(self, y_pred_a, y_pred_b, y_true_a, y_true_b, reduce=True):
+        """
+        Compute the paired loss for the Borzoi model.
+
+        Parameters
+        ----------
+        y_pred_a : torch.Tensor
+            Predicted values for sample A, shape (batch_size, out_channels, seq_len).
+        y_true_a : torch.Tensor
+            True values for sample A, shape (batch_size, out_channels, seq_len).
+        y_pred_b : torch.Tensor
+            Predicted values for sample B, shape (batch_size, out_channels, seq_len).
+        y_true_b : torch.Tensor
+            True values for sample B, shape (batch_size, out_channels, seq_len).
+        """
+        loss_a, loss_breakdown_a, y_true_a = super().loss(
+            y_pred_a, y_true_a, reduce=False
+        )
+        loss_b, loss_breakdown_b, y_true_b = super().loss(
+            y_pred_b, y_true_b, reduce=False
+        )
+
+        # compute log fold change difference loss
+        diff_loss = mse_diff_loss(
+            y_pred_a=y_pred_a,
+            y_pred_b=y_pred_b,
+            y_true_a=y_true_a,
+            y_true_b=y_true_b,
+        )  # (bs, out_channels)
+
+        # compute final weighted loss per channel
+        final_loss = 0.5 * (loss_a + loss_b) + 0.5 * diff_loss
+        final_loss = self.weighted_loss_per_channel(final_loss)
+
+        loss_breakdown = defaultdict(float)
+        for d in [loss_breakdown_a, loss_breakdown_b]:
+            for k, v in d.items():
+                loss_breakdown[k] += v
+        loss_breakdown = {k: v / 2 for k, v in loss_breakdown.items()}
+        loss_breakdown["diff_loss"] = diff_loss
+
+        if reduce:
+            final_loss = final_loss.mean()
+        return final_loss, loss_breakdown, y_true_a, y_true_b
+
+    def print_loss_weight(self):
+        """Print the loss weight for each channel."""
+        loss_weight = torch.exp(-self.log_var_weight.detach()).cpu().numpy().ravel()
+        weight_str = ", ".join(f"{w:.4f}" for w in loss_weight)
+        print(
+            f"Loss weight for each channel: {weight_str}, sum: {loss_weight.sum():.4f}"
+        )
+        return

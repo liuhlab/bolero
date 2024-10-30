@@ -536,9 +536,7 @@ class RayGeneDataset(GenericDataset):
             "batch_size": batch_size,
             "prefetch_batches": 3,
             "drop_last": True,  # helps to avoid the last batch with less than batch_size
-            "local_shuffle_buffer_size": (
-                10000 if self.dataset_mode == "train" else None
-            ),
+            "local_shuffle_buffer_size": (10000 if self.is_train() else None),
         }
         _kwargs.update(data_iter_kwargs)
         print("Data loader kwargs", _kwargs)

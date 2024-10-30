@@ -58,12 +58,18 @@ class DoRAMixin:
 class LoRALayer:
     def __init__(
         self,
-        r: int,
+        lora_rank: int,
         lora_alpha: int,
+        lora_scale: int,
         lora_dropout: float,
     ):
-        self.r = r
+        self.r = lora_rank
+
+        if lora_alpha is None:
+            assert lora_scale is not None, "Either lora_alpha or lora_scale must be set"
+            lora_alpha = lora_rank * lora_scale
         self.lora_alpha = lora_alpha
+
         # Optional dropout
         if lora_dropout > 0.0:
             self.lora_dropout = nn.Dropout(p=lora_dropout)
@@ -80,21 +86,25 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
         self,
         num_embeddings: int,
         embedding_dim: int,
-        r: int = 1,
-        lora_alpha: int = 1,
+        lora_rank: int = 1,
+        lora_alpha: int = None,
         **kwargs,
     ):
         nn.Embedding.__init__(self, num_embeddings, embedding_dim, **kwargs)
         LoRALayer.__init__(
             self,
-            r=r,
+            lora_rank=lora_rank,
             lora_alpha=lora_alpha,
             lora_dropout=0,
         )
         # Actual trainable parameters
-        if r > 0:
-            self.lora_A = nn.Parameter(self.weight.new_zeros((r, num_embeddings)))
-            self.lora_B = nn.Parameter(self.weight.new_zeros((embedding_dim, r)))
+        if lora_rank > 0:
+            self.lora_A = nn.Parameter(
+                self.weight.new_zeros((lora_rank, num_embeddings))
+            )
+            self.lora_B = nn.Parameter(
+                self.weight.new_zeros((embedding_dim, lora_rank))
+            )
             self.scaling = self.lora_alpha / self.r
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
@@ -148,8 +158,9 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         self,
         in_features: int,
         out_features: int,
-        r: int,
-        lora_alpha: int = 1,
+        lora_rank: int,
+        lora_alpha: int = None,
+        lora_scale: int = 1,
         lora_dropout: float = 0.0,
         use_dora: bool = False,
         **kwargs,
@@ -157,14 +168,15 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
         LoRALayer.__init__(
             self,
-            r=r,
+            lora_rank=lora_rank,
             lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
         )
 
         # Actual trainable parameters
-        self.lora_A = nn.Parameter(self.weight.new_zeros((r, in_features)))
-        self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, r)))
+        self.lora_A = nn.Parameter(self.weight.new_zeros((lora_rank, in_features)))
+        self.lora_B = nn.Parameter(self.weight.new_zeros((out_features, lora_rank)))
         self.scaling = self.lora_alpha / self.r
 
         # Freezing the pre-trained weight matrix
@@ -220,8 +232,9 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
     def from_nn(
         cls,
         linear_module: nn.Linear,
-        rank: int = 1,
-        alpha: float = 1,
+        lora_rank: int = 1,
+        lora_alpha: float = None,
+        lora_scale: int = 1,
         lora_dropout: float = 0.0,
     ) -> "LoRALinear":
         """
@@ -230,8 +243,9 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         lora_linear = cls(
             in_features=linear_module.in_features,
             out_features=linear_module.out_features,
-            r=rank,
-            lora_alpha=alpha,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
             bias=linear_module.bias is not None,
             device=linear_module.weight.device,
@@ -252,8 +266,9 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
         in_channels,
         out_channels,
         kernel_size,
-        r,
-        lora_alpha=1,
+        lora_rank,
+        lora_alpha=None,
+        lora_scale=1,
         lora_dropout=0.0,
         use_dora=False,
         **kwargs,
@@ -275,31 +290,31 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
 
         LoRALayer.__init__(
             self,
-            r=r,
+            lora_rank=lora_rank * kernel_size,
             lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
         )
         assert isinstance(kernel_size, int)
         # Actual trainable parameters
-        if r > 0:
-            if conv_type == "1d":
-                self.lora_A, self.lora_B = self._gen_conv_1d_lora_parameter(
-                    in_channels, out_channels, self.conv.groups, kernel_size, r
-                )
-            elif conv_type == "2d":
-                self.lora_A, self.lora_B = self._gen_conv_2d_lora_parameter(
-                    in_channels, out_channels, self.conv.groups, kernel_size, r
-                )
-            elif conv_type == "3d":
-                self.lora_A, self.lora_B = self._gen_conv_3d_lora_parameter(
-                    in_channels, out_channels, self.conv.groups, kernel_size, r
-                )
-            else:
-                raise ValueError(f"Unsupported convolution type {conv_type}")
+        if conv_type == "1d":
+            self.lora_A, self.lora_B = self._gen_conv_1d_lora_parameter(
+                in_channels, out_channels, self.conv.groups, kernel_size, lora_rank
+            )
+        elif conv_type == "2d":
+            self.lora_A, self.lora_B = self._gen_conv_2d_lora_parameter(
+                in_channels, out_channels, self.conv.groups, kernel_size, lora_rank
+            )
+        elif conv_type == "3d":
+            self.lora_A, self.lora_B = self._gen_conv_3d_lora_parameter(
+                in_channels, out_channels, self.conv.groups, kernel_size, lora_rank
+            )
+        else:
+            raise ValueError(f"Unsupported convolution type {conv_type}")
 
-            self.scaling = self.lora_alpha / self.r
-            # Freezing the pre-trained weight matrix
-            self.conv.weight.requires_grad = False
+        self.scaling = self.lora_alpha / self.r
+        # Freezing the pre-trained weight matrix
+        self.conv.weight.requires_grad = False
         self.reset_parameters()
 
         self.use_dora = use_dora
@@ -376,8 +391,9 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
     def from_nn(
         cls,
         conv_module: Union[nn.Conv1d, nn.Conv2d, nn.Conv3d],
-        rank: int = 1,
-        alpha: float = 1,
+        lora_rank: int = 1,
+        lora_alpha: float = None,
+        lora_scale: int = 1,
         lora_dropout: float = 0.0,
     ) -> "LoRAConv":
         """
@@ -398,8 +414,9 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
             in_channels=conv_module.in_channels,
             out_channels=conv_module.out_channels,
             kernel_size=kernel_size_int,
-            r=rank,
-            lora_alpha=alpha,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
             stride=conv_module.stride,
             padding=conv_module.padding,
@@ -462,8 +479,9 @@ def convert_to_lora_model(
     model,
     convert_linear=False,
     convert_conv=False,
-    rank=1,
-    alpha=1,
+    lora_rank=1,
+    lora_alpha=None,
+    lora_scale=1,
     inplace=False,
     bias_trainable="none",
 ):
@@ -505,7 +523,9 @@ def convert_to_lora_model(
 
     # Update the model with the modified modules
     for name, module, lora_cls in modules_to_modify:
-        lora_module = lora_cls.from_nn(module, rank=rank, alpha=alpha)
+        lora_module = lora_cls.from_nn(
+            module, lora_rank=lora_rank, lora_alpha=lora_alpha, lora_scale=lora_scale
+        )
         set_submodule_by_name(model, name, lora_module)
 
     mark_only_lora_as_trainable(model, bias=bias_trainable)

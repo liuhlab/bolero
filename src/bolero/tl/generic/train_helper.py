@@ -7,7 +7,7 @@ import joblib
 import numpy as np
 import torch
 from scipy.stats import pearsonr
-from torch.optim.lr_scheduler import LinearLR, SequentialLR
+from torch.optim.lr_scheduler import LinearLR, PolynomialLR, SequentialLR
 from tqdm import tqdm
 
 hg38_splits = [None] * 5
@@ -689,7 +689,9 @@ class GradNormCollector:
 
     def __init__(self):
         self.grad_norms = defaultdict(list)
+        self.param_norms = {}
 
+    @torch.no_grad()
     def collect(self, model):
         """
         Collect the gradient norms of the model.
@@ -697,6 +699,12 @@ class GradNormCollector:
         for name, param in model.named_parameters():
             if param.grad is not None:
                 self.grad_norms[name].append(param.grad.norm().item())
+
+        # record param stats only once in the beginning
+        if len(self.param_norms) == 0:
+            for name, param in model.named_parameters():
+                param_norm = param.data.norm().item()
+                self.param_norms[name] = param_norm
         return
 
     def __getitem__(self, key):
@@ -710,7 +718,8 @@ class GradNormCollector:
         """
         Save the collected gradient norms to a file.
         """
-        joblib.dump(self.grad_norms, path)
+        out_dict = {"grad_norms": self.grad_norms, "param_norms": self.param_norms}
+        joblib.dump(out_dict, path)
 
     @classmethod
     def load(cls, path):
@@ -718,7 +727,9 @@ class GradNormCollector:
         Load the collected gradient norms from a file.
         """
         collector = cls()
-        collector.grad_norms = joblib.load(path)
+        saved_data = joblib.load(path)
+        collector.grad_norms = saved_data["grad_norms"]
+        collector.param_norms = saved_data["param_norms"]
         return collector
 
     def reset(self):
@@ -726,6 +737,7 @@ class GradNormCollector:
         Reset the collected gradient norms.
         """
         self.grad_norms = defaultdict(list)
+        self.param_norms = {}
         return
 
 
@@ -739,11 +751,14 @@ def make_borzoi_scheduler(optimizer, warmup_steps=10000, total_steps=1000000):
         end_factor=1,
         total_iters=warmup_steps,
     )
-    train_scheduler = LinearLR(
+    # this setup decreases lr to
+    # ~10% in 40% of the (total-warmup) steps
+    # ~1% in 60% of the (total-warmup) steps
+    # ~0.1% in 75% of the (total-warmup) steps
+    train_scheduler = PolynomialLR(
         optimizer,
-        start_factor=1.0,
-        end_factor=1e-4,
         total_iters=total_steps - warmup_steps,
+        power=5,
     )
     scheduler = SequentialLR(
         optimizer, [warmup_scheduler, train_scheduler], [warmup_steps]

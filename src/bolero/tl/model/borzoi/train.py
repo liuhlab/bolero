@@ -1,4 +1,5 @@
 import pathlib
+from collections import defaultdict
 
 import numpy as np
 import ray
@@ -15,7 +16,7 @@ from bolero.tl.model.borzoi.metrics import (
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
-from .utils import MovingMetric, reverse_clamp_sqrt
+from .utils import MovingMetric
 
 
 class TrainerBorzoiDatasetMixin:
@@ -86,6 +87,15 @@ class TrainerBorzoiDatasetMixin:
             downsample_valid_region=self.config["downsample_valid_region"],
             downsample_test_region=self.config["downsample_test_region"],
         )
+
+        # get the channel order
+        try:
+            self.channel_order = self.dataset.name_to_pseudobulker[
+                self.prefix
+            ].prefix_order
+        except AttributeError:
+            self.channel_order = ["data"]
+        return
 
     def _get_dataset_paths(self, _folds: list) -> list:
         """
@@ -210,13 +220,14 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "use_ema": False,
         "scheduler": True,
         "lr": "REQUIRED",
+        "large_lr_scale": 1,
         "optimizer": "adamw",
         "weight_decay": 1e-7,
         "global_clipnorm": 0.1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
-        "plot_example_per_epoch": 6,
+        "plot_example_per_epoch": 9,
         "accumulate_grad": 32,
         "shuffle_rows": 300,
         "dataloader_concurrency": 24,
@@ -224,6 +235,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "downsample_valid_region": None,
         "downsample_test_region": None,
         "grad_norm_collector": False,
+        "save_state_every_n_epoch": None,
     }
 
     def __init__(self, config):
@@ -268,6 +280,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             "multinomial": CumulativeCounter(),
             "poisson": CumulativeCounter(),
         }
+        if self.dataset.paired_data:
+            mean_loss_breakdown["diff_loss"] = CumulativeCounter()
         mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
             self.device
         )
@@ -309,7 +323,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 desc_str = (
                     f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
                     f"Mean Loss: {mean_val_loss.mean():.3f}; "
-                    f"Mean Track Corr: {mean_val_corr.compute().mean():.3f}; "
+                    f"Mean Track Corr: {mean_val_corr.get_corr_str()}; "
                 )
                 print(desc_str)
 
@@ -323,7 +337,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # ==========
         val_loss = mean_val_loss.mean()
         val_loss_breakdown = {k: v.mean() for k, v in mean_loss_breakdown.items()}
-        val_corr = mean_val_corr.compute().cpu().numpy()
+        val_corr = mean_val_corr
 
         if collect_data:
             return val_loss, val_loss_breakdown, val_corr, wandb_images, data_collector
@@ -335,15 +349,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def _plot_example(self, example_batches):
         epoch = self.cur_epoch + 1
-        wandb_images = []
+        wandb_images = defaultdict(list)
         for idx, batch in enumerate(example_batches):
             if idx >= self.plot_example_per_epoch:
                 break
-
-            power = self.config.get("cov_power", None)
-            threshold = self.config.get("cov_soft_clamp", None)
-            if (power is not None) and (threshold is not None):
-                soft_clamp = True
 
             plotter = BorzoiExamplePlotter(
                 genome=self.dataset.genome,
@@ -351,45 +360,54 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 true_key="true_data",
                 pred_key="pred_data",
                 id_key="sample_id",
-                power=power,
-                threshold=threshold,
             )
-            fig = plotter.plot(
-                batch, channel=0, nrows=2, return_array=True, soft_clamp=soft_clamp
-            )
+            fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
 
-            wandb_images.append(
-                wandb.Image(
-                    fig,
-                    mode="RGB",
-                    caption=f"Epoch {epoch} Example {idx}",
-                    grouping=epoch,
-                    file_type="jpg",  # reduce file size
+            if self.dataset.paired_data:
+                nrows = [0, 2]
+            else:
+                nrows = 2
+
+            for channel in range(self.model.out_channels):
+                fig = plotter.plot(
+                    batch,
+                    channel=channel,
+                    nrows=nrows,
+                    return_array=True,
                 )
-            )
+
+                wandb_images[channel].append(
+                    wandb.Image(
+                        fig,
+                        mode="RGB",
+                        caption=f"Epoch {epoch} Example {idx}",
+                        grouping=epoch,
+                        file_type="jpg",  # reduce file size
+                    )
+                )
         return wandb_images
 
     def _log_save_and_check_stop(self):
-        train_imgs = self.train_wandb_images
         val_imgs = self.val_wandb_images
         epoch = self.cur_epoch
         train_loss = self.train_loss
-        train_corr = self.train_corr.mean()
+        train_corr = self.train_corr
         learning_rate = self.cur_lr
         val_loss = self.val_loss
         val_loss_breakdown = self.val_loss_breakdown
-        val_corr = self.val_corr.mean()
+        val_corr = self.val_corr
 
         print(
-            f" - (Training)   {epoch} Loss: {train_loss:.3f}; Mean Corr. : {train_corr:.3f}; "
+            f" - (Training)   {epoch} Loss: {train_loss:.3f}; Mean Corr. : {train_corr.get_corr_str()}; "
             f"Learning rate {learning_rate}."
         )
         print(
-            f" - (Validation) {epoch} Loss: {val_loss:.3f}; Mean Corr. : {val_corr:.3f}."
+            f" - (Validation) {epoch} Loss: {val_loss:.3f}; Mean Corr. : {val_corr.get_corr_str()}."
         )
+        self.model.print_loss_weight()
 
         larger_is_better = True  # use corr as the metric, larger is better
-        metric_to_use = val_corr
+        metric_to_use = val_corr.compute_tensor().mean().item()
         previous_best = self.best_val_metric
         if larger_is_better:
             improved = metric_to_use > self.best_val_metric
@@ -424,20 +442,29 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             else:
                 self._save_checkpint(update_best=False)
 
-        wandb.log(
-            {
-                "train/train_loss": train_loss,
-                "train/train_corr": train_corr,
-                "val/val_loss": val_loss,
-                "val/val_loss_poisson": val_loss_breakdown["poisson"],
-                "val/val_loss_multinomial": val_loss_breakdown["multinomial"],
-                "val/best_val_corr": self.best_val_metric,
-                "val/early_stopping_counter": self.early_stopping_counter,
-                "val/val_corr": val_corr,
-                "train_example/example_tracks": train_imgs,
-                "val_example/example_tracks": val_imgs,
-            }
-        )
+        # save epoch model state for comparing model over epochs
+        save_every_n_epoch = self.config.get("save_state_every_n_epoch", None)
+        if save_every_n_epoch is not None and epoch % save_every_n_epoch == 0:
+            self._save_epoch_model_state()
+
+        # construct wandb log dict
+        log_dict = {
+            "val/val_loss": val_loss,
+            "val/val_loss_poisson": val_loss_breakdown["poisson"],
+            "val/val_loss_multinomial": val_loss_breakdown["multinomial"],
+            "val/best_val_corr": self.best_val_metric,
+            "val/early_stopping_counter": self.early_stopping_counter,
+        }
+        channel_order = self.channel_order
+        for channel, corr in enumerate(val_corr.compute_tensor()):
+            name = channel_order[channel]
+            log_dict[f"val/val_corr_{name}"] = corr
+        for channel, channel_imgs in val_imgs.items():
+            name = channel_order[channel]
+            log_dict[f"val_example/example_tracks_{name}"] = channel_imgs
+        if self.dataset.paired_data:
+            log_dict["val/val_loss_diff"] = val_loss_breakdown["diff_loss"]
+        wandb.log(log_dict)
 
         flag = self.early_stopping_counter >= self.patience
         return flag
@@ -458,36 +485,48 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         )
         return scheduler
 
-    def _fine_grained_lr_groups(self, small_scale=4):
+    def _fine_grained_lr_groups(self):
         """
-        Make the cell-type conditional part of the network learn faster.
-
-        Shared part of the network learns at 1/4 of the learning rate.
+        Set up fine-grained learning rate groups for the model.
         """
         standard_lr = self.config["lr"]
-        small_lr = self.config["lr"] / small_scale
+        large_lr = self.config["lr"] * self.config["large_lr_scale"]
         wd = self.config["weight_decay"]
+        loss_weight_lr = 0.001
 
+        self.large_lr_params = []
+        self.standard_lr_params = []
         standard_lr_group = []
-        small_lr_group = []
+        large_lr_group = []
+        loss_weight_lr_group = []
         for name, param in self.model.named_parameters():
             if not param.requires_grad:
                 continue
-            if "lora_A_module" in name:
-                standard_lr_group.append(param)
-            elif "lora_B_module" in name:
-                standard_lr_group.append(param)
-            elif "kv_bottleneck" in name:
-                standard_lr_group.append(param)
-            elif "recycle_conv" in name:
-                standard_lr_group.append(param)
+
+            # The last layer of lora_B_module is the critical gate for the cell-type conditional part
+            # Mimic the LoRA+ paper, https://arxiv.org/abs/2402.12354
+            if "lora_B" in name:
+                large_lr_group.append(param)
+                self.large_lr_params.append(name)
+            elif "log_var_weight" in name:
+                loss_weight_lr_group.append(param)
             else:
-                small_lr_group.append(param)
+                standard_lr_group.append(param)
+                self.standard_lr_params.append(name)
 
         parameters = [
             {"params": standard_lr_group, "weight_decay": wd, "lr": standard_lr},
-            {"params": small_lr_group, "weight_decay": wd, "lr": small_lr},
+            {"params": large_lr_group, "weight_decay": wd, "lr": large_lr},
         ]
+        if len(loss_weight_lr_group) > 0:
+            parameters.append(
+                {
+                    "params": loss_weight_lr_group,
+                    "weight_decay": 1e-3,
+                    "lr": loss_weight_lr,
+                }
+            )
+
         return parameters
 
     def _get_optimizer(self):
@@ -541,7 +580,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 break
 
             # get train data loader
-            dataloader = self.get_train_dataloader(batches=self.train_batches)
+            dataloader = self.get_train_dataloader(batches=self.train_batches + 1)
 
             # start train epochs
             moving_ave_loss = CumulativeCounter()
@@ -596,22 +635,30 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     if self.config["global_clipnorm"] is not None:
                         scaler.unscale_(optimizer)
                         total_norm = torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
+                            [
+                                p
+                                for n, p in self.model.named_parameters()
+                                if "log_var_weight" not in n
+                            ],
                             max_norm=self.config["global_clipnorm"],
                         )
                         total_norm = total_norm.item()
 
                         # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
                         # this is to prevent outlier gradients from messing up the training
-                        moving_norm.update(total_norm)
-                        threshold = moving_norm.quantile(0.99).item()
-                        if (total_norm > threshold) and moving_norm.full:
-                            print(
-                                f"Gradient norm is too large: {total_norm:.4f}, "
-                                f"threshold: {threshold:.4f}, prevent update."
-                            )
-                            optimizer.zero_grad()
-
+                        if moving_norm.full:
+                            threshold = moving_norm.quantile(0.99).item()
+                            if total_norm > threshold:
+                                print(
+                                    f"Gradient norm is too large: {total_norm:.4f}, "
+                                    f"threshold: {threshold:.4f}, prevent update."
+                                )
+                                optimizer.zero_grad()
+                            if total_norm < (moving_norm.mean() * 3):
+                                moving_norm.update(total_norm)
+                        else:
+                            moving_norm.update(total_norm)
+                    self._collect_grad_norm(self.model)
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
@@ -623,15 +670,24 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     if ema:
                         ema.update()
 
+                    log_dict = {
+                        "train/train_loss": moving_ave_loss.mean(),
+                        "train/train_total_grad_norm": total_norm,
+                    }
+                    for channel, corr in enumerate(moving_ave_corr.compute_tensor()):
+                        name = self.channel_order[channel]
+                        log_dict[f"train/train_corr_{name}"] = corr
+                    wandb.log(log_dict)
+
                 with torch.no_grad():
                     if (batch_id + 1) % print_steps == 0:
-                        _corr = moving_ave_corr.compute().mean()
+                        _corr = moving_ave_corr.get_corr_str()
                         _loss = moving_ave_loss.mean()
 
                         desc_str = (
                             f" - (Training) {self.cur_epoch} [{batch_id}/{self.train_batches}] "
                             f"Ave Loss: {_loss:.3f}; "
-                            f"Ave Corr: {_corr:.3f} "
+                            f"Ave Corr: {_corr} "
                             f"Last grad norm: {total_norm:.4f} "
                             f"Last batch Loss: {loss.item():.3f} "
                         )
@@ -645,7 +701,17 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
                         batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
 
-                        train_example_batches.append(batch)
+                        log_dict = {}
+                        train_wandb_images = self._plot_example([batch])
+                        for channel, channel_imgs in train_wandb_images.items():
+                            name = self.channel_order[channel]
+                            log_dict[f"train_example/example_tracks_{name}"] = (
+                                channel_imgs
+                            )
+                        wandb.log(log_dict)
+
+            # end of epoch clear any remaining gradients
+            optimizer.zero_grad()
 
             del dataloader
             self._cleanup_env()
@@ -654,7 +720,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 continue
 
             self.train_loss = moving_ave_loss.mean()
-            self.train_corr = moving_ave_corr.compute()
+            self.train_corr = moving_ave_corr
             self.cur_lr = optimizer.param_groups[0]["lr"]
             (
                 self.val_loss,
@@ -731,16 +797,21 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         wandb.summary["final_valid_loss_multinomial"] = self.val_loss_breakdown[
             "multinomial"
         ]
-        wandb.summary["final_valid_corr"] = self.val_corr.mean()
-
+        wandb.summary["final_valid_corr"] = self.val_corr.compute().mean()
         wandb.summary["final_test_loss"] = self.test_loss
         wandb.summary["final_test_loss_poisson"] = self.test_loss_breakdown["poisson"]
         wandb.summary["final_test_loss_multinomial"] = self.test_loss_breakdown[
             "multinomial"
         ]
-        wandb.summary["final_test_corr"] = self.test_corr.mean()
+        wandb.summary["final_test_corr"] = self.test_corr.compute().mean()
         wandb.summary["final_image"] = wandb_images
-
+        if self.dataset.paired_data:
+            wandb.summary["final_valid_loss_diff"] = self.val_loss_breakdown[
+                "diff_loss"
+            ]
+            wandb.summary["final_test_loss_diff"] = self.test_loss_breakdown[
+                "diff_loss"
+            ]
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
         return
@@ -766,8 +837,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
             "downsample_vq": None,
-            "cov_power": None,
-            "cov_soft_clamp": None,
         }
     )
 
@@ -777,13 +846,21 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     def _setup_model(self):
         print("Setting up model from config")
         model = self.model_class.create_from_config(self.config)
-        model.to(self.device)
-
         model.freeze_all_parameter_except_output_head()
 
         self.model = model
+        self.model.to(self.device)
+        self.model.convert_to_lora()
+        print(self.model)
         self._set_total_params()
         return
+
+    def _setup_rna_model(self):
+        print("Setting up model for RNA data")
+        # add RNA output head
+        # freeze all other parts of the model
+        self.model.setup_rna_head(rna_channels=1, with_atac=False)
+        self.mode = "rna"
 
     def _get_dataset(self):
         dataset = super()._get_dataset()
@@ -815,12 +892,10 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         )
         return dataset
 
-    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+    def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
         embedding_key = f"{self.prefix}:embedding_data"
-        power = self.config["cov_power"]
-        soft_clamp = self.config["cov_soft_clamp"]
 
         # ==========
         # Get batch data
@@ -834,71 +909,100 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         y_pred = model(X, embedding=embedding)
 
-        loss, loss_breakdown = model.loss(
-            y_true=y_true, y_pred=y_pred, power=power, soft_clamp=soft_clamp
+        loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
+
+        y_pred = y_pred.detach()
+        return y_true, y_pred, loss, loss_breakdown
+
+    def _model_forward_pass_paired(self, model: BorzoiLoRA, batch: dict):
+        suffix_list = ["_A", "_B"]
+        y_true_list = []
+        y_pred_list = []
+        embedding_list = []
+        pseudobulk_id_list = []
+        for suffix in suffix_list:
+            dna_key = "dna_one_hot"
+            data_key = f"{self.prefix}:bulk_data{suffix}"
+            embedding_key = f"{self.prefix}:embedding_data{suffix}"
+            pseudobulk_ids_key = f"{self.prefix}:pseudobulk_ids{suffix}"
+
+            # ==========
+            # Get batch data
+            # ==========
+            X = batch[dna_key]
+            embedding = batch.pop(embedding_key)
+            y_true = batch.pop(data_key)
+
+            # ==========
+            # Forward and Loss
+            # ==========
+            y_pred = model(X, embedding=embedding)
+
+            y_true_list.append(y_true)
+            y_pred_list.append(y_pred)
+            embedding_list.append(embedding)
+            pseudobulk_id_list.append(batch.pop(pseudobulk_ids_key))
+
+        batch.pop(dna_key)
+        loss, loss_breakdown, *y_true_list = model.paired_loss(
+            *y_pred_list,
+            *y_true_list,
         )
 
         with torch.no_grad():
-            y_true_crop = model.crop(y_true).detach()
-            y_pred = y_pred.detach()
-            if (soft_clamp is not None) and (power is not None):
-                # reverse clamp of pred
-                y_pred = reverse_clamp_sqrt(y_pred, power=power, threshold=soft_clamp)
-        return y_true_crop, y_pred, loss, loss_breakdown
+            _y_pred_list = []
+            for y_pred in y_pred_list:
+                y_pred = y_pred.detach()
+                _y_pred_list.append(y_pred)
+
+        # concatenate A and B on the batch dimension
+        y_true = torch.cat(y_true_list, dim=0)
+        y_pred = torch.cat(_y_pred_list, dim=0)
+        batch[f"{self.prefix}:embedding_data"] = torch.cat(embedding_list, dim=0)
+        batch[f"{self.prefix}:pseudobulk_ids"] = torch.cat(pseudobulk_id_list, dim=0)
+        batch["region"] = torch.cat(
+            [batch["region"], batch["region"]], dim=0
+        )  # duplicate region
+        return y_true, y_pred, loss, loss_breakdown
+
+    def _rna_forward_pass(self, model: BorzoiLoRA, batch: dict):
+        data_key = f"{self.prefix}:bulk_data"
+        dna_key = "dna_one_hot"
+        embedding_key = f"{self.prefix}:embedding_data"
+
+        # ==========
+        # Get batch data
+        # ==========
+        X = batch.pop(dna_key)
+        embedding = batch.get(embedding_key, None)
+        y_true = batch.pop(data_key)
+        rna_true = y_true[:, 1:]
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        atac_pred, dna_embedding = model(
+            X, embedding=embedding, return_dna_embedding=True
+        )
+        rna_pred = model.rna_output_head(dna_embedding, atac_pred, embedding=embedding)
+
+        loss, loss_breakdown, y_true = model.loss(y_true=rna_true, y_pred=rna_pred)
+
+        rna_pred = rna_pred.detach()
+        return y_true, rna_pred, loss, loss_breakdown
+
+    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+        if self.dataset.paired_data:
+            return self._model_forward_pass_paired(model, batch)
+        else:
+            return self._model_forward_pass_single(model, batch)
 
     def _print_banner(self, text):
         print("=" * len(text) + "\n" + text + "\n" + "=" * len(text))
         return
 
-    def train_output_layer(
-        self, batches=1000, epochs=3, output_lr=None, skip_output_adjust=False
-    ):
-        """Train the output layer only."""
-        self._print_banner("Training output layer only")
-
-        # setup output layer only training parameters
-        if output_lr is None:
-            output_lr = 0.01
-        lr = self.config["lr"]
-        self.config["lr"] = output_lr
-        n_pseudobulk = self.dataset.n_pseudobulks
-        self.dataset.n_pseudobulks = 1
-        mode = self.config["mode"]
-        self.config["mode"] = "output_layer"
-        self.mode = "output_layer"
-        train_batches = self.train_batches
-        self.config["train_batches"] = batches
-        self.train_batches = batches
-
-        # train output layer only
-        self.checkpoint = self._has_last_checkpoint()
-        self._setup_model()
-        self._setup_fit()
-        if (self.cur_epoch <= epochs) and (not skip_output_adjust):
-            print(self.model)
-            self._fit(max_epochs=epochs)
-
-        # change things back
-        self.config["lr"] = lr
-        self.dataset.n_pseudobulks = n_pseudobulk
-        self.config["mode"] = mode
-        self.mode = mode
-        self.train_batches = train_batches
-        self.config["train_batches"] = train_batches
-        return
-
-    def train_lora(self):
-        """Train the LoRA model."""
+    def _train_lora(self):
         self._print_banner("Training LoRA model")
-        self.model.convert_to_lora()
-        self.model.to(self.device)
-        print(self.model)
-
-        # save initial kv before training
-        if self.model.kv_bottleneck:
-            torch.save(
-                self.model.kv_bottleneck.values.detach(), f"{self.savename}.kv_init.pt"
-            )
 
         self.checkpoint = self._has_last_checkpoint()
         self._set_total_params()
@@ -906,14 +1010,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         self._fit()
         return
 
-    def train(
-        self,
-        output_epochs=3,
-        output_batches=1000,
-        output_lr=None,
-        output_only=False,
-        skip_output_adjust=True,
-    ) -> None:
+    def train(self) -> None:
         """Train the Borzoi LoRA model."""
         flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
 
@@ -926,18 +1023,11 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             return
 
         with wandb_run:
-            # train only output layer
-            self.train_output_layer(
-                epochs=output_epochs,
-                batches=output_batches,
-                output_lr=output_lr,
-                skip_output_adjust=skip_output_adjust,
-            )
-
-            if not output_only:
-                # train the lora model
-                self.train_lora()
-                self._test()
+            self.checkpoint = self._has_last_checkpoint()
+            self._setup_model()
+            self._setup_fit()
+            self._train_lora()
+            self._test()
             self._cleanup_env()
             wandb.finish()
         flag.touch()
@@ -952,8 +1042,10 @@ class BorzoiLoRATester(BorzoiLoRATrainer):
         checkpoint = torch.load(self.config["checkpoint_path"], weights_only=False)
         if isinstance(checkpoint, dict):
             super()._setup_model()
-            self.model.convert_to_lora()
-            self.model.load_state_dict(checkpoint["model_state_dict"])
+            if "model_state_dict" in checkpoint:
+                self.model.load_state_dict(checkpoint["model_state_dict"])
+            else:
+                self.model.load_state_dict(checkpoint)
         else:
             self.model = checkpoint
 

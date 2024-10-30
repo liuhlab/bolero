@@ -213,7 +213,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         -------
         None
         """
-        if self._dataset_mode != "train":
+        if self.is_eval():
             max_jitter = 0
         else:
             max_jitter = self.max_jitter
@@ -412,7 +412,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
                 concurrency=1,
             )
 
-        if self.reverse_complement and self._dataset_mode == "train":
+        if self.reverse_complement and self.is_train():
             work_ds = self._get_reverse_complement_region(work_ds)
 
         if self.region_embedding is not None:

@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Union
 
 import numpy as np
 import torch
@@ -286,7 +287,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         input_features: int,
         output_features: int,
         output_shape: torch.Size,
-        hidden_dim: int,
+        hidden_dim: Union[int, list],
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
         bias=True,
@@ -314,7 +315,15 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         super().__init__()
 
         self.input_features = input_features
-        self.hidden_dim = self.input_features if hidden_dim is None else hidden_dim
+        if hidden_dim is None:
+            hidden_dim = self.input_features
+        if isinstance(hidden_dim, int):
+            hidden_dim = [hidden_dim] * (hidden_layers + 1)
+        assert (
+            len(hidden_dim) == hidden_layers + 1
+        ), "hidden_dim must match hidden_layers"
+        self.hidden_dim = hidden_dim
+
         self.out_feathres = output_features
         self.output_shape = output_shape
         self.norm_type = norm_type
@@ -325,7 +334,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
 
         # Output layer
         if output_layer_groups > 1:
-            if self.hidden_dim > 8 and self.out_feathres > 8:
+            if self.out_feathres > 8:
                 # Grouped Linear has smaller number of parameters
                 output_module = partial(
                     GroupedLinear, groups=output_layer_groups, bias=bias
@@ -347,15 +356,20 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             self.kv_bottleneck = None
 
         # MLP layers
-        layers = [self._generate_linear_module(self.input_features, self.hidden_dim)]
-        for _ in range(hidden_layers):
+        layers = [self._generate_linear_module(self.input_features, self.hidden_dim[0])]
+        for idx in range(hidden_layers):
+            in_features = self.hidden_dim[idx]
+            out_features = self.hidden_dim[idx + 1]
+
             layers.append(
                 self._generate_linear_module(
-                    in_features=self.hidden_dim, out_features=self.hidden_dim
+                    in_features=in_features, out_features=out_features
                 )
             )
         layers.append(
-            output_module(in_features=self.hidden_dim, out_features=self.out_feathres)
+            output_module(
+                in_features=self.hidden_dim[-1], out_features=self.out_feathres
+            )
         )
         self.mlp = nn.Sequential(*layers)
         self.rescale_factor = nn.Parameter(torch.tensor(1.0), requires_grad=False)
@@ -365,9 +379,6 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         return
 
     def _generate_linear_module(self, in_features, out_features):
-        residual = self.residual
-        bias = self.bias
-
         if self.norm_type == "batch":
             norm = nn.BatchNorm1d(out_features, momentum=self.batchnorm_momentum)
         elif self.norm_type == "layer":
@@ -376,14 +387,16 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             raise ValueError(f"Unknown norm type {self.norm_type}")
 
         layers = nn.Sequential(
-            nn.Linear(in_features=in_features, out_features=out_features, bias=bias),
+            nn.Linear(
+                in_features=in_features, out_features=out_features, bias=self.bias
+            ),
             norm,
             nn.GELU(),
         )
         if self.dropout > 0:
             layers.append(nn.Dropout(self.dropout))
 
-        if residual:
+        if self.residual:
             # only add residual connection if the input and output features are the same
             if in_features == out_features:
                 layers = Residual(layers)

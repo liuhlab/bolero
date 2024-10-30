@@ -48,6 +48,11 @@ class Borzoi(nn.Module):
         "transformer_pos_dropout": 0.01,
         "transformer_ff_dropout": 0.2,
         "final_conv_dropout": 0.1,
+        "loss_total_weight": 0.16,
+        "loss_chunks": 1,
+        "power": None,
+        "soft_clamp": None,
+        "soft_clamp_bool": None,
     }
 
     @classmethod
@@ -64,9 +69,19 @@ class Borzoi(nn.Module):
         transformer_pos_dropout=0.01,
         transformer_ff_dropout=0.2,
         final_conv_dropout=0.1,
+        loss_total_weight=0.16,
+        loss_chunks=1,
+        power=None,
+        soft_clamp=None,
+        soft_clamp_bool=None,
     ):
         """Initialize Borzoi model."""
         super().__init__()
+        self.loss_total_weight = loss_total_weight
+        self.loss_chunks = loss_chunks
+        self.power = power
+        self.soft_clamp = soft_clamp
+        self.soft_clamp_bool = soft_clamp_bool
 
         # =========
         # Conv DNA
@@ -204,7 +219,7 @@ class Borzoi(nn.Module):
         # Out - x_unet0: (bs, 1536, 16384)
         #       x_unet1: (bs, 1536, 8192)
         #       x: (bs, 1536, 4096)
-        # signal resolution is 128
+        # signal resolution is 32
         # =================
         x_unet0 = self.res_tower(x, *args, **kwargs)
         x_unet1 = self.unet1(x_unet0, *args, **kwargs)
@@ -247,7 +262,8 @@ class Borzoi(nn.Module):
         # =================
         # Final Crop and Conv
         # In - x: (bs, 1536, 16384)
-        # Out - x: (bs, 1920, 16352)
+        # Out - x: (bs, 1920, 16352) if crop is True
+        # Out - x: (bs, 1920, 16384) if crop is False
         # signal resolution is 32
         # =================
         x = self.final_joined_convs(x, *args, **kwargs)
@@ -279,7 +295,7 @@ class Borzoi(nn.Module):
     def __repr__(self):
         return self._model_summary()
 
-    def loss(self, y_pred, y_true, power=None, soft_clamp=None):
+    def loss(self, y_pred, y_true, reduce=True):
         """
         Compute the loss for the Borzoi model.
 
@@ -294,9 +310,12 @@ class Borzoi(nn.Module):
         """
         with torch.no_grad():
             y_true = self.crop(y_true)
-            if (soft_clamp is not None) and (power is not None):
+            if (self.soft_clamp is not None) and (self.power is not None):
                 y_true = clamp_sqrt_large_value(
-                    y_true, power=power, threshold=soft_clamp
+                    y_true,
+                    power=self.power,
+                    threshold=self.soft_clamp,
+                    effective_bool=self.soft_clamp_bool,
                 )
 
         _loss, loss_breakdown = poisson_multinomial(
@@ -306,15 +325,18 @@ class Borzoi(nn.Module):
             weight_range=1,  # 1 means not use the position weighted loss
             weight_exp=4,
             epsilon=1e-7,  # this is smallest for float16
-            rescale=False,
             return_breakdown=True,
+            loss_chunks=getattr(self, "loss_chunks", 1),
         )
 
         # loss is averaged across batch and channels
-        _loss = _loss.mean()
-        with torch.no_grad():
-            loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
-        return _loss, loss_breakdown
+        if reduce:
+            _loss = _loss.mean()
+            with torch.no_grad():
+                loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
+
+        processed_y_true = y_true
+        return _loss, loss_breakdown, processed_y_true
 
 
 class BorzoiWithOutputHead(Borzoi):

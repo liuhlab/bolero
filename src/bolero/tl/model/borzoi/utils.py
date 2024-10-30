@@ -146,7 +146,9 @@ def compute_total_grad_norm(parameters, norm_type=2):
     return total_norm ** (1.0 / norm_type)
 
 
-def clamp_sqrt_large_value(data: torch.Tensor, power=0.75, threshold=200):
+def clamp_sqrt_large_value(
+    data: torch.Tensor, power=0.75, threshold=200, effective_bool=None
+):
     """
     This is special data transformation used for RNA-seq in the Borzoi model.
     Power the data, then clamp and sqrt the large residual values in the data.
@@ -154,19 +156,37 @@ def clamp_sqrt_large_value(data: torch.Tensor, power=0.75, threshold=200):
     Parameters
     ----------
     data : torch.Tensor
-        Count data.
+        Count data of shape (bs, channels, length).
     power : float, optional
         The power value, by default 0.75.
     threshold : int, optional
         The threshold value, by default 200.
         Values <= threshold are not changed.
         Values > threshold will become threshold + sqrt(value - threshold).
+    effective_bool : torch.Tensor, optional
+        A boolean tensor to indicate which channels are effective, by default None.
+        If None, all channels are effective.
     """
-    data = torch.pow(data, power)
-    data = torch.clamp_max(data, threshold) + torch.sqrt(
-        torch.clamp_min(data - threshold, 0)
-    )
-    return data
+    if isinstance(effective_bool, str):
+        bool_list = [True if char == "1" else False for char in effective_bool]
+        effective_bool = torch.tensor(bool_list)  # shape: (channels,)
+
+    # data: (bs, channels, length)
+    if effective_bool is None:
+        result = torch.pow(data, power)
+        result = torch.clamp_max(result, threshold) + torch.sqrt(
+            torch.clamp_min(result - threshold, 0)
+        )
+    else:
+        # effective bool is a bool tensor with the same length as the channels
+        result = data.clone()
+        effective_data = data[:, effective_bool, :]
+        effective_data = torch.pow(effective_data, power)
+        effective_data = torch.clamp_max(effective_data, threshold) + torch.sqrt(
+            torch.clamp_min(effective_data - threshold, 0)
+        )
+        result[:, effective_bool, :] = effective_data
+    return result
 
 
 def reverse_clamp_sqrt(data: torch.Tensor, power=0.75, threshold=200):

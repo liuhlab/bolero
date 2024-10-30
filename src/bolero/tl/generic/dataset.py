@@ -44,6 +44,12 @@ class GenericDataset:
             raise ValueError("Dataset mode not set.")
         return self._dataset_mode
 
+    def is_train(self) -> bool:
+        """
+        Check if the dataset mode is "train".
+        """
+        return self._dataset_mode == "train"
+
     def train(self) -> None:
         """
         Set the dataset mode to "train".
@@ -54,6 +60,12 @@ class GenericDataset:
         """
         self._dataset_mode = "train"
         return
+
+    def is_eval(self) -> bool:
+        """
+        Check if the dataset mode is "eval".
+        """
+        return self._dataset_mode == "eval"
 
     def eval(self) -> None:
         """

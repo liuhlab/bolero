@@ -47,6 +47,7 @@ class ConditionalLoRALayer:
         shape_a: torch.Size,
         shape_b: torch.Size,
         lora_alpha: int,
+        lora_scale: int,
         lora_dropout: float,
         emb_input_features: int,
         hidden_dim: int,
@@ -63,7 +64,6 @@ class ConditionalLoRALayer:
         embedding_dropout: float = 0.0,
     ):
         self.base_class = nn.Module
-        self.lora_alpha = lora_alpha
         # Optional dropout
         if lora_dropout > 0.0:
             self.lora_dropout = nn.Dropout(p=lora_dropout)
@@ -76,6 +76,13 @@ class ConditionalLoRALayer:
             r_a == r_b
         ), f"The ranks of A and B should be the same, but got {r_a} for a and {r_b} for b"
         self.r = r_a
+
+        if lora_alpha is None:
+            assert (
+                lora_scale is not None
+            ), "Either lora_alpha or lora_scale should be set"
+            lora_alpha = self.r * lora_scale
+        self.lora_alpha = lora_alpha
 
         # Actual trainable parameters
         self.lora_A_module = EmbeddingMLP(
@@ -156,8 +163,9 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         hidden_dim: int,
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
-        rank: int = 1,
-        alpha: int = 1,
+        lora_rank: int = 1,
+        lora_alpha: int = None,
+        lora_scale: int = 1,
         lora_dropout: float = 0.0,
         conditional_b=True,
         kv_bottleneck=False,
@@ -175,11 +183,12 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
         ConditionalLoRALayer.__init__(
             self,
-            lora_alpha=alpha,
+            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
             emb_input_features=emb_input_features,
-            shape_a=torch.Size([rank, in_features]),
-            shape_b=torch.Size([out_features, rank]),
+            shape_a=torch.Size([lora_rank, in_features]),
+            shape_b=torch.Size([out_features, lora_rank]),
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
             output_layer_groups=output_layer_groups,
@@ -282,8 +291,9 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         groups,
         emb_input_features: int,
         hidden_dim: int,
-        rank=2,
-        alpha=1,
+        lora_rank=2,
+        lora_alpha=None,
+        lora_scale=1,
         lora_dropout=0.0,
         hidden_layers: int = 0,
         output_layer_groups: int = 1,
@@ -302,17 +312,17 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         if issubclass(conv_class, nn.Conv1d):
             conv_type = "1d"
             shape_a, shape_b = self._gen_conv1d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, rank
+                in_channels, out_channels, groups, kernel_size, lora_rank
             )
         elif issubclass(conv_class, nn.Conv2d):
             conv_type = "2d"
             shape_a, shape_b = self._gen_conv2d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, rank
+                in_channels, out_channels, groups, kernel_size, lora_rank
             )
         elif issubclass(conv_class, nn.Conv3d):
             conv_type = "3d"
             shape_a, shape_b = self._gen_conv3d_lora_shape(
-                in_channels, out_channels, groups, kernel_size, rank
+                in_channels, out_channels, groups, kernel_size, lora_rank
             )
         else:
             raise ValueError(f"Unsupported convolution module class {conv_class}")
@@ -340,7 +350,8 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             self,
             shape_a=shape_a,
             shape_b=shape_b,
-            lora_alpha=alpha,
+            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
             lora_dropout=lora_dropout,
             emb_input_features=emb_input_features,
             hidden_dim=hidden_dim,
@@ -368,13 +379,21 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             self._prepare_dora_magnitude()
 
     def _gen_conv1d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
-        shape_a = (r * kernel_size, in_channels // groups * kernel_size)
-        shape_b = (out_channels, r * kernel_size)
+        _out = out_channels
+        _in = in_channels // groups * kernel_size
+        _r = min(r * kernel_size, _out, _in)
+
+        shape_a = (_r, _in)
+        shape_b = (_out, _r)
         return shape_a, shape_b
 
     def _gen_conv2d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
-        shape_a = (r * kernel_size, in_channels // groups * kernel_size)
-        shape_b = (out_channels * kernel_size, r * kernel_size)
+        _out = out_channels * kernel_size
+        _in = in_channels // groups * kernel_size
+        _r = min(r * kernel_size, _out, _in)
+
+        shape_a = (_r, _in)
+        shape_b = (_out, _r)
         return shape_a, shape_b
 
     def _gen_conv3d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
@@ -544,8 +563,9 @@ def convert_to_conditional_lora_model(
     output_layer_groups: int = 1,
     convert_linear=False,
     convert_conv=False,
-    rank=1,
-    alpha=1,
+    lora_rank=1,
+    lora_alpha=None,
+    lora_scale=1,
     lora_dropout=0.0,
     inplace=False,
     bias_learable=None,
@@ -572,7 +592,7 @@ def convert_to_conditional_lora_model(
         convert_conv (bool): If set to True, nn.Conv1d, nn.Conv2d, and nn.Conv3d
             modules are replaced. Default is False.
         rank (int): The rank for LoRA parameterization.
-        alpha (float): The scaling factor for LoRA.
+        alpha (float): The scaling factor for LoRA, default is rank * lora_scale.
         lora_dropout (float): The dropout rate for LoRA input.
         inplace (bool): If set to True, the original model is modified.
             Default is False.
@@ -639,13 +659,17 @@ def convert_to_conditional_lora_model(
         else:
             pass
 
+    if lora_alpha is not None:
+        lora_scale = None
+
     # Update the model with the modified modules
     for name, module, lora_cls in modules_to_modify:
         if issubclass(lora_cls, ConditionalLoRALayer):
             lora_module = lora_cls.from_nn(
                 module,
-                rank=rank,
-                alpha=alpha,
+                lora_rank=lora_rank,
+                lora_alpha=lora_alpha,
+                lora_scale=lora_scale,
                 lora_dropout=lora_dropout,
                 emb_input_features=emb_input_features,
                 hidden_dim=hidden_dim,
@@ -656,8 +680,9 @@ def convert_to_conditional_lora_model(
         else:
             lora_module = lora_cls.from_nn(
                 module,
-                rank=rank,
-                alpha=alpha,
+                lora_rank=lora_rank,
+                lora_alpha=lora_alpha,
+                lora_scale=lora_scale,
                 lora_dropout=lora_dropout,
             )
         if verbose:

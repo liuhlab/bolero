@@ -2,6 +2,8 @@ from typing import Optional
 
 import numpy as np
 import torch
+from einops import rearrange
+from torch.nn import functional as F
 from torchmetrics import Metric
 
 
@@ -57,8 +59,8 @@ class MeanPearsonCorrCoefPerChannel(Metric):
 
     def compute(self):
         """Computes the mean pearson correlation coefficient"""
-        true_mean = self.true / self.count
-        pred_mean = self.pred / self.count
+        true_mean = self.true / (self.count + 1e-7)
+        pred_mean = self.pred / (self.count + 1e-7)
 
         covariance = (
             self.product
@@ -70,8 +72,28 @@ class MeanPearsonCorrCoefPerChannel(Metric):
         true_var = self.true_squared - self.count * torch.square(true_mean)
         pred_var = self.pred_squared - self.count * torch.square(pred_mean)
         tp_var = torch.sqrt(true_var) * torch.sqrt(pred_var)
-        correlation = covariance / tp_var
+        correlation = covariance / (tp_var + 1e-7)
         return correlation
+
+    def compute_tensor(self):
+        """Computes the mean pearson correlation coefficient and returns it as a tensor"""
+        corr = self.compute()
+        if isinstance(corr, torch.Tensor):
+            corr = corr.cpu().numpy()
+
+        if corr.ndim == 0:
+            corr = corr[None]
+        return torch.tensor(corr)
+
+    def get_corr_str(self):
+        """Computes the mean pearson correlation coefficient and returns it as a string"""
+        corr = self.compute()
+        if isinstance(corr, torch.Tensor):
+            corr = corr.cpu().numpy()
+
+        if corr.ndim == 0:
+            corr = corr[None]
+        return ", ".join([f"{c:.3f}" for c in corr])
 
 
 def get_position_weights(
@@ -119,12 +141,12 @@ def poisson_loss(pred, target):
 def poisson_multinomial(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
-    total_weight: float = 1,
+    total_weight: float = 0.16,
     weight_range: float = 1,
     weight_exp: int = 4,
     epsilon: float = 1e-7,
-    rescale: bool = False,
     return_breakdown: bool = False,
+    loss_chunks: int = 1,
 ):
     """
     Compositional loss containing the overall poisson term and position-wise multinomial term.
@@ -140,8 +162,14 @@ def poisson_multinomial(
             larger values put more positions to 1 from center to both ends.
         epsilon (float): Small value to avoid log(0).
         rescale (bool): Rescale loss after re-weighting.
+        n_chunks (int): Number of chunks to split the sequence length into.
     """
     seq_len = y_true.shape[-1]
+    if loss_chunks > 1:
+        if seq_len % loss_chunks != 0:
+            raise ValueError("Sequence length must be divisible by n_chunks.")
+        y_true = rearrange(y_true, "b c (n s) -> (b n) c s", n=loss_chunks)
+        y_pred = rearrange(y_pred, "b c (n s) -> (b n) c s", n=loss_chunks)
 
     valid_mask = torch.isfinite(y_true)
 
@@ -180,13 +208,9 @@ def poisson_multinomial(
     multinomial_term /= weight_scale
 
     # Combine Poisson and Multinomial terms
-    loss_raw = multinomial_term + total_weight * poisson_term  # (bs, c)
-
-    # Rescale if required
-    if rescale:
-        loss_rescale = loss_raw * 2 / (1 + total_weight)
-    else:
-        loss_rescale = loss_raw
+    final_loss = (
+        1 - total_weight
+    ) * multinomial_term + total_weight * poisson_term  # (bs, c)
 
     loss_breakdown = {
         "multinomial": multinomial_term.detach(),
@@ -194,6 +218,19 @@ def poisson_multinomial(
     }
 
     if return_breakdown:
-        return loss_rescale, loss_breakdown
+        return final_loss, loss_breakdown
     else:
-        return loss_rescale
+        return final_loss
+
+
+def mse_diff_loss(y_pred_a, y_pred_b, y_true_a, y_true_b):
+    """
+    Compute the MSE loss between paired log fold changes.
+
+    data shape (bs, c, seq_len)
+    loss shape (bs, c)
+    """
+    delta_a = torch.log1p(y_pred_a) - torch.log1p(y_true_a)  # fold change diff
+    delta_b = torch.log1p(y_pred_b) - torch.log1p(y_true_b)  # fold change diff
+    loss = F.mse_loss(delta_a, delta_b, reduction="none").mean(dim=-1)
+    return loss
