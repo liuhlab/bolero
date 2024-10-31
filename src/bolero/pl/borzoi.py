@@ -11,7 +11,7 @@ class BorzoiExamplePlotter:
     def __init__(
         self,
         genome: Genome,
-        zoomin_radius: int = 1000,
+        zoomin_radius: int = 500,
         true_key="true_data",
         pred_key="pred_data",
         id_key="sample_id",

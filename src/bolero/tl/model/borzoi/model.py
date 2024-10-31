@@ -53,6 +53,7 @@ class Borzoi(nn.Module):
         "power": None,
         "soft_clamp": None,
         "soft_clamp_bool": None,
+        "crop_to_length": 6144,
     }
 
     @classmethod
@@ -74,6 +75,7 @@ class Borzoi(nn.Module):
         power=None,
         soft_clamp=None,
         soft_clamp_bool=None,
+        crop_to_length=6144,
     ):
         """Initialize Borzoi model."""
         super().__init__()
@@ -82,6 +84,7 @@ class Borzoi(nn.Module):
         self.power = power
         self.soft_clamp = soft_clamp
         self.soft_clamp_bool = soft_clamp_bool
+        self.crop_to_length = crop_to_length
 
         # =========
         # Conv DNA
@@ -168,7 +171,7 @@ class Borzoi(nn.Module):
         # ===================
         # Final Crop and Conv
         # ===================
-        self.crop = TargetLengthCrop(16384 - 32)
+        self.crop = TargetLengthCrop(target_length=self.crop_to_length)
         self.final_joined_convs = SequentialwithArgs(
             ConvBlock(in_channels=1536, out_channels=1920, kernel_size=1),
             nn.Dropout(final_conv_dropout),
