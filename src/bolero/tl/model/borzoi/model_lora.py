@@ -38,17 +38,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "dim_memory": 20,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
-            # base model
-            "context_output": True,
-            "transformer_attn_dropout": 0.0,
-            "transformer_pos_dropout": 0.0,
-            "transformer_ff_dropout": 0.0,
-            "final_conv_dropout": 0.0,
-            "loss_total_weight": 0.16,
-            "loss_chunks": 1,
-            "power": None,
-            "soft_clamp": None,
-            "soft_clamp_bool": None,
+            # Other settings
+            "context_output": False,
             "n_cycles": 1,
         }
     )
@@ -77,18 +68,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         dim_memory=20,
         num_memory_codebooks=2,
         additional_embs=1,
-        # base model
-        context_output=True,
-        transformer_attn_dropout=0.0,
-        transformer_pos_dropout=0.0,
-        transformer_ff_dropout=0.0,
-        final_conv_dropout=0.01,
-        loss_total_weight=0.16,
-        loss_chunks=1,
-        power=None,
-        soft_clamp=None,
-        soft_clamp_bool=None,
+        # other settings
+        context_output=False,
         n_cycles=1,
+        # base model
+        **base_model_kwargs,
     ):
         """
         Create a Borzoi model with LoRA layers.
@@ -119,17 +103,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         additional_embs : int
             Number of additional embeddings to be concatenated with the memory embeddings.
         """
-        super().__init__(
-            transformer_attn_dropout=transformer_attn_dropout,
-            transformer_pos_dropout=transformer_pos_dropout,
-            transformer_ff_dropout=transformer_ff_dropout,
-            final_conv_dropout=final_conv_dropout,
-            loss_total_weight=loss_total_weight,
-            loss_chunks=loss_chunks,
-            power=power,
-            soft_clamp=soft_clamp,
-            soft_clamp_bool=soft_clamp_bool,
-        )
+        super().__init__(**base_model_kwargs)
         self.out_channels = out_channels
 
         # update base model pretrained weights
@@ -245,17 +219,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             for param in self.parameters():
                 param.requires_grad = False
 
-        lora_config = {
-            "emb_input_features": self.emb_input_features,
-            "hidden_dim": self.hidden_dim,
-            "hidden_layers": self.hidden_layers,
-            "output_layer_groups": 1,
-            "lora_dropout": self.lora_dropout,
-            "lora_scale": self.lora_scale,
-            "convert_conv": True,
-            "convert_linear": True,
-            "lora_rank": rna_channels,
-        }
+        # use the same lora config as the final output head
+        lora_config = self.lora_config["final_output_head"]
+        lora_config["lora_rank"] = rna_channels
         self._convert_single_module("rna_output_head", lora_config)
         return
 
@@ -537,7 +503,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return weighted_loss
 
-    def loss(self, y_pred, y_true, reduce=True):
+    def loss(self, y_pred, y_true, reduce=True, weighted_loss=True):
         """
         Compute the loss for the Borzoi model.
 
@@ -549,7 +515,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             True values, shape (batch_size, out_channels, seq_len).
         """
         loss, loss_breakdown, y_true = super().loss(y_pred, y_true, reduce=reduce)
-        loss = self.weighted_loss_per_channel(loss)
+        if weighted_loss:
+            loss = self.weighted_loss_per_channel(loss)
 
         if reduce:
             loss = loss.mean()
