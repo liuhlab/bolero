@@ -843,7 +843,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     dataset_class = BorzoiDataset
     model_class = BorzoiLoRA
 
-    def _setup_model(self):
+    def _setup_model(self, print_model=True):
         print("Setting up model from config")
         model = self.model_class.create_from_config(self.config)
         model.freeze_all_parameter_except_output_head()
@@ -851,16 +851,10 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         self.model = model
         self.model.to(self.device)
         self.model.convert_to_lora()
-        print(self.model)
+        if print_model:
+            print(self.model)
         self._set_total_params()
         return
-
-    def _setup_rna_model(self):
-        print("Setting up model for RNA data")
-        # add RNA output head
-        # freeze all other parts of the model
-        self.model.setup_rna_head(rna_channels=1, with_atac=False)
-        self.mode = "rna"
 
     def _get_dataset(self):
         dataset = super()._get_dataset()
@@ -965,32 +959,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         )  # duplicate region
         return y_true, y_pred, loss, loss_breakdown
 
-    def _rna_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        data_key = f"{self.prefix}:bulk_data"
-        dna_key = "dna_one_hot"
-        embedding_key = f"{self.prefix}:embedding_data"
-
-        # ==========
-        # Get batch data
-        # ==========
-        X = batch.pop(dna_key)
-        embedding = batch.get(embedding_key, None)
-        y_true = batch.pop(data_key)
-        rna_true = y_true[:, 1:]
-
-        # ==========
-        # Forward and Loss
-        # ==========
-        atac_pred, dna_embedding = model(
-            X, embedding=embedding, return_dna_embedding=True
-        )
-        rna_pred = model.rna_output_head(dna_embedding, atac_pred, embedding=embedding)
-
-        loss, loss_breakdown, y_true = model.loss(y_true=rna_true, y_pred=rna_pred)
-
-        rna_pred = rna_pred.detach()
-        return y_true, rna_pred, loss, loss_breakdown
-
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
         if self.dataset.paired_data:
             return self._model_forward_pass_paired(model, batch)
@@ -1032,6 +1000,64 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             wandb.finish()
         flag.touch()
         return
+
+
+class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
+    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
+    trainer_config["lora_checkpoint_path"] = "REQUIRED"
+
+    def _setup_rna_model(self, freeze_other_modules=True):
+        print("Setting up model for RNA data")
+        # add RNA output head
+        # freeze all other parts of the model
+        self.model.setup_rna_head(
+            rna_channels=1, freeze_other_modules=freeze_other_modules
+        )
+        self.mode = "rna"
+        return
+
+    def _setup_model(self):
+        super()._setup_model(print_model=False)
+
+        # load the pre-trained LoRA model
+        lora_checkpoint = torch.load(
+            self.config["lora_checkpoint_path"], weights_only=False
+        )
+        if isinstance(lora_checkpoint, dict):
+            if "model_state_dict" in lora_checkpoint:
+                self.model.load_state_dict(lora_checkpoint["model_state_dict"])
+            else:
+                self.model.load_state_dict(lora_checkpoint)
+        else:
+            self.model.load_state_dict(lora_checkpoint.state_dict())
+        del lora_checkpoint
+
+        self._setup_rna_model()
+        print(self.model)
+        return
+
+    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+        data_key = f"{self.prefix}:bulk_data"
+        dna_key = "dna_one_hot"
+        embedding_key = f"{self.prefix}:embedding_data"
+
+        # ==========
+        # Get batch data
+        # ==========
+        X = batch.pop(dna_key)
+        embedding = batch.get(embedding_key, None)
+        y_true = batch.pop(data_key)
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        _, dna_embedding = model(X, embedding=embedding, return_dna_embedding=True)
+        y_pred = model.rna_output_head(dna_embedding, embedding=embedding)
+
+        loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
+
+        y_pred = y_pred.detach()
+        return y_true, y_pred, loss, loss_breakdown
 
 
 class BorzoiLoRATester(BorzoiLoRATrainer):
