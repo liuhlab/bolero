@@ -124,6 +124,43 @@ class FetchRegionALLCs:
             handle.close()
 
 
+class FetchRegionALLCsReduced(FetchRegionALLCs):
+
+    def __init__(
+        self,
+        allc_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_prefix: str = "",
+        data_suffix: str = "",
+        mode: str = "bp",
+        resolution: int = 32,
+    ) -> None:
+        
+        super().__init__(allc_paths, region_key, data_prefix,data_suffix, mode)
+
+        self.resolution = resolution
+    
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        
+        data_dict = super().__call__(data_dict)
+        total_mc_values = data_dict[f"{self.data_prefix}mc{self.data_suffix}"]
+        total_cov_values = data_dict[f"{self.data_prefix}cov{self.data_suffix}"]
+        
+        assert total_mc_values.shape == total_cov_values.shape, f'cov and mv values arent same shape {total_mc_values.shape} and {total_cov_values.shape}'
+        n_regions, n_bw, region_length = total_mc_values.shape
+        bin_size = self.resolution
+        n_bins = region_length // bin_size
+
+        reshaped_mc = total_mc_values.reshape(n_regions, n_bw, n_bins, bin_size)
+        reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
+
+        total_mc_values = reshaped_mc.mean(axis=-1)
+        total_mc_values = reshaped_cov.mean(axis=-1)
+        data_dict[f"{self.data_prefix}mc{self.data_suffix}"] = total_mc_values
+        data_dict[f"{self.data_prefix}cov{self.data_suffix}"] = total_cov_values
+        
+        return data_dict
+
 class FetchRegionCools:
     def __init__(
         self,
@@ -482,7 +519,6 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
         data_dict[self.data_key] = total_values
         
         #add the cell type information with an id based on the leg map
-
         return data_dict
 
 

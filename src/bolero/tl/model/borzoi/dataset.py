@@ -16,7 +16,7 @@ from bolero.tl.dataset.transforms import (
 
 
 from bolero.utils import get_global_coords, understand_regions
-from bolero.tl.dataset.file_transforms import FetchRegionBigWigs, FetchRegionBigWigsReduced
+from bolero.tl.dataset.file_transforms import FetchRegionBigWigs, FetchRegionBigWigsReduced, FetchRegionALLCs, FetchRegionALLCsReduced
 from .utils import BorzoiRegions, clamp_sqrt_large_value
 import pandas as pd
 DNA_NAME = "dna_one_hot"
@@ -518,7 +518,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # self.embeddings_df = embeddings_df
 
         self.borzoi_regions = BorzoiRegions()
-        return
+
+        self.atac_coverage_summary = pd.read_csv('/home/tlgallent/projects/finetune_borzoi/atac_coverage_summary.csv', index_col=0)
 
     def get_train_valid_test(self, fold):
         """Get the train, valid, and test folds and regions for the given fold."""
@@ -722,31 +723,125 @@ class BorzoiDatasetOnline(RayRegionDataset):
             return dataset       
 
 
+    def _get_allc_data(self, dataset, concurrency=(1, 6), n_oprators=5, batch_size=8):
+        # raise NotImplementedError
+    
+        """
+        Get the cool data for the dataset
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be processed.
+        concurrency : tuple
+            The concurrency for the dataset, min and max.
+        n_oprators : int
+            The number of oprators to be used when dataset contains multiple data paths.
+            Each operator will process a chunk of the data paths and saved in separate data_key.
+        batch_size : int
+            The batch size for the cool operator.
+            Small batch size will increase data fetching batch number and increase the concurrency.
+
+        Returns
+        -------
+        dataset : RayRegionDataset
+            The dataset with cool data oprator mapped.
+        """
+        _chunk_size = max(1, len(self.allc_paths) // n_oprators)
+
+        for idx, chunk_start in enumerate(range(0, len(self.allc_paths), _chunk_size)):
+            chunk_end = min(len(self.allc_paths), chunk_start + _chunk_size)
+            chunk_paths = self.allc_paths[chunk_start:chunk_end]
+
+            fn = FetchRegionALLCs
+            fn_constructor_kwargs = {
+                "allc_paths": chunk_paths,
+                "data_prefix": f"{self.mc_prefix}_",
+                "data_suffix": f"_{idx}",
+                "region_key": "region",
+                "mode": self.signal_mode,
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=batch_size,
+            )
+        total_chunks = idx + 1
+
+        # add a final concat function to merge all the chunks
+        def _concat_allc_chunks(data):
+            for key in ["mc", "cov"]:
+                allc_keys = [
+                    f"{self.mc_prefix}_{key}_{idx}" for idx in range(total_chunks)
+                ]
+                allc_data = [data.pop(key) for key in allc_keys]
+                data[f"{self.mc_prefix}_{key}"] = np.concatenate(allc_data, axis=1)
+            return data
+
+        dataset = dataset.map_batches(
+            fn=_concat_allc_chunks,
+            batch_size=batch_size,
+        )
+
+        for key in ["mc", "cov"]:
+            if f"{self.mc_prefix}_{key}" not in self.signal_columns:
+                self.signal_columns.append(f"{self.mc_prefix}_{key}")
+        return dataset
+
+
+    def _get_mc_frac(self, dataset):
+        # calculate mC fraction
+        def _mc_frac(data_dict):
+            mc = data_dict[f"{self.prefix}_mc"]
+            cov = data_dict[f"{self.prefix}_cov"]
+            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
+            return data_dict
+
+        dataset = dataset.map_batches(_mc_frac)
+
+        # add the data key to the signal columns so later crop function can work
+        # Check if the string is not already in the list
+        data_key = f"{self.prefix}_mc_frac"
+        if data_key not in self.signal_columns:
+            self.signal_columns.append(data_key)
+        return dataset
+
     def _get_processed_dataset(
         self,
         region_bed,
+        data_key,
         concurrency=32,
     ) -> None:
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
 
-        bw_concurrency = (1, concurrency // 4)
+        
 
         #gets the bed in dataframe with ray (region_bed has been determined using train_regions for example)        
         dataset = super().get_processed_dataset(bed=region_bed) #comes directly preprocessed as dataframe for fold split we're using 
 
-        #Get the ATAC signals, add them to the dataset under 'bw_values' key.
-        dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None, resolution=self.pos_resolution)
+
+        if data_key == 'bw_values':
+            bw_concurrency = (1, concurrency // 4)
+            #Get the ATAC signals, add them to the dataset under 'bw_values' key.
+            dataset = self._get_bigwig_data(dataset, concurrency=bw_concurrency, norm_mode=None, resolution=self.pos_resolution)
         
 
+        elif data_key == 'allc_values':
+            concurrency_allc = (1, concurrency // 4)
+            dataset = self._get_allc_data(dataset, concurrency=concurrency_allc)
+            dataset = self._get_mc_frac(dataset)
+        
+        else:
+            raise NotImplementedError
+        
         return dataset
     
     def get_processed_dataset(
         self,
-        folds: list[int],
         region_bed: str,
-        return_cells: bool = False,
         return_regions: bool = True,
         concurrency: int = 32,
         signal_columns: str = 'bw_values',
@@ -756,7 +851,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         Parameters
         ----------
-        - folds (list): List of folds to include in the dataset.
         - region_bed_path (str): Path to the BED file containing the regions.
         - return_cells (bool): Whether to return the cells in the dataset. Default is False.
         - return_regions (bool): Whether to return the regions in the dataset. Default is False.
@@ -773,7 +867,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         work_ds = self._get_processed_dataset(
             region_bed=region_bed,
-            concurrency=concurrency, #10 pseudobulk = 1000, change depenfing on pipeline
+            concurrency=concurrency, 
+            data_key=signal_columns,
         )
 
         # add dna one hot, add bool datatype
@@ -869,7 +964,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             dna_key="dna_one_hot",
             data_keys=(
                 "bw_values",
-                # "ctcf",
+                # "allc_values",
             ),
             concurrency=32,
         ):
@@ -887,14 +982,14 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] #puts in embeddings
                     new_data_dict['cell_type_id'] = self.bigwig_id_dict[cell_type_id] #puts in corresponding int id
                     
+                    scaling_factor = self.atac_coverage_summary.loc[cell_type_id, 'total'] / 10**7 #per 10 M reads
 
                     
 
                     for feature in data_keys:
 
-                        new_data_dict[feature] = data_dict[feature][i,:] #this only works because bw names are enumerated in order of cell type
-                    
-                    
+                        new_data_dict[feature] = data_dict[feature][i,:] / scaling_factor #this only works because bw names are enumerated in order of cell type
+
 
                     new_data_dict[dna_key] = data_dict[dna_key]
 
