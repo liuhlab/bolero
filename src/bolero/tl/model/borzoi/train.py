@@ -526,7 +526,12 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
+                    
                     y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
+                    
+                    # y_mc_frac, pred_mc_frac, mask, cpg_mask = self._model_forward_pass(self.model, batch)
+
+
                     if np.isnan(loss.item()):
                         nan_loss = True
                         print("Training loss has NaN, skipping epoch.")

@@ -753,7 +753,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             chunk_end = min(len(self.allc_paths), chunk_start + _chunk_size)
             chunk_paths = self.allc_paths[chunk_start:chunk_end]
 
-            fn = FetchRegionALLCs
+            fn = FetchRegionALLCsReduced
             fn_constructor_kwargs = {
                 "allc_paths": chunk_paths,
                 "data_prefix": f"{self.mc_prefix}_",
@@ -809,6 +809,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
     def _get_processed_dataset(
         self,
+        folds,
         region_bed,
         data_key,
         concurrency=32,
@@ -841,6 +842,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
     
     def get_processed_dataset(
         self,
+        folds,
         region_bed: str,
         return_regions: bool = True,
         concurrency: int = 32,
@@ -866,6 +868,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         #
 
         work_ds = self._get_processed_dataset(
+            folds=folds,
             region_bed=region_bed,
             concurrency=concurrency, 
             data_key=signal_columns,
@@ -902,7 +905,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         region_bed,
         as_torch=True,
         return_regions=True,
-        return_cells=False,
         n_batches=None,
         concurrency=20,
         **dataloader_kwargs,
@@ -939,9 +941,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         
         # dataset_kwargs will be passed to self.get_processed_dataset method
         dataset_kwargs = {
-            "folds": folds,  # for borzoi we don't split train/valid/test via chromosomes, so all chromosomes are included
+            "folds": folds,
             "region_bed": region_bed,
-            "return_cells": return_cells,
             "return_regions": return_regions,
             "concurrency": concurrency,
         }
@@ -962,10 +963,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             self,
             dataset,
             dna_key="dna_one_hot",
-            data_keys=(
-                "bw_values",
-                # "allc_values",
-            ),
+            data_key="bw_values", # "allc_values"
             concurrency=32,
         ):
             """
@@ -982,20 +980,22 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] #puts in embeddings
                     new_data_dict['cell_type_id'] = self.bigwig_id_dict[cell_type_id] #puts in corresponding int id
                     
-                    scaling_factor = self.atac_coverage_summary.loc[cell_type_id, 'total'] / 10**7 #per 10 M reads
 
-                    
+                    if data_key == 'bw_values':
+                        scaling_factor = self.atac_coverage_summary.loc[cell_type_id, 'total'] / 10**8 #per 10 M reads
+                        new_data_dict[data_key] = data_dict[data_key][i,:] / scaling_factor #this only works because bw names are enumerated in order of cell type
 
-                    for feature in data_keys:
+                    elif data_key == 'allc_values':
+                        new_data_dict[data_key] = data_dict[data_key][i,:]
 
-                        new_data_dict[feature] = data_dict[feature][i,:] / scaling_factor #this only works because bw names are enumerated in order of cell type
-
-
+                    else:
+                        raise  NotImplementedError
+                     
                     new_data_dict[dna_key] = data_dict[dna_key]
 
 
                     for k in data_dict.keys():
-                        if k not in data_keys:
+                        if k != data_key:
     
                             new_data_dict[k] = data_dict[k]
 
