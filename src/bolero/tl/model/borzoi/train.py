@@ -258,10 +258,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         example_batches = []  # collect example batches for making images
 
         for batch_id, batch in enumerate(dataloader):
-            y_true, y_pred, loss = self._model_forward_pass(model, batch)
             
-            # y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
-
+            y_true, y_pred, loss = self._model_forward_pass(model, batch)
             
 
             mean_val_corr.update(target=y_true, preds=y_pred)

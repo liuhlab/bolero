@@ -302,13 +302,15 @@ class Borzoi(nn.Module):
                 epsilon=1e-7,  # this is smallest for float16
                 rescale=False,
             )
+            
+            # loss is averaged across batch and channels
+            _loss = _loss.mean()
+            return _loss
 
         elif loss_key == 'bce':
-            _loss = F.binary_cross_entropy_with_logits(y_true_crop, y_pred)
+            _loss = F.binary_cross_entropy(y_true_crop, y_pred)
             return _loss
-        # loss is averaged across batch and channels
-        _loss = _loss.mean()
-        return _loss
+
 
 
 class BorzoiWithOutputHead(Borzoi):
