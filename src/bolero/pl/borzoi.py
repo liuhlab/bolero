@@ -86,7 +86,7 @@ class BorzoiExamplePlotter:
         true_sum = int(true_data.sum())
         pred_sum = int(pred_data.sum())
         ax.set_title(
-            f"{chrom}:{start:,}-{end:,}; Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
+            f"{chrom}:{start:,}-{end:,}; Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}\nMaxTrueVal: {np.max(np.convolve(true_data, np.ones(8) / 8)):.3f}, MaxPredVal: {np.max(np.convolve(pred_data, np.ones(8) / 8)):.3f}",
             fontsize=8,
         )
 
