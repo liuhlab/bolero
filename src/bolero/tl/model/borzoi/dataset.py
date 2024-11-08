@@ -423,11 +423,12 @@ class BorzoiDatasetOnline(RayRegionDataset):
     """Singel cell pseudobulk dataset for Borzoi model."""
 
     default_config = {
-        "bigwig_paths": "REQUIRED",
         "bed": "REQUIRED",
         "embeddings_path": "REQUIRED",
         "lora": "REQUIRED",
         "genome": "hg38",
+        "bigwig_paths": None,
+        "allc_paths": None,
         "batch_size": 2,
         "dna_window": 524288,
         "pos_resolution": 32,
@@ -441,13 +442,14 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
     def __init__(
         self,
-        bigwig_paths = list[str],
         bed = str,
         # embedding_paths=list[str],
         embeddings_path=None,
         keys = list[str],
         lora=bool,
         genome=str,
+        bigwig_paths = None,
+        allc_paths = None,
         batch_size: int = 2,
         dna_window: int = 524288,
         pos_resolution: int = 32,
@@ -468,21 +470,45 @@ class BorzoiDatasetOnline(RayRegionDataset):
             dna=False,
         )
 
-        # Bigwig Files
+        # ======================
+        #      ATAC data setup
+        # ======================
         self.bigwig_paths = bigwig_paths
+        if  self.bigwig_paths is not None:
+            
+            
+            #dictionary with cell type name and path to embeddings          
+            self.bigwig_names_dict = OrderedDict()
+            self.bigwig_id_dict = OrderedDict()
+            for i, path in enumerate(bigwig_paths):
+                cell_type = pathlib.Path(path).name.rsplit('.',1)[0]
+                self.bigwig_names_dict[cell_type] = path
+                self.bigwig_id_dict[cell_type] = i
+            
+            assert len(self.bigwig_names_dict) == len(bigwig_paths), 'bw names dict not same length as bw paths'
+        # ======================
+        #      ALLC data setup
+        # ======================
+        self.allc_paths = allc_paths
         
-        #dictionary with cell type name and path to embeddings          
-        self.bigwig_names_dict = OrderedDict()
-        self.bigwig_id_dict = OrderedDict()
-        for i, path in enumerate(bigwig_paths):
-            cell_type = pathlib.Path(path).name.rsplit('.',1)[0]
-            self.bigwig_names_dict[cell_type] = path
-            self.bigwig_id_dict[cell_type] = i
+        if self.allc_paths is not None:
+            self.signal_columns = []
+            self.mc_prefix = "allc"
+            self.signal_mode = "bp"
+            
+            #dictionary with cell type name and path to embeddings          
+            self.allc_names_dict = OrderedDict()
+            self.allc_id_dict = OrderedDict()
+            for i, path in enumerate(allc_paths):
+                cell_type = path.split('/')[-1].split('.')[0]
+                self.allc_names_dict[cell_type] = path
+                self.allc_id_dict[cell_type] = i
+            
+            assert len(self.allc_names_dict) == len(allc_paths), 'allc names dict not same length as bw paths'
         
-        assert len(self.bigwig_names_dict) == len(bigwig_paths), 'bw names dict not same length as bw paths'
-
-
-        #embeddings map generation
+        # ============================================
+        #       Embeddings Data Setup
+        # ============================================
         self.embeddings_path = embeddings_path
         adata = anndata.read_h5ad(embeddings_path)
         scvi_embedding = adata.obsm['X_scVI']
@@ -519,7 +545,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         self.borzoi_regions = BorzoiRegions()
 
-        self.atac_coverage_summary = pd.read_csv('/home/tlgallent/projects/finetune_borzoi/atac_coverage_summary.csv', index_col=0)
+        self.atac_coverage_summary = pd.read_csv('/home/tlgallent/projects/finetune_borzoi/cell_type_coverage.csv', index_col=0)
 
     def get_train_valid_test(self, fold):
         """Get the train, valid, and test folds and regions for the given fold."""
@@ -793,16 +819,16 @@ class BorzoiDatasetOnline(RayRegionDataset):
     def _get_mc_frac(self, dataset):
         # calculate mC fraction
         def _mc_frac(data_dict):
-            mc = data_dict[f"{self.prefix}_mc"]
-            cov = data_dict[f"{self.prefix}_cov"]
-            data_dict[f"{self.prefix}_mc_frac"] = mc / (cov + 1e-6)
+            mc = data_dict[f"{self.mc_prefix}_mc"]
+            cov = data_dict[f"{self.mc_prefix}_cov"]
+            data_dict[f"{self.mc_prefix}_mc_frac"] = mc / (cov + 1e-6)
             return data_dict
 
         dataset = dataset.map_batches(_mc_frac)
 
         # add the data key to the signal columns so later crop function can work
         # Check if the string is not already in the list
-        data_key = f"{self.prefix}_mc_frac"
+        data_key = f"{self.mc_prefix}_mc_frac"
         if data_key not in self.signal_columns:
             self.signal_columns.append(data_key)
         return dataset
@@ -844,9 +870,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self,
         folds,
         region_bed: str,
+        signal_columns: str,
         return_regions: bool = True,
         concurrency: int = 32,
-        signal_columns: str = 'bw_values',
     ) -> None:
         """
         Process the dataset and return the processed dataset.
@@ -867,6 +893,12 @@ class BorzoiDatasetOnline(RayRegionDataset):
         
         #
 
+        if signal_columns == 'allc_values':
+            self.signal_columns = []
+        
+        elif signal_columns == 'bw_values':
+            self.signal_columns = signal_columns
+
         work_ds = self._get_processed_dataset(
             folds=folds,
             region_bed=region_bed,
@@ -881,7 +913,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         )
 
         if self.reverse_complement and self._dataset_mode == "train":
-            self.signal_columns = signal_columns 
+                
             work_ds = self._get_reverse_complement_region(work_ds)
 
         # remove region column OR turn it into global coordinates (str to numbers)
@@ -895,7 +927,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         #sample size by cell type by position
 
-        work_ds = self._convert_to_list_dict(work_ds) 
+        work_ds = self._convert_to_list_dict(work_ds, data_key=signal_columns) 
 
         return work_ds
 
@@ -903,6 +935,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self,
         folds,
         region_bed,
+        signal_columns='allc_values',
         as_torch=True,
         return_regions=True,
         n_batches=None,
@@ -943,6 +976,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         dataset_kwargs = {
             "folds": folds,
             "region_bed": region_bed,
+            "signal_columns": signal_columns,
             "return_regions": return_regions,
             "concurrency": concurrency,
         }
@@ -975,31 +1009,53 @@ class BorzoiDatasetOnline(RayRegionDataset):
             def _convert_data(data_dict):
 
                 list_data_dict = []
-                for i, cell_type_id in enumerate(self.bigwig_names_dict): #enumerate bw list
+                if data_key == 'bw_values':
+
+                    names_dict = self.bigwig_names_dict
+                    id_dict = self.bigwig_id_dict
+                    
+                elif data_key == 'allc_values':
+                    names_dict = self.allc_names_dict
+                    id_dict = self.allc_id_dict
+
+                for i, cell_type_id in enumerate(names_dict): #enumerate bw list
                     new_data_dict = OrderedDict()
                     new_data_dict['cell_type_embedding'] = self.leg_map[cell_type_id] #puts in embeddings
-                    new_data_dict['cell_type_id'] = self.bigwig_id_dict[cell_type_id] #puts in corresponding int id
+                    new_data_dict['cell_type_id'] = id_dict[cell_type_id] #puts in corresponding int id
                     
 
                     if data_key == 'bw_values':
-                        scaling_factor = self.atac_coverage_summary.loc[cell_type_id, 'total'] / 10**8 #per 10 M reads
-                        new_data_dict[data_key] = data_dict[data_key][i,:] / scaling_factor #this only works because bw names are enumerated in order of cell type
+                        # scaling_factor = self.atac_coverage_summary.loc[cell_type_id, 'total_coverage'] / 10**7 #per 10 M reads
+                        # new_data_dict[data_key] = data_dict[data_key][i,:] / scaling_factor #this only works because bw names are enumerated in order of cell type
+                        new_data_dict[data_key] = data_dict[data_key][i,:]
+                        new_data_dict[dna_key] = data_dict[dna_key]
+
+
+                        for k in data_dict.keys():
+
+                            if k != data_key:
+        
+                                new_data_dict[k] = data_dict[k]
+
+                        list_data_dict.append(new_data_dict)
 
                     elif data_key == 'allc_values':
-                        new_data_dict[data_key] = data_dict[data_key][i,:]
+                        # print(f'Shape of signal: {data_dict[f"{self.mc_prefix}_mc_frac"][i,:].shape}')
+                        new_data_dict[f"{self.mc_prefix}_mc"] = data_dict[f"{self.mc_prefix}_mc"][i,:]
+                        new_data_dict[f"{self.mc_prefix}_cov"] = data_dict[f"{self.mc_prefix}_cov"][i,:]
+                        new_data_dict[f"{self.mc_prefix}_mc_frac"] = data_dict[f"{self.mc_prefix}_mc_frac"][i,:]
+                        
+                        new_data_dict[dna_key] = data_dict[dna_key]
 
+
+                        for k in data_dict.keys():
+                            if k not in [f"{self.mc_prefix}_mc", f"{self.mc_prefix}_cov", f"{self.mc_prefix}_mc_frac"]:
+                                new_data_dict[k] = data_dict[k]
+
+                        list_data_dict.append(new_data_dict)
                     else:
                         raise  NotImplementedError
                      
-                    new_data_dict[dna_key] = data_dict[dna_key]
-
-
-                    for k in data_dict.keys():
-                        if k != data_key:
-    
-                            new_data_dict[k] = data_dict[k]
-
-                    list_data_dict.append(new_data_dict)
 
                 return list_data_dict
 

@@ -5,6 +5,7 @@ from torch import nn
 from torchinfo import summary
 
 from bolero.utils import validate_config
+import torch.nn.functional as F
 
 from .metrics import poisson_multinomial
 from .module import (
@@ -278,7 +279,7 @@ class Borzoi(nn.Module):
     def __repr__(self):
         return self._model_summary()
 
-    def loss(self, y_pred, y_true):
+    def loss(self, y_pred, y_true, loss_key='poisson'):
         """
         Compute the loss for the Borzoi model.
 
@@ -290,17 +291,21 @@ class Borzoi(nn.Module):
             True values, shape (batch_size, out_channels, seq_len).
         """
         y_true_crop = self.crop(y_true)
+        
+        if loss_key == 'poisson':
+            _loss = poisson_multinomial(
+                y_true=y_true_crop,
+                y_pred=y_pred,
+                total_weight=self.loss_total_weight,
+                weight_range=1,  # 1 means not use the position weighted loss
+                weight_exp=4,
+                epsilon=1e-7,  # this is smallest for float16
+                rescale=False,
+            )
 
-        _loss = poisson_multinomial(
-            y_true=y_true_crop,
-            y_pred=y_pred,
-            total_weight=self.loss_total_weight,
-            weight_range=1,  # 1 means not use the position weighted loss
-            weight_exp=4,
-            epsilon=1e-7,  # this is smallest for float16
-            rescale=False,
-        )
-
+        elif loss_key == 'bce':
+            _loss = F.binary_cross_entropy_with_logits(y_true_crop, y_pred)
+            return _loss
         # loss is averaged across batch and channels
         _loss = _loss.mean()
         return _loss

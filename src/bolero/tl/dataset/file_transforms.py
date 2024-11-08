@@ -155,7 +155,7 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
         reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
 
         total_mc_values = reshaped_mc.mean(axis=-1)
-        total_mc_values = reshaped_cov.mean(axis=-1)
+        total_cov_values = reshaped_cov.mean(axis=-1)
         data_dict[f"{self.data_prefix}mc{self.data_suffix}"] = total_mc_values
         data_dict[f"{self.data_prefix}cov{self.data_suffix}"] = total_cov_values
         

@@ -3,7 +3,7 @@ import pathlib
 import numpy as np
 import torch
 import wandb
-
+import torch.nn.functional as F
 from bolero.pl.borzoi import BorzoiExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import CumulativeCounter
@@ -259,6 +259,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
         for batch_id, batch in enumerate(dataloader):
             y_true, y_pred, loss = self._model_forward_pass(model, batch)
+            
+            # y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
+
+            
 
             mean_val_corr.update(target=y_true, preds=y_pred)
             mean_val_loss.update(loss)
@@ -527,9 +531,13 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     )
                 with auto_cast_context:
                     
+                    # import pdb; breakpoint()
                     y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
                     
-                    # y_mc_frac, pred_mc_frac, mask, cpg_mask = self._model_forward_pass(self.model, batch)
+                    # y_true, y_pred = self._model_forward_pass(self.model, batch)
+
+                    # loss = F.binary_cross_entropy_with_logits(y_pred, y_true) #(batch, 16384)
+
 
 
                     if np.isnan(loss.item()):
@@ -768,11 +776,12 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
         # data_key = f"{self.prefix}:bulk_data"
-        data_key = "bw_values"
+        # data_key = "bw_values"
+        data_key = "allc_mc_frac"
         dna_key = "dna_one_hot"
         # embedding_key = f"{self.prefix}:embedding_data"
         embedding_key = "cell_type_embedding"
-
+        
         # ==========
         # Get batch data
         # ==========
@@ -785,14 +794,21 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         y_pred = model(X, embedding=embedding)
 
-        # assert y_true.shape == y_pred.shape, f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
-        loss = model.loss(y_true=y_true, y_pred=y_pred)
-
+        if data_key == 'bw_values':
+            # assert y_true.shape == y_pred.shape, f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
+            loss = model.loss(y_true=y_true, y_pred=y_pred)
+        
+        else:
+            loss = model.loss(y_true=y_true, y_pred=y_pred, loss_key='bce')
+        
+        
         with torch.no_grad():
             y_true_crop = model.crop(y_true).detach()
             y_pred = y_pred.detach()
+        
         return y_true_crop, y_pred, loss
 
+        
     def _print_banner(self, text):
         print("=" * len(text) + "\n" + text + "\n" + "=" * len(text))
         return
