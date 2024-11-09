@@ -308,7 +308,7 @@ class Borzoi(nn.Module):
             return _loss
 
         elif loss_key == 'bce':
-            _loss = F.binary_cross_entropy(y_true_crop, y_pred)
+            _loss = F.binary_cross_entropy_with_logits(y_pred, y_true_crop)
             return _loss
 
 
@@ -354,7 +354,8 @@ class BorzoiWithOutputHead(Borzoi):
         output = []
 
         if self.enable_human_head:
-            human_out = self.final_softplus(self.human_head(x))
+            # human_out = self.final_softplus(self.human_head(x))
+            human_out = self.human_head(x)
             # human_out: (bs, 7611, 16352)
             # equivalent to 16352*32 = 523264 bp signal
             output.append(human_out)

@@ -529,7 +529,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     )
                 with auto_cast_context:
                     
-                    # import pdb; breakpoint()
+                    
+                        
                     y_true, y_pred, loss = self._model_forward_pass(self.model, batch)
                     
                     # y_true, y_pred = self._model_forward_pass(self.model, batch)
@@ -554,6 +555,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # ==========
                 # Backward
                 # ==========
+                if loss.item() < 0:
+                    import pdb; breakpoint()
                 scale_loss = loss / self.accumulate_grad
                 scaler.scale(
                     scale_loss
