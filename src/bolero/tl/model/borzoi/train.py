@@ -729,7 +729,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             # "prefix": "pseudobulk",
         }
     )
-
+    #TODO: Write new class BorzoiLoRATrainerOnline
     # dataset_class = BorzoiDataset
     dataset_class = BorzoiDatasetOnline
     model_class = BorzoiLoRA
@@ -806,7 +806,11 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         
         with torch.no_grad():
             y_true_crop = model.crop(y_true).detach()
-            y_pred = y_pred.detach()
+
+            if data_key == 'allc_mc_frac':
+                y_pred = F.sigmoid(y_pred).detach()
+            else:
+                y_pred = y_pred.detach()
         
         return y_true_crop, y_pred, loss
 
