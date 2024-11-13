@@ -1041,8 +1041,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
                     elif data_key == 'allc_values':
                         # print(f'Shape of signal: {data_dict[f"{self.mc_prefix}_mc_frac"][i,:].shape}')
-                        new_data_dict[f"{self.mc_prefix}_mc"] = data_dict[f"{self.mc_prefix}_mc"][i,:]
-                        new_data_dict[f"{self.mc_prefix}_cov"] = data_dict[f"{self.mc_prefix}_cov"][i,:]
+                        # new_data_dict[f"{self.mc_prefix}_mc"] = data_dict[f"{self.mc_prefix}_mc"][i,:]
+                        # new_data_dict[f"{self.mc_prefix}_cov"] = data_dict[f"{self.mc_prefix}_cov"][i,:]
                         new_data_dict[f"{self.mc_prefix}_mc_frac"] = data_dict[f"{self.mc_prefix}_mc_frac"][i,:]
                         
                         new_data_dict[dna_key] = data_dict[dna_key]

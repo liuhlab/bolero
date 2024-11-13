@@ -24,8 +24,9 @@ class BorzoiExamplePlotter:
 
     def plot(self, batch, channel=0, nrows=2, return_array=False):
         """Plot the true and predicted data for a batch of examples."""
-        y_true = batch[self.true_key].cpu().numpy()
-        y_pred = batch[self.pred_key].cpu().numpy()
+        # import pdb; breakpoint()
+        y_true = batch[self.true_key].float().cpu().numpy()
+        y_pred = batch[self.pred_key].float().cpu().numpy()
         sample_ids = batch[self.id_key]
 
         regions = batch["region"].cpu().numpy()

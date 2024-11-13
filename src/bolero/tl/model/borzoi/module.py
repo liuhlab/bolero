@@ -14,7 +14,7 @@ from torch.nn import functional as F
 
 from bolero.tl.generic.module import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
-
+from collections import OrderedDict
 
 def relative_shift(x):
     """
@@ -388,7 +388,7 @@ class OutputHead(SequentialwithArgs):
             nn.Conv1d(
                 in_channels=in_channels, out_channels=out_channels, kernel_size=1
             ),
-            nn.Softplus(),
+            # nn.Softplus(),
         )
 
 
@@ -558,3 +558,55 @@ class ContextOutputHead(nn.Module, KVBottleNeckMixin):
         x = x.permute(0, 2, 1)
         x = self.final_output_head(x)
         return x
+
+
+class MultiCellTypeOutputHead(nn.Module):
+    """Output head with separate Conv + Softplus layers for each cell type."""
+
+    def __init__(self, in_channels, cell_types):
+        """
+        Initialize the MultiCellTypeOutputHead.
+
+        Args:
+            in_channels (int): Number of input channels.
+            cell_types (dict): A dictionary where keys are cell type names (str)
+                               and values are the number of output channels (int)
+                               for that cell type.
+                               Example:
+                               {
+                                   'cell_type_1': 5313,
+                                   'cell_type_2': 1643,
+                                   ...
+                               }
+        """
+        super(MultiCellTypeOutputHead, self).__init__()
+
+        if not cell_types:
+            raise ValueError("At least one cell type must be specified.")
+
+        # Store separate Conv + Softplus layers for each cell type
+        self.output_heads = nn.ModuleDict()
+        for cell_type, out_channels in cell_types.items():
+            self.output_heads[cell_type] = nn.Sequential(
+                nn.Conv1d(in_channels, out_channels, kernel_size=1),
+                nn.Softplus()
+            )
+
+    def forward(self, x, cell_type_id):
+        """
+        Forward pass to generate output for the specified cell type.
+
+        Args:
+            x (Tensor): Input tensor of shape (batch_size, in_channels, seq_len).
+            cell_type_id (str): The cell type identifier (key) for which to generate the output.
+
+        Returns:
+            dict: A dictionary with a single key-value pair, where the key is the cell type
+                  and the value is the corresponding output tensor.
+        """
+        if cell_type_id not in self.output_heads:
+            raise ValueError(f"Invalid cell type ID: {cell_type_id}")
+
+        # Pass through the specific output head for the given cell type
+        output = self.output_heads[cell_type_id](x)
+        return {cell_type_id: output}

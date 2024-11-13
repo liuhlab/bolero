@@ -352,7 +352,7 @@ class BorzoiWithOutputHead(Borzoi):
         x = super().forward(x, *args, **kwargs)
 
         output = []
-
+        # import pdb; breakpoint()
         if self.enable_human_head:
             # human_out = self.final_softplus(self.human_head(x))
             human_out = self.human_head(x)
@@ -367,3 +367,87 @@ class BorzoiWithOutputHead(Borzoi):
             output.append(mouse_out)
 
         return output
+
+class BorzoiMultiHeadOutputHead(Borzoi):
+    """Borzoi model with multiple cell type-specific output heads."""
+
+    def __init__(self, cell_types):
+        """
+        Initialize the model with multiple output heads, one for each cell type.
+
+        Args:
+            cell_types (dict): A dictionary where keys are cell type names (str)
+                               and values are the number of output channels (int)
+                               for that cell type.
+                               Example:
+                               {
+                                   'human': 7611,
+                                   'mouse': 2608,
+                                   'cell_type_3': 1234,
+                                   ...
+                               }
+        """
+        super().__init__()
+
+        if not cell_types:
+            raise ValueError("At least one cell type must be specified.")
+
+        self.cell_types = cell_types
+        self.output_heads = nn.ModuleDict()
+
+        for cell_type, out_channels in cell_types.items():
+            self.output_heads[cell_type] = nn.Conv1d(
+                in_channels=1920, out_channels=out_channels, kernel_size=1
+            )
+
+        self.final_softplus = nn.Softplus()
+
+    @classmethod
+    def from_checkpoint(
+        cls, checkpoint_path, cell_types, weights_only=False
+    ):
+        """
+        Load model from checkpoint.
+
+        Args:
+            checkpoint_path (str): Path to the checkpoint file.
+            cell_types (dict): Dictionary of cell types and their output channels.
+            weights_only (bool): If True, load only the weights without the optimizer state.
+
+        Returns:
+            BorzoiMultiHeadOutputHead: The loaded model.
+        """
+        model = cls(cell_types=cell_types)
+        if checkpoint_path is not None:
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            if weights_only:
+                # Assume checkpoint is a state_dict
+                model.load_state_dict(checkpoint)
+            else:
+                # If checkpoint contains more than state_dict, adjust accordingly
+                model.load_state_dict(checkpoint['model_state_dict'])
+        return model
+
+    def forward(self, x, *args, **kwargs):
+        """
+        Forward pass to get outputs for each cell type.
+
+        Args:
+            x (Tensor): Input tensor.
+            *args, **kwargs: Additional arguments.
+
+        Returns:
+            dict: A dictionary where keys are cell type names and values are the corresponding outputs.
+        """
+        x = super().forward(x, *args, **kwargs)
+
+        outputs = OrderedDict()
+        for cell_type, head in self.output_heads.items():
+            # Apply the convolutional head
+            cell_out = head(x)
+            # Optionally apply activation
+            cell_out = self.final_softplus(cell_out)
+            # Add to outputs
+            outputs[cell_type] = cell_out
+
+        return outputs

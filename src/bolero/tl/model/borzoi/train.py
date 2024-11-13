@@ -256,9 +256,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         )
 
         example_batches = []  # collect example batches for making images
-
+        
         for batch_id, batch in enumerate(dataloader):
-            
+            # import pdb; breakpoint()
             y_true, y_pred, loss = self._model_forward_pass(model, batch)
             
 
@@ -555,8 +555,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # ==========
                 # Backward
                 # ==========
-                if loss.item() < 0:
-                    import pdb; breakpoint()
+
                 scale_loss = loss / self.accumulate_grad
                 scaler.scale(
                     scale_loss
@@ -782,12 +781,14 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         dna_key = "dna_one_hot"
         # embedding_key = f"{self.prefix}:embedding_data"
         embedding_key = "cell_type_embedding"
+        cell_type_id_key = "cell_type_id"
         
         # ==========
         # Get batch data
         # ==========
         X = batch[dna_key]
         embedding = batch.get(embedding_key, None)
+        cell_type_id = batch.get(cell_type_id_key, None)
         y_true = batch[data_key].unsqueeze(1) #TODO: Make better way of doing this
 
         # ==========
