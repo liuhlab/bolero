@@ -17,6 +17,8 @@ from skimage.transform import resize
 from bolero.pp.genome_chunk_dataset import query_allc_region
 from bolero.utils import understand_regions
 
+pysam.set_verbosity(0)
+
 
 def _open_allc(allc_path):
     handle = pysam.TabixFile(allc_path, mode="r")
@@ -54,7 +56,9 @@ class FetchRegionALLCs:
         self.allc_paths = allc_paths
         self.region_key = region_key
         self.data_prefix = data_prefix
-        self.data_suffix = data_suffix
+        self.data_suffix = (
+            [data_suffix] if isinstance(data_suffix, str) else data_suffix
+        )
         self.allc_handles = [_open_allc(path) for path in allc_paths]
         self.mode = mode
 
@@ -70,46 +74,47 @@ class FetchRegionALLCs:
         -------
         Dictionary containing the updated data.
         """
-        region_ = data_dict[self.region_key]
-        if isinstance(region_, str):
-            region_ = [region_]
-        regions = understand_regions(region_, as_df=True)
+        for suffix in self.data_suffix:
+            region_ = data_dict[self.region_key + suffix]
+            if isinstance(region_, str):
+                region_ = [region_]
+            regions = understand_regions(region_, as_df=True)
 
-        n_regions = len(region_)
-        n_allc = len(self.allc_paths)
+            n_regions = len(region_)
+            n_allc = len(self.allc_paths)
 
-        if self.mode == "bp":
-            assert (regions["End"] - regions["Start"]).unique().shape[
-                0
-            ] == 1, "Regions must have the same length."
-            region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
+            if self.mode == "bp":
+                assert (regions["End"] - regions["Start"]).unique().shape[
+                    0
+                ] == 1, "Regions must have the same length."
+                region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
 
-            total_mc_values = np.zeros(
-                shape=(n_regions, n_allc, region_length), dtype=np.float32
-            )
-            total_cov_values = np.zeros(
-                shape=(n_regions, n_allc, region_length), dtype=np.float32
-            )
-        elif self.mode == "region":
-            total_mc_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
-            total_cov_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
-        else:
-            raise ValueError("mode must be 'bp' or 'region'.")
-
-        for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
-            for idy, allc_handle in enumerate(self.allc_handles):
-                mc_values, cov_values = query_allc_region(
-                    allc_handle, chrom, start, end
+                total_mc_values = np.zeros(
+                    shape=(n_regions, n_allc, region_length), dtype=np.float32
                 )
-                if self.mode == "bp":
-                    total_mc_values[idx, idy, :] = mc_values
-                    total_cov_values[idx, idy, :] = cov_values
-                elif self.mode == "region":
-                    total_mc_values[idx, idy] = mc_values.sum()
-                    total_cov_values[idx, idy] = cov_values.sum()
+                total_cov_values = np.zeros(
+                    shape=(n_regions, n_allc, region_length), dtype=np.float32
+                )
+            elif self.mode == "region":
+                total_mc_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
+                total_cov_values = np.zeros(shape=(n_regions, n_allc), dtype=np.float32)
+            else:
+                raise ValueError("mode must be 'bp' or 'region'.")
 
-        data_dict[f"{self.data_prefix}mc{self.data_suffix}"] = total_mc_values
-        data_dict[f"{self.data_prefix}cov{self.data_suffix}"] = total_cov_values
+            for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
+                for idy, allc_handle in enumerate(self.allc_handles):
+                    mc_values, cov_values = query_allc_region(
+                        allc_handle, chrom, start, end
+                    )
+                    if self.mode == "bp":
+                        total_mc_values[idx, idy, :] = mc_values
+                        total_cov_values[idx, idy, :] = cov_values
+                    elif self.mode == "region":
+                        total_mc_values[idx, idy] = mc_values.sum()
+                        total_cov_values[idx, idy] = cov_values.sum()
+
+            data_dict[f"{self.data_prefix}mc{suffix}"] = total_mc_values
+            data_dict[f"{self.data_prefix}cov{suffix}"] = total_cov_values
         return data_dict
 
     def close(self) -> None:
@@ -122,6 +127,51 @@ class FetchRegionALLCs:
         """
         for handle in self.allc_handles:
             handle.close()
+
+
+class FetchRegionALLCsReduced(FetchRegionALLCs):
+    """Get mC data from ALLC with reduced resolution"""
+
+    def __init__(
+        self,
+        allc_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_prefix: str = "",
+        data_suffix: str = "",
+        resolution: int = 32,
+    ) -> None:
+        super().__init__(
+            allc_paths=allc_paths,
+            region_key=region_key,
+            data_prefix=data_prefix,
+            data_suffix=data_suffix,
+            mode="bp",
+        )
+        self.resolution = resolution
+
+    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Get the bp methylation count and reduce by resolution"""
+        data_dict = super().__call__(data_dict)
+
+        for suffix in self.data_suffix:
+            total_mc_values = data_dict[f"{self.data_prefix}mc{suffix}"]
+            total_cov_values = data_dict[f"{self.data_prefix}cov{suffix}"]
+
+            assert (
+                total_mc_values.shape == total_cov_values.shape
+            ), f"cov and mv values arent same shape {total_mc_values.shape} and {total_cov_values.shape}"
+            n_regions, n_bw, region_length = total_mc_values.shape
+            bin_size = self.resolution
+            n_bins = region_length // bin_size
+
+            reshaped_mc = total_mc_values.reshape(n_regions, n_bw, n_bins, bin_size)
+            reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
+
+            total_mc_values = reshaped_mc.sum(axis=-1)
+            total_cov_values = reshaped_cov.sum(axis=-1)
+            data_dict[f"{self.data_prefix}mc{suffix}"] = total_mc_values
+            data_dict[f"{self.data_prefix}cov{suffix}"] = total_cov_values
+        return data_dict
 
 
 class FetchRegionCools:

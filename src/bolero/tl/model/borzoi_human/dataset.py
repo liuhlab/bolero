@@ -5,6 +5,7 @@ from typing import Any, Iterable
 import numpy as np
 
 from bolero.tl.dataset.file_transforms import (
+    FetchRegionALLCsReduced,
     FetchRegionBigWigsReduced,
     FetchRegionCools,
     ReverseCompHicData,
@@ -94,7 +95,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     data_key_to_file_type[key] = "bw"
                 elif key.startswith("hic"):
                     data_key_to_file_type[key] = "cool"
-                elif key.startswith("allc"):
+                elif key.startswith("allc") or key.startswith("mc"):
                     data_key_to_file_type[key] = "allc"
                 else:
                     raise ValueError(f"Unknown file type for key: {key}")
@@ -345,6 +346,99 @@ class BorzoiDatasetOnline(RayRegionDataset):
         )
         return dataset
 
+    def _get_allc_data(
+        self,
+        dataset,
+        allc_paths,
+        mc_prefix,
+        concurrency=(1, 6),
+        n_oprators=1,
+        batch_size=8,
+        key_suffix=None,
+    ):
+        # raise NotImplementedError
+        """
+        Get the cool data for the dataset
+
+        Parameters
+        ----------
+        dataset : RayRegionDataset
+            The dataset to be processed.
+        concurrency : tuple
+            The concurrency for the dataset, min and max.
+        n_oprators : int
+            The number of oprators to be used when dataset contains multiple data paths.
+            Each operator will process a chunk of the data paths and saved in separate data_key.
+        batch_size : int
+            The batch size for the cool operator.
+            Small batch size will increase data fetching batch number and increase the concurrency.
+
+        Returns
+        -------
+        dataset : RayRegionDataset
+            The dataset with cool data oprator mapped.
+        """
+        _chunk_size = max(1, len(allc_paths) // n_oprators)
+        if key_suffix is None:
+            key_suffix = [""]
+
+        for idx, chunk_start in enumerate(range(0, len(allc_paths), _chunk_size)):
+            chunk_end = min(len(allc_paths), chunk_start + _chunk_size)
+            chunk_paths = allc_paths[chunk_start:chunk_end]
+
+            fn = FetchRegionALLCsReduced
+            fn_constructor_kwargs = {
+                "allc_paths": chunk_paths,
+                "data_prefix": f"{idx}_{mc_prefix}_",
+                "data_suffix": key_suffix,
+                "region_key": "region",
+            }
+            dataset = dataset.map_batches(
+                fn=fn,
+                fn_constructor_kwargs=fn_constructor_kwargs,
+                concurrency=concurrency,
+                batch_size=batch_size,
+            )
+        total_chunks = idx + 1
+
+        # add a final concat function to merge all the chunks
+        def _concat_allc_chunks(data, key_suffix):
+            for suffix in key_suffix:
+                for key in ["mc", "cov"]:
+                    allc_keys = [
+                        f"{idx}_{mc_prefix}_{key}{suffix}"
+                        for idx in range(total_chunks)
+                    ]
+                    allc_data = [data.pop(key) for key in allc_keys]
+                    data[f"{mc_prefix}_{key}{suffix}"] = np.concatenate(
+                        allc_data, axis=1
+                    )
+            return data
+
+        dataset = dataset.map_batches(
+            fn=_concat_allc_chunks,
+            fn_kwargs={"key_suffix": key_suffix},
+            batch_size=batch_size,
+        )
+        return dataset
+
+    def _get_mc_frac(self, dataset, mc_prefix, key_suffix=None):
+        if key_suffix is None:
+            key_suffix = [""]
+
+        # calculate mC fraction
+        def _mc_frac(data_dict, mc_prefix, key_suffix):
+            for suffix in key_suffix:
+                mc = data_dict.pop(f"{mc_prefix}_mc{suffix}")
+                cov = data_dict.pop(f"{mc_prefix}_cov{suffix}")
+                data_dict[f"{mc_prefix}_mc_frac{suffix}"] = mc / (cov + 1e-6)
+            return data_dict
+
+        dataset = dataset.map_batches(
+            _mc_frac, fn_kwargs={"mc_prefix": mc_prefix, "key_suffix": key_suffix}
+        )
+        return dataset
+
     def _get_dna_one_hot(self, dataset, concurrency, key_suffix=None):
         """
         Get the DNA one hot for the dataset.
@@ -547,8 +641,19 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     key_suffix=key_suffix,
                 )
             elif file_type in ("allc",):
-                data_1d_keys.append(data_key)
-                raise NotImplementedError("allc data not implemented yet.")
+                work_ds = self._get_allc_data(
+                    dataset=work_ds,
+                    allc_paths=file_paths,
+                    mc_prefix=data_key,
+                    concurrency=concurrency,
+                    key_suffix=key_suffix,
+                )
+                work_ds = self._get_mc_frac(
+                    dataset=work_ds,
+                    mc_prefix=data_key,
+                    key_suffix=key_suffix,
+                )
+                data_1d_keys.append(f"{data_key}_mc_frac")
             elif file_type in ("cool", "hic"):
                 data_2d_keys.append(data_key)
                 work_ds = self._get_cool_data(
@@ -600,7 +705,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         as_torch=True,
         return_regions=True,
         n_batches=None,
-        concurrency=16,
+        concurrency=6,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
