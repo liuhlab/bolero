@@ -266,7 +266,7 @@ class GenerateRegions:
             data_col["region"] = f"{chrom}:{start}-{end}"
             if self.add_original_name:
                 # has to be int
-                data_col["original_name"] = int(row["Original_Name"])
+                data_col["Original_Name"] = int(row["Original_Name"])
             for key, value in data_dict.items():
                 if key in self.action_keys:
                     rstart = start - offset

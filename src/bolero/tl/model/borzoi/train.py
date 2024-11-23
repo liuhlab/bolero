@@ -385,7 +385,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         for idx, batch in enumerate(example_batches):
             if idx >= self.plot_example_per_epoch:
                 break
-            region_ids = batch["original_name"].cpu().numpy()
+            region_ids = batch["Original_Name"].cpu().numpy()
             region_names = np.array([borzoi_regions.cur_idmap[i] for i in region_ids])
             if self.dataset.use_gene_regions:
                 gene_names = borzoi_regions.cur_gtf_db.gene_id_to_name(
@@ -712,7 +712,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 ).backward()  # for backpropagation, we scale the loss with the accumulate_grad
 
                 moving_ave_loss.update(loss.item())
-                moving_ave_corr.update(y_true, y_pred)
+                moving_ave_corr.update(preds=y_pred, target=y_true)
 
                 # only update optimizer every accumulate_grad steps
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)

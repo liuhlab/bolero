@@ -235,7 +235,8 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         embedding = batch.get(embedding_key, None)
 
         y_true = batch.pop(data_key)
-        if y_true.shape[1] == 1:
+        if y_true.ndim == 2:
+            # add the channel dimension to y_true
             y_true = y_true.unsqueeze(1)
 
         # ==========

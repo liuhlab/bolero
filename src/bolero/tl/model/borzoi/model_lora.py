@@ -41,8 +41,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "additional_embs": 1,
             "emb_input": False,
             "emb_input_dims": None,
-            # Other settings
-            "context_output": False,
+            "output_head_type": "count",
         }
     )
 
@@ -160,13 +159,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         self.rna_output_head = None
         self.upper_bound_head = None
         if output_head_type == "count":
-            self.final_output_head = self.setup_output_head(out_channels=out_channels)
+            self.setup_output_head(out_channels=out_channels)
             self.loss_type = "poisson_multinomial"
         elif output_head_type == "frac":
             # output logits, loss function will apply sigmoid
-            self.final_output_head = self.setup_profile_head(
-                out_channels=out_channels, activation=None
-            )
+            self.setup_profile_head(out_channels=out_channels, activation=None)
             self.loss_type = "bce"
         elif output_head_type == "rna":
             self.setup_rna_head(rna_channels=out_channels)

@@ -268,7 +268,7 @@ def add_position_weights_to_batch(
     other_value=0.001,
 ):
     """Create region weights for the batch."""
-    region_names = pd.Index(batch["original_name"].cpu().numpy()).map(region_id_map)
+    region_names = pd.Index(batch["Original_Name"].cpu().numpy()).map(region_id_map)
     effective_global_coords = genome.get_global_coords(
         effective_regions.loc[region_names]
     )
