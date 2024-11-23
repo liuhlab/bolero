@@ -43,6 +43,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "data_key_to_file_type": None,
         "region2": False,
         "region2_max_dist": 5e6,
+        "multihead_output": False,
     }
 
     def __init__(
@@ -54,6 +55,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         resolution: int,
         batch_size: int = 2,
         balance: bool = False,
+        coverage_path: str = None,
         hic_cap_value: float = None,
         cool_data_norm_mode: str = None,
         cov_filter_name: str = None,
@@ -68,6 +70,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         data_key_to_file_type: dict[str, str] = None,
         region2: bool = False,
         region2_max_dist: float = 5e6,
+        multihead_output: bool = False,
     ):
         super().__init__(
             bed=bed,
@@ -83,6 +86,15 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         with open(dataset_path) as f:
             dataset_path_dict = json.load(f)
+
+        if coverage_path is not None:
+            with open(coverage_path) as f:
+                # {cell_type: {data_key: scale_factor}}
+                # scale_factor is used to scale the coverage data
+                # scale_factor = total_reads / reads_target
+                coverage_path_dict = json.load(f)
+        else:
+            coverage_path_dict = {}
 
         if data_key_to_file_type is None:
             data_key_to_file_type = {}
@@ -105,16 +117,22 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # dataset_paths is {data_key: [ct_path1, ct_path2, ...]},
         # ct_path order the same as self.cell_types
         self.dataset_paths = defaultdict(list)
+        self.dataset_scale_factors = defaultdict(list)
         for cell_type in cell_types:
             cell_type_files = dataset_path_dict[cell_type]
+            cell_type_cov_scale_factors = coverage_path_dict.get(cell_type, {})
             for data_key in data_key_to_file_type.keys():
-                # TODO: deal with cell type that missing a certain modality
+                # TODO HL: deal with cell type that missing a certain modality
                 self.dataset_paths[data_key].append(cell_type_files[data_key])
+                self.dataset_scale_factors[data_key].append(
+                    cell_type_cov_scale_factors.get(data_key, 1.0)
+                )
 
         self.balance = balance
         self.cool_data_norm_mode = cool_data_norm_mode
         self.hic_cap_value = hic_cap_value
         self.resolution = resolution
+        self.multihead_output = multihead_output
 
         # Embeddings map generation
         self.embeddings_path = embeddings_path
@@ -266,6 +284,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         dataset,
         data_key,
         bigwig_paths,
+        scale_factors=None,
         concurrency=(1, 6),
         n_operators=1,
         batch_size=8,
@@ -308,6 +327,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             fn = FetchRegionBigWigsReduced
             fn_constructor_kwargs = {
                 "bw_paths": chunk_paths,
+                "scale_factors": scale_factors,
                 "region_key": "region",  # this is what column from the dataframe is acted on by fn
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,
@@ -690,12 +710,13 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # add clamp sqrt
         # work_ds = self._add_clamp_sqrt(work_ds)
 
-        work_ds = self._convert_to_list_dict(
-            work_ds,
-            data_1d_keys=data_1d_keys,
-            data_2d_keys=data_2d_keys,
-            key_suffix=key_suffix,
-        )
+        if not self.multihead_output:
+            work_ds = self._convert_to_list_dict(
+                work_ds,
+                data_1d_keys=data_1d_keys,
+                data_2d_keys=data_2d_keys,
+                key_suffix=key_suffix,
+            )
 
         return work_ds
 

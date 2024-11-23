@@ -536,6 +536,7 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
     def __init__(
         self,
         bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        scale_factors: list[int] = None,
         region_key: str = "region",
         data_key: str = "bw_values",
         norm_mode: str = "log",
@@ -559,6 +560,10 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
         super().__init__(bw_paths, region_key, data_key, norm_mode)
 
         self.resolution = resolution
+        if scale_factors is None:
+            self.scale_factors = np.ones(len(bw_paths))
+        else:
+            self.scale_factors = np.array(scale_factors)
 
     def __call__(self, data_dict: Dict[str, Any], key_suffix=None) -> Dict[str, Any]:
         """
@@ -618,6 +623,10 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
                         "The reduced matrix contains negative values, cannot apply log normalization."
                     )
                 total_values = np.log(total_values + 1)
+
+            # apply scale factors to bring the data into same target scale
+            # default scale factors will be 1, unless user provided a specific scale factor file in the data loader
+            total_values = total_values / self.scale_factors[None, :, None]
 
             # Update the data_dict with the reduced data
             data_dict[self.data_key + suffix] = total_values

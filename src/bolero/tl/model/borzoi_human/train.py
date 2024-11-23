@@ -226,7 +226,10 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         # ==========
         X = batch.pop(dna_key)
         embedding = batch.get(embedding_key, None)
-        y_true = batch.pop(data_key).unsqueeze(1)
+
+        y_true = batch.pop(data_key)
+        if y_true.shape[1] == 1:
+            y_true = y_true.unsqueeze(1)
 
         # ==========
         # Forward and Loss
