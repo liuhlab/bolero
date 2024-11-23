@@ -6,7 +6,7 @@ from torchinfo import summary
 
 from bolero.utils import validate_config
 
-from .metrics import poisson_multinomial
+from .metrics import bce_loss, poisson_multinomial
 from .module import (
     ConvBlock,
     ConvDna,
@@ -416,7 +416,14 @@ class Borzoi(nn.Module):
         true = (true_count, true_p, true_upper_bound)
         return total_loss, loss_breakdown, pred, true
 
-    def loss(self, y_pred, y_true, reduce=True, position_weights=None):
+    def loss(
+        self,
+        y_pred,
+        y_true,
+        reduce=True,
+        position_weights=None,
+        loss_type="poisson_multinomial",
+    ):
         """
         Compute the loss for the Borzoi model.
 
@@ -431,27 +438,33 @@ class Borzoi(nn.Module):
         """
         with torch.no_grad():
             y_true = self.crop(y_true)
-            if (self.soft_clamp is not None) and (self.power is not None):
-                y_true = clamp_sqrt_large_value(
-                    y_true,
-                    power=self.power,
-                    threshold=self.soft_clamp,
-                    effective_bool=self.soft_clamp_bool,
-                )
-            if position_weights is not None:
-                position_weights = self.crop(position_weights)
+            if loss_type == "poisson_multinomial":
+                if (self.soft_clamp is not None) and (self.power is not None):
+                    y_true = clamp_sqrt_large_value(
+                        y_true,
+                        power=self.power,
+                        threshold=self.soft_clamp,
+                        effective_bool=self.soft_clamp_bool,
+                    )
+                if position_weights is not None:
+                    position_weights = self.crop(position_weights)
 
-        _loss, loss_breakdown = poisson_multinomial(
-            y_true=y_true,
-            y_pred=y_pred,
-            total_weight=self.loss_total_weight,
-            weight_range=1,  # 1 means not use the position weighted loss
-            weight_exp=4,
-            epsilon=1e-7,  # this is smallest for float16
-            return_breakdown=True,
-            loss_chunks=getattr(self, "loss_chunks", 1),
-            position_weights=position_weights,
-        )
+        if loss_type == "poisson_multinomial":
+            _loss, loss_breakdown = poisson_multinomial(
+                y_true=y_true,
+                y_pred=y_pred,
+                total_weight=self.loss_total_weight,
+                weight_range=1,  # 1 means not use the position weighted loss
+                weight_exp=4,
+                epsilon=1e-7,  # this is smallest for float16
+                return_breakdown=True,
+                loss_chunks=getattr(self, "loss_chunks", 1),
+                position_weights=position_weights,
+            )
+        elif loss_type == "bce":
+            _loss, loss_breakdown = bce_loss(y_pred, y_true, return_breakdown=True)
+        else:
+            raise ValueError(f"loss_type {loss_type} not recognized")
 
         # loss is averaged across batch and channels
         if reduce:

@@ -189,20 +189,27 @@ class BorzoiHumanTrainerMixin(TrainerBorzoiHumanDatasetMixin, BorzoiTrainerMixin
 
 
 class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
-    """Train LoRA model on pseudobulk single-cell ATAC data."""
+    """Train LoRA model on pseudobulk single-cell ATAC or mC data."""
 
     trainer_config = BorzoiHumanTrainerMixin.trainer_config.copy()
     trainer_config.update(
         {
             "mode": "lora",
             "lr": 5e-5,
-            "warmup_steps": 10000,
+            "warmup_steps": 5000,
             "scheduler": True,
+            "data_key": "atac",
         }
     )
 
     dataset_class = BorzoiDatasetOnline
     model_class = BorzoiLoRA
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+        self.data_key = self.config["data_key"]
+        return
 
     def _setup_model(self):
         print("Setting up model from config")
@@ -217,7 +224,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         return
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        data_key = "atac"
+        data_key = self.data_key
         dna_key = "dna_one_hot"
         embedding_key = "cell_type_embedding"
 

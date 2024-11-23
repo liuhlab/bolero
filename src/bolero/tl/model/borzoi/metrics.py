@@ -225,6 +225,22 @@ def poisson_multinomial(
         return final_loss
 
 
+def bce_loss(y_pred: torch.Tensor, y_true: torch.Tensor, return_breakdown=False):
+    """
+    Compute binary cross-entropy loss.
+
+    Input shape: (bs, c, seq_len)
+    Loss output shape: (bs, c)
+    """
+    loss = F.binary_cross_entropy_with_logits(y_pred, y_true, reduction="none").mean(-1)
+
+    loss_breakdown = {"bce_loss": loss.detach()}
+
+    if return_breakdown:
+        return loss, loss_breakdown
+    return loss
+
+
 def mse_diff_loss(y_pred_a, y_pred_b, y_true_a, y_true_b):
     """
     Compute the MSE loss between paired log fold changes.

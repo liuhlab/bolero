@@ -73,8 +73,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         additional_embs=1,
         emb_input=False,
         emb_input_dims=None,
-        # other settings
-        context_output=False,
+        # output_head
+        output_head_type="count",
         # base model
         **base_model_kwargs,
     ):
@@ -154,9 +154,25 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         else:
             self.kv_bottleneck = None
 
-        # Output head
-        self.context_output = context_output
-        if context_output:
+        # Setup Output Head
+        # place holder for other modalities
+        self.context_output = False
+        self.rna_output_head = None
+        self.upper_bound_head = None
+        if output_head_type == "count":
+            self.final_output_head = self.setup_output_head(out_channels=out_channels)
+            self.loss_type = "poisson_multinomial"
+        elif output_head_type == "frac":
+            # output logits, loss function will apply sigmoid
+            self.final_output_head = self.setup_profile_head(
+                out_channels=out_channels, activation=None
+            )
+            self.loss_type = "bce"
+        elif output_head_type == "rna":
+            self.setup_rna_head(rna_channels=out_channels)
+            self.loss_type = "poisson_multinomial"
+        elif output_head_type == "countext":
+            self.context_output = True
             self.final_output_head = ContextOutputHead(
                 in_channels=1920,
                 out_channels=out_channels,
@@ -171,14 +187,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 num_memory_codebooks=num_memory_codebooks,
                 additional_embs=additional_embs,
             )
+            self.loss_type = "poisson_multinomial"
+        elif output_head_type == "upper_bound":
+            self.setup_profile_head()
+            self.loss_type = "poisson_multinomial"
         else:
-            self.final_output_head = OutputHead(
-                in_channels=1920, out_channels=out_channels
-            )
-
-        # place holder for other modalities
-        self.rna_output_head = None
-        self.upper_bound_head = None
+            raise ValueError(f"output_head_type: {output_head_type} is invalid")
 
         # convert model to LoRA
         self.lora_config = self.make_lora_config(
@@ -232,6 +246,14 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         lora_config["lora_rank"] = rna_channels
         self._convert_single_module("rna_output_head", lora_config)
         return
+
+    def setup_output_head(self, out_channels, activation="softplus"):
+        """Setup a single mC output head for predicting mC fraction logits"""
+        self.final_output_head = OutputHead(
+            in_channels=1920,
+            out_channels=out_channels,
+            activation=activation,
+        )
 
     def setup_profile_head(self):
         """Setup a single profile head for predicting profile upper bound."""
@@ -447,7 +469,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             _reduce = reduce
 
         loss, loss_breakdown, y_true = super().loss(
-            y_pred, y_true, reduce=_reduce, position_weights=position_weights
+            y_pred,
+            y_true,
+            reduce=_reduce,
+            position_weights=position_weights,
+            loss_type=self.loss_type,
         )
         # loss shape (bs, out_channels)
 
