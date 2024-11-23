@@ -703,7 +703,11 @@ class GradNormCollector:
         # record param stats only once in the beginning
         if len(self.param_norms) == 0:
             for name, param in model.named_parameters():
-                param_norm = param.data.norm().item()
+                try:
+                    param_norm = param.data.norm().item()
+                except RuntimeError as e:
+                    print(f"Error in calculating norm for {name} {param} {param.dtype}")
+                    raise e
                 self.param_norms[name] = param_norm
         return
 

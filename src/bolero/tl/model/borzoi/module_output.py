@@ -2,28 +2,22 @@ import torch
 import torch.nn as nn
 from torchscale.component.dilated_attention import DilatedAttention
 
-from .module import ConvBlock, FeedForward, OutputHead, Residual, SequentialwithArgs
+from bolero.tl.generic.module_embedding import KVBottleNeckMixin
+
+from .module import (
+    ContextCrossAttention,
+    FeedForward,
+    GEGLUFeedForward,
+    Residual,
+    SequentialwithArgs,
+)
 
 
 class CountDataProcessor(nn.Module):
     """
     ATACProcessor is a neural network module designed to process ATAC-seq count data.
 
-    Methods
-    -------
-    __init__():
-        Initializes the ATACProcessor module with a Conv1D layer, LayerNorm, and Dropout.
-
-    forward(atac_counts: torch.Tensor) -> torch.Tensor:
-        Forward pass of the ATACProcessor module.
-
-    Parameters
-    ----------
-        atac_counts (torch.Tensor): Input tensor containing ATAC-seq counts.
-
-    Returns
-    -------
-        torch.Tensor: Processed tensor after applying log1p transformation, Conv1D, LayerNorm, and Dropout.
+    # TODO: Change to dilated convolutions and gradually increase channels
     """
 
     def __init__(
@@ -32,7 +26,7 @@ class CountDataProcessor(nn.Module):
         dna_emb_dims=1536,
         seq_len=16384,
         kernel_size=4,
-        atac_dropout=0.1,
+        api_dropout=0.1,
     ):
         super().__init__()
 
@@ -42,7 +36,7 @@ class CountDataProcessor(nn.Module):
             ),
             nn.LayerNorm(seq_len),
             nn.GELU(approximate="tanh"),
-            nn.Dropout(atac_dropout),
+            nn.Dropout(api_dropout),
         )
 
     def forward(self, atac_counts, *args, **kwargs):
@@ -144,49 +138,81 @@ class DilatedTransformerLayer(nn.Module):
                 hidden_dim=embed_dim * 2,
                 output_dim=embed_dim,
                 dropout=ff_dropout,
+                activation="gelu",
             )
         )
 
     def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """TransformerLayer forward pass."""
+        x = x.bfloat16()
+
         x0 = x
+
         x = self.norm(x)
+
         # TODO: currently DilatedAttention not support args and kwargs
         x, _ = self.attn(x, x, x)
         x = x0 + x
+
         x = self.ff(x)
         return x
 
 
-class DNAATACtoRNA(nn.Module):
+class OutputHead(SequentialwithArgs):
+    """A simple output head with out context input."""
+
+    def __init__(self, in_channels, out_channels, activation="softplus"):
+        if activation == "softplus":
+            activation = nn.Softplus()
+        elif activation == "sigmoid":
+            activation = nn.Sigmoid()
+        elif activation == "gelu":
+            activation = nn.GELU()
+        elif activation is None:
+            activation = nn.Identity()
+        else:
+            raise ValueError(f"Activation function {activation} not supported")
+
+        super().__init__(
+            nn.Conv1d(
+                in_channels=in_channels, out_channels=out_channels, kernel_size=1
+            ),
+            activation,
+        )
+
+
+class RNAOutputHead(nn.Module):
     def __init__(
         self,
-        borzoi_model,
+        # Borzoi model
         output_channels=1,
         seq_len=16384,
-        num_heads=16,
+        embed_dim=1920,
+        # Epi input Processor
+        epi_input=False,
+        epi_dropout=0.1,
+        epi_channels=1,
+        # transformer
         num_layers=0,
-        atac_dropout=0.1,
+        num_heads=16,
         final_conv_dropout=0.05,
         dilated_ratio=(1, 2, 4, 8, 16, 32),
         segment_length=(512, 1024, 2048, 4096, 8192, 16384),
         xpos_rel_pos=False,
     ):
         """DNAATACtoRNA model for predicting RNA raw count track signal from DNA and ATAC data"""
-        embed_dim = 1536
-        final_dim = 1920
-        epi_channels = 1
-
         super().__init__()
-        self.borzoi_model = borzoi_model
 
-        self.atac_processor = CountDataProcessor(
-            in_channels=epi_channels,
-            dna_emb_dims=embed_dim,
-            seq_len=seq_len,
-            kernel_size=5,
-            atac_dropout=atac_dropout,
-        )
+        if epi_input:
+            self.epi_processor = CountDataProcessor(
+                in_channels=epi_channels,
+                dna_emb_dims=embed_dim,
+                seq_len=seq_len,
+                kernel_size=5,
+                api_dropout=epi_dropout,
+            )
+        else:
+            self.epi_processor = nn.Identity()
 
         if num_layers > 0:
             kwargs = {
@@ -205,33 +231,109 @@ class DNAATACtoRNA(nn.Module):
             ]
             self.attn_layers = SequentialwithArgs(*transformer)
         else:
-            self.attn_layers = nn.Identity()
+            self.attn_layers = FeedForward(
+                input_dim=embed_dim,
+                hidden_dim=embed_dim * 2,
+                output_dim=embed_dim,
+                dropout=final_conv_dropout,
+                activation="gelu",
+            )
 
-        self.final_joined_convs = SequentialwithArgs(
-            ConvBlock(in_channels=embed_dim, out_channels=final_dim, kernel_size=1),
-            nn.Dropout(final_conv_dropout),
-            nn.GELU(approximate="tanh"),
-        )
         self.output_head = OutputHead(
-            in_channels=final_dim, out_channels=output_channels
+            in_channels=embed_dim, out_channels=output_channels
         )
 
-    def forward(self, dna_embedding, atac_counts, detach_input=False):
+    def forward(self, dna_embedding, epi_input=None, detach_input=False):
         """Forward pass of the DNAATACtoRNA model"""
         if detach_input:
             dna_embedding = dna_embedding.detach()
-            atac_counts = atac_counts.detach()
 
-        # Process ATAC counts
-        dna_embedding = dna_embedding + self.atac_processor(atac_counts)
+        if epi_input is None:
+            x = dna_embedding
+        else:
+            x = dna_embedding + self.epi_processor(epi_input)
 
-        dna_embedding = dna_embedding.permute(0, 2, 1).bfloat16()
+        x = x.permute(0, 2, 1)
         # Apply Cross and Self Attention Blocks
-        attn_output = self.attn_layers(dna_embedding)
-        attn_output = attn_output.permute(0, 2, 1)
-
-        final_embedding = self.final_joined_convs(attn_output)
+        x = self.attn_layers(x)
+        x = x.permute(0, 2, 1)
 
         # Apply Output Head to predict RNA raw count track signal
-        final_output = self.output_head(final_embedding)
-        return final_output
+        output = self.output_head(x)
+        return output
+
+
+class ContextOutputHead(nn.Module, KVBottleNeckMixin):
+    """A simple output head with context input."""
+
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        context_dim,
+        cross_attn_heads=8,
+        cross_attn_dim=64,
+        ff_mult=2,
+        dropout=0.05,
+        kv_bottleneck=False,
+        num_memories=256,
+        dim_memory=20,
+        num_memory_codebooks=2,
+        additional_embs=1,
+    ):
+        super().__init__()
+        cross_attn = Residual(
+            # layer norm included in the cross attention
+            ContextCrossAttention(
+                in_channels=in_channels,
+                context_dim=context_dim,
+                heads=cross_attn_heads,
+                dim_head=cross_attn_dim,
+            )
+        )
+        feed_forward = Residual(
+            # layer norm included in the feed forward
+            GEGLUFeedForward(dim=in_channels, dropout=dropout, mult=ff_mult),
+        )
+        self.residual_context = Residual(
+            SequentialwithArgs(
+                cross_attn,
+                feed_forward,
+                nn.Dropout(dropout),
+                # nn.GELU(approximate="tanh"),  # TODO: should we add GELU here?
+            )
+        )
+        self.final_output_head = OutputHead(in_channels, out_channels)
+
+        # key-value bottleneck for converting indices to embeddings
+        if kv_bottleneck:
+            self.kv_bottleneck, _ = self.setup_kv_bottleneck(
+                num_memory_codebooks=num_memory_codebooks,
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                additional_embs=additional_embs,
+            )
+        else:
+            self.kv_bottleneck = None
+
+    def forward(self, x: torch.Tensor, embedding: torch.Tensor):
+        """
+        ContextOutputHead forward pass.
+
+        Parameters
+        ----------
+            x: torch.Tensor, shape (batch, dim, seq_len)
+            embedding: torch.Tensor, shape (batch, context_dim)
+
+        Returns
+        -------
+            torch.Tensor, shape (batch, out_channels, seq_len)
+        """
+        if self.kv_bottleneck is not None:
+            embedding = self.vq_ind_to_emb(embedding)
+
+        x = x.permute(0, 2, 1)
+        x = self.residual_context(x, embedding=embedding)
+        x = x.permute(0, 2, 1)
+        x = self.final_output_head(x)
+        return x

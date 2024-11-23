@@ -134,7 +134,7 @@ class FetchRegionCools:
         data_key="values",
         norm_mode="log",
         image_scale=256,
-        cap_value=0.02,
+        cap_value=None,
     ) -> None:
         """
         Initialize FetchRegionCools.
@@ -173,45 +173,70 @@ class FetchRegionCools:
         self.image_scale = image_scale
         self.cap_value = cap_value
 
-    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Fetch region ALLCs.
-
-        Parameters
-        ----------
-        - data_dict: Dictionary containing the data.
-
-        Returns
-        -------
-        Dictionary containing the updated data.
-        """
-        region_ = data_dict[self.region_key]
+    def _prepare_regions(self, regions_values):
         resolution = self.resolution
-        if isinstance(region_, str):
-            region_ = [region_]
-        regions = understand_regions(region_, as_df=True)
-        regions["Start"] = regions["Start"] // resolution * resolution
-        regions["End"] = ((regions["End"] - 1) // resolution + 1) * resolution
+        if isinstance(regions_values, str):
+            regions_values = [regions_values]
+        regions = understand_regions(regions_values, as_df=True)
+        # regions["Start"] = regions["Start"] // resolution * resolution
+        # regions["End"] = ((regions["End"] - 1) // resolution + 1) * resolution
+        raw_start = regions["Start"].copy()
+        raw_length = regions["End"] - regions["Start"]
+        regions["Start"] = raw_start // resolution * resolution
+        regions["End"] = regions["Start"] + raw_length // resolution * resolution
         assert (regions["End"] - regions["Start"]).unique().shape[
             0
-        ] == 1, "Regions must have the same length."
+        ] == 1, f"Regions must have the same length, got {regions}"
 
-        n_regions = len(region_)
+        return regions
+
+    def _prepare_region_values(self, regions, regions_2=None):
+        n_regions = regions.shape[0]
         region_length = (
             regions["End"].iloc[0] - regions["Start"].iloc[0]
-        ) // resolution
+        ) // self.resolution
+
         n_cool = len(self.cool_paths)
 
         total_values = np.zeros(
-            shape=(n_regions, n_cool, region_length, region_length), dtype=np.float32
+            shape=(n_regions, n_cool, region_length, region_length),
+            dtype=np.float32,
         )
-        for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
+
+        if regions_2 is None:
+            regions_2 = regions
+            has_regions_2 = False
+        else:
+            assert len(regions) == len(regions_2), (
+                f"regions and regions_2 must have the same length. "
+                f"Got regions {len(regions)} and regions_2 {len(regions_2)}."
+            )
+            has_regions_2 = True
+
+        iter_regions = zip(
+            regions.iloc[:, :3].iterrows(), regions_2.iloc[:, :3].iterrows()
+        )
+        for idx, ((_, (chrom, start, end)), (_, (chrom2, start2, end2))) in enumerate(
+            iter_regions
+        ):
             for idy, (cool_handle, cool_object) in enumerate(
                 zip(self.cool_handles, self.cool_objects)
             ):
-                temp_values = self.query_cool_region(
-                    cool_handle, cool_object, chrom, start, end
-                )
+                if has_regions_2:
+                    temp_values = self.query_cool_region(
+                        cool_handle,
+                        cool_object,
+                        chrom,
+                        start,
+                        end,
+                        chrom2=chrom2,
+                        start2=start2,
+                        end2=end2,
+                    )
+                else:
+                    temp_values = self.query_cool_region(
+                        cool_handle, cool_object, chrom, start, end
+                    )
                 total_values[idx, idy, ...] = temp_values
 
         if self.norm_mode == "log":
@@ -227,22 +252,65 @@ class FetchRegionCools:
             (n_regions, n_cool, self.image_scale, self.image_scale),
             anti_aliasing=True,
         )
-        data_dict[self.data_key] = total_values
+        return total_values
+
+    def __call__(self, data_dict: Dict[str, Any], key_suffix=None) -> Dict[str, Any]:
+        """
+        Fetch region ALLCs.
+
+        Parameters
+        ----------
+        - data_dict: Dictionary containing the data.
+
+        Returns
+        -------
+        Dictionary containing the updated data.
+        """
+        if key_suffix is None:
+            key_suffix = [""]
+
+        # cool data for region self interaction and region_2 self interaction
+        for suffix in key_suffix:
+            regions = self._prepare_regions(data_dict[self.region_key + suffix])
+            total_values = self._prepare_region_values(regions)
+
+            data_dict[self.data_key + suffix] = total_values
+
+        # cool data for region and region_2 cross interaction
+        if "_2" in key_suffix:
+            regions = self._prepare_regions(data_dict[self.region_key])
+            regions_2 = self._prepare_regions(data_dict[self.region_key + "_2"])
+            total_values = self._prepare_region_values(regions, regions_2=regions_2)
+            data_dict[self.data_key + "_1+2"] = total_values
         return data_dict
 
-    def query_cool_region(self, cool_handle, cool_object, chrom, start, end):
+    def query_cool_region(
+        self,
+        cool_handle,
+        cool_object,
+        chrom,
+        start,
+        end,
+        chrom2=None,
+        start2=None,
+        end2=None,
+    ):
         """Get region data from an COOL file handle."""
         # bin_start = start // resolution
         # bin_end = (end-1) // resolution + 1
         try:
+            if chrom2 is not None:
+                region2 = f"{chrom2}:{start2}-{end2}"
+            else:
+                region2 = None
             data = (
                 self.matrix(h5=cool_handle, cool=cool_object, balance=self.balance)
-                .fetch(f"{chrom}:{start}-{end}")
+                .fetch(region=f"{chrom}:{start}-{end}", region2=region2)
                 .astype("float32")
             )
         except ValueError:
             print(
-                "Got ValueError when fetching region: {chrom}:{start}-{end}, return 0"
+                f"Got ValueError when fetching region: {chrom}:{start}-{end}, return 0"
             )
             return 0
         return data
@@ -364,36 +432,40 @@ class FetchRegionBigWigs:
         self.smooth_moving_average = smooth_moving_average
         self.kernel_size = kernel_size
 
-    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, data_dict: Dict[str, Any], key_suffix=None) -> Dict[str, Any]:
         """
         Fetch region BigWigs.
         """
-        # region is an array of strings np.array["chr1:100-200", "chr2:300-400"]
-        region_ = data_dict[self.region_key]
+        if key_suffix is None:
+            key_suffix = [""]
 
-        if isinstance(region_, str):
-            region_ = [region_]
-        regions = understand_regions(region_, as_df=True)
-        assert (regions["End"] - regions["Start"]).unique().shape[
-            0
-        ] == 1, "Regions must have the same length."
-        # regions is a bed dataframe with columns ["Chromosome", "Start", "End"]
+        for suffix in key_suffix:
+            # region is an array of strings np.array["chr1:100-200", "chr2:300-400"]
+            region_ = data_dict[self.region_key + suffix]
 
-        n_regions = len(region_)
-        region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
-        n_bw = len(self.bw_paths)
+            if isinstance(region_, str):
+                region_ = [region_]
+            regions = understand_regions(region_, as_df=True)
+            assert (regions["End"] - regions["Start"]).unique().shape[
+                0
+            ] == 1, "Regions must have the same length."
+            # regions is a bed dataframe with columns ["Chromosome", "Start", "End"]
 
-        total_values = np.zeros(
-            shape=(n_regions, n_bw, region_length), dtype=np.float32
-        )
-        for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
-            for idy, bw_handle in enumerate(self.bw_handles):
-                temp_values = self.query_bw_region(bw_handle, chrom, start, end)
-                total_values[idx, idy, :] = temp_values
-        if self.norm_mode == "log":
-            assert np.min(total_values) >= 0, "The matrix contains negative values."
-            total_values = np.log(total_values + 1)
-        data_dict[self.data_key] = total_values
+            n_regions = len(region_)
+            region_length = regions["End"].iloc[0] - regions["Start"].iloc[0]
+            n_bw = len(self.bw_paths)
+
+            total_values = np.zeros(
+                shape=(n_regions, n_bw, region_length), dtype=np.float32
+            )
+            for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
+                for idy, bw_handle in enumerate(self.bw_handles):
+                    temp_values = self.query_bw_region(bw_handle, chrom, start, end)
+                    total_values[idx, idy, :] = temp_values
+            if self.norm_mode == "log":
+                assert np.min(total_values) >= 0, "The matrix contains negative values."
+                total_values = np.log(total_values + 1)
+            data_dict[self.data_key + suffix] = total_values
         return data_dict
 
     def query_bw_region(self, bw_handle, chrom, start, end):
@@ -408,6 +480,101 @@ class FetchRegionBigWigs:
             return conv_data
         else:
             return data
+
+
+class FetchRegionBigWigsReduced(FetchRegionBigWigs):
+    def __init__(
+        self,
+        bw_paths: Union[str, pathlib.Path, List[Union[str, pathlib.Path]]],
+        region_key: str = "region",
+        data_key: str = "bw_values",
+        norm_mode: str = "log",
+        resolution: int = 32,
+    ):
+        """
+        Initialize FetchRegionBigWigsReduced.
+
+        Parameters
+        ----------
+        - bw_paths: Path(s) to the BigWig file(s).
+        - region_key: Key in the data_dict that represents the region.
+        - data_key: Key in the data_dict to store the reduced fetched data.
+        - norm_mode: Normalization mode. Default is "log".
+        - resolution: Size of each bin in base pairs. Default is 32.
+
+        Returns
+        -------
+        None
+        """
+        super().__init__(bw_paths, region_key, data_key, norm_mode)
+
+        self.resolution = resolution
+
+    def __call__(self, data_dict: Dict[str, Any], key_suffix=None) -> Dict[str, Any]:
+        """
+        Fetch region BigWigs and reduce the data to specified bin size.
+
+        Parameters
+        ----------
+        - data_dict: Dictionary containing region information.
+
+        Returns
+        -------
+        - data_dict with reduced total_values.
+        """
+        if key_suffix is None:
+            key_suffix = [""]
+
+        # Call the superclass method to fetch the original total_values
+        data_dict = super().__call__(data_dict, key_suffix=key_suffix)
+
+        for suffix in key_suffix:
+            # Retrieve the fetched data
+            total_values = data_dict[
+                self.data_key + suffix
+            ]  # Shape: (n_regions, n_bw, region_length)
+
+            # Get the shape parameters
+            n_regions, n_bw, region_length = total_values.shape
+
+            # Define the bin size
+            bin_size = self.resolution
+
+            # Calculate the number of bins
+            n_bins = region_length // bin_size
+
+            # Check if the region_length is divisible by bin_size
+            if region_length % bin_size != 0:
+                # If not, trim the excess data to make it divisible
+                trimmed_length = n_bins * bin_size
+                total_values = total_values[:, :, :trimmed_length]
+                print(
+                    f"Warning: region_length ({region_length}) is not divisible by bin_size ({bin_size}). "
+                    f"Trimmed to {trimmed_length}."
+                )
+
+            # Reshape and aggregate the data to reduce the resolution
+            # New shape will be (n_regions, n_bw, n_bins, bin_size)
+            reshaped = total_values.reshape(n_regions, n_bw, n_bins, bin_size)
+
+            # Aggregate by taking the mean across the bin_size axis
+            # Resulting shape: (n_regions, n_bw, n_bins)
+            total_values = reshaped.mean(axis=-1)
+
+            # If normalization is set to "log", apply log transformation
+            if self.norm_mode == "log":
+                if np.min(total_values) < 0:
+                    raise ValueError(
+                        "The reduced matrix contains negative values, cannot apply log normalization."
+                    )
+                total_values = np.log(total_values + 1)
+
+            # Update the data_dict with the reduced data
+            data_dict[self.data_key + suffix] = total_values
+
+            # add the cell type information with an id based on the leg map
+
+        return data_dict
 
 
 class GetEmbedding:
@@ -492,7 +659,7 @@ class ReverseCompHicData:
         self.dna_key = dna_key
         self.chance = chance
 
-    def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, data_dict: Dict[str, Any], key_suffix=None) -> Dict[str, Any]:
         """
         Reverse complement the DNA sequence and the Hi-C data.
 
@@ -504,21 +671,46 @@ class ReverseCompHicData:
         -------
         Dictionary containing the updated data.
         """
+        if key_suffix is None:
+            key_suffix = [""]
+
+        bs = data_dict[self.dna_key].shape[0]
         _bool = np.random.rand(1)
-        if _bool < self.chance:
-            if self.data_1d_keys is not None:
-                for key in self.data_1d_keys:
-                    data_dict[key] = np.flip(
-                        data_dict[key], axis=-1
-                    )  # -1 flip the sequence
-            if self.data_2d_keys is not None:
-                for key in self.data_2d_keys:
-                    data_dict[key] = np.flip(
-                        data_dict[key], axis=[-1, -2]
-                    )  # -1 and -2 both filp the sequence, because the data is 2D
-            data_dict[self.dna_key] = np.flip(
-                data_dict[self.dna_key], axis=[-1, -2]
-            )  # -1 flip the sequence, -2 flip the base pair (complement)
+        if _bool > self.chance:
+            data_dict["is_reverse_comp"] = np.zeros(bs, dtype=np.int32)
+            return data_dict
+
+        try:
+            for suffix in key_suffix:
+                if self.data_1d_keys is not None:
+                    for key in self.data_1d_keys:
+                        data_dict[key + suffix] = np.flip(
+                            data_dict[key + suffix], axis=-1
+                        )  # -1 flip the sequence
+                if self.data_2d_keys is not None:
+                    for key in self.data_2d_keys:
+                        data_dict[key + suffix] = np.flip(
+                            data_dict[key + suffix], axis=[-1, -2]
+                        )  # -1 and -2 both filp the sequence, because the data is 2D
+                data_dict[self.dna_key + suffix] = np.flip(
+                    data_dict[self.dna_key + suffix], axis=[-1, -2]
+                )  # -1 flip the sequence, -2 flip the base pair (complement)
+
+            # deal with the interaction suffix in 2D data
+            if "_2" in key_suffix:
+                if self.data_2d_keys is not None:
+                    for key in self.data_2d_keys:
+                        data_dict[key + "_1+2"] = np.flip(
+                            data_dict[key + "_1+2"], axis=[-1, -2]
+                        )
+
+            data_dict["is_reverse_comp"] = np.ones(bs, dtype=np.int32)
+
+        except (np.exceptions.AxisError, KeyError) as e:
+            print("Error in ReverseCompHicData, the data causing the error is:")
+            for k, v in data_dict.items():
+                print(k, v.shape)
+            raise e
         return data_dict
 
 

@@ -3,9 +3,10 @@ from typing import Union
 
 import numpy as np
 import torch
-from einops import einsum, rearrange, repeat
+from einops import einsum, rearrange, reduce, repeat
 from torch import nn
 from torch.nn import functional as F
+from vector_quantize_pytorch import VectorQuantize
 
 from bolero.tl.generic.module import GroupedLinear, Residual
 
@@ -156,6 +157,95 @@ class ArchEmbeddingMixin:
         return
 
 
+# CODE BELOW IS FROM
+# https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/tree/main
+# LICENSE: MIT https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/blob/main/LICENSE
+class DiscreteKeyValueBottleneck(nn.Module):
+    def __init__(
+        self,
+        dim=50,
+        *,
+        dim_embed=None,
+        num_memories=256,
+        num_memory_codebooks=2,
+        dim_memory=256,
+        encoder=None,
+        average_pool_memories=True,
+        **kwargs,
+    ):
+        super().__init__()
+        self.encoder = encoder
+        if dim_embed is None:
+            dim_embed = dim
+        self.dim_embed = dim_embed
+
+        self.vq = VectorQuantize(
+            dim=dim * num_memory_codebooks,
+            codebook_size=num_memories,
+            heads=num_memory_codebooks,
+            separate_codebook_per_head=True,
+            **kwargs,
+        )
+
+        if dim_memory is None:
+            dim_memory = dim
+        # self.values.shape (h, n, d), leanable memory vectors for decoder input
+        self.values = nn.Parameter(
+            torch.randn(num_memory_codebooks, num_memories, dim_memory)
+        )
+
+        rand_proj = torch.empty(num_memory_codebooks, dim_embed, dim)
+        nn.init.xavier_normal_(rand_proj)
+
+        self.register_buffer("rand_proj", rand_proj)
+        self.average_pool_memories = average_pool_memories
+
+    def forward(self, x, return_intermediates=False, **kwargs):
+        """Get the memory embeddings from the input embeddings."""
+        if self.encoder is not None:
+            self.encoder.eval()
+            with torch.no_grad():
+                x = self.encoder(x, **kwargs)
+                x.detach_()
+
+        # add n dim if not exist, but remember to convert back to 2D after forward
+        if x.ndim == 2:
+            x = rearrange(x, "b d -> b 1 d")
+            has_n_dim = False
+
+        assert (
+            x.shape[-1] == self.dim_embed
+        ), f"encoding has a dimension of {x.shape[-1]} but dim_embed (defaults to dim) is set to {self.dim_embed} on init"
+
+        x = einsum(x, self.rand_proj, "b n d, c d e -> b n c e")
+        x = rearrange(x, "b n c e -> b n (c e)")
+
+        vq_out = self.vq(x)
+
+        _, memory_indices, _ = vq_out
+
+        if memory_indices.ndim == 2:
+            memory_indices = rearrange(memory_indices, "... -> ... 1")
+
+        memory_indices = rearrange(memory_indices, "b n h -> b h n")
+
+        values = repeat(self.values, "h n d -> b h n d", b=memory_indices.shape[0])
+        memory_indices = repeat(memory_indices, "b h n -> b h n d", d=values.shape[-1])
+
+        memories = values.gather(2, memory_indices)
+
+        if self.average_pool_memories:
+            memories = reduce(memories, "b h n d -> b n d", "mean")
+
+        if not has_n_dim:
+            memories = rearrange(memories, "b 1 d -> b d")
+
+        if return_intermediates:
+            return memories, vq_out
+
+        return memories
+
+
 class DiscreteKeyValueBottleneckNoVQ(nn.Module):
     def __init__(
         self,
@@ -199,6 +289,7 @@ class DiscreteKeyValueBottleneckNoVQ(nn.Module):
         vq_indices,
     ):
         """Turn vq indices into memory embeddings."""
+        vq_indices = vq_indices.long()
         input_shape = vq_indices.shape
         if vq_indices.ndim == 2:
             vq_indices = rearrange(vq_indices, "bs h -> bs 1 h")
@@ -219,7 +310,7 @@ class DiscreteKeyValueBottleneckNoVQ(nn.Module):
 
 
 class KVBottleNeckMixin:
-    kv_bottleneck: DiscreteKeyValueBottleneckNoVQ
+    kv_bottleneck: Union[DiscreteKeyValueBottleneckNoVQ, DiscreteKeyValueBottleneck]
 
     def setup_kv_bottleneck(
         self,
@@ -227,6 +318,9 @@ class KVBottleNeckMixin:
         num_memories,
         dim_memory,
         additional_embs,
+        emb_input=False,
+        emb_input_dims=None,
+        average_pool_memories=False,
     ):
         """
         Setup the key-value bottleneck for converting indices to embeddings.
@@ -254,12 +348,29 @@ class KVBottleNeckMixin:
         self.num_memory_codebooks = num_memory_codebooks
         self.num_memories = num_memories
         self.dim_memory = dim_memory
-        kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
-            num_memories=num_memories,
-            dim_memory=dim_memory,
-            num_memory_codebooks=num_memory_codebooks,
-            average_pool_memories=False,
-        )
+        self.emb_input = emb_input
+
+        if self.emb_input:
+            assert (
+                emb_input_dims is not None
+            ), "emb_input_dims must be provided if emb_input is True"
+            kv_bottleneck = DiscreteKeyValueBottleneck(
+                dim=emb_input_dims,
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                num_memory_codebooks=num_memory_codebooks,
+                average_pool_memories=True,
+            )
+            self.input_dims_for_kv = emb_input_dims
+        else:
+            kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
+                num_memories=num_memories,
+                dim_memory=dim_memory,
+                num_memory_codebooks=num_memory_codebooks,
+                average_pool_memories=average_pool_memories,
+            )
+            self.input_dims_for_kv = num_memory_codebooks
+
         emb_input_features = num_memory_codebooks * dim_memory + additional_embs
         return kv_bottleneck, emb_input_features
 
@@ -269,10 +380,9 @@ class KVBottleNeckMixin:
 
         (bs, n_cbs + additional_embs) -> (bs, n_cbs * dim_memory + additional_embs).
         """
-        n_cbs = self.kv_bottleneck.num_memory_codebooks
-        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
-        other_emb_data = emb_data[:, n_cbs:]
-        emb_data = self.kv_bottleneck(vq_ind)
+        kv_input = emb_data[:, : self.input_dims_for_kv]
+        other_emb_data = emb_data[:, self.input_dims_for_kv :]
+        emb_data = self.kv_bottleneck(kv_input)
         emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
         return emb_data
 
@@ -296,10 +406,13 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         num_memories=256,
         dim_memory=20,
         additional_embs=1,
+        emb_input=False,
+        emb_input_dims=None,
         norm_type="batch",
         batchnorm_momentum=0.1,
         dropout=0.0,
         residual=False,
+        rescale_factor=1,
     ) -> None:
         """
         Initialize the EmbeddingMLP module.
@@ -351,6 +464,8 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
                 num_memories=num_memories,
                 dim_memory=dim_memory,
                 additional_embs=additional_embs,
+                emb_input=emb_input,
+                emb_input_dims=emb_input_dims,
             )
         else:
             self.kv_bottleneck = None
@@ -372,7 +487,9 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             )
         )
         self.mlp = nn.Sequential(*layers)
-        self.rescale_factor = nn.Parameter(torch.tensor(1.0), requires_grad=False)
+        self.rescale_factor = nn.Parameter(
+            torch.tensor(float(rescale_factor)).float(), requires_grad=False
+        )
 
         # ArchEmbedding placeholder
         self.arch_modules = torch.nn.ModuleList()
@@ -383,6 +500,8 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             norm = nn.BatchNorm1d(out_features, momentum=self.batchnorm_momentum)
         elif self.norm_type == "layer":
             norm = nn.LayerNorm(out_features)
+        elif self.norm_type == "none":
+            norm = nn.Identity()
         else:
             raise ValueError(f"Unknown norm type {self.norm_type}")
 

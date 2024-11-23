@@ -90,6 +90,7 @@ class TrainerBorzoiDatasetMixin:
 
         # get the channel order
         try:
+            # this part is for mouse pseudobulk dataset
             self.channel_order = self.dataset.name_to_pseudobulker[
                 self.prefix
             ].prefix_order
@@ -244,7 +245,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
         # the prefix of pseudobulk data in the batch dict
         # this is the pseudobulker name passed to dataset
-        self.prefix = config["prefix"]
+        self.prefix = config.get("prefix", "pseudobulk")
 
         self.model: torch.nn.Module = None
         self._setup_env()
@@ -276,36 +277,48 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # if val batches is None, use all batches in the dataset
         size = 0
         mean_val_loss = CumulativeCounter()
-        mean_loss_breakdown = {
-            "multinomial": CumulativeCounter(),
-            "poisson": CumulativeCounter(),
-        }
-        if self.dataset.paired_data:
-            mean_loss_breakdown["diff_loss"] = CumulativeCounter()
+
+        mean_loss_breakdown = {}
         mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
             self.device
         )
 
-        pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+        if self.prefix in self.dataset.name_to_pseudobulker:
+            # this part is for mouse pseudobulk dataset
+            pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+        else:
+            pseudobulker = None
 
         example_batches = []  # collect example batches for making images
         data_collector = []  # collect data for further analysis
 
         for batch_id, batch in enumerate(dataloader):
-            y_true, y_pred, loss, loss_breakdown = self._model_forward_pass(
-                model, batch
+            y_true, y_pred, loss, loss_breakdown, *additional_results = (
+                self._model_forward_pass(model, batch)
             )
+
+            if len(additional_results) > 0:
+                additional_results = additional_results[0]
+            else:
+                additional_results = {}
 
             mean_val_corr.update(target=y_true, preds=y_pred)
             for k, v in loss_breakdown.items():
-                mean_loss_breakdown[k].update(v)
+                try:
+                    mean_loss_breakdown[k].update(v)
+                except KeyError:
+                    mean_loss_breakdown[k] = CumulativeCounter()
+                    mean_loss_breakdown[k].update(v)
             mean_val_loss.update(loss)
 
             # add additional data into batch dict
             batch["true_data"] = y_true
             batch["pred_data"] = y_pred
-            id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-            batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+            if pseudobulker is not None:
+                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+            else:
+                batch["sample_id"] = batch["cell_type_id"]
             batch.update(loss_breakdown)
             if collect_data:
                 data_collector.append(
@@ -330,7 +343,22 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         del dataloader
         self._cleanup_env()
 
-        wandb_images = self._plot_example(example_batches)
+        wandb_images = self._plot_example(example_batches, y_sync=False)
+        # channel to name
+        wandb_images = {self.channel_order[k]: v for k, v in wandb_images.items()}
+
+        # conditional plotting for upper bound and p
+        for plot_name in ("upper_bound", "p"):
+            if f"true_{plot_name}" in example_batches[0]:
+                this_imgs = self._plot_example(
+                    example_batches,
+                    true_key=f"true_{plot_name}",
+                    pred_key=f"pred_{plot_name}",
+                    y_sync=False,
+                )
+                for channel, channel_imgs in this_imgs.items():
+                    name = self.channel_order[channel]
+                    wandb_images[f"{name}_{plot_name}"] = channel_imgs
 
         # ==========
         # Final metrics
@@ -347,44 +375,63 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
 
-    def _plot_example(self, example_batches):
+    def _plot_example(
+        self, example_batches, true_key="true_data", pred_key="pred_data", y_sync=False
+    ):
         epoch = self.cur_epoch + 1
         wandb_images = defaultdict(list)
+        borzoi_regions = self.dataset.borzoi_regions
+
         for idx, batch in enumerate(example_batches):
             if idx >= self.plot_example_per_epoch:
                 break
-
-            plotter = BorzoiExamplePlotter(
-                genome=self.dataset.genome,
-                zoomin_radius=1000,
-                true_key="true_data",
-                pred_key="pred_data",
-                id_key="sample_id",
-            )
-            fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
-
-            if self.dataset.paired_data:
-                nrows = [0, 2]
-            else:
-                nrows = 2
-
-            for channel in range(self.model.out_channels):
-                fig = plotter.plot(
-                    batch,
-                    channel=channel,
-                    nrows=nrows,
-                    return_array=True,
+            region_ids = batch["original_name"].cpu().numpy()
+            region_names = np.array([borzoi_regions.cur_idmap[i] for i in region_ids])
+            if self.dataset.use_gene_regions:
+                gene_names = borzoi_regions.cur_gtf_db.gene_id_to_name(
+                    [r.split("_")[0] for r in region_names]
                 )
+                batch["region_names"] = region_names
+                batch["gene_names"] = gene_names
 
-                wandb_images[channel].append(
-                    wandb.Image(
-                        fig,
-                        mode="RGB",
-                        caption=f"Epoch {epoch} Example {idx}",
-                        grouping=epoch,
-                        file_type="jpg",  # reduce file size
+            try:
+                plotter = BorzoiExamplePlotter(
+                    genome=self.dataset.genome,
+                    true_key=true_key,
+                    pred_key=pred_key,
+                    id_key="sample_id",
+                )
+                fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
+
+                if self.dataset.paired_data:
+                    nrows = [0, 2]
+                else:
+                    nrows = 2
+
+                for channel in range(self.model.out_channels):
+                    fig = plotter.plot(
+                        batch,
+                        channel=channel,
+                        nrows=nrows,
+                        return_array=True,
+                        y_sync=y_sync,
                     )
-                )
+
+                    wandb_images[channel].append(
+                        wandb.Image(
+                            fig,
+                            mode="RGB",
+                            caption=f"Epoch {epoch} Example {idx}",
+                            grouping=epoch,
+                            file_type="jpg",  # reduce file size
+                        )
+                    )
+            except ValueError as e:
+                print(f"Error in plotting example: {e}")
+                print(batch)
+                for k, v in batch.items():
+                    print(k, v.shape)
+                continue
         return wandb_images
 
     def _log_save_and_check_stop(self):
@@ -450,20 +497,17 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # construct wandb log dict
         log_dict = {
             "val/val_loss": val_loss,
-            "val/val_loss_poisson": val_loss_breakdown["poisson"],
-            "val/val_loss_multinomial": val_loss_breakdown["multinomial"],
             "val/best_val_corr": self.best_val_metric,
             "val/early_stopping_counter": self.early_stopping_counter,
         }
+        for k, v in val_loss_breakdown.items():
+            log_dict[f"val/val_loss_{k}"] = v
         channel_order = self.channel_order
         for channel, corr in enumerate(val_corr.compute_tensor()):
             name = channel_order[channel]
             log_dict[f"val/val_corr_{name}"] = corr
-        for channel, channel_imgs in val_imgs.items():
-            name = channel_order[channel]
-            log_dict[f"val_example/example_tracks_{name}"] = channel_imgs
-        if self.dataset.paired_data:
-            log_dict["val/val_loss_diff"] = val_loss_breakdown["diff_loss"]
+        for channel_name, channel_imgs in val_imgs.items():
+            log_dict[f"val_example/example_tracks_{channel_name}"] = channel_imgs
         wandb.log(log_dict)
 
         flag = self.early_stopping_counter >= self.patience
@@ -485,10 +529,46 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         )
         return scheduler
 
+    def _fine_grained_lr_groups_original(self, small_scale=4):
+        """
+        Make the cell-type conditional part of the network learn faster.
+
+        Shared part of the network learns at 1/4 of the learning rate.
+        """
+        standard_lr = self.config["lr"]
+        small_lr = self.config["lr"] / small_scale
+        wd = self.config["weight_decay"]
+
+        standard_lr_group = []
+        small_lr_group = []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if "lora_A_module" in name:
+                standard_lr_group.append(param)
+            elif "lora_B_module" in name:
+                standard_lr_group.append(param)
+            elif "kv_bottleneck" in name:
+                standard_lr_group.append(param)
+            elif "recycle_conv" in name:
+                standard_lr_group.append(param)
+            else:
+                small_lr_group.append(param)
+
+        parameters = [
+            {"params": standard_lr_group, "weight_decay": wd, "lr": standard_lr},
+            {"params": small_lr_group, "weight_decay": wd, "lr": small_lr},
+        ]
+        return parameters
+
     def _fine_grained_lr_groups(self):
         """
         Set up fine-grained learning rate groups for the model.
         """
+        lora_preset = self.model.lora_preset
+        if lora_preset == "original":
+            return self._fine_grained_lr_groups_original()
+
         standard_lr = self.config["lr"]
         large_lr = self.config["lr"] * self.config["large_lr_scale"]
         wd = self.config["weight_decay"]
@@ -556,7 +636,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs} epochs in total."
             )
 
-        moving_norm = MovingMetric(window_size=100)
+        window_size = 6400 // self.accumulate_grad
+        moving_norm = MovingMetric(window_size=window_size)
         total_norm = 999
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
@@ -592,7 +673,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
-            train_example_batches = []
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -608,9 +688,15 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    y_true, y_pred, loss, _ = self._model_forward_pass(
-                        self.model, batch
+                    y_true, y_pred, loss, _, *additional_results = (
+                        self._model_forward_pass(self.model, batch)
                     )
+
+                    if len(additional_results) > 0:
+                        additional_results = additional_results[0]
+                    else:
+                        additional_results = {}
+
                     if np.isnan(loss.item()):
                         nan_loss = True
                         print("Training loss has NaN, skipping epoch.")
@@ -634,28 +720,34 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 if (batch_id + 1) % self.accumulate_grad == 0:
                     if self.config["global_clipnorm"] is not None:
                         scaler.unscale_(optimizer)
-                        total_norm = torch.nn.utils.clip_grad_norm_(
-                            [
-                                p
-                                for n, p in self.model.named_parameters()
-                                if "log_var_weight" not in n
-                            ],
-                            max_norm=self.config["global_clipnorm"],
-                        )
-                        total_norm = total_norm.item()
+                        param_groups = self.model.get_global_clipnorm_params()
+                        for i, group in enumerate(param_groups):
+                            if len(group) == 0:
+                                continue
+                            if i == 0:
+                                # use the first group (major group) as the total norm
+                                total_norm = torch.nn.utils.clip_grad_norm_(
+                                    group,
+                                    max_norm=self.config["global_clipnorm"],
+                                )
+                                total_norm = total_norm.item()
+                            else:
+                                torch.nn.utils.clip_grad_norm_(
+                                    group,
+                                    max_norm=self.config["global_clipnorm"],
+                                )
 
                         # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
                         # this is to prevent outlier gradients from messing up the training
                         if moving_norm.full:
-                            threshold = moving_norm.quantile(0.99).item()
+                            threshold = moving_norm.quantile(0.99).item() * 2
                             if total_norm > threshold:
                                 print(
                                     f"Gradient norm is too large: {total_norm:.4f}, "
                                     f"threshold: {threshold:.4f}, prevent update."
                                 )
                                 optimizer.zero_grad()
-                            if total_norm < (moving_norm.mean() * 3):
-                                moving_norm.update(total_norm)
+                            moving_norm.update(total_norm)
                         else:
                             moving_norm.update(total_norm)
                     self._collect_grad_norm(self.model)
@@ -696,11 +788,19 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     if batch_id % example_step == 0:
                         batch["pred_data"] = y_pred
                         batch["true_data"] = y_true
+                        batch.update(additional_results)
 
-                        pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
-                        id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                        batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
-
+                        if self.prefix in self.dataset.name_to_pseudobulker:
+                            # this part is for mouse pseudobulk dataset
+                            pseudobulker = self.dataset.name_to_pseudobulker[
+                                self.prefix
+                            ]
+                            id_array = (
+                                batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                            )
+                            batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                        else:
+                            batch["sample_id"] = batch["cell_type_id"]
                         log_dict = {}
                         train_wandb_images = self._plot_example([batch])
                         for channel, channel_imgs in train_wandb_images.items():
@@ -708,6 +808,20 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             log_dict[f"train_example/example_tracks_{name}"] = (
                                 channel_imgs
                             )
+
+                        for plot_name in ("upper_bound", "p"):
+                            if f"true_{plot_name}" in batch:
+                                this_imgs = self._plot_example(
+                                    [batch],
+                                    true_key=f"true_{plot_name}",
+                                    pred_key=f"pred_{plot_name}",
+                                )
+                                for channel, channel_imgs in this_imgs.items():
+                                    name = self.channel_order[channel]
+                                    log_dict[
+                                        f"train_example/example_tracks_{name}_{plot_name}"
+                                    ] = channel_imgs
+
                         wandb.log(log_dict)
 
             # end of epoch clear any remaining gradients
@@ -728,8 +842,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 self.val_corr,
                 self.val_wandb_images,
             ) = self._validation_step()
-
-            self.train_wandb_images = self._plot_example(train_example_batches)
 
             if np.isnan(self.val_loss):
                 print("Validation loss is NaN, skipping epoch.")
@@ -793,25 +905,14 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         )
 
         wandb.summary["final_valid_loss"] = self.val_loss
-        wandb.summary["final_valid_loss_poisson"] = self.val_loss_breakdown["poisson"]
-        wandb.summary["final_valid_loss_multinomial"] = self.val_loss_breakdown[
-            "multinomial"
-        ]
+        for k, v in self.val_loss_breakdown.items():
+            wandb.summary[f"final_valid_loss_{k}"] = v
         wandb.summary["final_valid_corr"] = self.val_corr.compute().mean()
         wandb.summary["final_test_loss"] = self.test_loss
-        wandb.summary["final_test_loss_poisson"] = self.test_loss_breakdown["poisson"]
-        wandb.summary["final_test_loss_multinomial"] = self.test_loss_breakdown[
-            "multinomial"
-        ]
+        for k, v in self.test_loss_breakdown.items():
+            wandb.summary[f"final_test_loss_{k}"] = v
         wandb.summary["final_test_corr"] = self.test_corr.compute().mean()
         wandb.summary["final_image"] = wandb_images
-        if self.dataset.paired_data:
-            wandb.summary["final_valid_loss_diff"] = self.val_loss_breakdown[
-                "diff_loss"
-            ]
-            wandb.summary["final_test_loss_diff"] = self.test_loss_breakdown[
-                "diff_loss"
-            ]
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
         return
@@ -849,6 +950,11 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         model.freeze_all_parameter_except_output_head()
 
         self.model = model
+
+        # add the upper bound head and change final output head activation to None
+        if self.dataset.use_pseudobulk_profile:
+            self.model.setup_profile_head()
+
         self.model.to(self.device)
         self.model.convert_to_lora()
         if print_model:
@@ -886,10 +992,55 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         )
         return dataset
 
+    def _model_forward_pass_profile(self, model: BorzoiLoRA, batch: dict):
+        data_key = f"{self.prefix}:bulk_data"
+        dna_key = "dna_one_hot"
+        embedding_key = f"{self.prefix}:embedding_data"
+        upper_bound_key = f"{self.prefix}:upper_bound"
+        position_weights = batch.get("position_weights", None)
+
+        # ==========
+        # Get batch data
+        # ==========
+        X = batch.pop(dna_key)
+        embedding = batch.get(embedding_key, None)
+        true_p = batch.pop(data_key)
+        true_upper_bound = batch.pop(upper_bound_key)
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        pred_logit, dna_embedding = model(
+            X, embedding=embedding, return_dna_embedding=True
+        )
+
+        # detach the dna_embedding to prevent gradient flow
+        pred_upper_bound = model.upper_bound_head(dna_embedding)
+
+        loss, loss_breakdown, _pred, _true = model.loss_profile_and_upper_bound(
+            y_pred=(pred_upper_bound, pred_logit),
+            y_true=(true_upper_bound, true_p),
+            position_weights=position_weights,
+        )
+        pred_count, pred_p, pred_upper_bound = _pred
+        true_count, true_p, true_upper_bound = _true
+
+        # combine upper bound and data_p
+        y_pred = pred_count
+        y_true = true_count
+        additional_results = {
+            "true_p": true_p,
+            "pred_p": pred_p,
+            "pred_upper_bound": pred_upper_bound,
+            "true_upper_bound": true_upper_bound,
+        }
+        return y_true, y_pred, loss, loss_breakdown, additional_results
+
     def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
         embedding_key = f"{self.prefix}:embedding_data"
+        position_weights = batch.get("position_weights", None)
 
         # ==========
         # Get batch data
@@ -903,7 +1054,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         y_pred = model(X, embedding=embedding)
 
-        loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
+        loss, loss_breakdown, y_true = model.loss(
+            y_true=y_true, y_pred=y_pred, position_weights=position_weights
+        )
 
         y_pred = y_pred.detach()
         return y_true, y_pred, loss, loss_breakdown
@@ -938,9 +1091,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             pseudobulk_id_list.append(batch.pop(pseudobulk_ids_key))
 
         batch.pop(dna_key)
+        position_weights = batch.get("position_weights", None)
         loss, loss_breakdown, *y_true_list = model.paired_loss(
-            *y_pred_list,
-            *y_true_list,
+            *y_pred_list, *y_true_list, position_weights=position_weights
         )
 
         with torch.no_grad():
@@ -960,22 +1113,17 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         return y_true, y_pred, loss, loss_breakdown
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+        batch = self.dataset.maybe_preprocess_batch(batch)
+
         if self.dataset.paired_data:
             return self._model_forward_pass_paired(model, batch)
+        elif self.dataset.use_pseudobulk_profile:
+            return self._model_forward_pass_profile(model, batch)
         else:
             return self._model_forward_pass_single(model, batch)
 
     def _print_banner(self, text):
         print("=" * len(text) + "\n" + text + "\n" + "=" * len(text))
-        return
-
-    def _train_lora(self):
-        self._print_banner("Training LoRA model")
-
-        self.checkpoint = self._has_last_checkpoint()
-        self._set_total_params()
-        self._setup_fit()
-        self._fit()
         return
 
     def train(self) -> None:
@@ -994,7 +1142,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             self.checkpoint = self._has_last_checkpoint()
             self._setup_model()
             self._setup_fit()
-            self._train_lora()
+            self._fit()
             self._test()
             self._cleanup_env()
             wandb.finish()
@@ -1086,12 +1234,12 @@ class BorzoiLoRATester(BorzoiLoRATrainer):
         return
 
     @torch.inference_mode()
-    def test(self, saveas=None, device="cuda"):
+    def test(self, saveas=None, batches=None, device="cuda"):
         """Test the Borzoi LoRA model."""
         self._setup_model()
         model = self.model.to(device)
 
-        dataloader = self.get_test_dataloader(batches=None)
+        dataloader = self.get_test_dataloader(batches=batches)
         *_, data_batches = self._model_validation_step(
             model=model,
             dataloader=dataloader,

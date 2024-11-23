@@ -30,7 +30,7 @@ class scFootprintTrainerMixin(GenericTrainer):
             "val_batches": 1000,
             "global_clipnorm": 0.2,
             "scheduler": True,
-            "warmup_steps": 10000,
+            "warmup_steps": 5000,
             "weight_decay": 1e-4,
             # region file
             "region_bed_path": "REQUIRED",
@@ -66,7 +66,7 @@ class scFootprintTrainerMixin(GenericTrainer):
 
     def _get_scheduler(self, optimizer):
         self.config["scheduler_type"] = "borzoi"
-        warmup_steps = self.config.get("warmup_steps", 10000)
+        warmup_steps = self.config.get("warmup_steps", 5000)
         accumulate_grad = self.config.get("accumulate_grad", 1)
         warmup_steps = (
             warmup_steps // accumulate_grad + 1

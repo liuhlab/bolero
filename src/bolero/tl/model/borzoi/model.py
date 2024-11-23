@@ -16,6 +16,9 @@ from .module import (
 )
 from .utils import clamp_sqrt_large_value
 
+BORZOI_INPUT_LEN = 524288
+BORZOI_OUTPUT_LEN = 16384
+
 
 def model_summary(
     model,
@@ -53,7 +56,9 @@ class Borzoi(nn.Module):
         "power": None,
         "soft_clamp": None,
         "soft_clamp_bool": None,
-        "crop_to_length": 6144,
+        # borzoi crop to 6144 for loss
+        # But I found 16352 or 6144 doesn't has impact on cell-type-specific model
+        "crop_to_length": 16352,
     }
 
     @classmethod
@@ -75,7 +80,7 @@ class Borzoi(nn.Module):
         power=None,
         soft_clamp=None,
         soft_clamp_bool=None,
-        crop_to_length=6144,
+        crop_to_length=16352,
     ):
         """Initialize Borzoi model."""
         super().__init__()
@@ -171,7 +176,7 @@ class Borzoi(nn.Module):
         # ===================
         # Final Crop and Conv
         # ===================
-        self.crop = TargetLengthCrop(target_length=self.crop_to_length)
+        self.crop = TargetLengthCrop(self.crop_to_length)
         self.final_joined_convs = SequentialwithArgs(
             ConvBlock(in_channels=1536, out_channels=1920, kernel_size=1),
             nn.Dropout(final_conv_dropout),
@@ -298,7 +303,120 @@ class Borzoi(nn.Module):
     def __repr__(self):
         return self._model_summary()
 
-    def loss(self, y_pred, y_true, reduce=True):
+    def get_global_clipnorm_params(self):
+        """Get parameters to be included for global clipnorm."""
+        params = []
+        upper_bound_params = []
+        for n, p in self.named_parameters():
+            if "log_var_weight" in n:
+                continue
+            if "upper_bound" in n:
+                upper_bound_params.append(p)
+                continue
+            params.append(p)
+        return params, upper_bound_params
+
+    def loss_profile_and_upper_bound(
+        self,
+        y_pred,
+        y_true,
+        position_weights=None,
+        reduce=True,
+        upper_bound_weight=0.05,
+        count_weight=0.05,
+    ):
+        """Compute poisson multinomial loss for upper bound and BCE loss for prob profile."""
+
+        def _clamp_sqrt_large_value(x):
+            return clamp_sqrt_large_value(
+                x,
+                power=self.power,
+                threshold=self.soft_clamp,
+                effective_bool=self.soft_clamp_bool,
+            )
+
+        pred_upper_bound, pred_logit = y_pred
+        true_upper_bound, true_p = y_true
+
+        # crop true data to the same length
+        true_upper_bound = self.crop(true_upper_bound)
+        true_p = self.crop(true_p)
+        if position_weights is not None:
+            position_weights = self.crop(position_weights)
+
+        # calculate real count before processing
+        true_count = true_upper_bound * true_p
+        pred_count = pred_upper_bound * pred_logit.sigmoid()
+        pred_count = pred_count.float()
+
+        # loss at power scale
+        if (self.soft_clamp is not None) and (self.power is not None):
+            true_upper_bound = _clamp_sqrt_large_value(true_upper_bound)
+            pred_upper_bound = _clamp_sqrt_large_value(pred_upper_bound)
+            true_count = _clamp_sqrt_large_value(true_count)
+            pred_count = _clamp_sqrt_large_value(pred_count)
+
+        # Upper bound count loss
+        upper_bound_loss, loss_breakdown = poisson_multinomial(
+            y_pred=pred_upper_bound,
+            y_true=true_upper_bound,
+            total_weight=self.loss_total_weight,
+            weight_range=1,  # 1 means not use the position weighted loss
+            weight_exp=4,
+            epsilon=1e-7,  # this is smallest for float16
+            return_breakdown=True,
+            loss_chunks=getattr(self, "loss_chunks", 1),
+            position_weights=position_weights,
+        )
+        loss_breakdown = {f"upper_bound_{k}": v for k, v in loss_breakdown.items()}
+
+        # count loss
+        count_loss, count_loss_breakdown = poisson_multinomial(
+            y_pred=pred_count,
+            y_true=true_count,
+            total_weight=self.loss_total_weight,
+            weight_range=1,  # 1 means not use the position weighted loss
+            weight_exp=4,
+            epsilon=1e-7,  # this is smallest for float16
+            return_breakdown=True,
+            loss_chunks=getattr(self, "loss_chunks", 1),
+            position_weights=position_weights,
+        )
+        loss_breakdown.update(
+            {f"count_{k}": v for k, v in count_loss_breakdown.items()}
+        )
+
+        # Profile probability loss
+        # TODO: try focal loss for p_loss
+        true_p = true_p.clamp(0, 1)
+        p_loss = nn.functional.binary_cross_entropy_with_logits(
+            pred_logit, true_p, reduction="none"
+        )
+        # apply position weights
+        if position_weights is not None:
+            # TODO: is this the correct way to apply position weights?
+            p_loss = p_loss * position_weights
+        loss_breakdown["profile_bce_loss"] = p_loss
+
+        total_loss = (
+            upper_bound_loss * upper_bound_weight + count_loss * count_weight + p_loss
+        )
+
+        # loss is averaged across batch and channels
+        if reduce:
+            total_loss = total_loss.mean()
+
+        with torch.no_grad():
+            if reduce:
+                loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
+
+            pred_p = pred_logit.detach().sigmoid().float()
+
+        pred = (pred_count, pred_p, pred_upper_bound)
+        true = (true_count, true_p, true_upper_bound)
+        return total_loss, loss_breakdown, pred, true
+
+    def loss(self, y_pred, y_true, reduce=True, position_weights=None):
         """
         Compute the loss for the Borzoi model.
 
@@ -320,6 +438,8 @@ class Borzoi(nn.Module):
                     threshold=self.soft_clamp,
                     effective_bool=self.soft_clamp_bool,
                 )
+            if position_weights is not None:
+                position_weights = self.crop(position_weights)
 
         _loss, loss_breakdown = poisson_multinomial(
             y_true=y_true,
@@ -330,6 +450,7 @@ class Borzoi(nn.Module):
             epsilon=1e-7,  # this is smallest for float16
             return_breakdown=True,
             loss_chunks=getattr(self, "loss_chunks", 1),
+            position_weights=position_weights,
         )
 
         # loss is averaged across batch and channels

@@ -18,6 +18,7 @@ from pyfaidx import Fasta
 from tqdm import tqdm
 
 from bolero.pp.genome_dataset import GenomeOneHotZarr
+from bolero.pp.gtf import load_gtf
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
 from bolero.utils import (
     download_file,
@@ -243,6 +244,9 @@ class Genome:
             self.save_dir / "data" / self.name / f"{self.name}.onehot.zarr"
         )
         self._remote_one_hot_obj = None
+
+        # gene and gtf
+        self._gtf_db = None
         return
 
     def __repr__(self):
@@ -253,6 +257,13 @@ class Genome:
         else:
             one_hot_zarr = f"Genome One Hot Zarr:\n{self.genome_one_hot.__repr__()}"
         return f"{name_str}\n{fastq_path}\n{one_hot_zarr}"
+
+    @property
+    def gtf_db(self):
+        """Return the ref id of gtf db object in ray's object store."""
+        if self._gtf_db is None:
+            self._gtf_db = load_gtf(self.name)
+        return self._gtf_db
 
     @property
     def remote_genome_one_hot(self):

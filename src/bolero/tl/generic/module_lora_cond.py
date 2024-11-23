@@ -59,6 +59,8 @@ class ConditionalLoRALayer:
         num_memories: int = 256,
         dim_memory: int = 20,
         additional_embs: int = 1,
+        emb_input=False,
+        emb_input_dims=None,
         norm_type: str = "batch",
         batchnorm_momentum: float = 0.1,
         embedding_dropout: float = 0.0,
@@ -97,6 +99,8 @@ class ConditionalLoRALayer:
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            emb_input=emb_input,
+            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             dropout=embedding_dropout,
@@ -114,6 +118,8 @@ class ConditionalLoRALayer:
                 num_memories=num_memories,
                 dim_memory=dim_memory,
                 additional_embs=additional_embs,
+                emb_input=emb_input,
+                emb_input_dims=emb_input_dims,
                 norm_type=norm_type,
                 batchnorm_momentum=batchnorm_momentum,
                 dropout=embedding_dropout,
@@ -173,10 +179,13 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         num_memories=256,
         dim_memory=20,
         additional_embs=1,
+        emb_input=False,
+        emb_input_dims=None,
         norm_type="batch",
         batchnorm_momentum=0.1,
         embedding_dropout=0.0,
         use_dora=False,
+        reset_lora_in_init=True,
         **kwargs,
     ):
         self.base_class = nn.Linear
@@ -198,6 +207,8 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            emb_input=emb_input,
+            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
@@ -207,7 +218,9 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         self.weight.requires_grad = False
 
         nn.Linear.reset_parameters(self)
-        self.reset_lora_parameters()
+
+        if reset_lora_in_init:
+            self.reset_lora_parameters()
 
         self.use_dora = use_dora
         if self.use_dora:
@@ -303,10 +316,13 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         num_memories=256,
         dim_memory=20,
         additional_embs=1,
+        emb_input=False,
+        emb_input_dims=None,
         norm_type="batch",
         batchnorm_momentum=0.1,
         embedding_dropout=0.0,
         use_dora=False,
+        reset_lora_in_init=True,
         **kwargs,
     ):
         if issubclass(conv_class, nn.Conv1d):
@@ -363,6 +379,8 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             num_memories=num_memories,
             dim_memory=dim_memory,
             additional_embs=additional_embs,
+            emb_input=emb_input,
+            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
@@ -372,28 +390,22 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         self.conv.weight.requires_grad = False
 
         self.conv.reset_parameters()
-        self.reset_lora_parameters()
+
+        if reset_lora_in_init:
+            self.reset_lora_parameters()
 
         self.use_dora = use_dora
         if use_dora:
             self._prepare_dora_magnitude()
 
     def _gen_conv1d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
-        _out = out_channels
-        _in = in_channels // groups * kernel_size
-        _r = min(r * kernel_size, _out, _in)
-
-        shape_a = (_r, _in)
-        shape_b = (_out, _r)
+        shape_a = (r * kernel_size, in_channels // groups * kernel_size)
+        shape_b = (out_channels, r * kernel_size)
         return shape_a, shape_b
 
     def _gen_conv2d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
-        _out = out_channels * kernel_size
-        _in = in_channels // groups * kernel_size
-        _r = min(r * kernel_size, _out, _in)
-
-        shape_a = (_r, _in)
-        shape_b = (_out, _r)
+        shape_a = (r * kernel_size, in_channels // groups * kernel_size)
+        shape_b = (out_channels * kernel_size, r * kernel_size)
         return shape_a, shape_b
 
     def _gen_conv3d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):

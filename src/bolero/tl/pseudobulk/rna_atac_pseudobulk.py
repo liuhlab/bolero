@@ -3,11 +3,8 @@ from typing import Union
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.exceptions import NotFittedError
 
 from bolero.utils import validate_config
-
-from .generator import EmbeddingScaler
 
 
 # vq_records schema:
@@ -17,6 +14,7 @@ from .generator import EmbeddingScaler
 #     "vq_emb": vq_emb, np.array
 #     "n_frags": n_frags, int or dict[str, int]
 #     "cov_scale": n_frags_log2fc, float or dict[str, float] log2 fold change of psedobulk coverage to target coverage
+#     **kwargs
 # }
 class RNAVQPseudobulker:
     default_config = {
@@ -26,6 +24,7 @@ class RNAVQPseudobulker:
         # When parquet has only one prefix, this is also the prefix name in the parquet
         "downsample_vq": None,
         "prefix_name": "pseudobulk",
+        "add_cov_to_emb": False,
     }
 
     @classmethod
@@ -34,8 +33,6 @@ class RNAVQPseudobulker:
         config = {k: v for k, v in config.items() if k in cls.default_config}
         validate_config(config, cls.default_config)
         pseudobulker = cls(**config)
-
-        pseudobulker.prepare_scaler()
         return pseudobulker
 
     def __init__(
@@ -44,6 +41,7 @@ class RNAVQPseudobulker:
         use_vq_emb: bool = True,
         downsample_vq: int = None,
         prefix_name: str = "pseudobulk",
+        add_cov_to_emb: bool = False,
         seed=42,
     ):
         """
@@ -82,21 +80,25 @@ class RNAVQPseudobulker:
                     self.pseudobulk_vq_data_type = "multi_prefix"
                     self.prefix_order = list(parquet_prefix_to_rows.keys())
                 cov_value_list = [cov_value[prefix] for prefix in self.prefix_order]
-                emb_data = np.concatenate([emb_data, np.array(cov_value_list)]).astype(
-                    "float32"
-                )
+                if add_cov_to_emb:
+                    emb_data = np.concatenate(
+                        [emb_data, np.array(cov_value_list)]
+                    ).astype("float32")
             else:
                 parquet_prefix_to_rows = {prefix_name: data["cluster_ids"]}
                 if self.prefix_order is None:
                     self.pseudobulk_vq_data_type = "single_prefix"
                     self.prefix_order = [prefix_name]
-                emb_data = np.concatenate([emb_data, np.array([cov_value])]).astype(
-                    "float32"
-                )
+                cov_value_list = [cov_value]
+                if add_cov_to_emb:
+                    emb_data = np.concatenate(
+                        [emb_data, np.array(cov_value_list)]
+                    ).astype("float32")
             self.vq_emb_dims = emb_data.size - len(self.prefix_order)
             self.predefined_pseudobulks[vq] = [
                 parquet_prefix_to_rows,
                 emb_data,
+                np.array(cov_value_list),
                 idx,
             ]
 
@@ -104,8 +106,6 @@ class RNAVQPseudobulker:
         self.random_pid = self.local_rng.choice(
             self.pseudobulk_ids, self.n_pids, replace=False
         )
-
-        self.scaler = EmbeddingScaler()
         return
 
     def _load_vq_records(self, vq_records, downsample_vq):
@@ -119,23 +119,9 @@ class RNAVQPseudobulker:
             print(f"Downsampled to {len(vq_records)} VQs.")
         return vq_records
 
-    def _scale_without_vq_ind(self, emb_data):
-        if self.use_vq_emb:
-            emb_data = self.scaler.transform(emb_data)
-        else:
-            # using vq_ind only
-            # only transform the non-ind part
-            vq_ind = emb_data[: self.vq_emb_dims]
-            emb_data = emb_data[self.vq_emb_dims :]
-            emb_data = self.scaler.transform(emb_data)
-            emb_data = np.concatenate([vq_ind, emb_data])
-        return emb_data
-
     def take_by_name(self, name):
         """Take a VQ pseudobulk by name."""
         data = self.predefined_pseudobulks[name]
-        # emb_data is data[1]
-        data[1] = self._scale_without_vq_ind(data[1])
         return data
 
     def take(self, n):
@@ -150,15 +136,13 @@ class RNAVQPseudobulker:
 
         pseudobulks = [self.predefined_pseudobulks[pid] for pid in use_pids]
 
-        # transform embeddings
-        for data in pseudobulks:
-            data[1] = self._scale_without_vq_ind(data[1])
         # each item in pseudobulks is
         # Type 1 format (single prefix in the parquet):
         # self.pseudobulk_vq_data_type = 'single_prefix'
         # [
         #     prefix_to_rows: dict[str, np.array],  # parquet prefix csr matrix to rows in that csr, only one prefix in this case
         #     emb_data: np.array, # embedding data concatenated with cov_value
+        #     cov_value: np.array, # coverage value
         #     idx: int # index of the pseudobulk
         # ]
         # Type 2 format (multiple prefixes in the parquet):
@@ -166,38 +150,7 @@ class RNAVQPseudobulker:
         # [
         #     prefix_to_rows: dict[str, dict[str, np.array]],  # output prefix to parquet prefix csr matrix to rows in that csr
         #     emb_data: np.array, # embedding data concatenated with cov_value
+        #     cov_value: np.array, # coverage value
         #     idx: int # index of the pseudobulk
         # ]
         return pseudobulks
-
-    def prepare_scaler(self):
-        """
-        Fit the scaler using predefined pseudobulks.
-        """
-        rows = []
-        vqs = []
-        for vq, data in self.predefined_pseudobulks.items():
-            vqs.append(vq)
-            embedding = data[1]
-            if not self.use_vq_emb:
-                # if not using vq_emb, we need to remove the vq_emb part which is just vq_ind
-                embedding = embedding[self.vq_emb_dims :]
-            rows.append(embedding)
-
-        example_embedding = pd.DataFrame(rows, index=vqs)
-        self.scaler.fit(example_embedding)
-        return
-
-    def save_scaler(self, path):
-        """
-        Save the scaler to path.
-
-        Parameters
-        ----------
-        path (str): The path to save the scaler.
-        """
-        if not self.scaler.fitted:
-            raise NotFittedError("Scaler is not fitted yet.")
-
-        joblib.dump(self.scaler, path)
-        return

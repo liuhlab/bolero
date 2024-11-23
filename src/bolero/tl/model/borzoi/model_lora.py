@@ -9,7 +9,7 @@ from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
 from .metrics import mse_diff_loss
 from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
-from .module import ContextOutputHead, ConvBlock, OutputHead, SequentialwithArgs
+from .module_output import ContextOutputHead, OutputHead, RNAOutputHead
 
 
 class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
@@ -27,20 +27,22 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "hidden_layers": 1,
             "output_layer_groups": 4,
             "lora_dropout": 0.01,
+            "embedding_dropout": 0,
             "lora_scale": 1,
             "lora_alpha": None,
             "final_output_dropout": 0.01,
             "conditional_b": True,
-            "lora_norm": "layer",
+            "lora_norm": "batch",
             # Key-Value Bottleneck
             "kv_bottleneck": "global",
             "num_memories": 256,
             "dim_memory": 20,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
+            "emb_input": False,
+            "emb_input_dims": None,
             # Other settings
             "context_output": False,
-            "n_cycles": 1,
         }
     )
 
@@ -57,20 +59,22 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
+        embedding_dropout=0,
         lora_scale=1,
         lora_alpha=None,
         final_output_dropout=0.01,
         conditional_b=True,
-        lora_norm="layer",
+        lora_norm="batch",
         # kv bottleneck
         kv_bottleneck="global",
         num_memories=256,
         dim_memory=20,
         num_memory_codebooks=2,
         additional_embs=1,
+        emb_input=False,
+        emb_input_dims=None,
         # other settings
         context_output=False,
-        n_cycles=1,
         # base model
         **base_model_kwargs,
     ):
@@ -104,6 +108,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             Number of additional embeddings to be concatenated with the memory embeddings.
         """
         super().__init__(**base_model_kwargs)
+        self.lora_preset = lora_preset
         self.out_channels = out_channels
 
         # update base model pretrained weights
@@ -131,12 +136,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         self.dim_memory = dim_memory
         self.num_memory_codebooks = num_memory_codebooks
         self.additional_embs = additional_embs
+        self.emb_input = emb_input
+        self.emb_input_dims = emb_input_dims
         if self.kv_bottleneck_mode == "global":
             self.kv_bottleneck, self.emb_input_features = self.setup_kv_bottleneck(
                 num_memory_codebooks=num_memory_codebooks,
                 num_memories=num_memories,
                 dim_memory=dim_memory,
                 additional_embs=additional_embs,
+                emb_input=emb_input,
+                emb_input_dims=emb_input_dims,
             )
             print(
                 f"Using global shared key-value bottleneck for converting indices to embeddings, "
@@ -169,14 +178,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # place holder for other modalities
         self.rna_output_head = None
-
-        # recycling
-        self.n_cycles = n_cycles
-        if n_cycles > 1:
-            self.recycle_conv = SequentialwithArgs(
-                ConvBlock(in_channels=out_channels, out_channels=1280, kernel_size=1),
-            )
-            self.recycle_conv[0].conv_layer.weight.data.fill_(0.0)
+        self.upper_bound_head = None
 
         # convert model to LoRA
         self.lora_config = self.make_lora_config(
@@ -187,10 +189,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             lora_dropout=lora_dropout,
             lora_scale=lora_scale,
             preset=lora_preset,
+            embedding_dropout=embedding_dropout,
         )
         self.hidden_dim = hidden_dim
         self.hidden_layers = hidden_layers
         self.lora_dropout = lora_dropout
+        self.embedding_dropout = embedding_dropout
         self.lora_alpha = lora_alpha
         self.lora_scale = lora_scale
         self.conditional_b = conditional_b
@@ -209,9 +213,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
     def setup_rna_head(self, rna_channels, freeze_other_modules=True):
         """Setup the RNA head for the Borzoi model."""
-        self.rna_output_head = OutputHead(
-            in_channels=1920,
-            out_channels=rna_channels,
+        # simple RNA output head
+        self.rna_output_head = RNAOutputHead(
+            output_channels=rna_channels,
+            seq_len=16384,
+            embed_dim=1920,
+            epi_input=False,
+            num_layers=0,
         )
 
         # make only the RNA head trainable
@@ -223,6 +231,17 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         lora_config = self.lora_config["final_output_head"]
         lora_config["lora_rank"] = rna_channels
         self._convert_single_module("rna_output_head", lora_config)
+        return
+
+    def setup_profile_head(self):
+        """Setup a single profile head for predicting profile upper bound."""
+        # upper bound are not cell-type-specific, don't add cond lora to it
+        self.upper_bound_head = OutputHead(in_channels=1920, out_channels=1)
+
+        # predict prob without sigmoid (need to add sigmoid in the loss function)
+        self.final_output_head = OutputHead(
+            in_channels=1920, out_channels=1, activation=None
+        )
         return
 
     def _setup_channel_loss_weights(
@@ -237,7 +256,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             init_weight = torch.tensor([channel_loss_weight] * self.out_channels)
         else:
             init_weight = torch.tensor(channel_loss_weight)
-        init_weight = -torch.log(init_weight).float()[:, None]  # (out_channels, 1)
+        init_weight = -torch.log(init_weight).float()[None, :]  # (1, out_channels)
 
         if self.out_channels == 1:
             learnable_channel_loss_weight = False
@@ -254,12 +273,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # https://github.com/lucidrains/tf-bind-transformer/blob/main/tf_bind_transformer/tf_bind_transformer.py#L468-L470
         When finetune Enformer or Borzoi, it is recommended to freeze the batchnorms.
         """
-        for name, module in self.named_modules():
-            # don't freeze lora modules
-            if "lora_A_module" in name:
-                continue
-            if "lora_B_module" in name:
-                continue
+        for _, module in self.named_modules():
+            # do try to freeze lora modules as well (call this after first validation epoch)
+            # # don't freeze lora modules
+            # if "lora_A_module" in name:
+            #     continue
+            # if "lora_B_module" in name:
+            #     continue
 
             if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
                 module.eval()
@@ -271,9 +291,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
     def freeze_all_parameter_except_output_head(self):
         """Freeze all parameters except the final output head."""
         for name, param in self.named_parameters():
-            if "final_output_head" in name:
-                continue
-            if "recycle_conv" in name:
+            if "output_head" in name:
                 continue
             param.requires_grad = False
         return
@@ -285,6 +303,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         hidden_layers=1,
         output_layer_groups=4,
         lora_dropout=0.01,
+        embedding_dropout=0,
         lora_scale=1,
         preset="all_conditional",
     ):
@@ -296,6 +315,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "output_layer_groups": output_layer_groups,
             "lora_dropout": lora_dropout,
             "lora_scale": lora_scale,
+            "embedding_dropout": embedding_dropout,
         }
 
         config_func = LORA_CONFIG_FUNCTIONS[preset]
@@ -320,12 +340,18 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 module_names = (module_names,)
 
             config["conditional_b"] = self.conditional_b
+            config["norm_type"] = self.lora_norm
+            config["batchnorm_momentum"] = (
+                0.1  # if using batchnorm, set momentum to 0.9
+            )
             if self.kv_bottleneck_mode == "local":
                 config["kv_bottleneck"] = True
                 config["num_memories"] = self.num_memories
                 config["dim_memory"] = self.dim_memory
                 config["num_memory_codebooks"] = self.num_memory_codebooks
                 config["additional_embs"] = self.additional_embs
+                config["emb_input"] = self.emb_input
+                config["emb_input_dims"] = self.emb_input_dims
                 config["norm_type"] = self.lora_norm
                 config["batchnorm_momentum"] = (
                     0.1  # if using batchnorm, set momentum to 0.9
@@ -357,11 +383,14 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         if self.kv_bottleneck_mode is None:
             emb_example = torch.randn(1, self.emb_input_features)
         else:
-            emb_example = torch.randint(
-                0,
-                self.num_memories,
-                (1, self.num_memory_codebooks + self.additional_embs),
-            )
+            if self.emb_input:
+                emb_example = torch.randn(1, self.emb_input_dims)
+            else:
+                emb_example = torch.randint(
+                    0,
+                    self.num_memories,
+                    (1, self.num_memory_codebooks + self.additional_embs),
+                )
 
         if input_data is None:
             input_data = {
@@ -379,121 +408,17 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return summary_str
 
-    def vq_ind_to_emb(self, emb_data):
-        """
-        VQ index to embedding.
-
-        (bs, n_cbs + additional_embs) -> (bs, n_cbs * dim_memory + additional_embs).
-        """
-        n_cbs = self.kv_bottleneck.num_memory_codebooks
-        vq_ind = emb_data[:, :n_cbs].type(torch.int64)
-        other_emb_data = emb_data[:, n_cbs:]
-        emb_data = self.kv_bottleneck(vq_ind)
-        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
-        return emb_data
-
-    def output_recycle(self, x: torch.Tensor, output=None):
-        """Combine the input tensor and the output tensor."""
-        if output is None:
-            return x
-        else:
-            # important: detach the output tensor so previous cycle's gradients are not used
-            output.detach_()
-
-            # output supposed to be count
-            output = torch.log1p(output)
-
-            # Questions:
-            # should we perform layer norm on X?
-            # should we init output recycle conv with zeros?
-            # should we make output recycle conv more complex?
-            # should we take final output instead of 1920 intermediate output?
-            x = x + self.recycle_conv(output)
-            return x
-
-    def single_forward_pass(
-        self,
-        x: torch.Tensor,
-        output: torch.Tensor,
-        return_dna_embedding=False,
-        *args,
-        **kwargs,
-    ):
-        """Borzoi forward pass."""
-        # change dtype to half if not already
-        if torch.is_autocast_enabled():
-            if x.dtype != torch.float16:
-                x = x.half()
-        else:
-            if x.dtype != torch.float32:
-                x = x.float()
-
-        x = self.conv_dna(x, *args, **kwargs)
-        x_unet0 = self.res_tower(x, *args, **kwargs)
-
-        # x_unet0 (bs, 1280, 16384)
-        x_unet0 = self.output_recycle(x_unet0, output)
-
-        # =================
-        # Remaining part is the same as Borzoi forward pass
-        # =================
-        # UNet connections
-        x_unet1 = self.unet1(x_unet0, *args, **kwargs)
-        x = self._max_pool(x_unet1)
-        x_unet0 = self.horizontal_conv0(x_unet0, *args, **kwargs)
-        x_unet1 = self.horizontal_conv1(x_unet1, *args, **kwargs)
-
-        # Transformer
-        x = self.transformer(x.permute(0, 2, 1), *args, **kwargs)
-        x = x.permute(0, 2, 1)
-
-        # UNet upsampling and separable convs 1
-        x = self.upsampling_unet1(x, *args, **kwargs)
-        x += x_unet1
-        x = self.separable1(x, *args, **kwargs)
-
-        # UNet upsampling and separable convs 0
-        x = self.upsampling_unet0(x, *args, **kwargs)
-        x += x_unet0
-        x = self.separable0(x, *args, **kwargs)
-
-        # Final Conv WITHOUT Crop
-        x = self.final_joined_convs(x, *args, **kwargs)
-
-        # context output
-        output = self.final_output_head(x, *args, **kwargs)
-
-        if return_dna_embedding:
-            return output, x
-
-        return output
-
-    def forward(self, x, embedding, return_dna_embedding=False):
+    def forward(self, x, embedding, crop=True, return_dna_embedding=False):
         """Borzoi forward pass to get final output."""
         if self.kv_bottleneck is not None:
             embedding = self.vq_ind_to_emb(embedding)
 
-        if self.n_cycles == 1:
-            # simple forward
-            x = super().forward(x, embedding=embedding)
-            output = self.final_output_head(x, embedding=embedding)
-        else:
-            # recycling forward
-            output = None
-            if self.training:
-                # get a random n from 1 to n_cycles
-                n = torch.randint(1, self.n_cycles + 1, (1,)).item()
-                for _ in range(n):
-                    output, x = self.single_forward_pass(x, output, embedding=embedding)
-            else:
-                for _ in range(self.n_cycles):
-                    output, x = self.single_forward_pass(x, output, embedding=embedding)
-
-            # crop in the end
-            output = self.crop(output)
+        x = super().forward(x, embedding=embedding, crop=crop)
+        output = self.final_output_head(x, embedding=embedding)
 
         if return_dna_embedding:
             return output, x
+
         return output
 
     def weighted_loss_per_channel(self, loss_tensor):
@@ -503,7 +428,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return weighted_loss
 
-    def loss(self, y_pred, y_true, reduce=True, weighted_loss=True):
+    def loss(
+        self, y_pred, y_true, reduce=True, weighted_loss=True, position_weights=None
+    ):
         """
         Compute the loss for the Borzoi model.
 
@@ -514,15 +441,29 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         y_true : torch.Tensor
             True values, shape (batch_size, out_channels, seq_len).
         """
-        loss, loss_breakdown, y_true = super().loss(y_pred, y_true, reduce=reduce)
+        if weighted_loss:
+            _reduce = False
+        else:
+            _reduce = reduce
+
+        loss, loss_breakdown, y_true = super().loss(
+            y_pred, y_true, reduce=_reduce, position_weights=position_weights
+        )
+        # loss shape (bs, out_channels)
+
+        # weighted loss per channel and sum across channels
         if weighted_loss:
             loss = self.weighted_loss_per_channel(loss)
+            if reduce:
+                loss = loss.sum()
+                with torch.no_grad():
+                    loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
 
-        if reduce:
-            loss = loss.mean()
         return loss, loss_breakdown, y_true
 
-    def paired_loss(self, y_pred_a, y_pred_b, y_true_a, y_true_b, reduce=True):
+    def paired_loss(
+        self, y_pred_a, y_pred_b, y_true_a, y_true_b, reduce=True, position_weights=None
+    ):
         """
         Compute the paired loss for the Borzoi model.
 
@@ -538,10 +479,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             True values for sample B, shape (batch_size, out_channels, seq_len).
         """
         loss_a, loss_breakdown_a, y_true_a = super().loss(
-            y_pred_a, y_true_a, reduce=False
+            y_pred_a,
+            y_true_a,
+            reduce=False,
+            position_weights=position_weights,
         )
         loss_b, loss_breakdown_b, y_true_b = super().loss(
-            y_pred_b, y_true_b, reduce=False
+            y_pred_b,
+            y_true_b,
+            reduce=False,
+            position_weights=position_weights,
         )
 
         # compute log fold change difference loss

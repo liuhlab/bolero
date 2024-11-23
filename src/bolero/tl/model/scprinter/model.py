@@ -221,47 +221,36 @@ class seq2PRINT(nn.Module):
 
 def make_lora_config(
     emb_input_features,
-    hidden_dim=256,
-    hidden_layers=1,
-    output_layer_groups=4,
-    lora_dropout=0,
-    lora_output=False,
-    use_dora=False,
+    hidden_dim,
+    hidden_layers,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
         "emb_input_features": emb_input_features,
         "hidden_dim": hidden_dim,
         "hidden_layers": hidden_layers,
-        "output_layer_groups": output_layer_groups,
+        "output_layer_groups": 1,
         "convert_conv": True,
-        "lora_dropout": lora_dropout,
-        "use_dora": use_dora,
+        "lora_dropout": True,
     }
-
     lora_config = {
         "dna_cnn_model": {
             **shared_config,
-            "rank": 4,  # total rank 4 * 21
+            "lora_rank": 4,  # total rank 4 * 21
         },
         "hidden_layer_model": {
             **shared_config,
-            "rank": 32,  # total rank 32 * 3 conv1 + 32 * 1 conv2
+            "lora_rank": 32,  # total rank 32 * 3 conv1 + 32 * 1 conv2
+        },
+        "footprint_head": {
+            **shared_config,
+            "lora_rank": 32,  # total rank 32 * 1
+        },
+        "coverage_head": {
+            **shared_config,
+            "lora_rank": 1,  # total rank 1 * 1
         },
     }
-    if lora_output:
-        lora_config["footprint_head"] = (
-            {
-                **shared_config,
-                "rank": 32,  # total rank 32 * 1
-            },
-        )
-        lora_config["coverage_head"] = (
-            {
-                **shared_config,
-                "rank": 1,  # total rank 1 * 1
-            },
-        )
     return lora_config
 
 
@@ -277,17 +266,18 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "emb_input_features": "REQUIRED",
             "n_lora_layers": 0,
             "lora_hidden_dim": 256,
-            "lora_output_layer_groups": 4,
+            "lora_output_layer_groups": 1,
             "lora_dropout": 0,
             "use_dora": False,
-            "conditional_b": True,
             "lora_output": False,
             # KV Bottleneck
             "kv_bottleneck": "local",
             "num_memories": 256,
-            "dim_memory": 64,
+            "dim_memory": 50,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
+            "emb_input": False,
+            "emb_input_dims": None,
         }
     )
 
@@ -310,17 +300,14 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         emb_input_features: int,
         n_lora_layers: int = 0,
         lora_hidden_dim: Optional[int] = 256,
-        lora_output_layer_groups: Optional[int] = 4,
-        lora_dropout: float = 0,
-        use_dora: bool = False,
-        conditional_b: bool = False,
-        lora_output: bool = False,
+        lora_output: bool = True,
         # KV Bottleneck
-        kv_bottleneck: bool = None,
+        kv_bottleneck: str = "local",
         num_memories: int = 256,
-        dim_memory: int = 20,
+        dim_memory: int = 50,
         num_memory_codebooks: int = 2,
         additional_embs: int = 1,
+        emb_input: bool = False,
         **base_kwargs,
     ):
         # ===============
@@ -343,7 +330,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         # key-value bottleneck for converting indices to embeddings
         if kv_bottleneck == "local":
             self.kv_bottleneck_mode = "local"
-            lora_input_features = num_memory_codebooks * dim_memory + additional_embs
+            lora_input_features = emb_input_features
         elif kv_bottleneck == "global":
             self.kv_bottleneck_mode = "global"
         elif kv_bottleneck is None:
@@ -358,12 +345,16 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         self.dim_memory = dim_memory
         self.num_memory_codebooks = num_memory_codebooks
         self.additional_embs = additional_embs
+        self.emb_input = emb_input
+        self.emb_input_dims = emb_input_features
         if self.kv_bottleneck_mode == "global":
             self.kv_bottleneck, lora_input_features = self.setup_kv_bottleneck(
                 num_memory_codebooks=num_memory_codebooks,
                 num_memories=num_memories,
                 dim_memory=dim_memory,
                 additional_embs=additional_embs,
+                emb_input=emb_input,
+                emb_input_dims=emb_input_features,
             )
             print(
                 "Using global shared key-value bottleneck for converting indices to embeddings."
@@ -376,10 +367,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             emb_input_features=lora_input_features,
             lora_hidden_dim=lora_hidden_dim,
             n_lora_layers=n_lora_layers,
-            lora_output_layer_groups=lora_output_layer_groups,
-            lora_dropout=lora_dropout,
-            use_dora=use_dora,
-            conditional_b=conditional_b,
             lora_output=lora_output,
         )
         return
@@ -389,10 +376,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         emb_input_features,
         lora_hidden_dim,
         n_lora_layers,
-        lora_output_layer_groups,
-        lora_dropout,
-        use_dora,
-        conditional_b,
         lora_output=False,
     ):
         """Convert the model to LoRA."""
@@ -400,23 +383,22 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             emb_input_features=emb_input_features,
             hidden_dim=lora_hidden_dim,
             hidden_layers=n_lora_layers,
-            output_layer_groups=lora_output_layer_groups,
-            lora_dropout=lora_dropout,
-            use_dora=use_dora,
-            lora_output=lora_output,
         )
 
         for module_names, config in self.lora_config.items():
             if isinstance(module_names, str):
                 module_names = (module_names,)
 
-            config["conditional_b"] = conditional_b
             if self.kv_bottleneck_mode == "local":
                 config["kv_bottleneck"] = True
                 config["num_memories"] = self.num_memories
                 config["dim_memory"] = self.dim_memory
                 config["num_memory_codebooks"] = self.num_memory_codebooks
                 config["additional_embs"] = self.additional_embs
+                config["emb_input"] = self.emb_input
+                config["emb_input_dims"] = self.emb_input_dims
+                # use batch norm
+                config["norm_type"] = "batch"
 
             for module_name in module_names:
                 module = getattr(self, module_name)
@@ -467,9 +449,13 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
 
     def model_summary(self):
         """Print model summary."""
+        if self.emb_input:
+            emb_example = torch.ones(1, self.emb_input_dims)
+        else:
+            emb_example = torch.ones(1, self.emb_input_features)
         input_data = {
             "X": torch.ones(1, 4, self.dna_len),
-            "embedding": torch.ones(1, self.emb_input_features),
+            "embedding": emb_example,
         }
         return super().model_summary(input_data=input_data)
 

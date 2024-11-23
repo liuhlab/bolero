@@ -352,7 +352,7 @@ class FetchRegionOneHot:
         self.dtype = dtype
         self.random_shift = random_shift
 
-    def __call__(self, data: dict, remote_genome_one_hot) -> dict:
+    def __call__(self, data: dict, remote_genome_one_hot, key_suffix=None) -> dict:
         """
         Apply the FetchRegionOneHot transform to the input data.
 
@@ -360,6 +360,10 @@ class FetchRegionOneHot:
         ----------
         data : dict
             The input data dictionary.
+        remote_genome_one_hot : ray.remote
+            The remote object to fetch the genome one-hot encoder.
+        key_suffix : str, optional
+            The suffix to take region and add to the output key. Defaults to None.
 
         Returns
         -------
@@ -369,21 +373,28 @@ class FetchRegionOneHot:
         """
         genome_one_hot = ray.get(remote_genome_one_hot)
         # shape: (batch, length, channel)
-        regions = data[self.region_key]
 
-        if self.random_shift > 0:
-            new_regions = []
-            for region in regions:
-                shift = np.random.randint(-self.random_shift, self.random_shift + 1)
-                chrom, coords = region.split(":")
-                start, end = map(int, coords.split("-"))
-                start += shift
-                end += shift
-                region = f"{chrom}:{start}-{end}"
-                new_regions.append(region)
-            regions = new_regions
+        if key_suffix is None:
+            key_suffix = [""]
 
-        one_hot = genome_one_hot.get_regions_one_hot(regions)
-        # change to (batch, channel, length)
-        data[self.output_key] = np.moveaxis(one_hot.astype(self.dtype), -2, -1)
+        for suffix in key_suffix:
+            regions = data[self.region_key + suffix]
+
+            if self.random_shift > 0:
+                new_regions = []
+                for region in regions:
+                    shift = np.random.randint(-self.random_shift, self.random_shift + 1)
+                    chrom, coords = region.split(":")
+                    start, end = map(int, coords.split("-"))
+                    start += shift
+                    end += shift
+                    region = f"{chrom}:{start}-{end}"
+                    new_regions.append(region)
+                regions = new_regions
+
+            one_hot = genome_one_hot.get_regions_one_hot(regions)
+            # change to (batch, channel, length)
+            data[self.output_key + suffix] = np.moveaxis(
+                one_hot.astype(self.dtype), -2, -1
+            )
         return data

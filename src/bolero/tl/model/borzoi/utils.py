@@ -1,7 +1,10 @@
+import numpy as np
+import pandas as pd
 import pyranges as pr
 import torch
 
 from bolero.pp.genome import Genome
+from bolero.pp.gtf import GTFDB, MM10_GTFDB_PATH
 from bolero.utils import get_package_dir
 
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
@@ -39,18 +42,81 @@ class BorzoiRegions:
 
     def __init__(self):
         self._hg38 = None
-        self.hg38_regions = pr.read_bed(
-            str(BORZOI_DATA_DIR / "hg38_sequences.bed"), as_df=True
-        )
-        self.hg38_regions.columns = ["Chromosome", "Start", "End", "Fold"]
-        self.hg38_regions["Fold"] = self.hg38_regions["Fold"].str[4:].astype(int)
+        self._hg38_regions = None
+        self._hg38_gene_regions = None
+        self._hg38_gene_effective_regions = None
 
         self._mm10 = None
-        self.mm10_regions = pr.read_bed(
-            str(BORZOI_DATA_DIR / "mm10_sequences.bed"), as_df=True
-        )
-        self.mm10_regions.columns = ["Chromosome", "Start", "End", "Fold"]
-        self.mm10_regions["Fold"] = self.mm10_regions["Fold"].str[4:].astype(int)
+        self._mm10_regions = None
+        self._mm10_gene_regions = None
+        self._mm10_gene_effective_regions = None
+
+        self.cur_idmap = None
+        self.cur_effective_regions = None
+
+    @property
+    def hg38_regions(self):
+        """Return hg38 borzoi regions."""
+        if self._hg38_regions is None:
+            self._hg38_regions = pr.read_bed(
+                str(BORZOI_DATA_DIR / "hg38_sequences.bed"), as_df=True
+            )
+            self._hg38_regions.columns = ["Chromosome", "Start", "End", "Fold"]
+            self._hg38_regions["Fold"] = self._hg38_regions["Fold"].str[4:].astype(int)
+            self._hg38_regions_idmap = dict(enumerate(self._hg38_regions.index))
+        return self._hg38_regions
+
+    @property
+    def hg38_gene_regions(self):
+        """Return hg38 borzoi gene regions."""
+        raise NotImplementedError("hg38_gene_regions is not implemented yet.")
+
+    @property
+    def mm10_regions(self):
+        """Return mm10 borzoi regions."""
+        if self._mm10_regions is None:
+            self._mm10_regions = pr.read_bed(
+                str(BORZOI_DATA_DIR / "mm10_sequences.bed"), as_df=True
+            )
+            self._mm10_regions.columns = ["Chromosome", "Start", "End", "Fold"]
+            self._mm10_regions["Fold"] = self._mm10_regions["Fold"].str[4:].astype(int)
+            self._mm10_regions_idmap = dict(enumerate(self._mm10_regions.index))
+        return self._mm10_regions
+
+    @property
+    def mm10_gene_regions(self):
+        """Return mm10 borzoi gene regions."""
+        if self._mm10_gene_regions is None:
+            self._mm10_gene_regions = pr.read_bed(
+                str(BORZOI_DATA_DIR / "borzoi_mm10_gene.biccn_vm23.bed.gz"), as_df=True
+            )
+            self._mm10_gene_regions.columns = [
+                "Chromosome",
+                "Start",
+                "End",
+                "Name",
+                "Fold",
+            ]
+            self._mm10_gene_regions["Fold"] = (
+                self._mm10_gene_regions["Fold"].str[4:].astype(int)
+            )
+            self._mm10_gene_regions.set_index("Name", inplace=True)
+            self._mm10_gene_regions_idmap = dict(
+                enumerate(self._mm10_gene_regions.index)
+            )
+            self._mm10_gene_regions.reset_index(inplace=True, drop=True)
+
+            # effective gene regions
+            self._mm10_gene_effective_regions = pr.read_bed(
+                str(
+                    BORZOI_DATA_DIR
+                    / "borzoi_mm10_gene.biccn_vm23.effective_gene_region_ext1k.bed.gz"
+                ),
+                as_df=True,
+            )
+            self._mm10_gene_effective_regions.set_index("Name", inplace=True)
+
+        return self._mm10_gene_regions
 
     @property
     def hg38(self):
@@ -76,18 +142,54 @@ class BorzoiRegions:
                 to_remove.extend(overlap["Original_Name"].values)
         return bed1.df[~bed1.df["Original_Name"].isin(to_remove)].copy()
 
-    def get_train_valid_test_regions(self, genome, split_id, region_length=524288):
+    def _filter_gene_regions(self, regions, deg_list, idmap):
+        """Filter gene regions by deg_list."""
+        if isinstance(deg_list, str):
+            deg_list = pd.read_csv(deg_list, header=None, index_col=0).index
+        genes = regions.index.map(lambda x: idmap[x].split("_")[0])
+        final_regions = regions.loc[genes.isin(deg_list)].copy()
+
+        n_genes = genes[genes.isin(deg_list)].nunique()
+
+        print(
+            f"DEG list provided. Found {len(final_regions)} regions with {n_genes} genes."
+        )
+        return final_regions
+
+    def get_train_valid_test_regions(
+        self,
+        genome,
+        split_id,
+        region_length=524288,
+        use_gene_regions=False,
+        deg_list=None,
+    ):
         """
         Get train, valid, test regions for a given genome and split id.
         """
         if genome == "hg38":
-            regions = self.hg38_regions.copy()
+            if use_gene_regions:
+                regions = self.hg38_gene_regions.copy()
+                self.cur_idmap = {}
+            else:
+                regions = self.hg38_regions.copy()
+                self.cur_idmap = self._hg38_regions_idmap
             genome = self.hg38
         elif genome == "mm10":
-            regions = self.mm10_regions.copy()
+            if use_gene_regions:
+                regions = self.mm10_gene_regions.copy()
+                self.cur_idmap = self._mm10_gene_regions_idmap
+                self.cur_effective_regions = self._mm10_gene_effective_regions
+                self.cur_gtf_db = GTFDB(MM10_GTFDB_PATH)
+            else:
+                regions = self.mm10_regions.copy()
+                self.cur_idmap = self._mm10_regions_idmap
             genome = self.mm10
         else:
             raise ValueError(f"Invalid genome: {genome}, choose from ['hg38', 'mm10']")
+
+        if use_gene_regions and deg_list is not None:
+            regions = self._filter_gene_regions(regions, deg_list, self.cur_idmap)
 
         id_to_fold = regions["Fold"].to_dict()
         regions["Name"] = regions.index
@@ -131,6 +233,60 @@ class BorzoiRegions:
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
         return train_regions, valid_regions, test_regions
+
+
+def create_gene_weights(r1, r2, resolution=32, r2_value=1, other_value=0.001):
+    """
+    Create gene weights for a region where position bins
+    belong to r2 has r2_value and other positions has other_value.
+    """
+    r1s, r1e = r1
+    r2s, r2e = r2
+
+    size = (r1e - r1s) // resolution
+    weights = np.full(size, other_value)
+
+    # Determine the overlapping region
+    overlap_start = max(r1s, r2s)
+    overlap_end = min(r1e, r2e)
+
+    # Check if there is an overlap
+    if overlap_start < overlap_end:
+        start_index = (overlap_start - r1s) // resolution
+        end_index = (overlap_end - r1s) // resolution
+        weights[start_index:end_index] = r2_value
+    return weights
+
+
+def add_position_weights_to_batch(
+    batch,
+    genome,
+    region_id_map,
+    effective_regions,
+    resolution=32,
+    gene_value=1,
+    other_value=0.001,
+):
+    """Create region weights for the batch."""
+    region_names = pd.Index(batch["original_name"].cpu().numpy()).map(region_id_map)
+    effective_global_coords = genome.get_global_coords(
+        effective_regions.loc[region_names]
+    )
+    region_global_coords = batch["region"].cpu().numpy()
+
+    weight_array = []
+    for r1, r2 in zip(region_global_coords, effective_global_coords):
+        weights = create_gene_weights(
+            r1, r2, resolution=resolution, r2_value=gene_value, other_value=other_value
+        )
+        weight_array.append(weights)
+    weight_array = np.array(weight_array)
+    weight_tensor = (
+        torch.Tensor(weight_array).half().unsqueeze(1).to(batch["region"].device)
+    )
+    # shape: (bs, 1, length)
+    batch["position_weights"] = weight_tensor
+    return batch
 
 
 def compute_total_grad_norm(parameters, norm_type=2):

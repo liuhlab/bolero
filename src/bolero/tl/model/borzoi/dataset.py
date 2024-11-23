@@ -1,20 +1,22 @@
 import pathlib
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
+from copy import deepcopy
 from typing import Any, Iterable
 
 import numpy as np
 import ray
+import torch
 
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
 )
-from bolero.tl.dataset.sc_transforms import FilterRegions, GenerateBorzoiPseudobulk
+from bolero.tl.dataset.sc_transforms import FilterRegions, GeneratePseudobulk
 from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
 )
 
-from .utils import BorzoiRegions
+from .utils import BorzoiRegions, add_position_weights_to_batch
 
 DNA_NAME = "dna_one_hot"
 
@@ -27,12 +29,14 @@ class MaskBlacklistAndClamp:
         region_key,
         data_keys,
         as_nan=False,
+        resolution=32,
     ):
         self.blacklist_global_coords = blacklist_global_coords
         self.chrom_offsets = chrom_offsets
         self.region_key = region_key
         self.data_keys = data_keys
         self.as_nan = as_nan
+        self.resolution = resolution
         self._mask_value = np.nan if as_nan else 0
 
     def _get_region_chrom(self, region):
@@ -53,12 +57,180 @@ class MaskBlacklistAndClamp:
             ].copy()
             overlap_bl_regions -= r_gstart
             region_length = r_gend - r_gstart
+            overlap_bl_regions[:, 0] -= 3 * self.resolution
+            overlap_bl_regions[:, 1] += 3 * self.resolution
+            overlap_bl_regions = np.clip(overlap_bl_regions, 0, region_length)
+
+            # convert base coords to resolution coords
+            overlap_bl_regions //= self.resolution
 
             for bl_start, bl_end in overlap_bl_regions:
-                nan_slice = slice(max(0, bl_start), min(region_length, bl_end))
+                if bl_start >= region_length:
+                    continue
+                nan_slice = slice(bl_start, bl_end)
                 for data_key in self.data_keys:
                     batch[data_key][region_id, :, nan_slice] = self._mask_value
         return batch
+
+
+class GenerateBorzoiPseudobulk(GeneratePseudobulk):
+    """
+    Transform meta region data into bulk region data.
+    """
+
+    def __init__(
+        self,
+        n_pseudobulks=10,
+        return_rows=False,
+        inplace=False,
+        bypass_keys=None,
+        paired_data=False,
+        normalize_cov=None,
+        **name_to_pseudobulker,
+    ):
+        super().__init__(
+            n_pseudobulks=n_pseudobulks,
+            return_rows=return_rows,
+            inplace=inplace,
+            bypass_keys=bypass_keys,
+            **name_to_pseudobulker,
+        )
+        self.paired_data = paired_data
+        if self.paired_data:
+            # Similar to the Performer paper
+            # Data from different pseudobulks will be loaded in pairs
+            # Saved into separate keys with suffixes
+            # During training, each key will be learned separately,
+            # and their difference will be used as the diff loss
+            self.suffix = ["_A", "_B"]
+        else:
+            # Normal data loading
+            self.suffix = [""]
+
+        self.normalize_cov = normalize_cov
+        return
+
+    def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
+        """Generate pseudobulks for each output prefix."""
+        list_of_dicts = []
+
+        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
+        output_prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
+
+        suffix_list = self.suffix
+        cycling = len(suffix_list)
+
+        # merge rows (cell or sample) to bulk and also get embedding data
+        this_bulk_dict = {}
+        for idx, (
+            prefix_to_rows,
+            row_embedding,
+            cov_logfc,
+            pseudobulk_id,
+        ) in enumerate(pseudobulker.take(self.n_pseudobulks * cycling)):
+            suffix = suffix_list[idx % cycling]
+            this_bulk_dict[f"{output_prefix}:embedding_data{suffix}"] = row_embedding
+            this_bulk_dict[f"{output_prefix}:pseudobulk_ids{suffix}"] = pseudobulk_id
+
+            combined_bulk_data = []
+            for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
+                prefix_rows = prefix_to_rows[prefix]
+                # row_by_base is a csr_matrix of shape (n_rows, region_length)
+                row_by_base = data_dict[prefix]
+                _bulk_values = (
+                    row_by_base[prefix_rows].sum(axis=0).A1
+                )  # (1, region_length)
+
+                if self.normalize_cov:
+                    prefix_cov_logfc = cov_logfc[prefix_idx]
+                    _bulk_values /= 2**prefix_cov_logfc
+
+                combined_bulk_data.append(_bulk_values)
+            this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = np.vstack(
+                combined_bulk_data
+            )
+
+            # copy shared information to the bulk dict
+            for key in self.bypass_keys:
+                if key in data_dict:
+                    this_bulk_dict[key] = deepcopy(data_dict[key])
+
+            if idx % cycling == cycling - 1:
+                list_of_dicts.append(this_bulk_dict)
+                this_bulk_dict = {}
+        return list_of_dicts
+
+
+class GenerateBorzoiPseudobulkProfiler:
+    """
+    Transform meta region data into bulk region data.
+    """
+
+    def __init__(
+        self,
+        n_pseudobulks=1000,
+        q=0.995,
+        **name_to_pseudobulker,
+    ):
+        self.n_pseudobulks = n_pseudobulks
+        self.normalize_cov = True
+        self.q = q
+        self.name_to_pseudobulker = name_to_pseudobulker
+
+        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
+        for name, pseudobulker in self.name_to_pseudobulker.items():
+            self.final_prefix = name
+            self.pseudobulker = pseudobulker
+        return
+
+    def _collect_pseudobulks(self, data_dict):
+        pseudobulker = self.pseudobulker
+
+        # merge rows (cell or sample) to bulk and also get embedding data
+        prefix_data_dict = defaultdict(list)
+        for prefix_to_rows, row_embedding, _ in pseudobulker.take(self.n_pseudobulks):
+            cov_logfc = row_embedding[pseudobulker.vq_emb_dims :]
+            for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
+                prefix_rows = prefix_to_rows[prefix]
+                # row_by_base is a csr_matrix of shape (n_rows, region_length)
+                row_by_base = data_dict[prefix]
+                _bulk_values = (
+                    row_by_base[prefix_rows].sum(axis=0).A1
+                )  # (1, region_length)
+
+                if self.normalize_cov:
+                    prefix_cov_logfc = cov_logfc[prefix_idx]
+                    _bulk_values /= 2**prefix_cov_logfc
+                prefix_data_dict[prefix].append(_bulk_values)
+        prefix_data_dict = {k: np.vstack(v) for k, v in prefix_data_dict.items()}
+        return prefix_data_dict
+
+    def _region_profile_summary(self, prefix_data_dict):
+        upper_bound_col = []
+        mean_p_col = []
+        for prefix in self.pseudobulker.prefix_order:
+            prefix_data = prefix_data_dict[prefix]
+            upper_bound = np.quantile(prefix_data, self.q, axis=0, keepdims=True) + 1e-8
+            data_p = np.clip(prefix_data / upper_bound, a_min=0, a_max=1)
+            data_p_mean = data_p.mean(axis=0, keepdims=True)
+
+            upper_bound_col.append(upper_bound)
+            mean_p_col.append(data_p_mean)
+
+        summary_dict = {
+            f"{self.final_prefix}:upper_bound": np.vstack(upper_bound_col),
+            f"{self.final_prefix}:mean_p": np.vstack(mean_p_col),
+        }
+        return summary_dict
+
+    def __call__(self, data_dict: dict[str, bytes]) -> dict[str, np.ndarray]:
+        """Generate pseudobulks for each output prefix."""
+        prefix_data_dict = self._collect_pseudobulks(data_dict)
+
+        summary_dict = self._region_profile_summary(prefix_data_dict)
+
+        data_dict.update(summary_dict)
+        return data_dict
 
 
 class BorzoiDataset(RayGenomeChunkDataset):
@@ -76,6 +248,13 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "read_parquet_kwargs": None,
         "min_cov": 0,
         "paired_data": False,
+        "normalize_cov": None,
+        "use_gene_regions": False,
+        "deg_list": None,
+        "use_pseudobulk_profile": False,
+        # only applicable when use gene regions
+        "gene_weight": 1.0,
+        "background_weight": 1e-4,
     }
 
     def __init__(
@@ -92,6 +271,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         read_parquet_kwargs=None,
         min_cov: int = 0,
         paired_data=False,
+        normalize_cov=None,
+        use_gene_regions=False,
+        deg_list=None,
+        use_pseudobulk_profile=False,
+        gene_weight=1.0,
+        background_weight=1e-4,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -110,6 +295,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.cov_filter_name = cov_filter_name
         self.min_cov = min_cov
         self.paired_data = paired_data
+        self.normalize_cov = normalize_cov
+        self.use_gene_regions = use_gene_regions
+        self.deg_list = deg_list
+        self.use_pseudobulk_profile = use_pseudobulk_profile
+        self.gene_weight = gene_weight
+        self.background_weight = background_weight
 
         self.name_to_pseudobulker = OrderedDict()
 
@@ -132,7 +323,11 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         train_regions, valid_regions, test_regions = (
             self.borzoi_regions.get_train_valid_test_regions(
-                self.genome.name, split_id=fold, region_length=self.dna_window
+                self.genome.name,
+                split_id=fold,
+                region_length=self.dna_window,
+                use_gene_regions=self.use_gene_regions,
+                deg_list=self.deg_list,
             )
         )
 
@@ -345,6 +540,32 @@ class BorzoiDataset(RayGenomeChunkDataset):
         )
         return dataset
 
+    def _generate_pseudobulk_profile(
+        self,
+        dataset,
+        name_to_pseudobulker,
+        n_pseudobulks=1000,
+        q=0.995,
+        concurrency=1,
+    ):
+        fn = GenerateBorzoiPseudobulkProfiler
+        fn_constructor_kwargs = {
+            "n_pseudobulks": n_pseudobulks,
+            "q": q,
+        }
+        fn_constructor_kwargs.update(name_to_pseudobulker)
+
+        dataset = dataset.map(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+        )
+
+        new_suffixes = ["upper_bound", "mean_p"]
+        name = list(name_to_pseudobulker.keys())[0]
+        self.signal_columns.extend([f"{name}:{suffix}" for suffix in new_suffixes])
+        return dataset
+
     def _generate_pseudobulk(
         self,
         dataset,
@@ -358,6 +579,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         fn_constructor_kwargs = {
             "n_pseudobulks": n_pseudobulks,
             "paired_data": paired_data,
+            "normalize_cov": self.normalize_cov,
+            **kwargs,
         }
         fn_constructor_kwargs.update(name_to_pseudobulker)
 
@@ -414,6 +637,14 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         # generate pseudobulk
         if len(name_to_pseudobulker) > 0:
+            if self.use_pseudobulk_profile:
+                dataset = self._generate_pseudobulk_profile(
+                    dataset=dataset,
+                    name_to_pseudobulker=name_to_pseudobulker,
+                    concurrency=generate_pseudobulk_concurrency,
+                )
+                pseudobulk_kwargs["bypass_keys"] = self.signal_columns
+
             dataset = self._generate_pseudobulk(
                 dataset=dataset,
                 name_to_pseudobulker=name_to_pseudobulker,
@@ -429,6 +660,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 max_regions=1,
                 concurrency=generate_regions_concurrency,
                 pos_resolution=self.pos_resolution,
+                add_original_name=True,
             )
         return dataset
 
@@ -436,7 +668,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self,
         folds: list[int],
         region_bed: str,
-        concurrency: int = 16,
+        concurrency: int = 32,
         batch_size: int = 16,
     ) -> None:
         """
@@ -505,7 +737,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         as_torch=True,
         n_batches=None,
         shuffle_rows=500,
-        concurrency=20,
+        concurrency=32,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -548,3 +780,39 @@ class BorzoiDataset(RayGenomeChunkDataset):
             batch_size=self.batch_size,
         )
         return loader
+
+    def maybe_preprocess_batch(self, batch):
+        """Maybe add region weights to weight on gene regions."""
+        if self.use_gene_regions:
+            batch = add_position_weights_to_batch(
+                batch=batch,
+                genome=self.genome,
+                region_id_map=self.borzoi_regions.cur_idmap,
+                effective_regions=self.borzoi_regions.cur_effective_regions,
+                resolution=32,
+                gene_value=self.gene_weight,
+                other_value=self.background_weight,
+            )
+
+        if self.use_pseudobulk_profile:
+            batch = self._normalize_by_profile(batch)
+        return batch
+
+    def _normalize_by_profile(self, batch, weight_by_mean_p=False):
+        prefix = list(self.name_to_pseudobulker.keys())[0]
+
+        data = batch[f"{prefix}:bulk_data"]
+        # top quantile value at each position
+        upper = batch[f"{prefix}:upper_bound"]
+        # mean proportion of each position, indicating cellular diversity
+        mean_p = batch[f"{prefix}:mean_p"]
+
+        # calculate the proportion of each position based on the upper bound
+        data_p = torch.clamp(data / upper, max=1)
+
+        if weight_by_mean_p:
+            # weight the data by the mean proportion
+            data_p = data_p * mean_p
+
+        batch[f"{prefix}:bulk_data"] = data_p
+        return batch

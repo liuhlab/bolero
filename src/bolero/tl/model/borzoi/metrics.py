@@ -147,6 +147,7 @@ def poisson_multinomial(
     epsilon: float = 1e-7,
     return_breakdown: bool = False,
     loss_chunks: int = 1,
+    position_weights: Optional[torch.Tensor] = None,
 ):
     """
     Compositional loss containing the overall poisson term and position-wise multinomial term.
@@ -182,10 +183,11 @@ def poisson_multinomial(
         position_weights = get_position_weights(
             seq_len, weight_range, weight_exp, y_true.device
         )
+
+    if position_weights is not None:
         # Apply position weights to true and predicted values
         y_true = y_true * position_weights
         y_pred = y_pred * position_weights
-
         weight_scale = torch.sum(position_weights)
 
     # Poisson loss computation (sum across lengths, then compute loss)

@@ -3,8 +3,7 @@ import numpy as np
 import torch
 
 from bolero import Genome
-
-from .utils import figure_to_array
+from bolero.pl.utils import figure_to_array
 
 
 class BorzoiExamplePlotter:
@@ -23,10 +22,37 @@ class BorzoiExamplePlotter:
         self.id_key = id_key
         return
 
-    def plot(self, batch, channel=0, nrows=2, return_array=False):
+    def parse_region_coords(self, batch):
+        """Parse the region coordinates from a batch of examples"""
+        regions = batch["region"]
+        if isinstance(regions, torch.Tensor):
+            regions = regions.cpu().numpy()
+
+            # adjust y_true crop
+            y_true_seq_len = batch[self.true_key].shape[-1]
+            crop_bp = (16384 - y_true_seq_len) * 32 / 2
+            crop_bp = int(crop_bp)
+            regions[:, 0] += crop_bp
+            regions[:, 1] -= crop_bp
+
+        regions = self.genome.parse_global_coords(regions)
+        return regions
+
+    def plot(self, batch, channel=0, nrows=2, return_array=False, y_sync=False):
         """Plot the true and predicted data for a batch of examples."""
         y_true = batch[self.true_key]
         y_pred = batch[self.pred_key]
+        if "position_weights" in batch:
+            position_weights = batch["position_weights"].cpu().numpy()
+        else:
+            position_weights = None
+
+        if "region_names" in batch:
+            region_names = batch["region_names"]
+            gene_names = batch["gene_names"]
+        else:
+            region_names = None
+            gene_names = None
 
         if isinstance(y_true, torch.Tensor):
             y_true = y_true.cpu().numpy()
@@ -34,10 +60,7 @@ class BorzoiExamplePlotter:
             y_pred = y_pred.cpu().numpy()
         sample_ids = batch[self.id_key]
 
-        regions = batch["region"]
-        if isinstance(regions, torch.Tensor):
-            regions = regions.cpu().numpy()
-        regions = self.genome.parse_global_coords(regions)
+        regions = self.parse_region_coords(batch)
 
         row_ids = list(range(nrows)) if isinstance(nrows, int) else nrows
         fig, axes = plt.subplots(
@@ -47,6 +70,21 @@ class BorzoiExamplePlotter:
             constrained_layout=True,
         )
 
+        seq_len = y_true.shape[-1]
+        zoomin_start = seq_len // 2 - self.zoomin_radius
+        zoomin_end = seq_len // 2 + self.zoomin_radius
+        zoomin_slice = slice(zoomin_start, zoomin_end)
+
+        if y_sync:
+            y_max = max(np.quantile(y_true, 0.999), np.quantile(y_pred, 0.999))
+            y_zoomin_max = max(
+                np.quantile(y_true[..., zoomin_slice], 0.999),
+                np.quantile(y_pred[..., zoomin_slice], 0.999),
+            )
+            y_max_pair = (y_max, y_zoomin_max)
+        else:
+            y_max_pair = None
+
         for i, row_id in enumerate(row_ids):
             row_axes = axes[i * 4 : (i + 1) * 4]
             true_data = y_true[row_id, channel, :]
@@ -55,8 +93,32 @@ class BorzoiExamplePlotter:
 
             chrom, start, end, *_ = regions.iloc[row_id]
             region = f"{chrom}:{start}-{end}"
+
+            if position_weights is not None:
+                position_weights_1d = position_weights[row_id, channel]
+                high_weight_bins = self._get_high_weight_bins(position_weights_1d)
+                zoomin_range = high_weight_bins[0]
+                zoomin_slice = slice(*zoomin_range)
+                y_max_pair = None
+
+            if region_names is not None:
+                gene_name = gene_names[row_id]
+                region_name = region_names[row_id]
+            else:
+                gene_name = ""
+                region_name = ""
+
             self._plot_single_region(
-                row_axes, true_data, pred_data, region, sample_id, channel
+                row_axes,
+                true_data,
+                pred_data,
+                region,
+                sample_id,
+                channel,
+                zoomin_slice=zoomin_slice,
+                gene_name=gene_name,
+                region_name=region_name,
+                y_max_pair=y_max_pair,
             )
 
         for ax in axes.flat:
@@ -70,17 +132,23 @@ class BorzoiExamplePlotter:
         return fig
 
     def _plot_single_region(
-        self, axes, true_data, pred_data, region, sample_id, channel
+        self,
+        axes,
+        true_data,
+        pred_data,
+        region,
+        sample_id,
+        channel,
+        zoomin_slice,
+        gene_name="",
+        region_name="",
+        y_max_pair=None,
     ):
-        zoomin_radius = self.zoomin_radius
         resolution = 32
+        zoomin_start, zoomin_end = zoomin_slice.start, zoomin_slice.stop
 
         seq_len = true_data.shape[-1]
         x = np.arange(seq_len)
-        zoomin_start = seq_len // 2 - zoomin_radius
-        zoomin_end = seq_len // 2 + zoomin_radius
-        zoomin_slice = slice(zoomin_start, zoomin_end)
-
         chrom, coords = region.split(":")
         start, end = map(int, coords.split("-"))
 
@@ -105,6 +173,7 @@ class BorzoiExamplePlotter:
             f"Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
             fontsize=8,
         )
+        ax.text(0.01, 0.6, region_name, ha="left", fontsize=8, transform=ax.transAxes)
 
         ax = axes[1]
         ax.fill_between(
@@ -118,13 +187,12 @@ class BorzoiExamplePlotter:
 
         # zoom in
         ax = axes[2]
-        zoomin_x = np.arange(zoomin_radius * 2)
-        ax.fill_between(
-            x=zoomin_x, y1=true_data[zoomin_slice], linewidth=0, color="salmon"
-        )
-        rstart = (start + end) // 2 - zoomin_radius * resolution
-        rend = (start + end) // 2 + zoomin_radius * resolution
-        ax.set(xlim=(0, zoomin_radius * 2), xticks=[])
+        y1 = true_data[zoomin_slice]
+        zoomin_x = np.arange(y1.size)
+        ax.fill_between(x=zoomin_x, y1=y1, linewidth=0, color="salmon")
+        rstart = start + zoomin_slice.start * resolution
+        rend = start + zoomin_slice.stop * resolution
+        ax.set(xlim=(0, zoomin_x.size), xticks=[])
         if true_data[zoomin_slice].std() == 0:
             corr = 0
         else:
@@ -136,10 +204,29 @@ class BorzoiExamplePlotter:
             f"Corr. {corr:.3f}; Sum T/P {true_sum:,}/{pred_sum:,}; VQ={sample_id}",
             fontsize=8,
         )
+        ax.text(0.01, 0.6, gene_name, ha="left", fontsize=8, transform=ax.transAxes)
 
         ax = axes[3]
-        ax.fill_between(
-            x=zoomin_x, y1=pred_data[zoomin_slice], linewidth=0, color="steelblue"
-        )
-        ax.set(xlim=(0, zoomin_radius * 2), xticks=[])
+        y1 = pred_data[zoomin_slice]
+        zoomin_x = np.arange(y1.size)
+        ax.fill_between(x=zoomin_x, y1=y1, linewidth=0, color="steelblue")
+        ax.set(xlim=(0, zoomin_x.size), xticks=[])
+
+        if y_max_pair is not None:
+            y_max, y_zoomin_max = y_max_pair
+            axes[0].set(ylim=(0, y_max))
+            axes[1].set(ylim=(0, y_max))
+            axes[2].set(ylim=(0, y_zoomin_max))
+            axes[3].set(ylim=(0, y_zoomin_max))
+
         return
+
+    @staticmethod
+    def _get_high_weight_bins(position_weights_1d):
+        # position into disjoint bins
+        high_weight_pos = np.where(position_weights_1d > 0.1)[0]
+        edges = np.diff(high_weight_pos) != 1
+        starts = high_weight_pos[np.insert(edges, 0, True)]
+        ends = high_weight_pos[np.append(edges, True)]
+        high_weight_bins = list(zip(starts, ends))  # list[(start, end)]
+        return high_weight_bins

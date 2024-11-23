@@ -2,6 +2,7 @@ import pathlib
 from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar
 
 import joblib
+import numpy as np
 import pandas as pd
 import pyranges as pr
 import ray
@@ -202,6 +203,7 @@ class RayGenomeChunkDataset(GenericDataset):
         max_regions,
         concurrency,
         pos_resolution=None,
+        add_original_name=False,
     ):
         # generate region from bed file
         fn = GenerateRegions
@@ -211,6 +213,7 @@ class RayGenomeChunkDataset(GenericDataset):
             "action_keys": action_keys,
             "max_regions": max_regions,
             "pos_resolution": pos_resolution,
+            "add_original_name": add_original_name,
         }
         dataset = dataset.flat_map(
             fn=fn,
@@ -426,6 +429,9 @@ class RayRegionDataset(GenericDataset):
         "signal_length": "given",
         "dna": True,
         "batch_size": "REQUIRED",
+        "use_borzoi_regions": False,
+        "region2": False,
+        "region2_max_dist": 5e6,
     }
 
     def __init__(
@@ -440,6 +446,9 @@ class RayRegionDataset(GenericDataset):
         dna=True,
         boarder_strategy="drop",
         remove_blacklist=True,
+        use_borzoi_regions=False,
+        region2=False,
+        region2_max_dist=5e6,
         _block_size=20,
         _max_blocks=200,
     ):
@@ -464,7 +473,10 @@ class RayRegionDataset(GenericDataset):
             genome = Genome(genome)
         self.genome = genome
 
-        if bed is None:
+        if use_borzoi_regions:
+            self.bed = bed
+
+        if bed is None and not use_borzoi_regions:
             # make a genome windows
             assert window_size is not None, "window_size is required when bed is None"
             bins = genome.make_windows(
@@ -479,7 +491,7 @@ class RayRegionDataset(GenericDataset):
             )
             bins["Original_Name"] = bins["region"].copy()
             self.bed = bins
-        else:
+        elif bed is not None and not use_borzoi_regions:
             # standardize the region length to standard_length size
             standard_bed = self.genome.standard_region_length(
                 bed,
@@ -494,18 +506,61 @@ class RayRegionDataset(GenericDataset):
             standard_bed["Chromosome"] = standard_bed["Chromosome"].astype(str)
             standard_bed.rename(columns={"Name": "region"}, inplace=True)
             self.bed = standard_bed
+        else:
+            self.bed = bed
 
         self.batch_size = batch_size
         self.dna = dna
         self._block_size = _block_size
         self._max_blocks = _max_blocks
 
+        # whether to generate region2 for hic interactions
+        self.region2 = region2
+        self.region2_max_dist = region2_max_dist
+
+    def add_region2_to_bed(self, bed):
+        """
+        Random select nearby cis chromosome regions for each region in the bed file.
+        Put the selected regions in a new column called region_2.
+        """
+        max_dist = self.region2_max_dist
+
+        # Sort the DataFrame for efficient comparison
+        bed = bed.sort_values(by=["Chromosome", "Start", "End"]).reset_index(drop=True)
+
+        # Prepare a list to store the selected regions
+        region_2 = []
+
+        for chrom, chrom_df in bed.groupby("Chromosome"):
+            # Convert start and end positions to numpy arrays
+            starts = chrom_df["Start"].values
+            ends = chrom_df["End"].values
+
+            # Vectorized approach to find nearby regions
+            for start, end in zip(starts, ends):
+                mask = (starts > (start - max_dist)) & (ends < (end + max_dist))
+                indices = np.where(mask)[0]
+                if len(indices) == 0:
+                    # No region found within max_dist, use the same region
+                    region_2.append(f"{chrom}:{start}-{end}")
+                else:
+                    selected_index = np.random.choice(indices)
+                    chrom2, start2, end2, *_ = chrom_df.iloc[selected_index]
+                    region_2.append(f"{chrom2}:{start2}-{end2}")
+
+        # Add the new column
+        bed["region_2"] = region_2
+        return bed
+
     def _get_dna_one_hot(
-        self, dataset, dtype="float32", concurrency=1, batch_size=1024
+        self, dataset, dtype="float32", concurrency=1, batch_size=1024, key_suffix=None
     ):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {"dtype": dtype}
-        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+        fn_kwargs = {
+            "remote_genome_one_hot": self.genome.remote_genome_one_hot,
+            "key_suffix": key_suffix,
+        }
 
         dataset = dataset.map_batches(
             fn=fn,
@@ -517,10 +572,16 @@ class RayRegionDataset(GenericDataset):
         self.dna_column = DNA_NAME
         return dataset
 
-    def _select_columns(self, dataset):
-        keep_cols = ["region", "Original_Name"]
-        if self.dna:
-            keep_cols.append(DNA_NAME)
+    def _select_columns(self, dataset, key_suffix=None):
+        if key_suffix is None:
+            key_suffix = [""]
+
+        keep_cols = ["Original_Name"]
+        for suffix in key_suffix:
+            keep_cols.append(f"region{suffix}")
+            if self.dna:
+                keep_cols.append(DNA_NAME + suffix)
+
         dataset = dataset.select_columns(keep_cols)
         return dataset
 
@@ -531,6 +592,12 @@ class RayRegionDataset(GenericDataset):
 
         if isinstance(bed, pr.PyRanges):
             bed = bed.df
+
+        if self.region2:
+            bed = self.add_region2_to_bed(bed)
+            key_suffix = ["", "_2"]
+        else:
+            key_suffix = None  # ['']
 
         if self.is_train() and shuffle_bed:
             # self.bed is dataframe
@@ -545,9 +612,9 @@ class RayRegionDataset(GenericDataset):
         dataset = ray.data.from_pandas(bed).repartition(n_blocks).materialize()
 
         if self.dna:
-            dataset = self._get_dna_one_hot(dataset)
+            dataset = self._get_dna_one_hot(dataset, key_suffix=key_suffix)
 
-        dataset = self._select_columns(dataset)
+        dataset = self._select_columns(dataset, key_suffix=key_suffix)
         return dataset
 
     def get_dataloader(self, chroms=None, shuffle_bed=False, as_torch=False, **kwargs):

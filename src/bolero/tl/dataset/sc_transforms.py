@@ -224,6 +224,7 @@ class GenerateRegions:
         action_keys,
         max_regions=None,
         pos_resolution=None,
+        add_original_name=False,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -234,6 +235,7 @@ class GenerateRegions:
         self.action_keys = action_keys
         self.max_regions = max_regions
         self.pos_resolution = pos_resolution
+        self.add_original_name = add_original_name
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -258,9 +260,13 @@ class GenerateRegions:
         use_bed, offset = self._select_relevant_regions(data_dict)
 
         list_of_dicts = []
-        for _, (chrom, start, end, *_) in use_bed.iterrows():
+        for _, row in use_bed.iterrows():
+            chrom, start, end, *_ = row
             data_col = {}
             data_col["region"] = f"{chrom}:{start}-{end}"
+            if self.add_original_name:
+                # has to be int
+                data_col["original_name"] = int(row["Original_Name"])
             for key, value in data_dict.items():
                 if key in self.action_keys:
                     rstart = start - offset
@@ -280,83 +286,6 @@ class GenerateRegions:
                 else:
                     data_col[key] = deepcopy(value)
             list_of_dicts.append(data_col)
-        return list_of_dicts
-
-
-class GenerateBorzoiPseudobulk(GeneratePseudobulk):
-    """
-    Transform meta region data into bulk region data.
-    """
-
-    def __init__(
-        self,
-        n_pseudobulks=10,
-        return_rows=False,
-        inplace=False,
-        bypass_keys=None,
-        paired_data=False,
-        **name_to_pseudobulker,
-    ):
-        super().__init__(
-            n_pseudobulks=n_pseudobulks,
-            return_rows=return_rows,
-            inplace=inplace,
-            bypass_keys=bypass_keys,
-            **name_to_pseudobulker,
-        )
-        self.paired_data = paired_data
-        if self.paired_data:
-            # Similar to the Performer paper
-            # Data from different pseudobulks will be loaded in pairs
-            # Saved into separate keys with suffixes
-            # During training, each key will be learned separately,
-            # and their difference will be used as the diff loss
-            self.suffix = ["_A", "_B"]
-        else:
-            # Normal data loading
-            self.suffix = [""]
-        return
-
-    def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
-        """Generate pseudobulks for each output prefix."""
-        list_of_dicts = []
-
-        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
-        output_prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
-
-        suffix_list = self.suffix
-        cycling = len(suffix_list)
-
-        # merge rows (cell or sample) to bulk and also get embedding data
-        this_bulk_dict = {}
-        for idx, (
-            prefix_to_rows,
-            row_embedding,
-            pseudobulk_id,
-        ) in enumerate(pseudobulker.take(self.n_pseudobulks * cycling)):
-            suffix = suffix_list[idx % cycling]
-            this_bulk_dict[f"{output_prefix}:embedding_data{suffix}"] = row_embedding
-            this_bulk_dict[f"{output_prefix}:pseudobulk_ids{suffix}"] = pseudobulk_id
-
-            combined_bulk_data = []
-            for prefix in pseudobulker.prefix_order:
-                prefix_rows = prefix_to_rows[prefix]
-                # row_by_base is a csr_matrix of shape (n_rows, region_length)
-                row_by_base = data_dict[prefix]
-                _bulk_values = row_by_base[prefix_rows].sum(axis=0).A1
-                combined_bulk_data.append(_bulk_values)
-            this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = np.vstack(
-                combined_bulk_data
-            )
-
-            # copy shared information to the bulk dict
-            for key in self.bypass_keys:
-                if key in data_dict:
-                    this_bulk_dict[key] = deepcopy(data_dict[key])
-
-            if idx % cycling == cycling - 1:
-                list_of_dicts.append(this_bulk_dict)
-                this_bulk_dict = {}
         return list_of_dicts
 
 

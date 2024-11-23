@@ -319,7 +319,8 @@ class MergeGenomeChunkDatasetByBins:
                 continue
 
             # merge bp to bins at given resolution
-            window_data = _merge_bp_to_bins(window_data, self.merge_resolution)
+            if self.merge_resolution > 1:
+                window_data = _merge_bp_to_bins(window_data, self.merge_resolution)
             window_data = window_data.astype("float32").tocsr()
             data_dict = csr_matrix_to_compressed_bytes_dict(
                 prefix=self.prefix, matrix=window_data

@@ -182,21 +182,22 @@ class TrainerDatasetMixin:
         Set up the dataset by splitting it into train, valid, and test sets.
         """
         config = self.config
+        if "chrom_split" in config and config["chrom_split"] is not None:
+            # train, valid, test split by chromosome
+            chrom_split = config["chrom_split"]
+            self.train_chroms = chrom_split["train"]
+            self.valid_chroms = chrom_split["valid"]
+            self.test_chroms = chrom_split["test"]
 
-        # train, valid, test split by chromosome
-        chrom_split = config["chrom_split"]
-        self.train_chroms = chrom_split["train"]
-        self.valid_chroms = chrom_split["valid"]
-        self.test_chroms = chrom_split["test"]
+            # dataset location and schema
+            # create dataset slots
+            self._train_dataset = None
+            self._valid_dataset = None
+            self._test_dataset = None
 
-        # dataset location and schema
-        # create dataset slots
-        self._train_dataset = None
-        self._valid_dataset = None
-        self._test_dataset = None
-
-        # create dataset
-        self.dataset: GenericDataset = self._get_dataset()
+            # create dataset
+            self.dataset: GenericDataset = self._get_dataset()
+        return
 
     def _get_dataset_paths(self, _chroms):
         """

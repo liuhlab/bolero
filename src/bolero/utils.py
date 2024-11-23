@@ -422,6 +422,9 @@ def parse_global_coords(
             Columns: ["global_start", "global_end", "size"]
         global_coords (np.ndarray): An array of global coordinates for each region.
     """
+    if isinstance(global_coords, torch.Tensor):
+        global_coords = global_coords.cpu().numpy()
+
     # make a bin boarder array for pd.cut
     bins = chrom_offsets["global_start"].tolist() + [
         chrom_offsets["global_end"].iloc[-1]

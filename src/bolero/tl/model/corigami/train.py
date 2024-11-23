@@ -28,7 +28,7 @@ from bolero.tl.model.corigami.model import (
 class CorigamiSeqOnlyTrainer(GenericTrainer):
     trainer_config = {
         "mode": "REQUIRED",
-        "chrom_split": "REQUIRED",
+        "chrom_split": None,
         "output_dir": "REQUIRED",
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
@@ -62,7 +62,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
     def __init__(self, config):
         # modify model encoder_in_channel based on dna_fifth_channel
-        if config["dna_fifth_channel"]:
+        if "dna_fifth_channel" in config and config["dna_fifth_channel"]:
             config["encoder_in_channel"] = 5
 
         super().__init__(config)
@@ -226,12 +226,24 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         single_batch_pearson_counter = CumulativeCounter()
         across_batch_pearson_counter = CumulativePearson()
 
+        region2 = getattr(self.dataset, "region2", None)
+
         example_batches = []  # collect example batches for making images
         for batch_id, batch in enumerate(dataloader):
-            y, pred_y = self._model_forward_pass(model, batch)
+            if region2 is None:
+                # original corigami model forward pass
+                y, pred_y = self._model_forward_pass(model, batch)
+                loss_ = F.mse_loss(pred_y, y)
+            else:
+                # borzoi corigami model forward pass
+                if region2:
+                    (*_, y), (*_, pred_y), loss_ = self._model_forward_pass(
+                        model, batch
+                    )
+                else:
+                    y, pred_y, loss_ = self._model_forward_pass(model, batch)
 
             # mask is element wise mask based on coverage > cutoff
-            loss_ = F.mse_loss(pred_y, y)
             val_loss += loss_.item()
 
             # ==========
@@ -463,6 +475,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 print_steps = 10
             else:
                 print_steps = max(5, self.train_batches // 50)
+            region2 = getattr(self.dataset, "region2", None)
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -479,8 +492,14 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    y, pred_y = self._model_forward_pass(self.model, batch)
-                    loss = F.mse_loss(pred_y, y)
+                    if region2 is None:
+                        # original corigami model forward pass
+                        y, pred_y = self._model_forward_pass(self.model, batch)
+                        loss = F.mse_loss(pred_y, y)
+                    else:
+                        # borzoi corigami model forward pass
+                        *_, loss = self._model_forward_pass(self.model, batch)
+
                     loss = loss / self.accumulate_grad
 
                     if np.isnan(loss.item()):
@@ -650,7 +669,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 class CorigamiTrainer(CorigamiSeqOnlyTrainer):
     trainer_config = {
         "mode": "REQUIRED",
-        "chrom_split": "REQUIRED",
+        "chrom_split": None,
         "output_dir": "REQUIRED",
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
@@ -701,12 +720,14 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
         else:
             if dna_seq.dtype != torch.float32:
                 dna_seq = dna_seq.float()
-        dna_seq = self._gaussian_noise(dna_seq, self.std)
-
-        feature_list = [
-            self._gaussian_noise(batch[feat], self.std)
-            for feat in self.config["data_1d_keys"]
-        ]
+        if self.dataset._dataset_mode == "train":
+            dna_seq = self._gaussian_noise(dna_seq, self.std)
+            feature_list = [
+                self._gaussian_noise(batch[feat], self.std)
+                for feat in self.config["data_1d_keys"]
+            ]
+        else:
+            feature_list = [batch[feat] for feat in self.config["data_1d_keys"]]
         features = torch.cat([feature.unsqueeze(1) for feature in feature_list], dim=1)
         X = torch.cat([dna_seq, features], dim=1)
         # ==========
@@ -726,7 +747,7 @@ class CorigamiTrainer(CorigamiSeqOnlyTrainer):
 class CorigamiLoraTrainer(CorigamiTrainer):
     trainer_config = {
         "mode": "REQUIRED",
-        "chrom_split": "REQUIRED",
+        "chrom_split": None,
         "output_dir": "REQUIRED",
         "savename": "REQUIRED",
         "wandb_project": "REQUIRED",
@@ -775,8 +796,6 @@ class CorigamiLoraTrainer(CorigamiTrainer):
                 dna_seq = dna_seq.float()
         if self.dataset._dataset_mode == "train":
             dna_seq = self._gaussian_noise(dna_seq, self.std)
-
-        if self.dataset._dataset_mode == "train":
             feature_list = [
                 self._gaussian_noise(batch[feat], self.std)
                 for feat in self.config["data_1d_keys"]
