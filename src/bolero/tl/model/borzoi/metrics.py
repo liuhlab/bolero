@@ -87,7 +87,7 @@ class MeanPearsonCorrCoefPerChannel(Metric):
             corr = corr[None]
         return torch.tensor(corr)
 
-    def get_corr_str(self):
+    def get_corr_str(self, reduce_cufoff=5):
         """Computes the mean pearson correlation coefficient and returns it as a string"""
         corr = self.compute()
         if isinstance(corr, torch.Tensor):
@@ -95,6 +95,10 @@ class MeanPearsonCorrCoefPerChannel(Metric):
 
         if corr.ndim == 0:
             corr = corr[None]
+
+        if corr.size > reduce_cufoff:
+            return f"{corr.mean():.3f}"
+
         return ", ".join([f"{c:.3f}" for c in corr])
 
 

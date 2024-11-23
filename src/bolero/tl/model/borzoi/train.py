@@ -318,7 +318,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
                 batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
             else:
-                batch["sample_id"] = batch["cell_type_id"]
+                batch["sample_id"] = batch.get("cell_type_id", None)
             batch.update(loss_breakdown)
             if collect_data:
                 data_collector.append(
@@ -387,7 +387,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 break
             region_ids = batch["Original_Name"].cpu().numpy()
             region_names = np.array([borzoi_regions.cur_idmap[i] for i in region_ids])
-            if self.dataset.use_gene_regions:
+            if getattr(self.dataset, "use_gene_regions", False):
                 gene_names = borzoi_regions.cur_gtf_db.gene_id_to_name(
                     [r.split("_")[0] for r in region_names]
                 )
@@ -800,7 +800,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             )
                             batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
                         else:
-                            batch["sample_id"] = batch["cell_type_id"]
+                            batch["sample_id"] = batch.get("cell_type_id", None)
                         log_dict = {}
                         train_wandb_images = self._plot_example([batch])
                         for channel, channel_imgs in train_wandb_images.items():

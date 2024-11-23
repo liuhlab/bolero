@@ -58,7 +58,9 @@ class BorzoiExamplePlotter:
             y_true = y_true.cpu().numpy()
         if isinstance(y_pred, torch.Tensor):
             y_pred = y_pred.cpu().numpy()
-        sample_ids = batch[self.id_key]
+        sample_ids = batch.get(self.id_key, None)
+        if sample_ids is None:
+            sample_ids = np.arange(len(y_true))
 
         regions = self.parse_region_coords(batch)
 
@@ -170,7 +172,7 @@ class BorzoiExamplePlotter:
         pred_sum = int(pred_data.sum())
         ax.set_title(
             f"{chrom}:{start:,}-{end:,} channel{channel}; "
-            f"Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; VQ-ID={sample_id}",
+            f"Corr={corr:.3f}; Sum T/P={true_sum:,}/{pred_sum:,}; Sample={sample_id}",
             fontsize=8,
         )
         ax.text(0.01, 0.6, region_name, ha="left", fontsize=8, transform=ax.transAxes)
@@ -201,7 +203,7 @@ class BorzoiExamplePlotter:
         pred_sum = int(pred_data[zoomin_slice].sum())
         ax.set_title(
             f"{chrom}:{rstart:,}-{rend:,} channel{channel}; "
-            f"Corr. {corr:.3f}; Sum T/P {true_sum:,}/{pred_sum:,}; VQ={sample_id}",
+            f"Corr. {corr:.3f}; Sum T/P {true_sum:,}/{pred_sum:,}; Sample={sample_id}",
             fontsize=8,
         )
         ax.text(0.01, 0.6, gene_name, ha="left", fontsize=8, transform=ax.transAxes)
@@ -218,7 +220,6 @@ class BorzoiExamplePlotter:
             axes[1].set(ylim=(0, y_max))
             axes[2].set(ylim=(0, y_zoomin_max))
             axes[3].set(ylim=(0, y_zoomin_max))
-
         return
 
     @staticmethod

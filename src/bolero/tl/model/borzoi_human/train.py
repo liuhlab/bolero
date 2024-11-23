@@ -77,7 +77,7 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        self.channel_order = ["data"]
+        self.channel_order = [self.data_key] * self.config["out_channels"]
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -206,9 +206,9 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
     model_class = BorzoiLoRA
 
     def __init__(self, config: dict):
-        super().__init__(config)
+        self.data_key = config["data_key"]
 
-        self.data_key = self.config["data_key"]
+        super().__init__(config)
         return
 
     def _setup_model(self):

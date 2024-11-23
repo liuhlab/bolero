@@ -95,7 +95,7 @@ def make_classic_lora_config(
             "unet1",
         ): {
             **shared_config,
-            "lora_rank": 9,  # total lora_rank 9 * 5
+            "lora_rank": 6,  # total lora_rank 9 * 5
         },
         (
             "transformer",

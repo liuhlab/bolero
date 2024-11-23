@@ -337,12 +337,17 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "embedding_dropout": embedding_dropout,
         }
 
+        # in case some benchmark models are not using LoRA
+        if preset is None:
+            return {}
+
         config_func = LORA_CONFIG_FUNCTIONS[preset]
         lora_config = config_func(**kwargs)
 
         if self.context_output:
             # do not lora convert the context output head
             lora_config.pop("final_output_head", None)
+
         return lora_config
 
     def _convert_single_module(self, name, config):
