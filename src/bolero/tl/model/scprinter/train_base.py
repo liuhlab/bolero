@@ -24,8 +24,8 @@ class scFootprintTrainerMixin(GenericTrainer):
     trainer_config.update(
         {
             "max_epochs": 80,
-            "patience": 10,
-            "start_early_stop_after_epoch": 20,
+            "patience": 5,
+            "start_early_stop_after_epoch": 30,
             "train_batches": 5000,
             "val_batches": 1000,
             "global_clipnorm": 0.2,

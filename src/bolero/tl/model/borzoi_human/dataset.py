@@ -31,6 +31,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "dataset_path": "REQUIRED",
         "dna_window": 524288,
         "embeddings_path": "REQUIRED",
+        "coverage_path": None,
         "hic_cap_value": None,
         "genome": "hg38",
         "max_jitter": 0,
@@ -44,6 +45,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "region2": False,
         "region2_max_dist": 5e6,
         "multihead_output": False,
+        # methylation specific:
+        "unmethylated": False,
     }
 
     def __init__(
@@ -71,6 +74,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         region2: bool = False,
         region2_max_dist: float = 5e6,
         multihead_output: bool = False,
+        unmethylated: bool = False,
     ):
         super().__init__(
             bed=bed,
@@ -133,6 +137,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.hic_cap_value = hic_cap_value
         self.resolution = resolution
         self.multihead_output = multihead_output
+        # Methylation specific
+        self.unmethylated = unmethylated
 
         # Embeddings map generation
         self.embeddings_path = embeddings_path
@@ -447,15 +453,24 @@ class BorzoiDatasetOnline(RayRegionDataset):
             key_suffix = [""]
 
         # calculate mC fraction
-        def _mc_frac(data_dict, mc_prefix, key_suffix):
+        def _mc_frac(data_dict, mc_prefix, key_suffix, unmethylated):
             for suffix in key_suffix:
-                mc = data_dict.pop(f"{mc_prefix}_mc{suffix}")
-                cov = data_dict.pop(f"{mc_prefix}_cov{suffix}")
-                data_dict[f"{mc_prefix}_mc_frac{suffix}"] = mc / (cov + 1e-6)
+                mc = data_dict[f"{mc_prefix}_mc{suffix}"]
+                cov = data_dict[f"{mc_prefix}_cov{suffix}"]
+                if unmethylated:
+                    frac = (cov - mc) / (cov + 1e-6)
+                else:
+                    frac = mc / (cov + 1e-6)
+                data_dict[f"{mc_prefix}_mc_frac{suffix}"] = frac
             return data_dict
 
         dataset = dataset.map_batches(
-            _mc_frac, fn_kwargs={"mc_prefix": mc_prefix, "key_suffix": key_suffix}
+            _mc_frac,
+            fn_kwargs={
+                "mc_prefix": mc_prefix,
+                "key_suffix": key_suffix,
+                "unmethylated": self.unmethylated,
+            },
         )
         return dataset
 
@@ -673,6 +688,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     mc_prefix=data_key,
                     key_suffix=key_suffix,
                 )
+                data_1d_keys.append(f"{data_key}_mc")
+                data_1d_keys.append(f"{data_key}_cov")
                 data_1d_keys.append(f"{data_key}_mc_frac")
             elif file_type in ("cool", "hic"):
                 data_2d_keys.append(data_key)

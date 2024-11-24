@@ -215,8 +215,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_group": None,
         "wandb_name": None,
         "max_epochs": 100,
-        "patience": 10,
-        "start_early_stop_after_epoch": 30,
+        "patience": 5,
+        "start_early_stop_after_epoch": 20,
         "use_amp": True,
         "use_ema": False,
         "scheduler": True,
@@ -400,6 +400,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     true_key=true_key,
                     pred_key=pred_key,
                     id_key="sample_id",
+                    plot_mode="atac"
+                    if self.model.loss_type == "poisson_multinomial"
+                    else "mc",
                 )
                 fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
 

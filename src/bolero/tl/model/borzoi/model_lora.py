@@ -163,7 +163,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             self.loss_type = "poisson_multinomial"
         elif output_head_type == "frac":
             # output logits, loss function will apply sigmoid
-            self.setup_profile_head(out_channels=out_channels, activation=None)
+            self.setup_output_head(out_channels=out_channels, activation=None)
             self.loss_type = "bce"
         elif output_head_type == "rna":
             self.setup_rna_head(rna_channels=out_channels)
