@@ -153,7 +153,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.train_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -176,7 +176,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.valid_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -199,7 +199,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.test_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -229,7 +229,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
-        "accumulate_grad": 32,
+        "accumulate_grad": 4,
         "shuffle_rows": 300,
         "dataloader_concurrency": 24,
         "downsample_train_region": None,
@@ -518,7 +518,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def _get_scheduler(self, optimizer):
         self.config["scheduler_type"] = "borzoi"
-        warmup_steps = self.config.get("warmup_steps", 10000)
+        warmup_steps = self.config.get("warmup_steps", 5000)
         accumulate_grad = self.config.get("accumulate_grad", 1)
         warmup_steps = (
             warmup_steps // accumulate_grad + 1
@@ -709,10 +709,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # ==========
                 # Backward
                 # ==========
+                # for backpropagation, we scale the loss with the accumulate_grad
                 scale_loss = loss / self.accumulate_grad
-                scaler.scale(
-                    scale_loss
-                ).backward()  # for backpropagation, we scale the loss with the accumulate_grad
+                scaler.scale(scale_loss).backward()
 
                 moving_ave_loss.update(loss.item())
                 moving_ave_corr.update(preds=y_pred, target=y_true)

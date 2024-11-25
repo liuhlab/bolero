@@ -200,6 +200,7 @@ class ReverseComplement:
 
         """
         try:
+            bs = data[self.dna_key[0]].shape[0]
             if np.random.default_rng().random() > self.prob:
                 # reverse complement DNA
                 for k in self.dna_key:
@@ -208,6 +209,10 @@ class ReverseComplement:
                 # reverse signal
                 for k in self.signal_key:
                     data[k] = np.flip(data[k], axis=self.flip_signal_axis)
+                data["is_reverse_comp"] = np.ones(bs, dtype=np.int32)
+            else:
+                data["is_reverse_comp"] = np.zeros(bs, dtype=np.int32)
+
         except np.exceptions.AxisError as e:
             print("Error in ReverseComplement, the data causing the error is:")
             for k, v in data.items():

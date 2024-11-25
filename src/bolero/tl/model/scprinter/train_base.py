@@ -3,6 +3,7 @@ import pathlib
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
+import pyranges as pr
 import torch
 import wandb
 
@@ -14,28 +15,46 @@ from bolero.tl.generic.train_helper import (
     CumulativePearson,
     batch_pearson_correlation,
 )
-from bolero.tl.model.scprinter.dataset import scPrinterDataset
+from bolero.tl.model.borzoi.train import TrainerBorzoiDatasetMixin
+from bolero.tl.model.scprinter.dataset import scPrinterDatasetBase
 from bolero.tl.model.scprinter.model import seq2PRINT
-from bolero.tl.pseudobulk.generator import SinglePseudobulkGenerator
 
 
-class scFootprintTrainerMixin(GenericTrainer):
-    trainer_config = GenericTrainer.trainer_config.copy()
-    trainer_config.update(
-        {
-            "max_epochs": 80,
-            "patience": 5,
-            "start_early_stop_after_epoch": 30,
-            "train_batches": 5000,
-            "val_batches": 1000,
-            "global_clipnorm": 0.2,
-            "scheduler": True,
-            "warmup_steps": 5000,
-            "weight_decay": 1e-4,
-            # region file
-            "region_bed_path": "REQUIRED",
-        }
-    )
+class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
+    trainer_config = {
+        "mode": "REQUIRED",
+        "fold_split_id": "REQUIRED",
+        "region_bed_path": "REQUIRED",
+        "output_dir": "REQUIRED",
+        "savename": "REQUIRED",
+        "wandb_project": "REQUIRED",
+        "wandb_job_type": "REQUIRED",
+        "wandb_group": None,
+        "wandb_name": None,
+        "max_epochs": 80,
+        "patience": 5,
+        "start_early_stop_after_epoch": 30,
+        "use_amp": True,
+        "use_ema": True,
+        "scheduler": True,
+        "lr": "REQUIRED",
+        "large_lr_scale": 1,
+        "optimizer": "adamw",
+        "global_clipnorm": 0.2,
+        "train_batches": 5000,
+        "val_batches": 1000,
+        "warmup_steps": 5000,
+        "weight_decay": 1e-4,
+        "loss_tolerance": 0.0,
+        "plot_example_per_epoch": 9,
+        "accumulate_grad": 8,
+        "dataloader_concurrency": 16,
+        "downsample_train_region": None,
+        "downsample_valid_region": None,
+        "downsample_test_region": None,
+        "grad_norm_collector": False,
+        "save_state_every_n_epoch": None,
+    }
 
     def __init__(self, config):
         super().__init__(config)
@@ -50,13 +69,32 @@ class scFootprintTrainerMixin(GenericTrainer):
         self._setup_dataset()
         return
 
-    # ======================
-    # Dataset and Dataloader
-    # ======================
-
     def _setup_dataset(self):
         super()._setup_dataset()
+
+        # add footprinter
         self.footprinter = self.dataset.get_footprinter(prefix=self.prefix)
+
+        # convert regions to peak regions
+        # TrainerBorzoiDatasetMixin uses the Borzoi regions as train/valid/test regions
+        # Here we need to intersect the Borzoi regions with the peak regions
+        def _intersect_region_with_borzoi_regions(region_bed, borzoi_regions):
+            borzoi_regions = pr.PyRanges(borzoi_regions)
+            region_bed = region_bed.overlap(borzoi_regions).as_df()
+            region_bed["Original_Name"] = region_bed["Name"]
+            return region_bed
+
+        region_bed = pr.read_bed(self.config["region_bed_path"])
+        self.train_regions = _intersect_region_with_borzoi_regions(
+            region_bed, self.train_regions
+        )
+        self.valid_regions = _intersect_region_with_borzoi_regions(
+            region_bed, self.valid_regions
+        )
+        self.test_regions = _intersect_region_with_borzoi_regions(
+            region_bed, self.test_regions
+        )
+        return
 
     # =============================
     # Model training and validation
@@ -296,6 +334,10 @@ class scFootprintTrainerMixin(GenericTrainer):
         return flag
 
     def _fit(self, max_epochs=None):
+        atac_key = f"{self.prefix}:bulk_data"
+        bias_key = "tn5_bias"
+        footprint_key = f"{self.prefix}:bulk_data_footprint"
+
         if max_epochs is None:
             max_epochs = self.max_epochs
 
@@ -343,7 +385,9 @@ class scFootprintTrainerMixin(GenericTrainer):
             nan_loss = False
 
             print_steps = max(5, self.train_batches // 50)
-            total_norm = 999
+            example_step = max(
+                5, self.train_batches // (self.plot_example_per_epoch + 1)
+            )
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -360,9 +404,10 @@ class scFootprintTrainerMixin(GenericTrainer):
                     )
 
                 with auto_cast_context:
-                    *_, loss_footprint, loss_coverage = self._model_forward_pass(
-                        self.model, batch
+                    *_, pred_fp, _, loss_footprint, loss_coverage = (
+                        self._model_forward_pass(self.model, batch)
                     )
+                    batch["pred_score"] = pred_fp.detach().float().cpu().numpy()
 
                     # because coverage_head is detached from other part of the model
                     # here we just add the loss without lambda weight
@@ -396,13 +441,12 @@ class scFootprintTrainerMixin(GenericTrainer):
                         # clip coverage parameters
                         torch.nn.utils.clip_grad_norm_(
                             self.model.coverage_parameters(),
-                            max_norm=self.config["global_clipnorm"],
+                            max_norm=self.config["global_clipnorm"] * 3,
                         )
 
                     # collect grad norm if needed
                     self._collect_grad_norm(self.model)
 
-                    # scaler.unscale_(optimizer)
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
@@ -413,32 +457,51 @@ class scFootprintTrainerMixin(GenericTrainer):
                     if scheduler is not None:
                         scheduler.step()
 
-                if (batch_id + 1) % print_steps == 0:
-                    _fp_loss = moving_avg_fp_loss / (batch_id + 1)
-                    _cov_loss = moving_avg_cov_loss / (batch_id + 1)
-                    desc_str = (
-                        f" - (Training) {self.cur_epoch} [{batch_id}/{self.train_batches}] "
-                        f"Ave FP Loss: {_fp_loss:.3f} "
-                        f"Ave Cov Loss: {_cov_loss:.3f} "
-                        f"Last grad norm: {total_norm:.4f} "
-                        f"Last FP Loss: {loss_footprint.item():.3f} "
-                        f"Last Cov Loss: {loss_coverage.item():.3f}"
-                    )
+                with torch.no_grad():
+                    if (batch_id + 1) % print_steps == 0:
+                        log_dict = {
+                            "train/fp_loss": loss_footprint.item(),
+                            "train/cov_loss": loss_coverage.item(),
+                            "train/total_grad_norm": total_norm,
+                        }
+                        wandb.log(log_dict)
 
-                    if _fp_loss > (cur_fp_loss + 0.5):
-                        batch["cur_fp_loss"] = _fp_loss
-                        batch["last_fp_loss"] = cur_fp_loss
-                        batch["cur_cov_loss"] = _cov_loss
-                        batch["last_cov_loss"] = cur_cov_loss
-                        print(f"Batch {batch_id} loss increased.")
-                        joblib.dump(
-                            batch,
-                            f"{self.savename}.epoch{self.cur_epoch}.batch{batch_id}.joblib",
+                        _fp_loss = moving_avg_fp_loss / (batch_id + 1)
+                        _cov_loss = moving_avg_cov_loss / (batch_id + 1)
+                        desc_str = (
+                            f" - (Training) {self.cur_epoch} [{batch_id}/{self.train_batches}] "
+                            f"Ave FP Loss: {_fp_loss:.3f} "
+                            f"Ave Cov Loss: {_cov_loss:.3f} "
+                            f"Last grad norm: {total_norm:.4f} "
+                            f"Last FP Loss: {loss_footprint.item():.3f} "
+                            f"Last Cov Loss: {loss_coverage.item():.3f}"
                         )
 
-                    cur_fp_loss = _fp_loss
-                    cur_cov_loss = _cov_loss
-                    print(desc_str)
+                        if _fp_loss > (cur_fp_loss + 0.5):
+                            batch["cur_fp_loss"] = _fp_loss
+                            batch["last_fp_loss"] = cur_fp_loss
+                            batch["cur_cov_loss"] = _cov_loss
+                            batch["last_cov_loss"] = cur_cov_loss
+                            print(f"Batch {batch_id} loss increased.")
+                            joblib.dump(
+                                batch,
+                                f"{self.savename}.epoch{self.cur_epoch}.batch{batch_id}.joblib",
+                            )
+
+                        cur_fp_loss = _fp_loss
+                        cur_cov_loss = _cov_loss
+                        print(desc_str)
+
+                    if (batch_id + 1) % example_step == 0:
+                        # plot example footprints
+                        example_images = self._plot_example_footprints(
+                            [batch],
+                            self.footprinter,
+                            atac_key=atac_key,
+                            bias_key=bias_key,
+                            footprint_key=footprint_key,
+                        )
+                        wandb.log({"train_example/example_footprints": example_images})
 
             del dataloader
             self._cleanup_env()
@@ -526,15 +589,11 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             # dataset related files
             "pretrained_model": None,
             "region_embedding": None,
-            "cells": "REQUIRED",
-            "cell_coverage": None,
-            "standard_cov": None,
-            "standard_cell": None,
-            "prefix": "bulk",
+            "prefix": "pseudobulk",
         }
     )
 
-    dataset_class = scPrinterDataset
+    dataset_class = scPrinterDatasetBase
     model_class = seq2PRINT
 
     @classmethod
@@ -578,23 +637,6 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
 
         self._set_total_params()
         return
-
-    def _get_dataset(self):
-        dataset = super()._get_dataset()
-
-        # setup pseudobulker params for sc dataset
-        pseudobulker_params = {
-            "cells": self.config["cells"],
-            "cell_coverage": self.config["cell_coverage"],
-            "standard_cov": self.config["standard_cov"],
-            "standard_cell": self.config["standard_cell"],
-        }
-        dataset.add_pseudobulker(
-            name=self.prefix,
-            cls=SinglePseudobulkGenerator,
-            pseudobulker_kwargs=pseudobulker_params,
-        )
-        return dataset
 
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         prefix = self.prefix

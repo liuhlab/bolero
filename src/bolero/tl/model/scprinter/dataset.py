@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from copy import deepcopy
 from typing import Any, Iterable, Union
 
 import numpy as np
@@ -7,12 +8,12 @@ from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
 )
 from bolero.tl.dataset.sc_transforms import FilterRegions
-from bolero.tl.dataset.transforms import (
-    BatchRegionEmbedding,
-    CropLastAxisWithJitter,
-    ReverseComplement,
-)
+from bolero.tl.dataset.transforms import CropLastAxisWithJitter, FetchRegionOneHot
 from bolero.tl.footprint import FootPrintModel
+from bolero.tl.model.borzoi.dataset import BorzoiDataset
+from bolero.tl.model.borzoi.utils import BorzoiRegions
+
+DNA_NAME = "dna_one_hot"
 
 
 class BatchFootPrint(FootPrintModel):
@@ -122,7 +123,7 @@ class BatchFootPrint(FootPrintModel):
         return data
 
 
-class scPrinterDataset(RayGenomeChunkDataset):
+class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
     """Singel cell dataset for scPrinter model."""
 
     default_config = {
@@ -142,7 +143,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         "reverse_complement": True,
         "shuffle_files": True,
         "read_parquet_kwargs": None,
-        "max_regions_per_genome_chunk": 10,
+        "max_regions_per_genome_chunk": 100,
     }
 
     def __init__(
@@ -165,7 +166,8 @@ class scPrinterDataset(RayGenomeChunkDataset):
         read_parquet_kwargs=None,
         max_regions_per_genome_chunk: int = 100,
     ):
-        super().__init__(
+        RayGenomeChunkDataset.__init__(
+            self,
             dataset_path=dataset_path,
             genome=genome,
             shuffle_files=shuffle_files,
@@ -191,9 +193,14 @@ class scPrinterDataset(RayGenomeChunkDataset):
         self.max_regions_per_genome_chunk = max_regions_per_genome_chunk
 
         self.bias_column = "tn5_bias"
-
-        self.region_embedding = None
         self.name_to_pseudobulker = OrderedDict()
+
+        self.borzoi_regions = BorzoiRegions()
+
+        # Borzoi dataset requires these attributes but not used in scPrinter
+        self.pos_resolution = None  # scPrinter is single base pair resolution
+        self.normalize_cov = False  # footprint needs raw counts
+        self.paired_data = False
         return
 
     def __repr__(self) -> str:
@@ -240,58 +247,6 @@ class scPrinterDataset(RayGenomeChunkDataset):
         dataset = dataset.map_batches(_cropper_squeeze)
         return dataset
 
-    def _get_reverse_complement_region(self, dataset) -> None:
-        """
-        Reverse complement the DNA sequences by 50% probability.
-
-        Returns
-        -------
-        None
-        """
-        _rc = ReverseComplement(
-            dna_key=self.dna_column,
-            signal_key=self.signal_columns,
-        )
-        dataset = dataset.map_batches(_rc)
-        return dataset
-
-    def add_region_embedding(self, embedding):
-        """Add a predefined region embedding to the dataset."""
-        self.region_embedding = embedding
-        return
-
-    def _get_add_region_embedding(self, dataset):
-        fn = BatchRegionEmbedding
-        fn_constructor_kwargs = {
-            "embedding": self.region_embedding,
-            "region_key": "region",
-        }
-        dataset = dataset.map_batches(
-            fn=fn,
-            fn_constructor_kwargs=fn_constructor_kwargs,
-            concurrency=1,
-        )
-        return dataset
-
-    def add_pseudobulker(self, name: str, cls, pseudobulker_kwargs: dict):
-        """
-        Add a pseudobulker to the dataset.
-
-        Parameters
-        ----------
-        name : str
-            The name of the pseudobulker, will be used as pseudobulk prefix in final dict.
-        cls : Pseudobulker class
-            The pseudobulker class that can be used to generate pseudobulks.
-        pseudobulker_kwargs : dict
-            The keyword arguments to pass to the pseudobulker class constructor.
-        """
-        if "barcode_order" not in pseudobulker_kwargs:
-            pseudobulker_kwargs["barcode_order"] = self.barcode_order
-        generator = cls.create_from_config(**pseudobulker_kwargs)
-        self.name_to_pseudobulker[name] = generator
-        return
-
     def get_footprinter(
         self,
         prefix: str,
@@ -319,19 +274,20 @@ class scPrinterDataset(RayGenomeChunkDataset):
     def _filter_bed_regions(
         self,
         dataset,
-        cov_filter_key,
-        min_cov,
-        max_cov,
-        low_cov_ratio,
         batch_size,
         concurrency,
     ):
+        cov_filter_key = f"{self.cov_filter_name}:bulk_data"
+        assert (
+            cov_filter_key in self.signal_columns
+        ), f"cov_filter_key {cov_filter_key} not in {self.signal_columns}"
+
         fn = FilterRegions
         fn_constructor_kwargs = {
             "cov_filter_key": cov_filter_key,
-            "min_cov": min_cov,
-            "max_cov": max_cov,
-            "low_cov_ratio": low_cov_ratio,
+            "min_cov": self.min_cov,
+            "max_cov": self.max_cov,
+            "low_cov_ratio": self.low_cov_ratio,
         }
         dataset = dataset.map_batches(
             fn=fn,
@@ -341,12 +297,32 @@ class scPrinterDataset(RayGenomeChunkDataset):
         )
         return dataset
 
+    def _get_dna_one_hot(self, dataset, concurrency, batch_size=16):
+        fn = FetchRegionOneHot
+        fn_constructor_kwargs = {
+            # TODO HL:
+            # the random_shift parameter is not used in scPrinter
+            # although we could change scPrinter dataloader to use the same way as Borzoi
+            "random_shift": 0,
+            "dtype": "bool",
+        }
+        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            fn_kwargs=fn_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        self.dna_column = "dna_one_hot"
+        return dataset
+
     def get_processed_dataset(
         self,
-        chroms: list[str],
-        region_bed_path: str,
+        folds: list[str],
+        region_bed: str,
         return_cells: bool = False,
-        return_regions: bool = True,
         concurrency=16,
     ) -> None:
         """
@@ -355,7 +331,7 @@ class scPrinterDataset(RayGenomeChunkDataset):
         Parameters
         ----------
         - chroms (list): List of chromosomes to include in the dataset.
-        - region_bed_path (str): Path to the BED file containing the regions.
+        - region_bed (str): Path to the BED file containing the regions.
         - return_cells (bool): Whether to return the cells in the dataset. Default is False.
         - return_regions (bool): Whether to return the regions in the dataset. Default is True.
 
@@ -368,18 +344,25 @@ class scPrinterDataset(RayGenomeChunkDataset):
             max(self.dna_window, self.signal_window) + self.max_jitter * 2 + 200
         )
         standard_length = int(standard_length)
-        region_bed = self.standard_region_length(region_bed_path, standard_length)
+        region_bed = self.standard_region_length(
+            region_bed, standard_length, keep_original=True
+        )
 
-        work_ds = super()._get_processed_dataset(
-            chroms=chroms,
+        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        generate_pseudobulk_concurrency = (1, concurrency // 4)
+        generate_regions_concurrency = (1, concurrency)
+        work_ds = self._get_processed_dataset(
+            folds=folds,
             region_bed=region_bed,
-            name_to_pseudobulker=self.name_to_pseudobulker,
             bypass_keys=[self.bias_column],
-            n_pseudobulks=self.n_pseudobulks,
             return_rows=return_cells,
             inplace=False,
             region_action_keys=[self.bias_column],
             concurrency=concurrency,
+            add_original_name=False,
+            compressed_bytes_to_tensor_concurrency=compressed_bytes_to_tensor_concurrency,
+            generate_pseudobulk_concurrency=generate_pseudobulk_concurrency,
+            generate_regions_concurrency=generate_regions_concurrency,
         )
 
         # add dna one hot
@@ -390,24 +373,12 @@ class scPrinterDataset(RayGenomeChunkDataset):
 
         work_ds = self._get_region_cropper(work_ds)
 
+        # filter coverage
         # IMPORTANT: region cov filter must be put after cropping,
         # because region cov changes after cropping
-        min_cov = self.min_cov
-        max_cov = self.max_cov
-        low_cov_ratio = self.low_cov_ratio
-        cov_filter_name = self.cov_filter_name
-        # filter coverage
-        if cov_filter_name is not None:
-            cov_filter_key = f"{cov_filter_name}:bulk_data"
-            assert (
-                cov_filter_key in self.signal_columns
-            ), f"cov_filter_key {cov_filter_key} not in {self.signal_columns}"
+        if self.cov_filter_name is not None:
             work_ds = self._filter_bed_regions(
                 dataset=work_ds,
-                cov_filter_key=cov_filter_key,
-                min_cov=min_cov,
-                max_cov=max_cov,
-                low_cov_ratio=low_cov_ratio,
                 batch_size=512,
                 concurrency=1,
             )
@@ -415,24 +386,17 @@ class scPrinterDataset(RayGenomeChunkDataset):
         if self.reverse_complement and self.is_train():
             work_ds = self._get_reverse_complement_region(work_ds)
 
-        if self.region_embedding is not None:
-            work_ds = self._get_add_region_embedding(work_ds)
-
         # remove region column OR turn it into global coordinates (str to numbers)
-        work_ds = self._process_region_columns(
-            dataset=work_ds, keep_regions=return_regions
-        )
+        work_ds = self._process_region_columns(dataset=work_ds, keep_regions=True)
         return work_ds
 
     def get_dataloader(
         self,
-        chroms,
-        region_bed_path,
+        folds,
+        region_bed,
         as_torch=True,
-        return_regions=True,
-        return_cells=False,
         n_batches=None,
-        concurrency=16,
+        concurrency=8,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
@@ -459,25 +423,114 @@ class scPrinterDataset(RayGenomeChunkDataset):
             The dataloader.
         """
         shuffle_rows = int(500 * (self.n_pseudobulks + 1))
-        shuffle_rows = max(shuffle_rows, 3000)
-        shuffle_rows = min(shuffle_rows, 20000)
+        shuffle_rows = max(shuffle_rows, 1000)
+        shuffle_rows = min(shuffle_rows, 5000)
+        dataloader_kwargs["shuffle_rows"] = shuffle_rows
 
-        # dataset_kwargs will be passed to self.get_processed_dataset method
-        dataset_kwargs = {
-            "chroms": chroms,
-            "region_bed_path": region_bed_path,
-            "return_cells": return_cells,
-            "return_regions": return_regions,
-            "concurrency": concurrency,
-        }
-        data_iter_kwargs = dataloader_kwargs
-
-        loader = self._get_dataloader_with_wrapper(
-            dataset_kwargs=dataset_kwargs,
-            data_iter_kwargs=data_iter_kwargs,
+        loader = super().get_dataloader(
+            folds=folds,
+            region_bed=region_bed,
             as_torch=as_torch,
-            shuffle_rows=shuffle_rows,
             n_batches=n_batches,
-            batch_size=self.batch_size,
+            concurrency=concurrency,
+            **dataloader_kwargs,
         )
         return loader
+
+    def get_train_valid_test(
+        self,
+        fold,
+        downsample_train_region=None,
+        downsample_valid_region=None,
+        downsample_test_region=None,
+        seed=0,
+    ):
+        """Get the train, valid, and test folds and regions."""
+        # still use Borzoi region length here to be consistent with Borzi
+        # later we will overlap borzoi regions with the peak regions
+        results = super().get_train_valid_test(
+            fold=fold,
+            downsample_train_region=downsample_train_region,
+            downsample_valid_region=downsample_valid_region,
+            downsample_test_region=downsample_test_region,
+            region_length=524288,
+            seed=seed,
+        )
+        return results
+
+
+class GenerateBaseModelPseudobulk:
+    """
+    Simply sum the rows to generate pseudobulks.
+    """
+
+    def __init__(self, sample_rows=1000, prefix="pseudobulk", **kwargs):
+        self.sample_rows = sample_rows
+        self.prefix = prefix
+
+        # fix by set local random state
+        self.rand_state = np.random.RandomState(seed=42)
+        return
+
+    def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
+        """Generate pseudobulks for each output prefix."""
+        # row_by_base is a csr_matrix of shape (n_rows, region_length)
+        row_by_base = data_dict.pop(self.prefix)
+
+        nrows = row_by_base.shape[0]
+        if nrows > self.sample_rows:
+            use_rows = self.rand_state.choice(nrows, self.sample_rows, replace=False)
+        else:
+            use_rows = nrows
+
+        _bulk_values = row_by_base[use_rows].sum(axis=0).A1  # (region_length,)
+        data_dict[f"{self.prefix}:bulk_data"] = _bulk_values
+
+        # return list of dicts
+        return [data_dict]
+
+
+class scPrinterDatasetBase(scPrinterDataset):
+    default_config = deepcopy(scPrinterDataset.default_config)
+    default_config.update(
+        {
+            "prefix": "pseudobulk",
+            "sample_rows": 1000,
+            "cov_scale": 1,
+            "fix_sample_rows": True,
+        }
+    )
+
+    def __init__(self, *args, **kwargs):
+        self.prefix = kwargs.pop("prefix", "pseudobulk")
+        self.sample_rows = kwargs.pop("sample_rows", 1000)
+        print(
+            f"Getting pseudobulk with random {self.sample_rows} rows in {self.prefix} data_key."
+        )
+
+        super().__init__(*args, **kwargs)
+        self.name_to_pseudobulker = {self.prefix: None}
+        return
+
+    def _generate_pseudobulk(
+        self,
+        dataset,
+        concurrency=1,
+        **kwargs,
+    ):
+        fn = GenerateBaseModelPseudobulk
+        fn_constructor_kwargs = {
+            "sample_rows": self.sample_rows,
+            "prefix": self.prefix,
+            **kwargs,
+        }
+
+        dataset = dataset.flat_map(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            concurrency=concurrency,
+        )
+
+        # update region_action_keys
+        self.signal_columns.append(f"{self.prefix}:bulk_data")
+        return dataset

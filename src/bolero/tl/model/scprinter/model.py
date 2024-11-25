@@ -123,6 +123,17 @@ class seq2PRINT(nn.Module):
         self.output_len = output_len
         return
 
+    def check_input_dtype(self, X):
+        """Check the input dtype and convert to float32 or float16."""
+        # change dtype to half if not already
+        if torch.is_autocast_enabled():
+            if X.dtype != torch.float16:
+                X = X.half()
+        else:
+            if X.dtype != torch.float32:
+                X = X.float()
+        return X
+
     def forward(self, X, *args, output_len=None, **kwargs):
         """
         Forward pass of the model.
@@ -137,6 +148,8 @@ class seq2PRINT(nn.Module):
         -------
             torch.Tensor: The output tensor.
         """
+        X = self.check_input_dtype(X)
+
         if output_len is None:
             output_len = self.output_len
 
@@ -473,6 +486,8 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         -------
             torch.Tensor: The output tensor.
         """
+        X = self.check_input_dtype(X)
+
         if output_len is None:
             output_len = self.output_len
 

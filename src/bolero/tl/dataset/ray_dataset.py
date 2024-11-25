@@ -386,7 +386,7 @@ class RayGenomeChunkDataset(GenericDataset):
         # the dataset and dataloader are created lazily, until __iter__ is called
         return _IterableFromIterator(_create_iterator)
 
-    def standard_region_length(self, bed, standard_length):
+    def standard_region_length(self, bed, standard_length, keep_original=False):
         """Standardize the region length."""
         standard_bed = self.genome.standard_region_length(
             bed,
@@ -394,7 +394,7 @@ class RayGenomeChunkDataset(GenericDataset):
             boarder_strategy="drop",
             remove_blacklist=True,
             as_df=True,
-            keep_original=False,
+            keep_original=keep_original,
         )
         return standard_bed
 
