@@ -77,7 +77,10 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        self.channel_order = [self.data_key] * self.config["out_channels"]
+        channel_order = self.config.get("channel_order", None)
+        if channel_order is None:
+            channel_order = [self.data_key] * self.config["out_channels"]
+        self.channel_order = channel_order
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -199,6 +202,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
             "warmup_steps": 5000,
             "scheduler": True,
             "data_key": "atac",
+            "channel_order": None,
         }
     )
 

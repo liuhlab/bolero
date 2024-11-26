@@ -450,12 +450,20 @@ class GenomeBigWigDataset:
         return pd.Index(self.bigwig_path_dict.keys())
 
 
-def query_allc_region(allc_handle, chrom, start, end):
+def query_allc_region(
+    allc_handle, chrom, start, end, context_len=None, context_set=None
+):
     """Get region data from an ALLC file handle."""
     mc_values = np.zeros(end - start, dtype="float32")
     cov_values = np.zeros(end - start, dtype="float32")
     for row in allc_handle.fetch(chrom, start + 1, end):
-        _, pos, *_, mc, cov, _ = row.strip().split("\t")
+        _, pos, _, context, mc, cov, _ = row.strip().split("\t")
+
+        # filter mC context
+        if context_len is not None:
+            if context[:context_len] not in context_set:
+                continue
+
         rel_pos = int(pos) - 1 - start
         mc_values[rel_pos] = float(mc)
         cov_values[rel_pos] = float(cov)

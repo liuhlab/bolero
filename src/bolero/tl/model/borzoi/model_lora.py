@@ -245,7 +245,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         return
 
     def setup_output_head(self, out_channels, activation="softplus"):
-        """Setup a single mC output head for predicting mC fraction logits"""
+        """Setup a single output head"""
         self.final_output_head = OutputHead(
             in_channels=1920,
             out_channels=out_channels,
