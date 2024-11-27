@@ -936,7 +936,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "scheduler": True,
             # pseudobulk related
             "vq_records": "REQUIRED",
-            "target_cov": "REQUIRED",
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
             "downsample_vq": None,
@@ -970,7 +969,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
             "vq_records": self.config["vq_records"],
-            "target_cov": self.config["target_cov"],
             "use_vq_emb": self.config["use_vq_emb"],
             "prefix_name": self.config["prefix"],
             "downsample_vq": self.config["downsample_vq"],

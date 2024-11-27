@@ -136,7 +136,13 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
             for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
                 prefix_rows = prefix_to_rows[prefix]
                 # row_by_base is a csr_matrix of shape (n_rows, region_length)
-                row_by_base = data_dict[prefix]
+                try:
+                    row_by_base = data_dict[prefix]
+                except KeyError as e:
+                    raise KeyError(
+                        f"Key {prefix} not found in data_dict, {data_dict.keys()}"
+                    ) from e
+
                 _bulk_values = (
                     row_by_base[prefix_rows].sum(axis=0).A1
                 )  # (1, region_length)

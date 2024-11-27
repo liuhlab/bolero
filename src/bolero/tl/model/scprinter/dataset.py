@@ -212,7 +212,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         )
         return _str
 
-    def _get_region_cropper(self, dataset) -> None:
+    def _get_region_cropper(self, dataset, batch_size=512) -> None:
         """
         Crop the regions in the working dataset.
 
@@ -244,7 +244,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
                     data[sig_col] = data[sig_col].squeeze(1)
             return data
 
-        dataset = dataset.map_batches(_cropper_squeeze)
+        dataset = dataset.map_batches(_cropper_squeeze, batch_size=batch_size)
         return dataset
 
     def get_footprinter(
@@ -274,8 +274,8 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
     def _filter_bed_regions(
         self,
         dataset,
-        batch_size,
-        concurrency,
+        batch_size=512,
+        concurrency=1,
     ):
         cov_filter_key = f"{self.cov_filter_name}:bulk_data"
         assert (
@@ -297,7 +297,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         )
         return dataset
 
-    def _get_dna_one_hot(self, dataset, concurrency, batch_size=16):
+    def _get_dna_one_hot(self, dataset, concurrency, batch_size=1024):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {
             # TODO HL:
@@ -348,7 +348,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
             region_bed, standard_length, keep_original=True
         )
 
-        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        compressed_bytes_to_tensor_concurrency = (1, 1)
         generate_pseudobulk_concurrency = (1, concurrency // 4)
         generate_regions_concurrency = (1, concurrency)
         work_ds = self._get_processed_dataset(
@@ -377,14 +377,10 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         # IMPORTANT: region cov filter must be put after cropping,
         # because region cov changes after cropping
         if self.cov_filter_name is not None:
-            work_ds = self._filter_bed_regions(
-                dataset=work_ds,
-                batch_size=512,
-                concurrency=1,
-            )
+            work_ds = self._filter_bed_regions(dataset=work_ds)
 
         if self.reverse_complement and self.is_train():
-            work_ds = self._get_reverse_complement_region(work_ds)
+            work_ds = self._get_reverse_complement_region(work_ds, batch_size=512)
 
         # remove region column OR turn it into global coordinates (str to numbers)
         work_ds = self._process_region_columns(dataset=work_ds, keep_regions=True)

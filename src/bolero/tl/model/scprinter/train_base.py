@@ -588,7 +588,6 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             "lr": 0.003,  # use 0.003 for base init, 0.0003 for fine-tune
             # dataset related files
             "pretrained_model": None,
-            "region_embedding": None,
             "prefix": "pseudobulk",
         }
     )
