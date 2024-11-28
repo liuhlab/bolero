@@ -43,7 +43,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "use_borzoi_regions": True,
         "data_key_to_file_type": None,
         "region2": False,
-        "region2_max_dist": 5e6,
+        "region2_max_dist": 2e6,
         "multihead_output": False,
         # methylation specific
         "unmethylated": False,

@@ -261,7 +261,11 @@ class Corigami(nn.Module):
         final_output = self.decoder(decoder_input, *args, **kwargs).squeeze(1)
 
         if return_corigami_embedding:
+            # output_shape: (bs, image_scale, image_scale),
+            # emb_shape: (bs, feat, image_scale)
             return final_output, x_emb
+
+        # output_shape: (bs, image_scale, image_scale)
         return final_output
 
     def forward_from_hic_emb(
@@ -274,6 +278,7 @@ class Corigami(nn.Module):
             x=x_emb, x2=x2_emb, d=d, reverse_comp=reverse_comp
         )
         final_output = self.decoder(decoder_input, *args, **kwargs).squeeze(1)
+        # output_shape: (bs, image_scale, image_scale)
         return final_output
 
     def __repr__(self):

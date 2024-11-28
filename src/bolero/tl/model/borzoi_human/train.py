@@ -393,7 +393,9 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         self.borzoi_model = borzoi_model
         self.borzoi_model.convert_to_lora()
 
-        checkpoint = torch.load(self.config["borzoi_checkpoint_path"])
+        checkpoint = torch.load(
+            self.config["borzoi_checkpoint_path"], weights_only=False
+        )
         model_weights = checkpoint["state_dict"]
         self.borzoi_model.load_state_dict(model_weights)
         for _, param in self.borzoi_model.named_parameters():
@@ -455,7 +457,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
                 y_true.shape == y_pred.shape
             ), f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
 
-            return y_true, y_pred, hic_emb[0]
+            return y_true, y_pred, hic_emb
         else:
             y_pred = model(
                 x=corigami_input, return_corigami_embedding=return_corigami_embedding
@@ -502,6 +504,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         region_12_y_pred = model.forward_from_hic_emb(
             *args, x_emb=x_emb, x2_emb=x2_emb, d=d, reverse_comp=reverse_comp, **kwargs
         )
+        # each tensor is in shape (bs, image_scale, image_scale)
         return (
             region_1_y_true,
             region_2_y_true,

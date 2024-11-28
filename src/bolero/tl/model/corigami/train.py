@@ -132,11 +132,27 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         return optimizer
 
     def _get_scheduler(self, optimizer):
-        import pl_bolts
+        try:
+            import pl_bolts
 
-        scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
-            optimizer, warmup_epochs=10, max_epochs=200
-        )
+            scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
+                optimizer, warmup_epochs=10, max_epochs=200
+            )
+        except ImportError:
+            self.config["scheduler_type"] = "borzoi"
+            warmup_steps = self.config.get("warmup_steps", 1000)
+            accumulate_grad = self.config.get("accumulate_grad", 1)
+            warmup_steps = (
+                warmup_steps // accumulate_grad + 1
+            )  # because we update every accumulate_grad steps
+
+            total_steps = self.max_epochs * self.train_batches
+            total_steps = total_steps // accumulate_grad + 1
+
+            scheduler = GenericTrainer._get_scheduler(
+                self, optimizer, warmup_steps=warmup_steps, total_steps=total_steps
+            )
+            return scheduler
         return scheduler
 
     def _setup_model(self):
@@ -340,8 +356,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         if self.wandb_active:
             wandb.log(
                 {
-                    "train/train_loss": train_loss,
-                    "train/learning_rate": learning_rate,
+                    # "train/train_loss": train_loss,
+                    # "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
                     "val/early_stopping_counter": self.early_stopping_counter,
@@ -441,6 +457,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 f"Resuming training from epoch {self.cur_epoch}, with {max_epochs} epochs in total."
             )
         # moving_norm = MovingMetric(window_size=100)
+        example_step = max(5, self.train_batches // (self.plot_example_per_epoch + 1))
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -497,7 +514,9 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         loss = F.mse_loss(pred_y, y)
                     else:
                         # borzoi corigami model forward pass
-                        *_, loss = self._model_forward_pass(self.model, batch)
+                        y, pred_y, loss = self._model_forward_pass(self.model, batch)
+                        # region_1_y_true, region_2_y_true, region_12_y_true = y
+                        # region_1_y_pred, region_2_y_pred, region_12_y_pred = pred_y
 
                     loss = loss / self.accumulate_grad
 
@@ -541,8 +560,18 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     scaler.update()
                     optimizer.zero_grad()
 
+                    if self.config.get("scheduler_type", None) == "borzoi":
+                        scheduler.step()
+
                     if ema:
                         ema.update()
+
+                    log_dict = {
+                        "train/train_loss": loss.item(),
+                        "train/train_total_grad_norm": total_norm,
+                        "train/learning_rate": optimizer.param_groups[0]["lr"],
+                    }
+                    wandb.log(log_dict)
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
@@ -566,6 +595,38 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     cur_loss = _loss
                     print(desc_str)
 
+                if batch_id % example_step == 0:
+                    log_dict = {}
+                    if region2:
+                        # plot region 1 example
+                        batch["values"] = y[0].detach()
+                        batch["pred_"] = pred_y[0].detach()
+                        wandb_images = self._plot_example_images(
+                            [batch], target_key="values", predict_key="pred_"
+                        )
+                        log_dict["train_example/region_1_example_heatmap"] = (
+                            wandb_images
+                        )
+
+                        # plot region 1_2 example
+                        batch["values"] = y[2].detach()
+                        batch["pred_"] = pred_y[2].detach()
+                        wandb_images = self._plot_example_images(
+                            [batch], target_key="values", predict_key="pred_"
+                        )
+                        log_dict["train_example/region_1_2_example_heatmap"] = (
+                            wandb_images
+                        )
+
+                    else:
+                        batch["values"] = y.detach()
+                        batch["pred_"] = pred_y.detach()
+                        wandb_images = self._plot_example_images(
+                            [batch], target_key="values", predict_key="pred_"
+                        )
+                        log_dict["train_example/example_heatmap"] = wandb_images
+                    wandb.log(log_dict)
+
             del dataloader
             self._cleanup_env()
             if nan_loss:
@@ -577,12 +638,18 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             print(
                 f" - (Training) {self.cur_epoch} Learning rate from optimizer: {self.cur_lr:.3f}"
             )
-            print(
-                f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
-            )
+            try:
+                print(
+                    f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
+                )
+            except NotImplementedError:
+                print(
+                    f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_last_lr()[0]:.3f}"
+                )
 
-            if scheduler is not None:
-                scheduler.step()
+            if self.config.get("scheduler_type", None) != "borzoi":
+                if scheduler is not None:
+                    scheduler.step()
 
             (
                 self.val_loss,
