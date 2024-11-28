@@ -16,7 +16,6 @@ from bolero.tl.generic.train_helper import (
     batch_pearson_correlation,
     insulation_pearson,
 )
-from bolero.tl.model.borzoi.utils import MovingMetric
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import (
     ConvTransModel,
@@ -441,7 +440,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             print(
                 f"Resuming training from epoch {self.cur_epoch}, with {max_epochs} epochs in total."
             )
-        moving_norm = MovingMetric(window_size=100)
+        # moving_norm = MovingMetric(window_size=100)
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -529,14 +528,14 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
                     # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
                     # this is to prevent outlier gradients from messing up the training
-                    moving_norm.update(total_norm)
-                    threshold = moving_norm.quantile(0.99).item()
-                    if (total_norm > threshold) and moving_norm.full:
-                        print(
-                            f"Gradient norm is too large: {total_norm:.4f}, "
-                            f"threshold: {threshold:.4f}, prevent update."
-                        )
-                        optimizer.zero_grad()
+                    # moving_norm.update(total_norm)
+                    # threshold = moving_norm.quantile(0.99).item()
+                    # if (total_norm > threshold) and moving_norm.full:
+                    #     print(
+                    #         f"Gradient norm is too large: {total_norm:.4f}, "
+                    #         f"threshold: {threshold:.4f}, prevent update."
+                    #     )
+                    #     optimizer.zero_grad()
 
                     scaler.step(optimizer)
                     scaler.update()

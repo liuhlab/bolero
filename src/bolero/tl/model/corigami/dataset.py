@@ -523,7 +523,7 @@ class HiCTrackDataset(RayRegionDataset):
         dataset = self._get_cool_data(
             dataset,
             norm_mode=self.cool_data_norm_mode,
-            concurrency=(1, int(max_concurrency)),
+            concurrency=(1, int(max_concurrency * 1.5)),
         )
 
         if self.atac_paths is not None:
@@ -531,7 +531,7 @@ class HiCTrackDataset(RayRegionDataset):
                 dataset,
                 bigwig_paths=self.atac_paths,
                 data_key="atac",
-                concurrency=(1, int(max_concurrency)),
+                concurrency=(1, int(max_concurrency * 1.5)),
                 norm_mode="log",
             )
 
@@ -555,7 +555,7 @@ class HiCTrackDataset(RayRegionDataset):
         dataset = self._get_dna_one_hot(
             dataset=dataset,
             dtype="bool",
-            concurrency=(1, int(max_concurrency)),
+            concurrency=(1, int(max_concurrency * 1.5)),
             batch_size=8,
         )
 

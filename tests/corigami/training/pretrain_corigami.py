@@ -10,7 +10,7 @@ from bolero.tl.generic.train_helper import corigami_hg38_splits
 from bolero import init
 from bolero.tl.model.corigami.train import CorigamiTrainer
 
-init(num_cpus=16, object_store_memory_gb=300, verbose=True)
+init(num_cpus=32, object_store_memory_gb=360, verbose=True)
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="corigami pretrain")
@@ -65,7 +65,7 @@ def main():
         "train_batches": 2000,
         "val_batches": 500,
         "std": 0.1,
-        "lr": 0.0002,
+        "lr": 5e-5,
         "use_ema": False,
         "plot_vmin": -2,
         "plot_vmax": 2,
@@ -74,7 +74,7 @@ def main():
         "output_dir": args.output_dir, # NEED TO CHANGE
         "wandb_project": args.output_dir, # NEED TO CHANGE
         "wandb_job_type": "train",
-        "wandb_name": "corigami_dna_seq_atac_brain",
+        "wandb_name": "remove_skip_grad_update_lower_lr",
         "wandb_group": None,
         "savename": "base",
     }

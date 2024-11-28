@@ -5,7 +5,7 @@ import torch
 init(num_cpus=16, verbose=True)
 
 # %%
-name = "2024-11-26-borzoi-corigami-true-atac"
+name = "2024-11-28-borzoi-corigami-true-atac"
 fold_id = 0
 wandb_project = "corigami-all-cell-types"
 
@@ -14,7 +14,7 @@ emb_input_features = 50
 kv_bottleneck = None
 
 # training config
-lr = 0.0002
+lr = 5e-5
 train_batches = 2000
 val_batches = 500
 
@@ -47,7 +47,7 @@ config = {
     "lr": lr,
     "weight_decay": 0,
     "std": 0.1,
-    "dataloader_concurrency": 4,
+    "dataloader_concurrency": 6,
     "borzoi_checkpoint_path": borzoi_checkpoint_path,
     # dataset
     "cell_types": cell_types,

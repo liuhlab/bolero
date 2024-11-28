@@ -78,10 +78,10 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        channel_order = self.config.get("channel_order", None)
-        if channel_order is None:
-            channel_order = [self.data_key] * self.config["out_channels"]
-        self.channel_order = channel_order
+        # channel_order = self.config.get("channel_order", None)
+        # if channel_order is None:
+        #     channel_order = [self.data_key] * self.config["out_channels"]
+        # self.channel_order = channel_order
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -429,7 +429,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
             x=X, embedding=embedding, return_dna_embedding=True, crop=False
         )
         if not self.config["use_predicted_atac"]:
-            atac_count = batch.pop(self.atac_data_key).unsqueeze(1)
+            atac_count = batch[self.atac_data_key].unsqueeze(1)
         atac_log = torch.log(atac_count + 1)
         if torch.is_autocast_enabled():
             if dna_embedding.dtype != torch.float16:
@@ -468,7 +468,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
 
         d = (region_2 - region)[:, 0]  # take start - start
         # devide by hic bin resolution
-        d = d // self.dataset.resolution
+        d = d // self.dataset.hic_resolution
         return d  # (bs,)
 
     def _model_forward_pass_paired_region(
@@ -480,7 +480,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
                 model=model,
                 batch=batch,
                 suffix="",
-                return_corigamin_embedding=True,
+                return_corigami_embedding=True,
                 **kwargs,
             )
         )
@@ -490,7 +490,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
                 model=model,
                 batch=batch,
                 suffix="_2",
-                return_corigamin_embedding=True,
+                return_corigami_embedding=True,
                 **kwargs,
             )
         )
