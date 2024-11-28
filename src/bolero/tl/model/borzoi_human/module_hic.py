@@ -1,4 +1,5 @@
 import math
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -6,6 +7,7 @@ import torch.nn as nn
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
 from bolero.tl.model.corigami.model import model_summary
 from bolero.tl.model.corigami.module import AttnModule, ConvBlock, Decoder
+from bolero.utils import validate_config
 
 # DNA input: (bs, ch, seq_len) (bs, 1920, 16384), pos resolution 32bp
 # ATAC input: (bs, ch, seq_len) (bs, 1, 16384), pos resolution 32bp
@@ -96,6 +98,27 @@ class Encoder(nn.Module):
 
 
 class Corigami(nn.Module):
+    default_config = {
+        "in_channel": 1920,
+        "seq_len": 16384,
+        "output_channel": 256,
+        "image_scale": 64,
+        "dig_pw_mode": "concat",
+    }
+
+    @classmethod
+    def create_from_config(cls, config: dict):
+        """Create the model from a configuration dictionary."""
+        default_config = cls.get_default_config()
+        config = {k: v for k, v in config.items() if k in default_config}
+        validate_config(config, default_config)
+        return cls(**config)
+
+    @classmethod
+    def get_default_config(cls):
+        """Get default config."""
+        return deepcopy(cls.default_config)
+
     def __init__(
         self,
         in_channel=1920,
@@ -181,6 +204,7 @@ class Corigami(nn.Module):
                 .view(1, 1, self.image_scale, self.image_scale)
                 .to(x.device)
             )
+            pw = torch.concat([pw] * x_i.shape[0], dim=0)
         else:
             assert x2 is not None, "x2 must be provided when d != 0"
             assert reverse_comp is not None, "reverse_comp must be provided when d != 0"
@@ -223,7 +247,7 @@ class Corigami(nn.Module):
     def forward(
         self,
         x,
-        return_x_embedding=False,
+        return_corigami_embedding=False,
         *args,
         **kwargs,
     ):
@@ -236,7 +260,7 @@ class Corigami(nn.Module):
         decoder_input = self.diagonalize(x=x_emb, x2=None, d=0, reverse_comp=False)
         final_output = self.decoder(decoder_input, *args, **kwargs).squeeze(1)
 
-        if return_x_embedding:
+        if return_corigami_embedding:
             return final_output, x_emb
         return final_output
 

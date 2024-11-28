@@ -128,7 +128,7 @@ class HiCTrackDataset(RayRegionDataset):
         dataset,
         data_key="values",
         concurrency=(1, 6),
-        n_oprators=5,
+        n_oprators=1,
         batch_size=8,
         norm_mode="log",
         image_scale=256,
@@ -199,7 +199,7 @@ class HiCTrackDataset(RayRegionDataset):
         data_key="embedding",
         concurrency=(1, 6),
         batch_size=8,
-        n_oprators=5,
+        n_oprators=1,
     ):
         """
         Get the cool data for the dataset
@@ -261,7 +261,7 @@ class HiCTrackDataset(RayRegionDataset):
         bigwig_paths,
         data_key,
         concurrency=(1, 6),
-        n_oprators=5,
+        n_oprators=1,
         batch_size=8,
         norm_mode="log",
     ):
@@ -507,7 +507,7 @@ class HiCTrackDataset(RayRegionDataset):
         Get the processed dataset with many oprators applied.
         """
         # if multiple oprator is used, decrease the max concurrency to allow them parallel evenly
-        max_concurrency = 3
+        max_concurrency = 4
 
         _bed = self.bed.copy()
 

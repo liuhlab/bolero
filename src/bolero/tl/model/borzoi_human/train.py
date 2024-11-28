@@ -1,4 +1,5 @@
 import pathlib
+from copy import deepcopy
 
 import torch
 import wandb
@@ -77,7 +78,7 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        self.channel_order = [self.data_key] * self.config["out_channels"]
+        # self.channel_order = [self.data_key] * self.config["out_channels"]
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -310,7 +311,6 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         "grad_norm_collector": True,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
-        "batch_size": "REQUIRED",
         "loss_tolerance": 0.0,
         "pretrained_model": None,
         "plot_vmin": -2,
@@ -319,11 +319,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
         "use_predicted_atac": False,
-        # borzoi model
-        "emb_input_features": 50,
-        "base_checkpoint_path": "REQUIRED",
         "borzoi_checkpoint_path": "REQUIRED",
-        "kv_bottleneck": None,
         "dataloader_concurrency": 4,
     }
 
@@ -331,20 +327,54 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
     borzoi_model_class = BorzoiLoRA
     corigami_model_class = Corigami
 
+    @classmethod
+    def get_default_config(cls) -> dict:
+        """Get default configuration combined from dataset, model and trainer."""
+        dataset_config = cls.dataset_class.get_default_config()
+        borzoi_model_config = cls.borzoi_model_class.get_default_config()
+        corigami_model_config = cls.corigami_model_class.get_default_config()
+
+        default_config = deepcopy(cls.trainer_config)
+        for k, v in dataset_config.items():
+            if k in default_config:
+                print(
+                    f"Warning: Overwriting key {k} value "
+                    f"{default_config[k]} with dataset default value {v}."
+                )
+            default_config[k] = v
+
+        for k, v in borzoi_model_config.items():
+            if k in default_config:
+                print(
+                    f"Warning: Overwriting key {k} value "
+                    f"{default_config[k]} with borzoi model default value {v}."
+                )
+            default_config[k] = v
+
+        for k, v in corigami_model_config.items():
+            if k in default_config:
+                print(
+                    f"Warning: Overwriting key {k} value "
+                    f"{default_config[k]} with corigami model default value {v}."
+                )
+            default_config[k] = v
+
+        return default_config
+
     def __init__(self, config: dict):
         super().__init__(config)
-        TrainerBorzoiHumanDatasetMixin._setup_dataset(self)
+        # TrainerBorzoiHumanDatasetMixin._setup_dataset(self)
 
         # guess the hic data key
         cool_keys = [
             k for k, v in self.dataset.data_key_to_file_type.items() if v == "cool"
         ]
         assert len(cool_keys) == 1, f"Expected one cool key, got {cool_keys}"
-        self.hic_data_key = cool_keys
+        self.hic_data_key = cool_keys[0]
         self.atac_data_key = "atac"
 
         # is the model training in region2 mode
-        self.region2 = getattr(self.dataset, "region2", False)
+        self.region2 = getattr(self.dataset, "region2", None)
         return
 
     def _setup_model(self):
@@ -375,7 +405,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         model: Corigami,
         batch: dict,
         suffix: str = "",
-        return_corigamin_embedding: bool = False,
+        return_corigami_embedding: bool = False,
     ):
         data_key = self.hic_data_key + suffix
         dna_key = "dna_one_hot" + suffix
@@ -389,33 +419,39 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         atac_count, dna_embedding = self.borzoi_model.forward(
             x=X, embedding=embedding, return_dna_embedding=True, crop=False
         )
-        if self.config["use_predicted_atac"]:
-            atac_log = torch.log1p(atac_count)
+        if not self.config["use_predicted_atac"]:
+            atac_count = batch.pop(self.atac_data_key).unsqueeze(1)
+        atac_log = torch.log(atac_count + 1)
+        if torch.is_autocast_enabled():
+            if dna_embedding.dtype != torch.float16:
+                dna_embedding = dna_embedding.half()
+            if atac_log.dtype != torch.float16:
+                atac_log = atac_log.half()
         else:
-            # TODO: make sure data loader always return atac count, and do the log1p in model forward pass
-            # atac_log = torch.log1p(batch[self.atac_data_key].unsqueeze(1))
-            atac_log = batch.pop(self.atac_data_key).unsqueeze(1)
+            if dna_embedding.dtype != torch.float32:
+                dna_embedding = dna_embedding.float()
+            if atac_log.dtype != torch.float32:
+                atac_log = atac_log.float()
         corigami_input = torch.cat([dna_embedding, atac_log], dim=1)
-
         y_true = batch.pop(data_key)
 
         # ==========
         # Forward and Loss
         # ==========
-        y_pred, *hic_emb = model.forward(
-            x=corigami_input, return_corigamin_embedding=return_corigamin_embedding
-        )
-        if return_corigamin_embedding:
-            hic_emb = hic_emb[0]
+        if return_corigami_embedding:
+            y_pred, hic_emb = model(
+                x=corigami_input, return_corigami_embedding=return_corigami_embedding
+            )
+            assert (
+                y_true.shape == y_pred.shape
+            ), f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
 
-        assert (
-            y_true.shape == y_pred.shape
-        ), f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
-
-        if return_corigamin_embedding:
-            return y_true, y_pred, hic_emb
-
-        return y_true, y_pred
+            return y_true, y_pred, hic_emb[0]
+        else:
+            y_pred = model(
+                x=corigami_input, return_corigami_embedding=return_corigami_embedding
+            )
+            return y_true, y_pred
 
     def _calculate_region_d(self, batch):
         region = batch["region"]

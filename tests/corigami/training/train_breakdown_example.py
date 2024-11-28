@@ -13,19 +13,22 @@ from bolero.tl.model.corigami.train import CorigamiTrainer, CorigamiLoraTrainer
 # %%
 # Set up
 from bolero import init
-init(num_cpus=32, object_store_memory_gb=400, verbose=True)
+init(num_cpus=16, object_store_memory_gb=200, verbose=True)
 
 # %%
 # If only predicting one cell, just need to read one cool file
 indir = '/large_storage/zhoulab/project/seqmodel/data/HBA_3C_majortype_hg38/cool_e/'
-cool_paths = np.sort(glob(f'{indir}*.E.cool')).tolist()[:3]
+cool_paths = np.sort(glob(f'{indir}*.E.cool')).tolist()
 # cool_paths = [path for path in cool_paths if 'group' not in path]
 # indir = '/large_experiments/zhoulab/project/seqmodel/data/corigami/corigami_data/data/hg38/imr90/hic_matrix/'
 # cool_paths = np.sort(glob(f'{indir}*.cool'))
 
 # %%
 leg = [xx.split('::')[0].split('/')[-1].split('.')[0] for xx in cool_paths]
-leg
+leg = [cell_type for cell_type in leg if 'group' not in cell_type]
+
+cool_paths = [f'{indir}{cell_type}.E.cool' for cell_type in leg]
+
 
 # %%
 atac_paths = [f'/large_storage/zhoulab/hanliu/wmb/Li2023Science/old_annot/bigwig/{ct}.bw' for ct in leg]
@@ -67,14 +70,14 @@ config = {
     "kernel_size": None,
     "cool_data_norm_mode": None,
     "dim_shift": False,
-    "lora": True,
-    "leg_map": leg_map,
+    "lora": False,
+    # "leg_map": leg_map,
     # model
     "image_scale": 256,
     "encoder_in_channel": 5,
     "encoder_num_epi": 1,
-    "recalculated_embedding": recalculated_embedding.tolist(),
-    "preset": "classic",
+    # "recalculated_embedding": recalculated_embedding.tolist(),
+    # "preset": "classic",
     # training
     "mode": "base",
     "chrom_split": corigami_hg38_splits[0],
@@ -84,18 +87,20 @@ config = {
     "val_batches": None,
     "std": 0.1,
     "lr": 0.0002,
-    "use_ema": True,
+    "use_ema": False,
     # save data
-    "output_dir": "/large_storage/zhoulab/yishuang/project/bolero/tests/corigami/corigami_result",
-    "wandb_project": "corigami_result",
+    "output_dir": "/large_storage/zhoulab/yishuang/project/bolero/tests/corigami/training/2024-11-24",
+    "wandb_project": "2024_11_24_corigami",
     "wandb_job_type": "train",
     "wandb_group": None,
     "wandb_name": "corigami",
     "savename": "base",
 }
-config = CorigamiLoraTrainer.make_config(**config)
-# %%
-trainer = CorigamiLoraTrainer(config)
+# config = CorigamiLoraTrainer.make_config(**config)
+# # %%
+# trainer = CorigamiLoraTrainer(config)
+config = CorigamiTrainer.make_config(**config)
+trainer = CorigamiTrainer(config)
 
 # %%
 # Read data
@@ -187,7 +192,8 @@ embedding = model.cell_type_embedding(embedding).view(embedding.shape[0], traine
 embedding.shape
 # %%
 # embedding = None
-pred_y = model.encoder(X, embedding=embedding)
+# pred_y = model.encoder(X, embedding=embedding)
+pred_y = model.encoder(X)
 pred_y.shape
 
 # %%
@@ -210,7 +216,8 @@ pred_y = model.move_feature_forward(pred_y)
 pred_y.shape
 
 # %%
-pred_y = model.attn(pred_y, embedding=embedding)
+# pred_y = model.attn(pred_y, embedding=embedding)
+pred_y = model.attn(pred_y)
 pred_y = model.move_feature_forward(pred_y)
 pred_y.shape
 
@@ -228,7 +235,8 @@ print(f"Used GPU memory: {a}")
 pred_y = model.diagonalize(pred_y)
 
 # %%
-pred_y = model.decoder(pred_y, embedding=embedding).squeeze(1)
+# pred_y = model.decoder(pred_y, embedding=embedding).squeeze(1)
+pred_y = model.decoder(pred_y).squeeze(1)
 pred_y.shape
 
 # %%

@@ -1,28 +1,36 @@
 #%%
 import argparse
 from glob import glob
+import pandas as pd
+import scanpy as sc
+
+import numpy as np
 
 from bolero.tl.generic.train_helper import corigami_hg38_splits
 from bolero import init
 from bolero.tl.model.corigami.train import CorigamiTrainer
 
-init(num_cpus=32, object_store_memory_gb=400, verbose=True)
+init(num_cpus=16, object_store_memory_gb=300, verbose=True)
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="corigami pretrain")
-    parser.add_argument('--cell_type', type=str, help="The cell type to train")
+    # parser.add_argument('--cell_types', nargs='+', type=str, help="The cell type to train")
     parser.add_argument('--output_dir', type=str, help="The output directory")
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_arguments()
-    cell_type = args.cell_type
-    indir = '/large_storage/zhoulab/project/seqmodel/data/HBA_3C_majortype_hg38/cool_e/'
-    cool_paths = [f'{indir}{cell_type}.E.cool']
+    # cell_types = args.cell_types
 
-    leg = [xx.split('::')[0].split('/')[-1].split('.')[0] for xx in cool_paths]
-    atac_paths = [f'/large_storage/zhoulab/hanliu/wmb/Li2023Science/old_annot/bigwig/{ct}.bw' for ct in leg]
+    indir = '/large_storage/zhoulab/project/seqmodel/data/HBA_3C_majortype_hg38/cool_e/'
+
+    cool_paths = np.sort(glob(f'{indir}*.E.cool')).tolist()
+    cell_types = [xx.split('::')[0].split('/')[-1].split('.')[0] for xx in cool_paths]
+    cell_types = [cell_type for cell_type in cell_types if 'group' not in cell_type]
+    cool_paths = [f'{indir}{cell_type}.E.cool' for cell_type in cell_types]
+
+    atac_paths = [f'/large_storage/zhoulab/hanliu/wmb/Li2023Science/old_annot/bigwig/{ct}.bw' for ct in cell_types]
 
     #%%
     config = {
@@ -43,21 +51,19 @@ def main():
         "smooth_moving_average": False,
         "kernel_size": None,
         "cool_data_norm_mode": None,
-        "dim_shift": True,
+        "dim_shift": False,
         "lora": False,
-        "cap_value": None,
         # model
         "image_scale": 256,
         "encoder_in_channel": 5,
         "encoder_num_epi": 1,
         # trainng
         "mode": "base",
-        "pretrained_model": None,
         "chrom_split": corigami_hg38_splits[0],
         "max_epochs": 40,
         "patience": 20,
-        "train_batches": 1000,
-        "val_batches": 50,
+        "train_batches": 2000,
+        "val_batches": 500,
         "std": 0.1,
         "lr": 0.0002,
         "use_ema": False,
