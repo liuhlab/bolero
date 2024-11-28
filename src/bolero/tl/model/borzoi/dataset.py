@@ -10,7 +10,7 @@ import torch
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
 )
-from bolero.tl.dataset.sc_transforms import FilterRegions, GeneratePseudobulk
+from bolero.tl.dataset.sc_transforms import GeneratePseudobulk
 from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
@@ -136,7 +136,13 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
             for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
                 prefix_rows = prefix_to_rows[prefix]
                 # row_by_base is a csr_matrix of shape (n_rows, region_length)
-                row_by_base = data_dict[prefix]
+                try:
+                    row_by_base = data_dict[prefix]
+                except KeyError as e:
+                    raise KeyError(
+                        f"Key {prefix} not found in data_dict, {data_dict.keys()}"
+                    ) from e
+
                 _bulk_values = (
                     row_by_base[prefix_rows].sum(axis=0).A1
                 )  # (1, region_length)
@@ -282,6 +288,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             dataset_path=dataset_path,
             shuffle_files=shuffle_files,
             read_parquet_kwargs=read_parquet_kwargs,
+            max_regions_per_genome_chunk=1,
         )
         self.batch_size = batch_size
 
@@ -313,6 +320,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         downsample_train_region=None,
         downsample_valid_region=None,
         downsample_test_region=None,
+        region_length=None,
         seed=0,
     ):
         """Get the train, valid, and test folds and regions for the given fold."""
@@ -321,13 +329,17 @@ class BorzoiDataset(RayGenomeChunkDataset):
         valid_folds = fold_split["valid"]
         test_folds = fold_split["test"]
 
+        use_gene_regions = getattr(self, "use_gene_regions", False)
+        deg_list = getattr(self, "deg_list", None)
+        if region_length is None:
+            region_length = self.dna_window
         train_regions, valid_regions, test_regions = (
             self.borzoi_regions.get_train_valid_test_regions(
                 self.genome.name,
                 split_id=fold,
-                region_length=self.dna_window,
-                use_gene_regions=self.use_gene_regions,
-                deg_list=self.deg_list,
+                region_length=region_length,
+                use_gene_regions=use_gene_regions,
+                deg_list=deg_list,
             )
         )
 
@@ -420,31 +432,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         generator = cls.create_from_config(**pseudobulker_kwargs)
         self.name_to_pseudobulker[name] = generator
         return
-
-    def _filter_bed_regions(
-        self,
-        dataset,
-        cov_filter_key,
-        min_cov,
-        max_cov,
-        low_cov_ratio,
-        batch_size,
-        concurrency,
-    ):
-        fn = FilterRegions
-        fn_constructor_kwargs = {
-            "cov_filter_key": cov_filter_key,
-            "min_cov": min_cov,
-            "max_cov": max_cov,
-            "low_cov_ratio": low_cov_ratio,
-        }
-        dataset = dataset.map_batches(
-            fn=fn,
-            fn_constructor_kwargs=fn_constructor_kwargs,
-            concurrency=concurrency,
-            batch_size=batch_size,
-        )
-        return dataset
 
     def _get_folds_dir(self, folds):
         if folds is None:
@@ -543,7 +530,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def _generate_pseudobulk_profile(
         self,
         dataset,
-        name_to_pseudobulker,
         n_pseudobulks=1000,
         q=0.995,
         concurrency=1,
@@ -553,6 +539,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             "n_pseudobulks": n_pseudobulks,
             "q": q,
         }
+        name_to_pseudobulker = self.name_to_pseudobulker
         fn_constructor_kwargs.update(name_to_pseudobulker)
 
         dataset = dataset.map(
@@ -569,19 +556,17 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def _generate_pseudobulk(
         self,
         dataset,
-        name_to_pseudobulker,
-        n_pseudobulks=10,
-        paired_data=False,
         concurrency=1,
         **kwargs,
     ):
         fn = GenerateBorzoiPseudobulk
         fn_constructor_kwargs = {
-            "n_pseudobulks": n_pseudobulks,
-            "paired_data": paired_data,
+            "n_pseudobulks": self.n_pseudobulks,
+            "paired_data": self.paired_data,
             "normalize_cov": self.normalize_cov,
             **kwargs,
         }
+        name_to_pseudobulker = self.name_to_pseudobulker
         fn_constructor_kwargs.update(name_to_pseudobulker)
 
         dataset = dataset.flat_map(
@@ -590,31 +575,36 @@ class BorzoiDataset(RayGenomeChunkDataset):
             concurrency=concurrency,
         )
 
-        # update region_action_keys
+        # update signal_columns
         region_action_keys = [
             name for name in self.signal_columns if name not in name_to_pseudobulker
         ]
         new_keys = self.data_keys
         region_action_keys.extend(new_keys)
-        region_action_keys = list(set(region_action_keys))
-        self.signal_columns = region_action_keys
+        self.signal_columns = list(set(region_action_keys))
         return dataset
 
     def _get_processed_dataset(
         self,
         folds,
         region_bed,
-        name_to_pseudobulker,
         region_action_keys=None,
         concurrency=32,
+        add_original_name=True,
+        compressed_bytes_to_tensor_concurrency=None,
+        generate_pseudobulk_concurrency=None,
+        generate_regions_concurrency=None,
         **pseudobulk_kwargs,
     ) -> None:
         """
         Preprocess the dataset to return pseudobulk region rows.
         """
-        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
-        generate_pseudobulk_concurrency = (1, concurrency)
-        generate_regions_concurrency = (1, concurrency // 2)
+        if compressed_bytes_to_tensor_concurrency is None:
+            compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+        if generate_pseudobulk_concurrency is None:
+            generate_pseudobulk_concurrency = (1, concurrency)
+        if generate_regions_concurrency is None:
+            generate_regions_concurrency = (1, concurrency // 2)
 
         dataset = self._read_parquet(folds=folds)
 
@@ -636,18 +626,17 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.signal_columns = region_action_keys
 
         # generate pseudobulk
+        name_to_pseudobulker = self.name_to_pseudobulker
         if len(name_to_pseudobulker) > 0:
-            if self.use_pseudobulk_profile:
+            if getattr(self, "use_pseudobulk_profile", False):
                 dataset = self._generate_pseudobulk_profile(
                     dataset=dataset,
-                    name_to_pseudobulker=name_to_pseudobulker,
                     concurrency=generate_pseudobulk_concurrency,
                 )
                 pseudobulk_kwargs["bypass_keys"] = self.signal_columns
 
             dataset = self._generate_pseudobulk(
                 dataset=dataset,
-                name_to_pseudobulker=name_to_pseudobulker,
                 concurrency=generate_pseudobulk_concurrency,
                 **pseudobulk_kwargs,
             )
@@ -657,10 +646,10 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 dataset=dataset,
                 bed=region_bed,
                 action_keys=self.signal_columns,
-                max_regions=1,
+                max_regions=self.max_regions_per_genome_chunk,
                 concurrency=generate_regions_concurrency,
                 pos_resolution=self.pos_resolution,
-                add_original_name=True,
+                add_original_name=add_original_name,
             )
         return dataset
 
@@ -689,9 +678,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         work_ds = self._get_processed_dataset(
             folds=folds,
             region_bed=region_bed,
-            name_to_pseudobulker=self.name_to_pseudobulker,
-            n_pseudobulks=self.n_pseudobulks,
-            paired_data=self.paired_data,
             inplace=False,
             concurrency=concurrency,
         )

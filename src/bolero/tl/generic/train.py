@@ -376,18 +376,20 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         default_config = deepcopy(cls.trainer_config)
         for k, v in dataset_config.items():
             if k in default_config:
-                print(
-                    f"Warning: Overwriting key {k} value "
-                    f"{default_config[k]} with dataset default value {v}."
-                )
+                if default_config[k] != v:
+                    print(
+                        f"Warning: Overwriting key {k} value "
+                        f"{default_config[k]} with dataset default value {v}."
+                    )
             default_config[k] = v
 
         for k, v in model_config.items():
             if k in default_config:
-                print(
-                    f"Warning: Overwriting key {k} value "
-                    f"{default_config[k]} with model default value {v}."
-                )
+                if default_config[k] != v:
+                    print(
+                        f"Warning: Overwriting key {k} value "
+                        f"{default_config[k]} with model default value {v}."
+                    )
             default_config[k] = v
         return default_config
 

@@ -8,7 +8,6 @@ import wandb
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.tl.model.scprinter.model import seq2PRINTLoRA
 from bolero.tl.model.scprinter.train_base import scFootprintTrainerMixin
-from bolero.tl.pseudobulk.generator import PredefinedPseudobulkGenerator
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 
@@ -23,18 +22,16 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "lr": 0.0001,
             # Lora related files
             "accumulate_grad": 8,
-            "cell_embedding": "REQUIRED",
-            "cell_coverage": "REQUIRED",
-            "pseudobulk_path": "REQUIRED",
-            "prefix": "REQUIRED",
-            "standard_cov": 8e6,
-            "standard_cell": None,
+            "vq_records_path": "REQUIRED",
+            "use_vq_emb": False,
+            "prefix": "pseudobulk",
+            "downsample_vq": None,
         }
     )
 
     dataset_class = scPrinterDataset
     model_class = seq2PRINTLoRA
-    pseudobulk_class = PredefinedPseudobulkGenerator
+    pseudobulk_class = RNAVQPseudobulker
 
     def _setup_model(self):
         config_for_lora = deepcopy(self.config)
@@ -45,23 +42,18 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
 
     def _get_dataset(self):
         dataset = super()._get_dataset()
-
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
-            "cell_embedding": self.config["cell_embedding"],
-            "cell_coverage": self.config["cell_coverage"],
-            "predefined_pseudobulk_path": self.config["pseudobulk_path"],
-            "standard_cov": self.config["standard_cov"],
-            "standard_cell": self.config["standard_cell"],
+            "vq_records": self.config["vq_records_path"],
+            "use_vq_emb": self.config["use_vq_emb"],
+            "downsample_vq": self.config["downsample_vq"],
+            "prefix_name": self.config["prefix"],
+            "add_cov_to_emb": False,
         }
         dataset.add_pseudobulker(
             name=self.config["prefix"],
             cls=self.pseudobulk_class,
             pseudobulker_kwargs=pseudobulker_params,
-        )
-        # save pseudobulker scaler and example pseudobulk embedding
-        dataset.name_to_pseudobulker[self.config["prefix"]].save_scaler(
-            f"{self.savename}.cell_embedding_scaler.joblib"
         )
         return dataset
 
@@ -125,59 +117,8 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         return
 
 
-class scFootprintLoRATrainerRNA(scFootprintLoRATrainer):
-    """Train scFootprintBPNet model on pseudobulk single-cell ATAC data."""
-
-    trainer_config = scFootprintTrainerMixin.trainer_config.copy()
-
-    trainer_config.update(
-        {
-            "mode": "lora",
-            "lr": 0.0001,
-            # Lora related files
-            "accumulate_grad": 8,
-            "vq_records_path": "REQUIRED",
-            "use_vq_emb": False,
-            "prefix": "REQUIRED",
-            "standard_cov": 8e6,
-        }
-    )
-
-    dataset_class = scPrinterDataset
-    model_class = seq2PRINTLoRA
-    pseudobulk_class = RNAVQPseudobulker
-
-    def __init__(self, config: dict):
-        super().__init__(config)
-        if self.config["kv_bottleneck"] is not None:
-            assert not self.config[
-                "use_vq_emb"
-            ], "Cannot use both kv_bottleneck and use_vq_emb."
-
-    def _get_dataset(self):
-        dataset = scFootprintTrainerMixin._get_dataset(self)
-
-        # setup pseudobulker params for sc dataset
-        pseudobulker_params = {
-            "vq_records": self.config["vq_records_path"],
-            "use_vq_emb": self.config["use_vq_emb"],
-            "target_cov": self.config["standard_cov"],
-            "prefix_name": "pseudobulk",
-        }
-        dataset.add_pseudobulker(
-            name=self.config["prefix"],
-            cls=self.pseudobulk_class,
-            pseudobulker_kwargs=pseudobulker_params,
-        )
-        # save pseudobulker scaler and example pseudobulk embedding
-        dataset.name_to_pseudobulker[self.config["prefix"]].save_scaler(
-            f"{self.savename}.cell_embedding_scaler.joblib"
-        )
-        return dataset
-
-
-class scFootprintLoRATester(scFootprintLoRATrainerRNA):
-    trainer_config = scFootprintLoRATrainerRNA.trainer_config.copy()
+class scFootprintLoRATester(scFootprintLoRATrainer):
+    trainer_config = scFootprintLoRATrainer.trainer_config.copy()
     trainer_config["checkpoint_path"] = "REQUIRED"
 
     def _setup_model(self):

@@ -1,3 +1,4 @@
+import itertools
 import pathlib
 import shutil
 import subprocess
@@ -447,3 +448,33 @@ def parse_global_coords(
         lambda x: f"{x['Chromosome']}:{x['Start']}-{x['End']}", axis=1
     )
     return global_coords
+
+
+IUPAC_TABLE = {
+    "A": "A",
+    "T": "T",
+    "C": "C",
+    "G": "G",
+    "R": "AG",
+    "Y": "CT",
+    "S": "GC",
+    "W": "AT",
+    "K": "GT",
+    "M": "AC",
+    "B": "CGT",
+    "D": "AGT",
+    "H": "ATC",
+    "V": "ACG",
+    "N": "ATCGN",
+}
+
+
+def parse_mc_pattern(pattern: str) -> set:
+    """Parse mC context pattern."""
+    # IUPAC DNA abbr. table
+    all_pos_list = []
+    pattern = pattern.upper()
+    for base in pattern:
+        all_pos_list.append(IUPAC_TABLE[base])
+    context_set = {"".join(i) for i in itertools.product(*all_pos_list)}
+    return context_set

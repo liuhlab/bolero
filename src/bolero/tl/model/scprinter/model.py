@@ -123,6 +123,17 @@ class seq2PRINT(nn.Module):
         self.output_len = output_len
         return
 
+    def check_input_dtype(self, X):
+        """Check the input dtype and convert to float32 or float16."""
+        # change dtype to half if not already
+        if torch.is_autocast_enabled():
+            if X.dtype != torch.float16:
+                X = X.half()
+        else:
+            if X.dtype != torch.float32:
+                X = X.float()
+        return X
+
     def forward(self, X, *args, output_len=None, **kwargs):
         """
         Forward pass of the model.
@@ -137,6 +148,8 @@ class seq2PRINT(nn.Module):
         -------
             torch.Tensor: The output tensor.
         """
+        X = self.check_input_dtype(X)
+
         if output_len is None:
             output_len = self.output_len
 
@@ -223,6 +236,7 @@ def make_lora_config(
     emb_input_features,
     hidden_dim,
     hidden_layers,
+    lora_dropout,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
@@ -231,7 +245,7 @@ def make_lora_config(
         "hidden_layers": hidden_layers,
         "output_layer_groups": 1,
         "convert_conv": True,
-        "lora_dropout": True,
+        "lora_dropout": lora_dropout,
     }
     lora_config = {
         "dna_cnn_model": {
@@ -264,20 +278,16 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "base_model": "REQUIRED",
             # LoRA configuration
             "emb_input_features": "REQUIRED",
-            "n_lora_layers": 0,
-            "lora_hidden_dim": 256,
-            "lora_output_layer_groups": 1,
+            "n_lora_layers": 1,
+            "lora_hidden_dim": 384,
             "lora_dropout": 0,
-            "use_dora": False,
-            "lora_output": False,
             # KV Bottleneck
             "kv_bottleneck": "local",
             "num_memories": 256,
             "dim_memory": 50,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
-            "emb_input": False,
-            "emb_input_dims": None,
+            "emb_input": True,
         }
     )
 
@@ -298,16 +308,16 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         base_model: Union[str, seq2PRINT],
         # LoRA configuration
         emb_input_features: int,
-        n_lora_layers: int = 0,
-        lora_hidden_dim: Optional[int] = 256,
-        lora_output: bool = True,
+        n_lora_layers: int = 1,
+        lora_hidden_dim: Optional[int] = 384,
+        lora_dropout: float = 0,
         # KV Bottleneck
         kv_bottleneck: str = "local",
         num_memories: int = 256,
         dim_memory: int = 50,
         num_memory_codebooks: int = 2,
         additional_embs: int = 1,
-        emb_input: bool = False,
+        emb_input: bool = True,
         **base_kwargs,
     ):
         # ===============
@@ -367,7 +377,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             emb_input_features=lora_input_features,
             lora_hidden_dim=lora_hidden_dim,
             n_lora_layers=n_lora_layers,
-            lora_output=lora_output,
+            lora_dropout=lora_dropout,
         )
         return
 
@@ -376,13 +386,14 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         emb_input_features,
         lora_hidden_dim,
         n_lora_layers,
-        lora_output=False,
+        lora_dropout,
     ):
         """Convert the model to LoRA."""
         self.lora_config = make_lora_config(
             emb_input_features=emb_input_features,
             hidden_dim=lora_hidden_dim,
             hidden_layers=n_lora_layers,
+            lora_dropout=lora_dropout,
         )
 
         for module_names, config in self.lora_config.items():
@@ -397,8 +408,8 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
                 config["additional_embs"] = self.additional_embs
                 config["emb_input"] = self.emb_input
                 config["emb_input_dims"] = self.emb_input_dims
-                # use batch norm
-                config["norm_type"] = "batch"
+                # use layer norm
+                config["norm_type"] = "layer"
 
             for module_name in module_names:
                 module = getattr(self, module_name)
@@ -409,16 +420,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         for name, param in self.named_parameters():
             if "kv_bottleneck" in name:
                 param.requires_grad = True
-            if not lora_output:
-                # directly train the output layers
-                if "coverage_head" in name:
-                    param.requires_grad = True
-                if "footprint_head" in name:
-                    param.requires_grad = True
-
-        if not lora_output:
-            self.footprint_head.reset_parameters()
-            self.coverage_head.reset_parameters()
         return
 
     def collapse(self, embedding=None, requires_grad=True):
@@ -473,6 +474,8 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         -------
             torch.Tensor: The output tensor.
         """
+        X = self.check_input_dtype(X)
+
         if output_len is None:
             output_len = self.output_len
 

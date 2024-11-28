@@ -78,7 +78,10 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        # self.channel_order = [self.data_key] * self.config["out_channels"]
+        channel_order = self.config.get("channel_order", None)
+        if channel_order is None:
+            channel_order = [self.data_key] * self.config["out_channels"]
+        self.channel_order = channel_order
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -168,8 +171,8 @@ class BorzoiHumanTrainerMixin(TrainerBorzoiHumanDatasetMixin, BorzoiTrainerMixin
         "wandb_group": None,
         "wandb_name": None,
         "max_epochs": 100,
-        "patience": 10,
-        "start_early_stop_after_epoch": 30,
+        "patience": 5,
+        "start_early_stop_after_epoch": 20,
         "use_amp": True,
         "use_ema": False,
         "scheduler": True,
@@ -200,6 +203,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
             "warmup_steps": 5000,
             "scheduler": True,
             "data_key": "atac",
+            "channel_order": None,
         }
     )
 
@@ -248,6 +252,11 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
 
         y_pred = y_pred.detach()
+
+        with torch.no_grad():
+            if self.model.loss_type == "bce":
+                y_pred = torch.sigmoid(y_pred)
+
         return y_true, y_pred, loss, loss_breakdown
 
     def _print_banner(self, text):

@@ -234,7 +234,7 @@ class GenerateRegions:
 
         self.action_keys = action_keys
         self.max_regions = max_regions
-        self.pos_resolution = pos_resolution
+        self.pos_resolution = 1 if pos_resolution is None else pos_resolution
         self.add_original_name = add_original_name
         return
 
@@ -273,7 +273,7 @@ class GenerateRegions:
                     rend = end - offset
 
                     # coords to position resolution
-                    if self.pos_resolution:
+                    if self.pos_resolution > 1:
                         rstart = rstart // self.pos_resolution
                         rend = rend // self.pos_resolution
 

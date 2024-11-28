@@ -153,7 +153,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.train_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -176,7 +176,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.valid_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -199,7 +199,7 @@ class TrainerBorzoiDatasetMixin:
             region_bed=self.test_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
-            shuffle_rows=self.config["shuffle_rows"],
+            shuffle_rows=self.config.get("shuffle_rows", None),
         )
         return dataloader
 
@@ -215,8 +215,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_group": None,
         "wandb_name": None,
         "max_epochs": 100,
-        "patience": 10,
-        "start_early_stop_after_epoch": 30,
+        "patience": 5,
+        "start_early_stop_after_epoch": 20,
         "use_amp": True,
         "use_ema": False,
         "scheduler": True,
@@ -229,7 +229,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
-        "accumulate_grad": 32,
+        "accumulate_grad": 4,
         "shuffle_rows": 300,
         "dataloader_concurrency": 24,
         "downsample_train_region": None,
@@ -400,6 +400,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     true_key=true_key,
                     pred_key=pred_key,
                     id_key="sample_id",
+                    plot_mode="atac"
+                    if self.model.loss_type == "poisson_multinomial"
+                    else "mc",
                 )
                 fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
 
@@ -515,7 +518,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def _get_scheduler(self, optimizer):
         self.config["scheduler_type"] = "borzoi"
-        warmup_steps = self.config.get("warmup_steps", 10000)
+        warmup_steps = self.config.get("warmup_steps", 5000)
         accumulate_grad = self.config.get("accumulate_grad", 1)
         warmup_steps = (
             warmup_steps // accumulate_grad + 1
@@ -706,10 +709,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # ==========
                 # Backward
                 # ==========
+                # for backpropagation, we scale the loss with the accumulate_grad
                 scale_loss = loss / self.accumulate_grad
-                scaler.scale(
-                    scale_loss
-                ).backward()  # for backpropagation, we scale the loss with the accumulate_grad
+                scaler.scale(scale_loss).backward()
 
                 moving_ave_loss.update(loss.item())
                 moving_ave_corr.update(preds=y_pred, target=y_true)
@@ -934,7 +936,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "scheduler": True,
             # pseudobulk related
             "vq_records": "REQUIRED",
-            "target_cov": "REQUIRED",
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
             "downsample_vq": None,
@@ -968,7 +969,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
             "vq_records": self.config["vq_records"],
-            "target_cov": self.config["target_cov"],
             "use_vq_emb": self.config["use_vq_emb"],
             "prefix_name": self.config["prefix"],
             "downsample_vq": self.config["downsample_vq"],

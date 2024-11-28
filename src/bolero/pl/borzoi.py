@@ -14,12 +14,14 @@ class BorzoiExamplePlotter:
         true_key="true_data",
         pred_key="pred_data",
         id_key="sample_id",
+        plot_mode="atac",
     ):
         self.genome = genome
         self.zoomin_radius = zoomin_radius
         self.true_key = true_key
         self.pred_key = pred_key
         self.id_key = id_key
+        self.plot_mode = plot_mode
         return
 
     def parse_region_coords(self, batch):
@@ -55,9 +57,9 @@ class BorzoiExamplePlotter:
             gene_names = None
 
         if isinstance(y_true, torch.Tensor):
-            y_true = y_true.cpu().numpy()
+            y_true = y_true.float().cpu().numpy()
         if isinstance(y_pred, torch.Tensor):
-            y_pred = y_pred.cpu().numpy()
+            y_pred = y_pred.float().cpu().numpy()
         sample_ids = batch.get(self.id_key, None)
         if sample_ids is None:
             sample_ids = np.arange(len(y_true))
@@ -154,11 +156,18 @@ class BorzoiExamplePlotter:
         chrom, coords = region.split(":")
         start, end = map(int, coords.split("-"))
 
+        if self.plot_mode == "atac":
+            true_data_conv = np.convolve(true_data, np.ones(8) / 8, mode="same")
+            pred_data_conv = np.convolve(pred_data, np.ones(8) / 8, mode="same")
+        else:
+            true_data_conv = true_data
+            pred_data_conv = pred_data
+
         # full region
         ax = axes[0]
         ax.fill_between(
             x=x,
-            y1=np.convolve(true_data, np.ones(8) / 8, mode="same"),
+            y1=true_data_conv,
             linewidth=0,
             color="salmon",
         )
@@ -180,7 +189,7 @@ class BorzoiExamplePlotter:
         ax = axes[1]
         ax.fill_between(
             x=x,
-            y1=np.convolve(pred_data, np.ones(8) / 8, mode="same"),
+            y1=pred_data_conv,
             linewidth=0,
             color="steelblue",
         )

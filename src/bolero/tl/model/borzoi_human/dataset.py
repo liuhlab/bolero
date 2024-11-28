@@ -31,6 +31,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "dataset_path": "REQUIRED",
         "dna_window": 524288,
         "embeddings_path": "REQUIRED",
+        "coverage_path": None,
         "hic_cap_value": None,
         "genome": "hg38",
         "max_jitter": 0,
@@ -44,6 +45,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "region2": False,
         "region2_max_dist": 5e6,
         "multihead_output": False,
+        # methylation specific
+        "unmethylated": False,
+        "data_key_to_mc_context": None,
     }
 
     def __init__(
@@ -71,6 +75,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
         region2: bool = False,
         region2_max_dist: float = 5e6,
         multihead_output: bool = False,
+        # methylation specific
+        unmethylated: bool = False,
+        data_key_to_mc_context: dict[str, str] = None,
     ):
         super().__init__(
             bed=bed,
@@ -134,6 +141,11 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         self.balance = balance
         self.multihead_output = multihead_output
+        # Methylation specific
+        self.unmethylated = unmethylated
+        self.data_key_to_mc_context = (
+            {} if data_key_to_mc_context is None else data_key_to_mc_context
+        )
 
         # Embeddings map generation
         self.embeddings_path = embeddings_path
@@ -402,6 +414,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         if key_suffix is None:
             key_suffix = [""]
 
+        mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
+
         for idx, chunk_start in enumerate(range(0, len(allc_paths), _chunk_size)):
             chunk_end = min(len(allc_paths), chunk_start + _chunk_size)
             chunk_paths = allc_paths[chunk_start:chunk_end]
@@ -412,6 +426,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "data_prefix": f"{idx}_{mc_prefix}_",
                 "data_suffix": key_suffix,
                 "region_key": "region",
+                "mc_context": mc_context,
             }
             dataset = dataset.map_batches(
                 fn=fn,
@@ -447,15 +462,24 @@ class BorzoiDatasetOnline(RayRegionDataset):
             key_suffix = [""]
 
         # calculate mC fraction
-        def _mc_frac(data_dict, mc_prefix, key_suffix):
+        def _mc_frac(data_dict, mc_prefix, key_suffix, unmethylated):
             for suffix in key_suffix:
-                mc = data_dict.pop(f"{mc_prefix}_mc{suffix}")
-                cov = data_dict.pop(f"{mc_prefix}_cov{suffix}")
-                data_dict[f"{mc_prefix}_mc_frac{suffix}"] = mc / (cov + 1e-6)
+                mc = data_dict[f"{mc_prefix}_mc{suffix}"]
+                cov = data_dict[f"{mc_prefix}_cov{suffix}"]
+                if unmethylated:
+                    frac = (cov - mc) / (cov + 1e-6)
+                else:
+                    frac = mc / (cov + 1e-6)
+                data_dict[f"{mc_prefix}_mc_frac{suffix}"] = frac
             return data_dict
 
         dataset = dataset.map_batches(
-            _mc_frac, fn_kwargs={"mc_prefix": mc_prefix, "key_suffix": key_suffix}
+            _mc_frac,
+            fn_kwargs={
+                "mc_prefix": mc_prefix,
+                "key_suffix": key_suffix,
+                "unmethylated": self.unmethylated,
+            },
         )
         return dataset
 
@@ -612,6 +636,28 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         return dataset
 
+    def _combine_channels(self, dataset, key_list, out_key):
+        """Concatenate the channels in key_list to form out_key."""
+
+        def _combine_channels_fn(data_dict, key_list, out_key):
+            data_to_concat = []
+            for key in key_list:
+                data = data_dict[key]
+                if data.ndim == 2:
+                    data = data[:, np.newaxis, :]  # add channel dimension
+                data_to_concat.append(data)
+
+            out_data = np.concatenate(data_to_concat, axis=1)
+            data_dict[out_key] = out_data
+            return data_dict
+
+        dataset = dataset.map_batches(
+            _combine_channels_fn,
+            fn_kwargs={"key_list": key_list, "out_key": out_key},
+            batch_size=8,
+        )
+        return dataset
+
     def get_processed_dataset(
         self,
         region_bed: str,
@@ -672,6 +718,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     mc_prefix=data_key,
                     key_suffix=key_suffix,
                 )
+                data_1d_keys.append(f"{data_key}_mc")
+                data_1d_keys.append(f"{data_key}_cov")
                 data_1d_keys.append(f"{data_key}_mc_frac")
             elif file_type in ("cool", "hic"):
                 data_2d_keys.append(data_key)
@@ -717,6 +765,19 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 key_suffix=key_suffix,
             )
 
+        if (
+            self.data_key_to_mc_context is not None
+            and len(self.data_key_to_mc_context) > 1
+        ):
+            # combine the mc_frac channels
+            mc_frac_keys = [
+                f"{data_key}_mc_frac" for data_key in self.data_key_to_mc_context.keys()
+            ]
+            work_ds = self._combine_channels(
+                dataset=work_ds,
+                key_list=mc_frac_keys,
+                out_key="mc_frac",
+            )
         return work_ds
 
     def get_dataloader(

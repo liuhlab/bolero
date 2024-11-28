@@ -15,7 +15,7 @@ from cooler.util import parse_region
 from skimage.transform import resize
 
 from bolero.pp.genome_chunk_dataset import query_allc_region
-from bolero.utils import understand_regions
+from bolero.utils import parse_mc_pattern, understand_regions
 
 pysam.set_verbosity(0)
 
@@ -38,6 +38,7 @@ class FetchRegionALLCs:
         data_prefix: str = "",
         data_suffix: str = "",
         mode: str = "bp",
+        mc_context: str = None,
     ) -> None:
         """
         Initialize FetchRegionALLCs.
@@ -61,6 +62,12 @@ class FetchRegionALLCs:
         )
         self.allc_handles = [_open_allc(path) for path in allc_paths]
         self.mode = mode
+        if mc_context is not None:
+            self.mc_context_len = len(mc_context)
+            self.mc_context_set = parse_mc_pattern(mc_context)
+        else:
+            self.mc_context_len = None
+            self.mc_context_set = set()
 
     def __call__(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -104,7 +111,12 @@ class FetchRegionALLCs:
             for idx, (_, (chrom, start, end, *_)) in enumerate(regions.iterrows()):
                 for idy, allc_handle in enumerate(self.allc_handles):
                     mc_values, cov_values = query_allc_region(
-                        allc_handle, chrom, start, end
+                        allc_handle,
+                        chrom,
+                        start,
+                        end,
+                        context_len=self.mc_context_len,
+                        context_set=self.mc_context_set,
                     )
                     if self.mode == "bp":
                         total_mc_values[idx, idy, :] = mc_values
@@ -139,6 +151,7 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
         data_prefix: str = "",
         data_suffix: str = "",
         resolution: int = 32,
+        mc_context: str = None,
     ) -> None:
         super().__init__(
             allc_paths=allc_paths,
@@ -146,6 +159,7 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
             data_prefix=data_prefix,
             data_suffix=data_suffix,
             mode="bp",
+            mc_context=mc_context,
         )
         self.resolution = resolution
 
