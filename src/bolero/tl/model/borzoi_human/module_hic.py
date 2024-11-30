@@ -119,6 +119,10 @@ class Corigami(nn.Module):
         """Get default config."""
         return deepcopy(cls.default_config)
 
+    @staticmethod
+    def _dilation_fn(x):
+        return 2 ** ((x + 1) // 2 + 1)
+
     def __init__(
         self,
         in_channel=1920,
@@ -154,6 +158,7 @@ class Corigami(nn.Module):
             hidden=output_channel,
             filter_size=decoder_kernel_size,
             num_blocks=decoder_num_blocks,
+            dilation_fn=self.dilation_fn,
         )
         self.image_scale = image_scale
         self.seq_len = seq_len
@@ -269,7 +274,7 @@ class Corigami(nn.Module):
         return final_output
 
     def forward_from_hic_emb(
-        self, x_emb, x2_emb=None, d=0, reverse_comp=False, *args, **kwargs
+        self, x_emb, x2_emb, d=0, reverse_comp=False, *args, **kwargs
     ):
         """
         Forward from the embedding
