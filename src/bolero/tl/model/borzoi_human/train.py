@@ -521,9 +521,9 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
                 model=model, batch=batch
             )
             # Compute loss
-            loss = torch.stack(
-                [F.mse_loss(y_p, y_t) for y_t, y_p in zip(y_true, y_pred)]
-            ).mean()
+            loss = 0
+            for true, pred in zip(y_true, y_pred):
+                loss += F.mse_loss(pred, true)
         else:
             y_true, y_pred = self._model_forward_pass_single_region(
                 model=model, batch=batch
