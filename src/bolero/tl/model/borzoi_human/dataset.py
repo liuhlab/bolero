@@ -705,6 +705,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     norm_mode=None,
                     resolution=self.pos_resolution,
                     key_suffix=key_suffix,
+                    scale_factors=self.dataset_scale_factors[data_key],
                 )
             elif file_type in ("allc",):
                 work_ds = self._get_allc_data(
