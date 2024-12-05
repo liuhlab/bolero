@@ -201,7 +201,9 @@ class ResBlockDilated(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channel, hidden=256, filter_size=3, num_blocks=5):
+    def __init__(
+        self, in_channel, hidden=256, filter_size=3, num_blocks=5, dilation_fn=None
+    ):
         """
         Initialize decoder
         """
@@ -213,7 +215,7 @@ class Decoder(nn.Module):
             nn.BatchNorm2d(hidden),
             nn.ReLU(),
         )
-        self.res_blocks = self.get_res_blocks(num_blocks, hidden)
+        self.res_blocks = self.get_res_blocks(num_blocks, hidden, dilation_fn)
         self.conv_end = nn.Conv2d(hidden, 1, 1)
 
     def forward(self, x, *args, **kwargs):
@@ -238,13 +240,20 @@ class Decoder(nn.Module):
             out = self.conv_end(x)
         return out
 
-    def get_res_blocks(self, n, hidden):
+    @staticmethod
+    def _default_dilation_fn(x):
+        return 2 ** (x + 1)
+
+    def get_res_blocks(self, n, hidden, dilation_fn=None):
         """
         Get the residual blocks
         """
+        if dilation_fn is None:
+            dilation_fn = self._default_dilation_fn
+
         blocks = []
         for i in range(n):
-            dilation = 2 ** (i + 1)
+            dilation = dilation_fn(i)
             blocks.append(
                 ResBlockDilated(self.filter_size, hidden=hidden, dil=dilation)
             )

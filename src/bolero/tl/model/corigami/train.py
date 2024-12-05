@@ -677,26 +677,17 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 if batch_id % example_step == 0:
                     log_dict = {}
                     if region2:
-                        # plot region 1 example
-                        batch["values"] = y[0].detach()
-                        batch["pred_"] = pred_y[0].detach()
-                        wandb_images = self._plot_example_images(
-                            [batch], target_key="values", predict_key="pred_"
-                        )
-                        log_dict["train_example/region_1_example_heatmap"] = (
-                            wandb_images
-                        )
-
-                        # plot region 1_2 example
-                        batch["values"] = y[2].detach()
-                        batch["pred_"] = pred_y[2].detach()
-                        wandb_images = self._plot_example_images(
-                            [batch], target_key="values", predict_key="pred_"
-                        )
-                        log_dict["train_example/region_1_2_example_heatmap"] = (
-                            wandb_images
-                        )
-
+                        for idx, prefix in enumerate(
+                            ["region_1", "region_2", "region_1_2"]
+                        ):
+                            batch["values"] = y[idx].detach()
+                            batch["pred_"] = pred_y[idx].detach()
+                            wandb_images = self._plot_example_images(
+                                [batch], target_key="values", predict_key="pred_"
+                            )
+                            log_dict[f"train_example/{prefix}_example_heatmap"] = (
+                                wandb_images
+                            )
                     else:
                         batch["values"] = y.detach()
                         batch["pred_"] = pred_y.detach()
