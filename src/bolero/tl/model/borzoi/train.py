@@ -1218,6 +1218,8 @@ class BorzoiLoRATester(BorzoiLoRATrainer):
             super()._setup_model()
             if "model_state_dict" in checkpoint:
                 self.model.load_state_dict(checkpoint["model_state_dict"])
+            elif "state_dict" in checkpoint:
+                self.model.load_state_dict(checkpoint["state_dict"])
             else:
                 self.model.load_state_dict(checkpoint)
         else:

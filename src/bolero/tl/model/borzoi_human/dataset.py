@@ -704,6 +704,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     concurrency=concurrency,
                     norm_mode=None,
                     key_suffix=key_suffix,
+                    scale_factors=self.dataset_scale_factors[data_key],
                 )
             elif file_type in ("allc",):
                 work_ds = self._get_allc_data(
