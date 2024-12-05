@@ -65,6 +65,7 @@ class HiCTrackDataset(RayRegionDataset):
         lora=False,
         leg_map=None,
         cap_value=None,
+        image_scale=64,
     ) -> None:
         """
         Initialize the HiCTrackDataset.
@@ -122,6 +123,7 @@ class HiCTrackDataset(RayRegionDataset):
         self.lora = lora
         self.leg_map = leg_map
         self.cap_value = cap_value
+        self.image_scale = image_scale
 
     def _get_cool_data(
         self,
@@ -131,7 +133,6 @@ class HiCTrackDataset(RayRegionDataset):
         n_oprators=1,
         batch_size=8,
         norm_mode="log",
-        image_scale=256,
     ):
         """
         Get the cool data for the dataset
@@ -169,7 +170,7 @@ class HiCTrackDataset(RayRegionDataset):
                 "balance": self.balance,
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,  # Note: if the data is HBA data, no need to log transform, otherwise, log transform the data
-                "image_scale": image_scale,
+                "image_scale": self.image_scale,
                 "cap_value": self.cap_value,
             }
             dataset = dataset.map_batches(

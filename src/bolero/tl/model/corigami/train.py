@@ -15,6 +15,7 @@ from bolero.tl.generic.train_helper import (
     CumulativePearson,
     batch_pearson_correlation,
     insulation_pearson,
+    safe_save,
 )
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import (
@@ -70,6 +71,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         self.val_batches = config["val_batches"]
         self.clip_grad_norm = config["clip_grad_norm"]
         self.batch_size = config["batch_size"]
+        self.best_correlation = -np.Inf
 
         self._setup_env()
         self._setup_dataset()
@@ -136,7 +138,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             import pl_bolts
 
             scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
-                optimizer, warmup_epochs=10, max_epochs=200
+                optimizer, warmup_epochs=10, max_epochs=40
             )
         except ImportError:
             self.config["scheduler_type"] = "borzoi"
@@ -171,6 +173,80 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 f"Incorrect mode: {mode}, should be one of ['base', 'finetune']."
             )
         self._set_total_params()
+        return
+
+    def _save_checkpoint(self, update_best: bool):
+        epoch_info = {
+            "epoch": self.cur_epoch,
+            "early_stopping_counter": self.early_stopping_counter,
+        }
+        safe_save(epoch_info, self.epoch_info_path)
+        if update_best:
+            print("Saving best checkpoint...")
+            # check point includes model and other training states
+            checkpoint = {
+                "best_val_loss": self.best_val_loss,
+                "best_correlation": self.best_correlation,
+                "state_dict": self.model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "scaler": self.scaler.state_dict() if self.scaler is not None else None,
+                "scheduler": (
+                    self.scheduler.state_dict() if self.scheduler is not None else None
+                ),
+                "ema": self.ema.state_dict() if self.ema is not None else None,
+            }
+            safe_save(checkpoint, self.best_checkpoint_path)
+
+            # save best model in a separate file
+            if self.config["use_ema"]:
+                safe_save(self.ema.ema_model, self.best_model_path)
+            else:
+                safe_save(self.model, self.best_model_path)
+
+        if self.grad_norm_collector:
+            self.grad_norm_collector.save(
+                self.model_log_dir / f"epoch_{self.cur_epoch}_grad_norms.json"
+            )
+            self.grad_norm_collector.reset()
+        return
+
+    def _update_state_dict(self):
+        self._cleanup_env()
+
+        print(
+            f"Load and update state dict from checkpoint file: {self.best_checkpoint_path}"
+        )
+        checkpoint: dict = torch.load(self.best_checkpoint_path, weights_only=False)
+        try:
+            epoch_info = torch.load(self.epoch_info_path, weights_only=False)
+            checkpoint.update(epoch_info)
+        except FileNotFoundError:
+            print("Epoch info not found, skipping.")
+
+        # adjust epochs
+        self.cur_epoch = checkpoint.get("epoch", 0)
+        self.early_stopping_counter = checkpoint.get("early_stopping_counter", 0)
+        self.best_val_loss = checkpoint.get("best_val_loss", np.Inf)
+        self.best_correlation = checkpoint.get("best_correlation", -np.Inf)
+        print(
+            f"Best val loss: {self.best_val_loss:.5f}, "
+            f"Best correlation: {self.best_correlation:.5f}, "
+            f"early stopping counter: {self.early_stopping_counter}."
+        )
+
+        # load state dict
+        self.model.load_state_dict(checkpoint["state_dict"])
+        if self.optimizer is not None:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if self.scaler is not None:
+            self.scaler.load_state_dict(checkpoint["scaler"])
+        if self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint["scheduler"])
+        if self.ema is not None:
+            self.ema.load_state_dict(checkpoint["ema"])
+
+        del checkpoint
+        self._cleanup_env()
         return
 
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
@@ -336,23 +412,25 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
         print(f"Insulation Pearson Corr.: {insulation_score:.3f}")
 
-        # only clear the early stopping counter if the loss improvement is better than tolerance
-        previous_best = self.best_val_loss
-        if val_loss < self.best_val_loss - self.loss_tolerance:
+        # only clear the early stopping counter if the pearson correlation is better than tolerance
+        previous_best = self.best_correlation
+        if single_batch_pearson > self.best_correlation:
             self.early_stopping_counter = 0
         else:
             self.early_stopping_counter += 1
         print(
-            f"Previous best loss: {previous_best:.3f}, "
-            f"Loss at epoch {epoch}: {val_loss:.3f}; "
+            f"Previous best correlation: {previous_best:.3f}, "
+            f"Single Pearson Correlation at epoch {epoch}: {single_batch_pearson:.3f}; "
             f"Early stopping counter: {self.early_stopping_counter}"
         )
-        # save checkpoint if the loss is better
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            self._save_checkpint(update_best=True)
+
+        if single_batch_pearson > self.best_correlation:
+            self.best_correlation = single_batch_pearson
+            self._save_checkpoint(update_best=True)
         else:
-            self._save_checkpint(update_best=False)
+            self._save_checkpoint(update_best=False)
         if self.wandb_active:
             wandb.log(
                 {
@@ -360,6 +438,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     # "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
+                    "val/best_correlation": self.best_correlation,
                     "val/early_stopping_counter": self.early_stopping_counter,
                     "val/single_batch_pearson": single_batch_pearson,
                     "val/across_batch_pearson": across_batch_pearson,

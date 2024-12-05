@@ -750,7 +750,7 @@ class ReverseCompHicData:
         bs = data_dict[self.dna_key].shape[0]
         _bool = np.random.rand(1)
         if _bool > self.chance:
-            data_dict["is_reverse_comp"] = np.zeros(bs, dtype=np.int32)
+            data_dict["is_reverse_comp"] = np.zeros(bs, dtype=bool)
             return data_dict
 
         try:
@@ -777,7 +777,7 @@ class ReverseCompHicData:
                             data_dict[key + "_1+2"], axis=[-1, -2]
                         )
 
-            data_dict["is_reverse_comp"] = np.ones(bs, dtype=np.int32)
+            data_dict["is_reverse_comp"] = np.ones(bs, dtype=bool)
 
         except (np.exceptions.AxisError, KeyError) as e:
             print("Error in ReverseCompHicData, the data causing the error is:")

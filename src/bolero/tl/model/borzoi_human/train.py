@@ -96,7 +96,7 @@ class TrainerBorzoiHumanDatasetMixin:
         dataset = self.dataset_class.create_from_config(self.config)
         return dataset
 
-    def get_train_dataloader(self, batches: int):
+    def get_train_dataloader(self, batches: int, return_regions=True):
         """Get the training dataloader.
 
         Parameters
@@ -114,10 +114,11 @@ class TrainerBorzoiHumanDatasetMixin:
             region_bed=self.train_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
+            return_regions=return_regions,
         )
         return dataloader
 
-    def get_valid_dataloader(self, batches: int):
+    def get_valid_dataloader(self, batches: int, return_regions=True):
         """Get the validation dataloader.
 
         Parameters
@@ -135,10 +136,13 @@ class TrainerBorzoiHumanDatasetMixin:
             region_bed=self.valid_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
+            return_regions=return_regions,
         )
         return dataloader
 
-    def get_test_dataloader(self, batches: int):
+    def get_test_dataloader(
+        self, batches: int, as_torch: bool = True, return_regions=True
+    ):
         """Get the test dataloader.
 
         Parameters
@@ -156,6 +160,8 @@ class TrainerBorzoiHumanDatasetMixin:
             region_bed=self.test_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
+            return_regions=return_regions,
+            as_torch=as_torch,
         )
         return dataloader
 
@@ -328,6 +334,7 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
         "use_predicted_atac": False,
+        "use_dna_embedding": True,
         "borzoi_checkpoint_path": "REQUIRED",
         "dataloader_concurrency": 4,
     }
@@ -388,20 +395,21 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
 
     def _setup_model(self):
         print("Setting up model from config")
-        borzoi_model = self.borzoi_model_class.create_from_config(self.config)
+        if self.config["use_dna_embedding"]:
+            borzoi_model = self.borzoi_model_class.create_from_config(self.config)
 
-        self.borzoi_model = borzoi_model
-        self.borzoi_model.convert_to_lora()
+            self.borzoi_model = borzoi_model
+            self.borzoi_model.convert_to_lora()
 
-        checkpoint = torch.load(
-            self.config["borzoi_checkpoint_path"], weights_only=False
-        )
-        model_weights = checkpoint["state_dict"]
-        self.borzoi_model.load_state_dict(model_weights)
-        for _, param in self.borzoi_model.named_parameters():
-            param.requires_grad = False
-        self.borzoi_model.to(self.device)
-        print(self.borzoi_model)
+            checkpoint = torch.load(
+                self.config["borzoi_checkpoint_path"], weights_only=False
+            )
+            model_weights = checkpoint["state_dict"]
+            self.borzoi_model.load_state_dict(model_weights)
+            for _, param in self.borzoi_model.named_parameters():
+                param.requires_grad = False
+            self.borzoi_model.to(self.device)
+            print(self.borzoi_model)
 
         corigami_model = self.corigami_model_class()
         corigami_model.to(self.device)
@@ -427,9 +435,12 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         # ==========
         X = batch.pop(dna_key)
         embedding = batch.get(embedding_key, None)
-        atac_count, dna_embedding = self.borzoi_model.forward(
-            x=X, embedding=embedding, return_dna_embedding=True, crop=False
-        )
+        if self.config["use_dna_embedding"]:
+            atac_count, dna_embedding = self.borzoi_model.forward(
+                x=X, embedding=embedding, return_dna_embedding=True, crop=False
+            )
+        else:
+            dna_embedding = X
         if not self.config["use_predicted_atac"]:
             atac_count = batch[self.atac_data_key].unsqueeze(1)
         atac_log = torch.log(atac_count + 1)
@@ -498,7 +509,8 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         )
 
         d = self._calculate_region_d(batch)
-        reverse_comp = batch["is_reverse_comp"]
+        bs = d.shape[0]
+        reverse_comp = batch.get("is_reverse_comp", torch.zeros(bs, dtype=torch.bool))
         region_12_y_true = batch[self.hic_data_key + "_1+2"]
 
         region_12_y_pred = model.forward_from_hic_emb(
