@@ -626,7 +626,7 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
             # New shape will be (n_regions, n_bw, n_bins, bin_size)
             reshaped = total_values.reshape(n_regions, n_bw, n_bins, bin_size)
 
-            # Aggregate by taking the mean across the bin_size axis
+            # Aggregate by taking the sum across the bin_size axis
             # Resulting shape: (n_regions, n_bw, n_bins)
             total_values = reshaped.sum(axis=-1)
 

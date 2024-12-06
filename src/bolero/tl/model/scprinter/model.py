@@ -282,12 +282,12 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "lora_hidden_dim": 384,
             "lora_dropout": 0,
             # KV Bottleneck
-            "kv_bottleneck": "local",
+            "kv_bottleneck": None,
             "num_memories": 256,
             "dim_memory": 50,
             "num_memory_codebooks": 2,
             "additional_embs": 1,
-            "emb_input": True,
+            "emb_input": False,
         }
     )
 
