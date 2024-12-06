@@ -637,11 +637,11 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
                         "The reduced matrix contains negative values, cannot apply log normalization."
                     )
                 total_values = np.log(total_values + 1)
-
+            
             # apply scale factors to bring the data into same target scale
             # default scale factors will be 1, unless user provided a specific scale factor file in the data loader
             total_values = total_values / self.scale_factors[None, :, None]
-
+            
             # Update the data_dict with the reduced data
             data_dict[self.data_key + suffix] = total_values
 

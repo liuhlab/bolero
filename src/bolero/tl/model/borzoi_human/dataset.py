@@ -330,7 +330,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             The dataset with bigwig data oprator mapped.
         """
         _chunk_size = max(1, len(bigwig_paths) // n_operators)
-
+        
         for idx, chunk_start in enumerate(range(0, len(bigwig_paths), _chunk_size)):
             chunk_end = min(len(bigwig_paths), chunk_start + _chunk_size)
             chunk_paths = bigwig_paths[chunk_start:chunk_end]
