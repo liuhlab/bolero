@@ -158,7 +158,7 @@ class Corigami(nn.Module):
             hidden=output_channel,
             filter_size=decoder_kernel_size,
             num_blocks=decoder_num_blocks,
-            dilation_fn=self.dilation_fn,
+            dilation_fn=self._dilation_fn,
         )
         self.image_scale = image_scale
         self.seq_len = seq_len

@@ -138,7 +138,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             import pl_bolts
 
             scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
-                optimizer, warmup_epochs=10, max_epochs=40
+                optimizer, warmup_epochs=10, max_epochs=200
             )
         except ImportError:
             self.config["scheduler_type"] = "borzoi"
@@ -414,15 +414,16 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
         # only clear the early stopping counter if the pearson correlation is better than tolerance
         previous_best = self.best_correlation
-        if single_batch_pearson > self.best_correlation:
-            self.early_stopping_counter = 0
-        else:
-            self.early_stopping_counter += 1
-        print(
-            f"Previous best correlation: {previous_best:.3f}, "
-            f"Single Pearson Correlation at epoch {epoch}: {single_batch_pearson:.3f}; "
-            f"Early stopping counter: {self.early_stopping_counter}"
-        )
+        if epoch > 30:
+            if single_batch_pearson > self.best_correlation:
+                self.early_stopping_counter = 0
+            else:
+                self.early_stopping_counter += 1
+            print(
+                f"Previous best correlation: {previous_best:.3f}, "
+                f"Single Pearson Correlation at epoch {epoch}: {single_batch_pearson:.3f}; "
+                f"Early stopping counter: {self.early_stopping_counter}"
+            )
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
 
