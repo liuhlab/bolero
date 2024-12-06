@@ -331,8 +331,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         """
         _chunk_size = max(1, len(bigwig_paths) // n_operators)
         
-
-        assert scale_factors is not None, f'scale factors is none! {scale_factors}'
         for idx, chunk_start in enumerate(range(0, len(bigwig_paths), _chunk_size)):
             chunk_end = min(len(bigwig_paths), chunk_start + _chunk_size)
             chunk_paths = bigwig_paths[chunk_start:chunk_end]
