@@ -330,7 +330,9 @@ class BorzoiDatasetOnline(RayRegionDataset):
             The dataset with bigwig data oprator mapped.
         """
         _chunk_size = max(1, len(bigwig_paths) // n_operators)
+        
 
+        assert scale_factors is not None, f'scale factors is none! {scale_factors}'
         for idx, chunk_start in enumerate(range(0, len(bigwig_paths), _chunk_size)):
             chunk_end = min(len(bigwig_paths), chunk_start + _chunk_size)
             chunk_paths = bigwig_paths[chunk_start:chunk_end]
@@ -705,6 +707,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     norm_mode=None,
                     resolution=self.pos_resolution,
                     key_suffix=key_suffix,
+                    scale_factors=self.dataset_scale_factors[data_key],
                 )
             elif file_type in ("allc",):
                 work_ds = self._get_allc_data(

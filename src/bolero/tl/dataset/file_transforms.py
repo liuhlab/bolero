@@ -628,7 +628,7 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
 
             # Aggregate by taking the mean across the bin_size axis
             # Resulting shape: (n_regions, n_bw, n_bins)
-            total_values = reshaped.mean(axis=-1)
+            total_values = reshaped.sum(axis=-1)
 
             # If normalization is set to "log", apply log transformation
             if self.norm_mode == "log":
@@ -637,11 +637,11 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
                         "The reduced matrix contains negative values, cannot apply log normalization."
                     )
                 total_values = np.log(total_values + 1)
-
+            
             # apply scale factors to bring the data into same target scale
             # default scale factors will be 1, unless user provided a specific scale factor file in the data loader
             total_values = total_values / self.scale_factors[None, :, None]
-
+            
             # Update the data_dict with the reduced data
             data_dict[self.data_key + suffix] = total_values
 
