@@ -10,53 +10,50 @@ from vector_quantize_pytorch import VectorQuantize
 
 from bolero.tl.generic.module import GroupedLinear, Residual
 
+from .module_lora import set_submodule_by_name
 
-class ArchEmbedding(nn.Module):
-    """
-    ArchEmbedding mimicing scArches' dimention injection into MLP layers.
-    """
 
-    def __init__(
-        self, input_features, output_features_list, first_only=False, bias=True
-    ):
+class ArchLinear(nn.Linear):
+    def __init__(self, linear_module: nn.Linear, arch_features: int, bias: bool = True):
+        super().__init__(
+            in_features=linear_module.in_features,
+            out_features=linear_module.out_features,
+            bias=bias,
+            device=linear_module.weight.device,
+            dtype=linear_module.weight.dtype,
+        )
+
+        self.arch_features = arch_features
+        self.arch_linear = nn.Linear(
+            arch_features, linear_module.out_features, bias=bias
+        )
+
+        # zero the weights and bias of the arch_linear
+        self.arch_linear.weight.data[...] = 0
+        if self.arch_linear.bias is not None:
+            self.arch_linear.bias.data[...] = 0
+
+        # freeze the original linear layer and only train the arch_linear
+        self.weight.data = linear_module.weight.data
+        self.weight.requires_grad = False
+        if self.bias is not None:
+            self.bias.data = linear_module.bias.data
+            self.bias.requires_grad = False
+
+    def forward(self, x, arch):
         """
-        Initialize the ArchEmbedding module.
+        Forward pass of the ArchLinear module.
 
-        Parameters
-        ----------
-        input_features : int
-            The number of input features.
-        output_features_list : list
-            The list of output features for each MLP layer to be injected.
-        first_only : bool
-            If True, only inject the first layer.
+        Args:
+            x (torch.Tensor): The input tensor, arch dim is in last arch_features dim.
+
+        Returns
+        -------
+            torch.Tensor: The output tensor after passing through the ArchLinear layer.
         """
-        super().__init__()
-        self.input_features = input_features
-        self.output_features_list = output_features_list
-        self.first_only = first_only
-
-        self.arch_linears = nn.ModuleList()
-        for layer_id, output_features in enumerate(output_features_list):
-            if self.first_only and layer_id > 0:
-                layer = None
-            else:
-                layer = nn.Linear(input_features, output_features, bias=bias)
-            self.arch_linears.append(layer)
-
-    def forward(self, x):
-        """
-        ArchEmbedding forward
-
-        Here we calculate the value to be injected into the MLP layers as its independent from the MLP themselves.
-        """
-        results = []
-        for layer in self.arch_linears:
-            if layer is None:
-                results.append(None)
-            else:
-                results.append(layer(x))
-        return results
+        linear_out = F.linear(x, self.weight, self.bias)
+        arch_out = self.arch_linear(arch)
+        return linear_out + arch_out
 
 
 class ArchEmbeddingMixin:
@@ -64,9 +61,7 @@ class ArchEmbeddingMixin:
     Mixin class to add Arch Embedding to MLP-like modules.
     """
 
-    def add_arch_embedding(
-        self, input_features: int, mlp_module: nn.Module, first_only=False, bias=True
-    ):
+    def add_arch_embedding(self, input_features: int, bias=True):
         """
         Add an ArchEmbedding to the MLP.
 
@@ -74,86 +69,18 @@ class ArchEmbeddingMixin:
         ----------
         input_features : int
             The number of input features.
-        mlp_module : nn.Module
-            The MLP module to be injected.
         first_only : bool
             If True, only inject the first layer.
         """
-        output_features = [
-            layer.out_features for layer in mlp_module if isinstance(layer, nn.Linear)
-        ]
-
-        arch_embedding = ArchEmbedding(
-            input_features=input_features,
-            output_features_list=output_features,
-            first_only=first_only,
-            bias=bias,
-        )
-
-        self.arch_modules.append(arch_embedding)
-        return
-
-    def forward_arch_embedding(
-        self, arch_embedding: list[torch.Tensor]
-    ) -> list[list[torch.Tensor]]:
-        """
-        Collect the ArchEmbedding results to be injected to MLP.
-
-        Results are aggregated per layer.
-        """
-        # forward the arch_embedding
-        arch_results = []
-        for _emb, arch_module in zip(arch_embedding, self.arch_modules):
-            arch_results.append(arch_module(_emb))
-
-        # aggregate the results per layer
-        final_results = []
-        for layer_results in zip(*arch_results):
-            layer_results = [
-                layer_result
-                for layer_result in layer_results
-                if layer_result is not None
-            ]
-            if len(layer_results) > 1:
-                # sum the results
-                layer_results = torch.stack(layer_results, dim=0).sum(dim=0)
-            elif len(layer_results) == 1:
-                layer_results = layer_results[0]
-            else:
-                layer_results = None
-            final_results.append(layer_results)
-
-        return layer_results
-
-    def forward_arch_embedding_and_mlp(
-        self,
-        mlp_module: nn.Module,
-        embedding: torch.Tensor,
-        arch_embedding: list[torch.Tensor],
-    ) -> torch.Tensor:
-        """Forward pass of the ArchEmbedding and MLP layers."""
-        arch_layer_results = self.forward_arch_embedding(arch_embedding)
-
-        x = embedding
-
-        linear_idx = 0
-        for layer in mlp_module:
-            if isinstance(layer, nn.Linear):
-                x = layer(x)
-                if arch_layer_results[linear_idx] is not None:
-                    x += arch_layer_results[linear_idx]
-                linear_idx += 1
-            else:
-                x = layer(x)
-        return x
-
-    def freeze_everything_except_arch(self):
-        """
-        Freeze all parameters except the ArchEmbedding parameters.
-        """
-        for name, params in self.named_parameters():
-            if "arch_modules" not in name:
-                params.requires_grad = False
+        for name, module in self.mlp.named_modules():
+            if isinstance(module, nn.Linear):
+                arch_module = ArchLinear(
+                    linear_module=module,
+                    arch_features=input_features,
+                    bias=bias,
+                )
+                set_submodule_by_name(self.mlp, name, arch_module)
+        self.arch_features = input_features
         return
 
 
@@ -491,8 +418,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             torch.tensor(float(rescale_factor)).float(), requires_grad=False
         )
 
-        # ArchEmbedding placeholder
-        self.arch_modules = torch.nn.ModuleList()
+        self.arch_features = 0
         return
 
     def _generate_linear_module(self, in_features, out_features):
@@ -521,11 +447,31 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
                 layers = Residual(layers)
         return layers
 
+    def forward_mlp_with_arch(self, x):
+        """Forward pass of the MLP with arch features."""
+        # split the embedding into the original embedding and the arch features
+        n_emb = x.shape[-1]
+        n_arch = self.arch_features
+        x, arch = torch.split(x, [n_emb - n_arch, n_arch], dim=-1)
+
+        # forward pass through the MLP layers
+        for layer in self.mlp:
+            if isinstance(layer, ArchLinear):
+                x = layer(x, arch)
+            elif isinstance(layer, nn.Sequential):
+                for sublayer in layer:
+                    if isinstance(sublayer, ArchLinear):
+                        x = sublayer(x, arch)
+                    else:
+                        x = sublayer(x)
+            else:
+                x = layer(x)
+        return x
+
     def forward(
         self,
         embedding: torch.Tensor,
         emb_weights: torch.Tensor = None,
-        arch_embedding=None,
     ) -> torch.Tensor:
         """
         Forward pass of the EmbeddingMLP module.
@@ -551,21 +497,11 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         if ndim == 3:
             # expect input shape (bs, seq_len, emb_dim)
             embedding = rearrange(embedding, "bs l d -> (bs l) d")
-
-            if arch_embedding is not None:
-                arch_embedding = [
-                    rearrange(arch_emb, "bs l d -> (bs l) d")
-                    for arch_emb in arch_embedding
-                ]
-
         embedding = embedding * self.rescale_factor
-        if arch_embedding is not None:
-            # MLP forward with ArchEmbedding injection
-            x = self.forward_arch_embedding_and_mlp(
-                mlp_module=self.mlp, embedding=embedding, arch_embedding=arch_embedding
-            )
+
+        if self.arch_features > 0:
+            x = self.forward_mlp_with_arch(embedding)
         else:
-            # normal MLP forward
             x = self.mlp(embedding)
 
         if ndim == 3:
@@ -623,101 +559,3 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         for param in self.parameters():
             param.requires_grad = False
         return
-
-
-class ConditionalConv1dHead(nn.Module):
-    """
-    This class is function as an Conv1d head where the weights are conditioned on the cell embeddings.
-
-    Comparing to ConditionalConvLoRA, this class don't have the base convolutional layer.
-    """
-
-    def __init__(
-        self, input_dim, hidden_dim, output_dim, embedding_dim, preset=None, **kwargs
-    ) -> None:
-        super().__init__()
-
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        self.embedding_dim = embedding_dim
-
-        if preset == "scooby":
-            self.setup_scooby_head()
-        else:
-            self.setup_head(**kwargs)
-
-    def setup_head(self, **kwargs):
-        """
-        Setup the head.
-        """
-        output_features = (self.input_dim + 1) * self.output_dim
-        output_shape = (self.input_dim + 1, self.output_dim)
-
-        self.embedding_mlp = EmbeddingMLP(
-            input_features=self.embedding_dim,
-            output_features=output_features,
-            output_shape=output_shape,
-            hidden_dim=self.hidden_dim,
-            **kwargs,
-        )
-        self.pre_embedding_conv = nn.Identity()
-
-        self.batch_conv1d = torch.vmap(nn.functional.conv1d)
-
-    def setup_scooby_head(self):
-        """
-        Setup the head for the Scooby model.
-        """
-        self.embedding_mlp = nn.Sequential(
-            nn.Linear(self.embedding_dim, 128),
-            nn.GELU(),
-            nn.Linear(128, 256),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 1024),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(
-                1024, (self.input_dim + 1) * self.output_dim
-            ),  # bias gets one more, and we predict pos. and neg. strand
-        )
-
-        self.pre_embedding_conv = nn.Sequential(
-            nn.Conv1d(self.input_dim, 4096, 1),
-            nn.GELU(),
-            nn.Conv1d(4096, self.input_dim, 1),
-            nn.GELU(),
-        )
-
-        nn.init.zeros_(self.embedding_mlp[-1].bias)
-        nn.init.zeros_(self.pre_embedding_conv[-2].weight)
-        nn.init.zeros_(self.pre_embedding_conv[-2].bias)
-
-    def forward(self, x, embedding):
-        """
-        Parameters
-        ----------
-        x: torch.tensor, shape=(bs, input_dim, seq_len)
-        embedding: torch.tensor, shape=(bs, emb_dim)
-
-        Returns
-        -------
-        torch.tensor, shape=(bs, output_dim, seq_len)
-        """
-        # (bs, i, l) -> (bs, i, l)
-        x = self.pre_embedding_conv(x)
-
-        # (bs, emb) -> (bs, i + 1, o)
-        weight_and_bias = self.embedding_mlp(embedding).view(
-            -1, self.input_dim + 1, self.output_dim, 1
-        )
-
-        # (bs, i + 1, o, 1) -> (bs, i, o, 1), (bs, 1, o, 1)
-        weight, bias = torch.split(weight_and_bias, [self.input_dim, 1], dim=1)
-        weight = rearrange(weight, "bs i o 1 -> bs o i 1")
-        bias = rearrange(bias, "bs 1 o 1 -> bs o")
-
-        # (bs, c, l) -> (bs, output_dim, l)
-        result = self.batch_conv1d(x, weight, bias)
-        return result

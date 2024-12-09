@@ -86,6 +86,7 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
         bypass_keys=None,
         paired_data=False,
         normalize_cov=None,
+        reduce_resolution=None,
         **name_to_pseudobulker,
     ):
         super().__init__(
@@ -108,7 +109,14 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
             self.suffix = [""]
 
         self.normalize_cov = normalize_cov
+        self.reduce_resolution = reduce_resolution
         return
+
+    def _reduce_resolution(self, data):
+        resolution = self.reduce_resolution
+        # from (1, seq_len) to (1, seq_len // resolution) by summing
+        data = data.reshape(1, -1, resolution).sum(axis=-1)
+        return data
 
     def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
         """Generate pseudobulks for each output prefix."""
@@ -150,6 +158,9 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
                 if self.normalize_cov:
                     prefix_cov_logfc = cov_logfc[prefix_idx]
                     _bulk_values /= 2**prefix_cov_logfc
+
+                if self.reduce_resolution:
+                    _bulk_values = self._reduce_resolution(_bulk_values)
 
                 combined_bulk_data.append(_bulk_values)
             this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = np.vstack(
@@ -258,6 +269,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "use_gene_regions": False,
         "deg_list": None,
         "use_pseudobulk_profile": False,
+        "reduce_resolution": False,
         # only applicable when use gene regions
         "gene_weight": 1.0,
         "background_weight": 1e-4,
@@ -283,6 +295,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         use_pseudobulk_profile=False,
         gene_weight=1.0,
         background_weight=1e-4,
+        reduce_resolution=False,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -308,6 +321,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.use_pseudobulk_profile = use_pseudobulk_profile
         self.gene_weight = gene_weight
         self.background_weight = background_weight
+        self.reduce_resolution = reduce_resolution
 
         self.name_to_pseudobulker = OrderedDict()
 
@@ -564,6 +578,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
             "n_pseudobulks": self.n_pseudobulks,
             "paired_data": self.paired_data,
             "normalize_cov": self.normalize_cov,
+            "reduce_resolution": self.pos_resolution
+            if self.reduce_resolution
+            else None,
             **kwargs,
         }
         name_to_pseudobulker = self.name_to_pseudobulker

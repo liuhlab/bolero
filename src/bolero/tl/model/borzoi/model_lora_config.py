@@ -1,3 +1,6 @@
+from functools import partial
+
+
 def make_output_conditional_lora_config(
     emb_input_features,
     hidden_dim=512,
@@ -122,6 +125,7 @@ def make_all_conditional_lora_config(
     lora_dropout=0.01,
     lora_scale=1,
     embedding_dropout=0,
+    except_output_head=False,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
@@ -184,6 +188,10 @@ def make_all_conditional_lora_config(
             "lora_rank": 1,
         },
     }
+
+    if except_output_head:
+        del lora_config["final_output_head"]
+
     return lora_config
 
 
@@ -262,5 +270,8 @@ LORA_CONFIG_FUNCTIONS = {
     "output_conditional": make_output_conditional_lora_config,
     "classic": make_classic_lora_config,
     "all_conditional": make_all_conditional_lora_config,  # DEFAULT
+    "all_condittional_except_output_head": partial(
+        make_all_conditional_lora_config, except_output_head=True
+    ),
     "original": make_original_lora_config,
 }

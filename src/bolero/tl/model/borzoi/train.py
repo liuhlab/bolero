@@ -13,7 +13,7 @@ from bolero.tl.model.borzoi.dataset import BorzoiDataset
 from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
-from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
+from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAwithArches
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import MovingMetric
@@ -400,9 +400,11 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     true_key=true_key,
                     pred_key=pred_key,
                     id_key="sample_id",
-                    plot_mode="atac"
-                    if self.model.loss_type == "poisson_multinomial"
-                    else "mc",
+                    plot_mode=(
+                        "atac"
+                        if self.model.loss_type == "poisson_multinomial"
+                        else "mc"
+                    ),
                 )
                 fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
 
@@ -764,15 +766,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     if ema:
                         ema.update()
 
-                    log_dict = {
-                        "train/train_loss": moving_ave_loss.mean(),
-                        "train/train_total_grad_norm": total_norm,
-                    }
-                    for channel, corr in enumerate(moving_ave_corr.compute_tensor()):
-                        name = self.channel_order[channel]
-                        log_dict[f"train/train_corr_{name}"] = corr
-                    wandb.log(log_dict)
-
                 with torch.no_grad():
                     if (batch_id + 1) % print_steps == 0:
                         _corr = moving_ave_corr.get_corr_str()
@@ -786,6 +779,18 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             f"Last batch Loss: {loss.item():.3f} "
                         )
                         print(desc_str)
+
+                        log_dict = {
+                            "train/train_loss": loss.item(),
+                            "train/train_total_grad_norm": total_norm,
+                            "train/learning_rate": optimizer.param_groups[0]["lr"],
+                        }
+                        for channel, corr in enumerate(
+                            moving_ave_corr.compute_tensor()
+                        ):
+                            name = self.channel_order[channel]
+                            log_dict[f"train/train_corr_{name}"] = corr
+                        wandb.log(log_dict)
 
                     if batch_id % example_step == 0:
                         batch["pred_data"] = y_pred
@@ -1150,6 +1155,21 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         return
 
 
+class BorzoiArchTrainer(BorzoiLoRATrainer):
+    model_class = BorzoiLoRAwithArches
+
+    def _setup_model(self, print_model=True):
+        print("Setting up model from config")
+        model = self.model_class.create_from_config(self.config)
+        self.model = model
+
+        self.model.to(self.device)
+        if print_model:
+            print(self.model)
+        self._set_total_params()
+        return
+
+
 class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
     trainer_config = BorzoiLoRATrainer.trainer_config.copy()
     trainer_config["lora_checkpoint_path"] = "REQUIRED"
@@ -1168,17 +1188,7 @@ class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
         super()._setup_model(print_model=False)
 
         # load the pre-trained LoRA model
-        lora_checkpoint = torch.load(
-            self.config["lora_checkpoint_path"], weights_only=False
-        )
-        if isinstance(lora_checkpoint, dict):
-            if "model_state_dict" in lora_checkpoint:
-                self.model.load_state_dict(lora_checkpoint["model_state_dict"])
-            else:
-                self.model.load_state_dict(lora_checkpoint)
-        else:
-            self.model.load_state_dict(lora_checkpoint.state_dict())
-        del lora_checkpoint
+        self.model.load_checkpoint_from_path(self.config["lora_checkpoint_path"])
 
         self._setup_rna_model()
         print(self.model)
@@ -1208,24 +1218,12 @@ class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
         return y_true, y_pred, loss, loss_breakdown
 
 
-class BorzoiLoRATester(BorzoiLoRATrainer):
-    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
-    trainer_config["checkpoint_path"] = "REQUIRED"
-
+class BorzoiTesterMixin:
     def _setup_model(self):
-        checkpoint = torch.load(self.config["checkpoint_path"], weights_only=False)
-        if isinstance(checkpoint, dict):
-            super()._setup_model()
-            if "model_state_dict" in checkpoint:
-                self.model.load_state_dict(checkpoint["model_state_dict"])
-            elif "state_dict" in checkpoint:
-                self.model.load_state_dict(checkpoint["state_dict"])
-            else:
-                self.model.load_state_dict(checkpoint)
-        else:
-            self.model = checkpoint
-
+        super()._setup_model(print_model=False)
+        self.model.load_checkpoint_from_path(self.config["checkpoint_path"])
         self.model.eval()
+        self.model.to(self.device)
         return
 
     @staticmethod
@@ -1236,14 +1234,13 @@ class BorzoiLoRATester(BorzoiLoRATrainer):
         return
 
     @torch.inference_mode()
-    def test(self, saveas=None, batches=None, device="cuda"):
+    def test(self, saveas=None, batches=None):
         """Test the Borzoi LoRA model."""
         self._setup_model()
-        model = self.model.to(device)
 
         dataloader = self.get_test_dataloader(batches=batches)
         *_, data_batches = self._model_validation_step(
-            model=model,
+            model=self.model,
             dataloader=dataloader,
             val_batches=None,
             collect_data=True,
@@ -1255,3 +1252,13 @@ class BorzoiLoRATester(BorzoiLoRATrainer):
         else:
             self.save_batches(data_batches, saveas)
         return
+
+
+class BorzoiLoRATester(BorzoiTesterMixin, BorzoiLoRATrainer):
+    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
+    trainer_config["checkpoint_path"] = "REQUIRED"
+
+
+class BorzoiArchTester(BorzoiTesterMixin, BorzoiArchTrainer):
+    trainer_config = BorzoiArchTrainer.trainer_config.copy()
+    trainer_config["checkpoint_path"] = "REQUIRED"
