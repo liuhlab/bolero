@@ -3,13 +3,18 @@ from collections import defaultdict
 import torch
 from torch import nn
 
-from bolero.tl.generic.module_embedding import KVBottleNeckMixin
+from bolero.tl.generic.module_embedding import EmbeddingMLP, KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
 
 from .metrics import mse_diff_loss
 from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
-from .module_output import ContextOutputHead, OutputHead, RNAOutputHead
+from .module_output import (
+    ContextOutputHead,
+    OutputHead,
+    RNAOutputHead,
+    ScoobyOutputHead,
+)
 
 
 class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
@@ -25,16 +30,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "learnable_channel_loss_weight": False,
             "hidden_dim": 256,
             "hidden_layers": 1,
-            "output_layer_groups": 4,
+            "output_layer_groups": 1,
             "lora_dropout": 0.01,
             "embedding_dropout": 0,
-            "lora_scale": 1,
+            "lora_scale": 0.02,
             "lora_alpha": None,
             "final_output_dropout": 0.01,
             "conditional_b": True,
-            "lora_norm": "batch",
+            "lora_norm": "layer",
             # Key-Value Bottleneck
-            "kv_bottleneck": "global",
+            "kv_bottleneck": None,
             "num_memories": 256,
             "dim_memory": 20,
             "num_memory_codebooks": 2,
@@ -56,16 +61,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         learnable_channel_loss_weight=False,
         hidden_dim=256,
         hidden_layers=1,
-        output_layer_groups=4,
+        output_layer_groups=1,
         lora_dropout=0.01,
         embedding_dropout=0,
-        lora_scale=1,
+        lora_scale=0.02,
         lora_alpha=None,
         final_output_dropout=0.01,
         conditional_b=True,
-        lora_norm="batch",
+        lora_norm="layer",
         # kv bottleneck
-        kv_bottleneck="global",
+        kv_bottleneck=None,
         num_memories=256,
         dim_memory=20,
         num_memory_codebooks=2,
@@ -185,6 +190,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 additional_embs=additional_embs,
             )
             self.loss_type = "poisson_multinomial"
+        elif output_head_type == "scooby":
+            self.setup_scooby_head(
+                embedding_dim=emb_input_features,
+                out_channels=out_channels,
+            )
+            self.loss_type = "poisson_multinomial"
         elif output_head_type == "upper_bound":
             self.setup_profile_head()
             self.loss_type = "poisson_multinomial"
@@ -263,6 +274,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return
 
+    def setup_scooby_head(self, embedding_dim, out_channels):
+        """Setup a single Scooby output head."""
+        self.final_output_head = ScoobyOutputHead(
+            embedding_dim=embedding_dim,
+            input_dim=1920,
+            hidden_dim=4096,
+            output_dim=out_channels,
+        )
+        return
+
     def _setup_channel_loss_weights(
         self, channel_loss_weight, learnable_channel_loss_weight
     ):
@@ -313,6 +334,23 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             if "output_head" in name:
                 continue
             param.requires_grad = False
+        return
+
+    def load_checkpoint_from_path(self, checkpoint_path):
+        """Load the pre-trained LoRA model."""
+        print("Loading LoRA model weights from:", checkpoint_path)
+        _checkpoint = torch.load(checkpoint_path, weights_only=False)
+        if isinstance(_checkpoint, dict):
+            if "model_state_dict" in _checkpoint:
+                self.load_state_dict(_checkpoint["model_state_dict"])
+            elif "state_dict" in _checkpoint:
+                self.load_state_dict(_checkpoint["state_dict"])
+            else:
+                self.load_state_dict(_checkpoint)
+        else:
+            # load the model directly
+            self.load_state_dict(_checkpoint.state_dict())
+        del _checkpoint
         return
 
     def make_lora_config(
@@ -416,11 +454,21 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                     (1, self.num_memory_codebooks + self.additional_embs),
                 )
 
+        # concat arch embedding to emb_example
+        _arch_input_features = getattr(self, "arch_input_features", 0)
+        if _arch_input_features > 0:
+            arch_example = torch.randint(0, 2, (1, self.arch_input_features))
+            emb_example = torch.cat([emb_example, arch_example], dim=-1)
+
         if input_data is None:
             input_data = {
                 "x": torch.ones(1, 4, 524288),
                 "embedding": emb_example,
             }
+
+        print("Input shape:")
+        for k, v in input_data.items():
+            print(f"{k}: {v.shape}")
 
         summary_str = model_summary(
             self,
@@ -549,4 +597,38 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         print(
             f"Loss weight for each channel: {weight_str}, sum: {loss_weight.sum():.4f}"
         )
+        return
+
+
+class BorzoiLoRAwithArches(BorzoiLoRA):
+    default_config = BorzoiLoRA.default_config.copy()
+
+    default_config.update(
+        {
+            "arch_input_features": "REQUIRED",
+            "lora_checkpoint_path": "REQUIRED",
+        }
+    )
+
+    def __init__(self, arch_input_features, lora_checkpoint_path, **kwargs):
+        super().__init__(**kwargs)
+
+        self.convert_to_lora()
+        # load lora state dict
+        self.load_checkpoint_from_path(lora_checkpoint_path)
+
+        # setup arch embedding
+        self.arch_input_features = arch_input_features
+        for module in self.modules():
+            if isinstance(module, EmbeddingMLP):
+                module.add_arch_embedding(arch_input_features, bias=True)
+        return
+
+    def freeze_everything_except_arch(self):
+        """
+        Freeze all parameters except the ArchEmbedding parameters.
+        """
+        for name, params in self.named_parameters():
+            if "arch_linear" not in name:
+                params.requires_grad = False
         return

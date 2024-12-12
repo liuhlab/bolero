@@ -330,7 +330,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             The dataset with bigwig data oprator mapped.
         """
         _chunk_size = max(1, len(bigwig_paths) // n_operators)
-        
+
         for idx, chunk_start in enumerate(range(0, len(bigwig_paths), _chunk_size)):
             chunk_end = min(len(bigwig_paths), chunk_start + _chunk_size)
             chunk_paths = bigwig_paths[chunk_start:chunk_end]
@@ -683,7 +683,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         # Get the bed in dataframe with ray (region_bed has been determined using train_regions for example)
         work_ds = super().get_processed_dataset(
-            bed=region_bed
+            bed=region_bed,
+            shuffle_bed=self.is_train(),
         )  # comes directly preprocessed as dataframe for fold split we're using
 
         if self.region2:
@@ -787,6 +788,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         as_torch=True,
         return_regions=True,
         n_batches=None,
+        shuffle_rows=300,
         concurrency=4,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
@@ -825,7 +827,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
             "return_regions": return_regions,
             "concurrency": concurrency,
         }
-        data_iter_kwargs = dataloader_kwargs
+        data_iter_kwargs = {
+            "local_shuffle_buffer_size": (shuffle_rows if self.is_train() else None),
+        }
+        data_iter_kwargs.update(dataloader_kwargs)
 
         loader = self._get_dataloader_with_wrapper(
             dataset_kwargs=dataset_kwargs,
