@@ -1,8 +1,10 @@
 import pathlib
 import subprocess
 import tempfile
+import warnings
 
 import joblib
+import logomaker
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -14,8 +16,9 @@ from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
 from bolero.utils import download_file, get_default_save_dir, get_file_size_gbs
 
 PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
+
 JASPAR_MTOFI_DBS = {
-    "_".join(p.name.split("_")[:3]): p
+    "_".join(p.name.split(".")[0].split("_")[:3]): p
     for p in pathlib.Path(PKG_DATA_PATH).glob("jaspar/*.motif_pwm.dict")
 }
 
@@ -23,6 +26,8 @@ JASPAR_MTOFI_DBS = {
 # JASPAR 2024 CORE motif database
 _JASPAR_URL_BASE = "https://jaspar.elixir.no/download/data/2024/CORE"
 JASPAR_URLS = {
+    "CisBP_Mouse_FigR": f"{PKG_DATA_PATH}/figr/CisBP_Mouse_FigR",
+    "CisBP_Human_FigR": f"{PKG_DATA_PATH}/figr/CisBP_Human_FigR",
     "JASPAR2024_CORE_nematodes": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_nematodes_non-redundant_pfms_jaspar.zip",
     "JASPAR2024_CORE_diatoms": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_diatoms_non-redundant_pfms_jaspar.zip",
     "JASPAR2024_CORE_insects": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_insects_non-redundant_pfms_jaspar.zip",
@@ -74,6 +79,31 @@ def dump_jaspar_motif_pwm_dict(db, output_dir="."):
     return
 
 
+def dump_jaspar_motif_pwm_dict_from_file(db_name, jaspar_file, output_dir="."):
+    """
+    Parse JASPAR motif database file and dump the PWMs into a dictionary.
+
+    Parameters
+    ----------
+    db_name : str
+        Name of the JASPAR database.
+    jaspar_file : str
+        Path to the JASPAR database file.
+    output_dir : str
+        Directory to save the motif PWMs.
+    """
+    with open(jaspar_file) as handle:
+        motif_list = motifs.parse(handle, "jaspar")
+        motif_pwms = {}
+        for motif in motif_list:
+            pwm = pd.DataFrame(motif.pwm)
+            motif_pwms[(motif.matrix_id, motif.name)] = pwm
+
+    output_dir = pathlib.Path(output_dir).absolute()
+    joblib.dump(motif_pwms, f"{db_name}.motif_pwm.dict", compress=1)
+    return
+
+
 def _calc_row_entropy(row):
     row = row[row > 0]
     e = -np.sum(row * np.log2(row))
@@ -99,8 +129,12 @@ class JASPARMotif:
         - JASPARMotif: The initialized JASPARMotif object.
         """
         self.motif_id = motif_id
+        self.name = motif_name
         self.motif_name = motif_name
-        self.pwm = pwm.loc[:, list(base_order)].copy()
+
+        # columns is A C G T
+        # rows are positions
+        self.pwm: pd.DataFrame = pwm.loc[:, list(base_order)].copy()
 
     def __len__(self):
         """
@@ -122,6 +156,28 @@ class JASPARMotif:
         """
         entropy = self.pwm.apply(_calc_row_entropy, axis=1)
         return entropy
+
+    def pwm_info_content(self):
+        """
+        Calculate the information content of a PWM.
+        """
+        pwm = self.pwm.T
+        entropy = -np.sum(pwm * np.log2(pwm + 1e-10), axis=0)
+        max_ic = np.log2(4)  # max possible information content for 4 bases (DNA)
+        info_content = max_ic - entropy
+        return info_content
+
+    def plot_on_ax(self, ax, **kwargs):
+        """
+        Plot motif logo on an Axes
+        """
+        info = self.pwm_info_content()
+        pwm_info = self.pwm * info.values[:, None]
+        # Create a sequence logo
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            logo = logomaker.Logo(pwm_info, ax=ax, **kwargs)
+        return logo
 
     def clip_pwm_by_entropy(self, max_length=24):
         """
@@ -189,10 +245,13 @@ class JASPARMotifDatabase:
         """
         return set(JASPAR_MTOFI_DBS.keys())
 
+    def _figr_motif_name_parser(self, motif_name):
+        return motif_name.split("_")[2]
+
     def __init__(
         self,
         db="JASPAR2024_CORE_vertebrates",
-        max_length=24,
+        max_length=None,
         base_order=DEFAULT_ONE_HOT_ORDER,
     ):
         """
@@ -213,19 +272,80 @@ class JASPARMotifDatabase:
         if db not in self.available_databases():
             raise ValueError(f"Invalid JASPAR database: {db}")
 
+        if db.endswith("FigR"):
+            name_parser = self._figr_motif_name_parser
+        else:
+            name_parser = lambda x: x
+
         self.db = db
         motif_pwms = joblib.load(JASPAR_MTOFI_DBS[db])
         self.base_order = base_order
 
         self.motifs = []
         for (motif_id, motif_name), pwm in motif_pwms.items():
+            motif_name = name_parser(motif_name)
             motif = JASPARMotif(
                 motif_id, motif_name, pwm, base_order=DEFAULT_ONE_HOT_ORDER
             )
-
-            motif.clip_pwm_by_entropy(max_length)
+            if max_length is not None:
+                motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
+
+        self.motif_names = [motif.name for motif in self.motifs]
+        self.motif_dict = {motif.name: motif for motif in self.motifs}
         return
+
+    def __len__(self):
+        """
+        Get the number of motifs in the database.
+
+        Returns
+        -------
+        - int: The number of motifs in the database.
+
+        """
+        return len(self.motifs)
+
+    def __getitem__(self, key):
+        """
+        Get a motif by name.
+
+        Parameters
+        ----------
+        - key (str): The name of the motif.
+
+        Returns
+        -------
+        - JASPARMotif: The motif with the specified name.
+
+        """
+        return self.motif_dict[key]
+
+    def __iter__(self):
+        """
+        Iterate over the motifs in the database.
+
+        Returns
+        -------
+        - Iterator: An iterator over the motifs in the database.
+
+        """
+        return iter(self.motifs)
+
+    def __contains__(self, key):
+        """
+        Check if a motif is in the database.
+
+        Parameters
+        ----------
+        - key (str): The name of the motif.
+
+        Returns
+        -------
+        - bool: True if the motif is in the database, False otherwise.
+
+        """
+        return key in self.motif_dict
 
 
 JASPAR_TFBS_GENOME_BIGBED_URL = (
