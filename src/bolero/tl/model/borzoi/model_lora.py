@@ -14,6 +14,7 @@ from .module_output import (
     OutputHead,
     RNAOutputHead,
     ScoobyOutputHead,
+    DualOutputHead
 )
 
 
@@ -170,6 +171,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             # output logits, loss function will apply sigmoid
             self.setup_output_head(out_channels=out_channels, activation=None)
             self.loss_type = "bce"
+
+        elif output_head_type == "dual_atac_mc":
+            
+            # output logits, loss function will be bce for mC and poisson multinomial for ATAC output (after softplus activation for ATAC)
+            self.setup_output_head(out_channels=out_channels, activation=None)
+            self.loss_type = "separate_bce_poisson_multinomial" 
+
         elif output_head_type == "rna":
             self.setup_rna_head(rna_channels=out_channels)
             self.loss_type = "poisson_multinomial"
@@ -261,6 +269,14 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             in_channels=1920,
             out_channels=out_channels,
             activation=activation,
+        )
+
+    def setup_dual_output_head(self, out_channels):
+        "Setup dual output for mc and atac dual modality training"
+        "returns dictionary 'atac' and 'mc' for each specific output"
+        self.final_output_head = DualOutputHead(
+            in_channels=1920,
+            out_channels=out_channels,
         )
 
     def setup_profile_head(self):

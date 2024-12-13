@@ -781,6 +781,24 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 key_list=mc_frac_keys,
                 out_key="mc_frac",
             )
+        
+        if (
+            self.data_key_to_dual_context is not None
+            and len(self.data_key_to_dual_context) > 1
+        ):
+            # combine the mc_frac and atac channels
+            dual_data_keys = []
+            for data_key in self.data_key_to_dual_context.keys():
+                if "mcg" == data_key:
+                    dual_data_keys.append(f"{data_key}_mc_frac")
+                elif "atac" == data_key:
+                    dual_data_keys.append(data_key)
+
+            work_ds = self._combine_channels(
+                dataset=work_ds,
+                key_list=dual_data_keys,
+                out_key="mc_frac_and_atac",
+            )
         return work_ds
 
     def get_dataloader(

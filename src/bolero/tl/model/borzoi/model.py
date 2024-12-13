@@ -463,6 +463,39 @@ class Borzoi(nn.Module):
             )
         elif loss_type == "bce":
             _loss, loss_breakdown = bce_loss(y_pred, y_true, return_breakdown=True)
+        
+        elif loss_type=="separate_bce_poisson_multinomial":
+
+            with torch.no_grad():
+                if (self.soft_clamp is not None) and (self.power is not None):
+                        atac_y_true = clamp_sqrt_large_value(
+                            atac_y_true,
+                            power=self.power,
+                            threshold=self.soft_clamp,
+                            effective_bool=self.soft_clamp_bool,
+                        )
+                if position_weights is not None:
+                    position_weights = self.crop(position_weights)
+            
+            
+            
+            _poisson_multinomial_loss, _poisson_multinomial_loss_breakdown = poisson_multinomial(
+                y_true=atac_y_true,
+                y_pred=atac_y_pred,
+                total_weight=self.loss_total_weight,
+                weight_range=1,  # 1 means not use the position weighted loss
+                weight_exp=4,
+                epsilon=1e-7,  # this is smallest for float16
+                return_breakdown=True,
+                loss_chunks=getattr(self, "loss_chunks", 1),
+                position_weights=position_weights,
+            )
+
+
+            _bce_loss, _bce_loss_breakdown = bce_loss(mc_y_pred, mc_y_true, return_breakdown=True)
+
+            _loss, _loss_breakdown = _poisson_multinomial_loss+_bce_loss, _poisson_multinomial_loss_breakdown+_bce_loss_breakdown
+
         else:
             raise ValueError(f"loss_type {loss_type} not recognized")
 
