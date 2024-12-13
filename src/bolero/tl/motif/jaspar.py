@@ -169,16 +169,22 @@ class JASPARMotif:
         info_content = max_ic - entropy
         return info_content
 
-    def plot_on_ax(self, ax, **kwargs):
+    def plot_on_ax(self, ax, min_ic=None, **kwargs):
         """
         Plot motif logo on an Axes
         """
         info = self.pwm_info_content()
         pwm_info = self.pwm * info.values[:, None]
+
         # Create a sequence logo
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             logo = logomaker.Logo(pwm_info, ax=ax, **kwargs)
+
+        if min_ic is not None:
+            valid_pos = info[info > min_ic].index
+            xlim = (valid_pos[0] - 0.5, valid_pos[-1] + 0.5)
+            ax.set_xlim(xlim)
         return logo
 
     def clip_pwm_by_entropy(self, max_length=24):
