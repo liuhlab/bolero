@@ -48,8 +48,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # methylation specific
         "unmethylated": False,
         "data_key_to_mc_context": None,
-        # dual mC + ATAC specific
-        "data_key_to_dual_context": None,
     }
 
     def __init__(
@@ -80,8 +78,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # methylation specific
         unmethylated: bool = False,
         data_key_to_mc_context: dict[str, str] = None,
-        #dual atac mc specific
-        data_key_to_dual_context: dict[str, str] = None,
     ):
         super().__init__(
             bed=bed,
@@ -149,10 +145,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.data_key_to_mc_context = (
             {} if data_key_to_mc_context is None else data_key_to_mc_context
         )
-        #dual mc + atac specific
-        self.data_key_to_dual_context = (
-            {} if data_key_to_dual_context is None else data_key_to_dual_context
-        )        
 
         # Embeddings map generation
         self.embeddings_path = embeddings_path
@@ -422,16 +414,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         if key_suffix is None:
             key_suffix = [""]
 
-
-        if len(self.data_key_to_mc_context) > 0:
-            mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
-        
-        elif len(self.data_key_to_dual_context) > 0:
-            mc_context = self.data_key_to_dual_context.get(mc_prefix, None)
-        else:
-            print('No mc_prefix fetching function')
-            raise NotImplementedError 
-
+        mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
         for idx, chunk_start in enumerate(range(0, len(allc_paths), _chunk_size)):
             chunk_end = min(len(allc_paths), chunk_start + _chunk_size)
             chunk_paths = allc_paths[chunk_start:chunk_end]
@@ -796,24 +779,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 dataset=work_ds,
                 key_list=mc_frac_keys,
                 out_key="mc_frac",
-            )
-        
-        if (
-            self.data_key_to_dual_context is not None
-            and len(self.data_key_to_dual_context) > 1
-        ):
-            # combine the mc_frac and atac channels
-            dual_data_keys = []
-            for data_key in self.data_key_to_dual_context.keys():
-                if "mcg" == data_key:
-                    dual_data_keys.append(f"{data_key}_mc_frac")
-                elif "atac" == data_key:
-                    dual_data_keys.append(data_key)
-
-            work_ds = self._combine_channels(
-                dataset=work_ds,
-                key_list=dual_data_keys,
-                out_key="mc_frac_and_atac",
             )
         return work_ds
 

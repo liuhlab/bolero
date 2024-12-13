@@ -11,10 +11,10 @@ from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module_output import (
     ContextOutputHead,
+    DualOutputHead,
     OutputHead,
     RNAOutputHead,
     ScoobyOutputHead,
-    DualOutputHead
 )
 
 
@@ -80,6 +80,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         emb_input_dims=None,
         # output_head
         output_head_type="count",
+        output_head_kwargs=None,
         # base model
         **base_model_kwargs,
     ):
@@ -171,13 +172,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             # output logits, loss function will apply sigmoid
             self.setup_output_head(out_channels=out_channels, activation=None)
             self.loss_type = "bce"
-
         elif output_head_type == "dual_atac_mc":
-            
             # output logits, loss function will be bce for mC and poisson multinomial for ATAC output (after softplus activation for ATAC)
-            self.setup_dual_output_head(out_channels=out_channels, activation=None)
-            self.loss_type = "separate_bce_poisson_multinomial" 
-
+            if output_head_kwargs is None:
+                output_head_kwargs = {}
+            self.setup_dual_output_head(**output_head_kwargs)
+            self.loss_type = "separate_bce_poisson_multinomial"
         elif output_head_type == "rna":
             self.setup_rna_head(rna_channels=out_channels)
             self.loss_type = "poisson_multinomial"
@@ -271,12 +271,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             activation=activation,
         )
 
-    def setup_dual_output_head(self, out_channels):
-        "Setup dual output for mc and atac dual modality training"
+    def setup_dual_output_head(self, mc_channels=1, atac_channels=1):
+        """Setup dual output for mc and atac dual modality training"""
         "returns dictionary 'atac' and 'mc' for each specific output"
         self.final_output_head = DualOutputHead(
-            in_channels=1920,
-            out_channels=out_channels,
+            in_channels=1920, mc_channels=mc_channels, atac_channels=atac_channels
         )
 
     def setup_profile_head(self):
@@ -517,7 +516,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         return weighted_loss
 
     def loss(
-        self, y_pred, y_true, reduce=True, weighted_loss=True, position_weights=None
+        self, y_pred, y_true, reduce=True, weighted_loss=False, position_weights=None
     ):
         """
         Compute the loss for the Borzoi model.
@@ -543,11 +542,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         # loss shape (bs, out_channels)
 
-        # weighted loss per channel and sum across channels
+        # weighted loss per channel and mean across channels
         if weighted_loss:
             loss = self.weighted_loss_per_channel(loss)
             if reduce:
-                loss = loss.sum()
+                loss = loss.mean()
                 with torch.no_grad():
                     loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
 

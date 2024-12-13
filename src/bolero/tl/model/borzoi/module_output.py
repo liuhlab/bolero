@@ -183,20 +183,20 @@ class OutputHead(SequentialwithArgs):
 
 
 class DualOutputHead(SequentialwithArgs):
-    
-    #TG TODO: Needed if we have 2 channels? Needless computation for each head. Maybe activate within loss. 
+    # TG TODO: Needed if we have 2 channels? Needless computation for each head. Maybe activate within loss.
     """A dual output head that produces both activated and raw logit outputs."""
-    def __init__(self, in_channels, out_channels):
+
+    def __init__(self, in_channels, mc_channels, atac_channels):
         super().__init__()
         # Create two separate output heads
-        self.atac_head = OutputHead(in_channels, out_channels, activation="softplus")
-        self.mc_head = OutputHead(in_channels, out_channels, activation=None)
-    
-    def forward(self, x, *args, **kwargs):
-        # Return outputs as a dictionary for clarity
+        self.atac_head = OutputHead(in_channels, atac_channels, activation="softplus")
+        self.mc_head = OutputHead(in_channels, mc_channels, activation=None)
+
+    def forward(self, x, *args, **kwargs) -> dict:
+        """Forward pass of the Dual and return outputs as a dictionary."""
         return {
-            "atac": self.atac_head(x),
-            "mc": self.mc_head(x)
+            "atac": self.atac_head(x, *args, **kwargs),
+            "mc": self.mc_head(x, *args, **kwargs),
         }
 
 
