@@ -465,6 +465,12 @@ class Borzoi(nn.Module):
             _loss, loss_breakdown = bce_loss(y_pred, y_true, return_breakdown=True)
         
         elif loss_type=="separate_bce_poisson_multinomial":
+            
+
+            #TG TODO: have key or map distinguish which channel atac and mc are in
+            import torch.nn.functional as F
+            atac_y_true, atac_y_pred = F.softplus(y_true[:,0,:]) ,F.softplus( y_pred[:,0,:])
+            mc_y_true, mc_y_pred = y_true[:,1,:], y_pred[:,1,:]
 
             with torch.no_grad():
                 if (self.soft_clamp is not None) and (self.power is not None):

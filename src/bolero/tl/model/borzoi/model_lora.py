@@ -175,7 +175,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         elif output_head_type == "dual_atac_mc":
             
             # output logits, loss function will be bce for mC and poisson multinomial for ATAC output (after softplus activation for ATAC)
-            self.setup_output_head(out_channels=out_channels, activation=None)
+            self.setup_dual_output_head(out_channels=out_channels, activation=None)
             self.loss_type = "separate_bce_poisson_multinomial" 
 
         elif output_head_type == "rna":

@@ -48,6 +48,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # methylation specific
         "unmethylated": False,
         "data_key_to_mc_context": None,
+        # dual mC + ATAC specific
+        "data_key_to_dual_context": None,
     }
 
     def __init__(
@@ -78,6 +80,8 @@ class BorzoiDatasetOnline(RayRegionDataset):
         # methylation specific
         unmethylated: bool = False,
         data_key_to_mc_context: dict[str, str] = None,
+        #dual atac mc specific
+        data_key_to_dual_context: dict[str, str] = None,
     ):
         super().__init__(
             bed=bed,
@@ -145,6 +149,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.data_key_to_mc_context = (
             {} if data_key_to_mc_context is None else data_key_to_mc_context
         )
+        #dual mc + atac specific
+        self.data_key_to_dual_context = (
+            {} if data_key_to_dual_context is None else data_key_to_dual_context
+        )        
 
         # Embeddings map generation
         self.embeddings_path = embeddings_path
@@ -414,7 +422,15 @@ class BorzoiDatasetOnline(RayRegionDataset):
         if key_suffix is None:
             key_suffix = [""]
 
-        mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
+
+        if len(self.data_key_to_mc_context) > 0:
+            mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
+        
+        elif len(self.data_key_to_dual_context) > 0:
+            mc_context = self.data_key_to_dual_context.get(mc_prefix, None)
+        else:
+            print('No mc_prefix fetching function')
+            raise NotImplementedError 
 
         for idx, chunk_start in enumerate(range(0, len(allc_paths), _chunk_size)):
             chunk_end = min(len(allc_paths), chunk_start + _chunk_size)
