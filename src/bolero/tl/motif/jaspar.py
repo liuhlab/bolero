@@ -8,7 +8,9 @@ import logomaker
 import numpy as np
 import pandas as pd
 import pyBigWig
+import seaborn as sns
 from Bio import motifs
+from matplotlib import pyplot as plt
 
 # get pkg_data path from package root
 import bolero
@@ -211,6 +213,21 @@ class JASPARMotif:
         self.pwm = pwm.copy()
         return
 
+    def __repr__(self):
+        """
+        Get the string representation of the motif.
+
+        Returns
+        -------
+        - str: The string representation of the motif.
+        """
+        _, ax = plt.subplots(figsize=(len(self.pwm) / 4, 1), dpi=100)
+        self.plot_on_ax(ax)
+        ax.set_title(f"{self.name}\n({self.motif_id})", fontsize=8)
+        ax.set_ylabel("IC (Bits)", fontsize=8)
+        sns.despine(ax=ax)
+        return f"JASPARMotif({self.motif_id}, {self.name})"
+
 
 class JASPARMotifDatabase:
     """
@@ -346,6 +363,12 @@ class JASPARMotifDatabase:
 
         """
         return key in self.motif_dict
+
+    def __repr__(self):
+        """
+        Get the string representation of the motif database.
+        """
+        return f"JASPARMotifDatabase ({self.db}) with {len(self)} motifs"
 
 
 JASPAR_TFBS_GENOME_BIGBED_URL = (
