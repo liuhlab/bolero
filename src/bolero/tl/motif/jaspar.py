@@ -17,6 +17,8 @@ import bolero
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
 from bolero.utils import download_file, get_default_save_dir, get_file_size_gbs
 
+from .utils import one_hot_to_sequence, sample_dna_one_hot
+
 PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
 
 JASPAR_MTOFI_DBS = {
@@ -220,19 +222,46 @@ class JASPARMotif:
         return
 
     def __repr__(self):
-        """
-        Get the string representation of the motif.
+        return f"JASPARMotif({self.motif_id}, {self.name})"
 
-        Returns
-        -------
-        - str: The string representation of the motif.
-        """
+    def plot(self):
+        """Visualize the motif."""
         _, ax = plt.subplots(figsize=(len(self.pwm) / 4, 1), dpi=100)
         self.plot_on_ax(ax)
         ax.set_title(f"{self.name}\n({self.motif_id})", fontsize=8)
         ax.set_ylabel("IC (Bits)", fontsize=8)
         sns.despine(ax=ax)
-        return f"JASPARMotif({self.motif_id}, {self.name})"
+        return
+
+    def sample_dna_one_hot(self, num_sequences):
+        """
+        Sample one-hot encoding from the PWM.
+
+        Parameters
+        ----------
+        - num_sequences (int): The number of sequences to sample.
+
+        Returns
+        -------
+        - np.ndarray: The sampled one-hot encoding.
+        """
+        return sample_dna_one_hot(self.pwm, num_sequences)
+
+    def sample_dna_sequence(self, num_sequences):
+        """
+        Sample DNA sequences from the PWM.
+
+        Parameters
+        ----------
+        - num_sequences (int): The number of sequences to sample.
+
+        Returns
+        -------
+        - list: The sampled DNA sequences.
+        """
+        one_hot = self.sample_dna_one_hot(num_sequences)
+        seqs = one_hot_to_sequence(one_hot, list(self.pwm.columns))
+        return seqs
 
 
 class JASPARMotifDatabase:
