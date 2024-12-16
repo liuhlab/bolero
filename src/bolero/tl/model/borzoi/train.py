@@ -18,6 +18,7 @@ from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import MovingMetric
 
+from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 class TrainerBorzoiDatasetMixin:
     """
@@ -279,9 +280,18 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         mean_val_loss = CumulativeCounter()
 
         mean_loss_breakdown = {}
-        mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
+
+        if isinstance(model.final_output_head, DualOutputHead):
+
+            num_channels = len(self.config["data_key"])
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
+                        self.device
+                    )
+        else:
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
             self.device
         )
+
 
         if self.prefix in self.dataset.name_to_pseudobulker:
             # this part is for mouse pseudobulk dataset
@@ -670,9 +680,17 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
             # start train epochs
             moving_ave_loss = CumulativeCounter()
-            moving_ave_corr = MeanPearsonCorrCoefPerChannel(
-                n_channels=self.model.out_channels
-            ).to(self.device)
+
+            if isinstance(self.model.final_output_head, DualOutputHead):
+
+                num_channels = len(self.config["data_key"])
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
+                            self.device
+                        )
+            else:
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=self.model.out_channels).to(
+                self.device
+            )          
             nan_loss = False
             print_steps = max(5, self.train_batches // 20)
             example_step = max(
@@ -714,7 +732,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 # for backpropagation, we scale the loss with the accumulate_grad
                 scale_loss = loss / self.accumulate_grad
                 scaler.scale(scale_loss).backward()
-
                 moving_ave_loss.update(loss.item())
                 moving_ave_corr.update(preds=y_pred, target=y_true)
 
@@ -788,6 +805,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         for channel, corr in enumerate(
                             moving_ave_corr.compute_tensor()
                         ):
+                            # import pdb; breakpoint()
                             name = self.channel_order[channel]
                             log_dict[f"train/train_corr_{name}"] = corr
                         wandb.log(log_dict)
