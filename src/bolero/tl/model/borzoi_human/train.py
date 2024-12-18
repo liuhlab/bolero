@@ -239,9 +239,16 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
                     _data = _data.unsqueeze(1)
 
                 if key.endswith("mc_frac"):
-                    key = "mc"
-
-                y_true[key] = _data
+                    if "mc" in y_true:
+                        # If "mc" already exists, concatenate the new data
+                        y_true["mc"] = torch.cat([y_true["mc"], _data], dim=1)
+                    else:
+                        # If "mc" doesn't exist yet, create new entry
+                        y_true["mc"] = _data
+                else:
+                    y_true[key] = _data
+                
+                # y_true[key] = _data
         else:
             # y_true is a single tensor
             y_true = batch.pop(data_key)

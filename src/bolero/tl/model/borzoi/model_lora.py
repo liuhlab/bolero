@@ -48,6 +48,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "emb_input": False,
             "emb_input_dims": None,
             "output_head_type": "count",
+            "output_head_kwargs": None,
         }
     )
 
