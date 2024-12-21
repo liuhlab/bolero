@@ -418,7 +418,6 @@ class Borzoi(nn.Module):
 
     def _separate_bce_poisson_multinomial_loss(self, y_true: dict, y_pred: dict):
         """Separate loss for ATAC and methylation."""
-        # TG TODO: have key or map distinguish which channel atac and mc are in
         atac_y_true = y_true["atac"]
         mc_y_true = y_true["mc"]
         atac_y_pred = y_pred["atac"]

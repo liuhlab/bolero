@@ -262,7 +262,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         if isinstance(y_pred, dict):
             for key in y_pred:
                 _y_pred = y_pred[key].detach()
-                if self.model.loss_type == "bce":
+                if self.model.loss_type == "separate_bce_poisson_multinomial" and key == "mc":
                     _y_pred = torch.sigmoid(_y_pred)
                 y_pred[key] = _y_pred
 
