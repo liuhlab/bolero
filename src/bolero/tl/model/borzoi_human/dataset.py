@@ -415,7 +415,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
             key_suffix = [""]
 
         mc_context = self.data_key_to_mc_context.get(mc_prefix, None)
-
         for idx, chunk_start in enumerate(range(0, len(allc_paths), _chunk_size)):
             chunk_end = min(len(allc_paths), chunk_start + _chunk_size)
             chunk_paths = allc_paths[chunk_start:chunk_end]
