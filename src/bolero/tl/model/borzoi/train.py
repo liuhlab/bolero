@@ -805,7 +805,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         for channel, corr in enumerate(
                             moving_ave_corr.compute_tensor()
                         ):
-                            # import pdb; breakpoint()
                             name = self.channel_order[channel]
                             log_dict[f"train/train_corr_{name}"] = corr
                         wandb.log(log_dict)
