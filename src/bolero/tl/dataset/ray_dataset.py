@@ -430,7 +430,7 @@ class RayRegionDataset(GenericDataset):
         "dna": True,
         "batch_size": "REQUIRED",
         "use_borzoi_regions": False,
-        "region2": False,
+        "region2": None,
         "region2_max_dist": 5e6,
     }
 
@@ -447,10 +447,10 @@ class RayRegionDataset(GenericDataset):
         boarder_strategy="drop",
         remove_blacklist=True,
         use_borzoi_regions=False,
-        region2=False,
-        region2_max_dist=5e6,
         _block_size=20,
         _max_blocks=200,
+        region2=None,
+        region2_max_dist=5e6,
     ):
         """
         Initialize the RayRegionDataset.

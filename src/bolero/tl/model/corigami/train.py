@@ -15,8 +15,8 @@ from bolero.tl.generic.train_helper import (
     CumulativePearson,
     batch_pearson_correlation,
     insulation_pearson,
+    safe_save,
 )
-from bolero.tl.model.borzoi.utils import MovingMetric
 from bolero.tl.model.corigami.dataset import HiCTrackDataset
 from bolero.tl.model.corigami.model import (
     ConvTransModel,
@@ -71,6 +71,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         self.val_batches = config["val_batches"]
         self.clip_grad_norm = config["clip_grad_norm"]
         self.batch_size = config["batch_size"]
+        self.best_correlation = -np.Inf
 
         self._setup_env()
         self._setup_dataset()
@@ -133,11 +134,27 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         return optimizer
 
     def _get_scheduler(self, optimizer):
-        import pl_bolts
+        try:
+            import pl_bolts
 
-        scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
-            optimizer, warmup_epochs=10, max_epochs=200
-        )
+            scheduler = pl_bolts.optimizers.lr_scheduler.LinearWarmupCosineAnnealingLR(
+                optimizer, warmup_epochs=10, max_epochs=200
+            )
+        except ImportError:
+            self.config["scheduler_type"] = "borzoi"
+            warmup_steps = self.config.get("warmup_steps", 1000)
+            accumulate_grad = self.config.get("accumulate_grad", 1)
+            warmup_steps = (
+                warmup_steps // accumulate_grad + 1
+            )  # because we update every accumulate_grad steps
+
+            total_steps = self.max_epochs * self.train_batches
+            total_steps = total_steps // accumulate_grad + 1
+
+            scheduler = GenericTrainer._get_scheduler(
+                self, optimizer, warmup_steps=warmup_steps, total_steps=total_steps
+            )
+            return scheduler
         return scheduler
 
     def _setup_model(self):
@@ -156,6 +173,80 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 f"Incorrect mode: {mode}, should be one of ['base', 'finetune']."
             )
         self._set_total_params()
+        return
+
+    def _save_checkpoint(self, update_best: bool):
+        epoch_info = {
+            "epoch": self.cur_epoch,
+            "early_stopping_counter": self.early_stopping_counter,
+        }
+        safe_save(epoch_info, self.epoch_info_path)
+        if update_best:
+            print("Saving best checkpoint...")
+            # check point includes model and other training states
+            checkpoint = {
+                "best_val_loss": self.best_val_loss,
+                "best_correlation": self.best_correlation,
+                "state_dict": self.model.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "scaler": self.scaler.state_dict() if self.scaler is not None else None,
+                "scheduler": (
+                    self.scheduler.state_dict() if self.scheduler is not None else None
+                ),
+                "ema": self.ema.state_dict() if self.ema is not None else None,
+            }
+            safe_save(checkpoint, self.best_checkpoint_path)
+
+            # save best model in a separate file
+            if self.config["use_ema"]:
+                safe_save(self.ema.ema_model, self.best_model_path)
+            else:
+                safe_save(self.model, self.best_model_path)
+
+        if self.grad_norm_collector:
+            self.grad_norm_collector.save(
+                self.model_log_dir / f"epoch_{self.cur_epoch}_grad_norms.json"
+            )
+            self.grad_norm_collector.reset()
+        return
+
+    def _update_state_dict(self):
+        self._cleanup_env()
+
+        print(
+            f"Load and update state dict from checkpoint file: {self.best_checkpoint_path}"
+        )
+        checkpoint: dict = torch.load(self.best_checkpoint_path, weights_only=False)
+        try:
+            epoch_info = torch.load(self.epoch_info_path, weights_only=False)
+            checkpoint.update(epoch_info)
+        except FileNotFoundError:
+            print("Epoch info not found, skipping.")
+
+        # adjust epochs
+        self.cur_epoch = checkpoint.get("epoch", 0)
+        self.early_stopping_counter = checkpoint.get("early_stopping_counter", 0)
+        self.best_val_loss = checkpoint.get("best_val_loss", np.Inf)
+        self.best_correlation = checkpoint.get("best_correlation", -np.Inf)
+        print(
+            f"Best val loss: {self.best_val_loss:.5f}, "
+            f"Best correlation: {self.best_correlation:.5f}, "
+            f"early stopping counter: {self.early_stopping_counter}."
+        )
+
+        # load state dict
+        self.model.load_state_dict(checkpoint["state_dict"])
+        if self.optimizer is not None:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if self.scaler is not None:
+            self.scaler.load_state_dict(checkpoint["scaler"])
+        if self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint["scheduler"])
+        if self.ema is not None:
+            self.ema.load_state_dict(checkpoint["ema"])
+
+        del checkpoint
+        self._cleanup_env()
         return
 
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
@@ -321,30 +412,34 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         print(f"Across Batch Pearson Corr.: {across_batch_pearson:.3f}")
         print(f"Insulation Pearson Corr.: {insulation_score:.3f}")
 
-        # only clear the early stopping counter if the loss improvement is better than tolerance
-        previous_best = self.best_val_loss
-        if val_loss < self.best_val_loss - self.loss_tolerance:
-            self.early_stopping_counter = 0
-        else:
-            self.early_stopping_counter += 1
-        print(
-            f"Previous best loss: {previous_best:.3f}, "
-            f"Loss at epoch {epoch}: {val_loss:.3f}; "
-            f"Early stopping counter: {self.early_stopping_counter}"
-        )
-        # save checkpoint if the loss is better
+        # only clear the early stopping counter if the pearson correlation is better than tolerance
+        previous_best = self.best_correlation
+        if epoch > 20:
+            if single_batch_pearson > self.best_correlation:
+                self.early_stopping_counter = 0
+            else:
+                self.early_stopping_counter += 1
+            print(
+                f"Previous best correlation: {previous_best:.3f}, "
+                f"Single Pearson Correlation at epoch {epoch}: {single_batch_pearson:.3f}; "
+                f"Early stopping counter: {self.early_stopping_counter}"
+            )
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            self._save_checkpint(update_best=True)
+
+        if single_batch_pearson > self.best_correlation:
+            self.best_correlation = single_batch_pearson
+            self._save_checkpoint(update_best=True)
         else:
-            self._save_checkpint(update_best=False)
+            self._save_checkpoint(update_best=False)
         if self.wandb_active:
             wandb.log(
                 {
-                    "train/train_loss": train_loss,
-                    "train/learning_rate": learning_rate,
+                    # "train/train_loss": train_loss,
+                    # "train/learning_rate": learning_rate,
                     "val/val_loss": val_loss,
                     "val/best_val_loss": self.best_val_loss,
+                    "val/best_correlation": self.best_correlation,
                     "val/early_stopping_counter": self.early_stopping_counter,
                     "val/single_batch_pearson": single_batch_pearson,
                     "val/across_batch_pearson": across_batch_pearson,
@@ -441,7 +536,8 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             print(
                 f"Resuming training from epoch {self.cur_epoch}, with {max_epochs} epochs in total."
             )
-        moving_norm = MovingMetric(window_size=100)
+        # moving_norm = MovingMetric(window_size=100)
+        example_step = max(5, self.train_batches // (self.plot_example_per_epoch + 1))
         while self.cur_epoch < max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -498,7 +594,9 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                         loss = F.mse_loss(pred_y, y)
                     else:
                         # borzoi corigami model forward pass
-                        *_, loss = self._model_forward_pass(self.model, batch)
+                        y, pred_y, loss = self._model_forward_pass(self.model, batch)
+                        # region_1_y_true, region_2_y_true, region_12_y_true = y
+                        # region_1_y_pred, region_2_y_pred, region_12_y_pred = pred_y
 
                     loss = loss / self.accumulate_grad
 
@@ -529,21 +627,31 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
                     # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
                     # this is to prevent outlier gradients from messing up the training
-                    moving_norm.update(total_norm)
-                    threshold = moving_norm.quantile(0.99).item()
-                    if (total_norm > threshold) and moving_norm.full:
-                        print(
-                            f"Gradient norm is too large: {total_norm:.4f}, "
-                            f"threshold: {threshold:.4f}, prevent update."
-                        )
-                        optimizer.zero_grad()
+                    # moving_norm.update(total_norm)
+                    # threshold = moving_norm.quantile(0.99).item()
+                    # if (total_norm > threshold) and moving_norm.full:
+                    #     print(
+                    #         f"Gradient norm is too large: {total_norm:.4f}, "
+                    #         f"threshold: {threshold:.4f}, prevent update."
+                    #     )
+                    #     optimizer.zero_grad()
 
                     scaler.step(optimizer)
                     scaler.update()
                     optimizer.zero_grad()
 
+                    if self.config.get("scheduler_type", None) == "borzoi":
+                        scheduler.step()
+
                     if ema:
                         ema.update()
+
+                    log_dict = {
+                        "train/train_loss": loss.item(),
+                        "train/train_total_grad_norm": total_norm,
+                        "train/learning_rate": optimizer.param_groups[0]["lr"],
+                    }
+                    wandb.log(log_dict)
 
                 if (batch_id + 1) % print_steps == 0:
                     _loss = moving_avg_loss / (batch_id + 1)
@@ -567,6 +675,29 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                     cur_loss = _loss
                     print(desc_str)
 
+                if batch_id % example_step == 0:
+                    log_dict = {}
+                    if region2:
+                        for idx, prefix in enumerate(
+                            ["region_1", "region_2", "region_1_2"]
+                        ):
+                            batch["values"] = y[idx].detach()
+                            batch["pred_"] = pred_y[idx].detach()
+                            wandb_images = self._plot_example_images(
+                                [batch], target_key="values", predict_key="pred_"
+                            )
+                            log_dict[f"train_example/{prefix}_example_heatmap"] = (
+                                wandb_images
+                            )
+                    else:
+                        batch["values"] = y.detach()
+                        batch["pred_"] = pred_y.detach()
+                        wandb_images = self._plot_example_images(
+                            [batch], target_key="values", predict_key="pred_"
+                        )
+                        log_dict["train_example/example_heatmap"] = wandb_images
+                    wandb.log(log_dict)
+
             del dataloader
             self._cleanup_env()
             if nan_loss:
@@ -578,12 +709,18 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
             print(
                 f" - (Training) {self.cur_epoch} Learning rate from optimizer: {self.cur_lr:.3f}"
             )
-            print(
-                f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
-            )
+            try:
+                print(
+                    f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_lr()[0]:.3f}"
+                )
+            except NotImplementedError:
+                print(
+                    f" - (Training) {self.cur_epoch} Learning rate from scheduler: {self.scheduler.get_last_lr()[0]:.3f}"
+                )
 
-            if scheduler is not None:
-                scheduler.step()
+            if self.config.get("scheduler_type", None) != "borzoi":
+                if scheduler is not None:
+                    scheduler.step()
 
             (
                 self.val_loss,

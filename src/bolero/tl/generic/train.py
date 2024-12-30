@@ -745,7 +745,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
                 self.model.train()
         return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
 
-    def _save_checkpint(self, update_best: bool):
+    def _save_checkpoint(self, update_best: bool):
         epoch_info = {
             "epoch": self.cur_epoch,
             "early_stopping_counter": self.early_stopping_counter,

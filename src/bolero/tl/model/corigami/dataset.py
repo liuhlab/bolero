@@ -65,6 +65,7 @@ class HiCTrackDataset(RayRegionDataset):
         lora=False,
         leg_map=None,
         cap_value=None,
+        image_scale=64,
     ) -> None:
         """
         Initialize the HiCTrackDataset.
@@ -122,16 +123,16 @@ class HiCTrackDataset(RayRegionDataset):
         self.lora = lora
         self.leg_map = leg_map
         self.cap_value = cap_value
+        self.image_scale = image_scale
 
     def _get_cool_data(
         self,
         dataset,
         data_key="values",
         concurrency=(1, 6),
-        n_oprators=5,
+        n_oprators=1,
         batch_size=8,
         norm_mode="log",
-        image_scale=256,
     ):
         """
         Get the cool data for the dataset
@@ -169,7 +170,7 @@ class HiCTrackDataset(RayRegionDataset):
                 "balance": self.balance,
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,  # Note: if the data is HBA data, no need to log transform, otherwise, log transform the data
-                "image_scale": image_scale,
+                "image_scale": self.image_scale,
                 "cap_value": self.cap_value,
             }
             dataset = dataset.map_batches(
@@ -199,7 +200,7 @@ class HiCTrackDataset(RayRegionDataset):
         data_key="embedding",
         concurrency=(1, 6),
         batch_size=8,
-        n_oprators=5,
+        n_oprators=1,
     ):
         """
         Get the cool data for the dataset
@@ -261,7 +262,7 @@ class HiCTrackDataset(RayRegionDataset):
         bigwig_paths,
         data_key,
         concurrency=(1, 6),
-        n_oprators=5,
+        n_oprators=1,
         batch_size=8,
         norm_mode="log",
     ):
@@ -507,7 +508,7 @@ class HiCTrackDataset(RayRegionDataset):
         Get the processed dataset with many oprators applied.
         """
         # if multiple oprator is used, decrease the max concurrency to allow them parallel evenly
-        max_concurrency = 3
+        max_concurrency = 4
 
         _bed = self.bed.copy()
 
@@ -523,7 +524,7 @@ class HiCTrackDataset(RayRegionDataset):
         dataset = self._get_cool_data(
             dataset,
             norm_mode=self.cool_data_norm_mode,
-            concurrency=(1, int(max_concurrency)),
+            concurrency=(1, int(max_concurrency * 1.5)),
         )
 
         if self.atac_paths is not None:
@@ -531,7 +532,7 @@ class HiCTrackDataset(RayRegionDataset):
                 dataset,
                 bigwig_paths=self.atac_paths,
                 data_key="atac",
-                concurrency=(1, int(max_concurrency)),
+                concurrency=(1, int(max_concurrency * 1.5)),
                 norm_mode="log",
             )
 
@@ -555,7 +556,7 @@ class HiCTrackDataset(RayRegionDataset):
         dataset = self._get_dna_one_hot(
             dataset=dataset,
             dtype="bool",
-            concurrency=(1, int(max_concurrency)),
+            concurrency=(1, int(max_concurrency * 1.5)),
             batch_size=8,
         )
 

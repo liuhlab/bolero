@@ -40,9 +40,10 @@ class HicExamplePlotter(Track1DExamplePlotter):
           selected predicted data, correlation values, and mean squared error values.
         """
         # For Corigami dataset, the target is after log1p transformation
-        target = batch[self.target_key].cpu().numpy()
+        target = batch[self.target_key].float().cpu().numpy()
         target_data = target
-        predict = batch[self.predict_key].cpu().numpy()
+        predict = batch[self.predict_key]
+        predict = batch[self.predict_key].float().cpu().numpy()
         predict_data = predict
 
         target = target.reshape(target.shape[0], -1)
@@ -89,7 +90,7 @@ class HicExamplePlotter(Track1DExamplePlotter):
     def plot(
         self,
         batch,
-        figsize: tuple[int, int] = (20, 20),
+        figsize: tuple[int, int] = (11, 20),
         dpi: int = 100,
         top_example: int = 2,
         bottom_example: int = 2,

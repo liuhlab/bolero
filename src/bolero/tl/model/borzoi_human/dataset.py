@@ -37,13 +37,13 @@ class BorzoiDatasetOnline(RayRegionDataset):
         "max_jitter": 0,
         "n_pseudobulks": 100,
         "paired_data": False,
-        "pos_resolution": 32,
+        "pos_resolution": "REQUIRED",
         "reverse_complement": True,
-        "resolution": "REQUIRED",
+        "hic_resolution": "REQUIRED",
         "use_borzoi_regions": True,
         "data_key_to_file_type": None,
         "region2": False,
-        "region2_max_dist": 5e6,
+        "region2_max_dist": 2e6,
         "multihead_output": False,
         # methylation specific
         "unmethylated": False,
@@ -56,7 +56,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         cell_types: list[str],
         dataset_path: str,
         genome: str,
-        resolution: int,
+        hic_resolution: int,
         batch_size: int = 2,
         balance: bool = False,
         coverage_path: str = None,
@@ -134,11 +134,12 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 self.dataset_scale_factors[data_key].append(
                     cell_type_cov_scale_factors.get(data_key, 1.0)
                 )
-
-        self.balance = balance
+        # HiC
         self.cool_data_norm_mode = cool_data_norm_mode
         self.hic_cap_value = hic_cap_value
-        self.resolution = resolution
+        self.hic_resolution = hic_resolution
+
+        self.balance = balance
         self.multihead_output = multihead_output
         # Methylation specific
         self.unmethylated = unmethylated
@@ -243,7 +244,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
             fn = FetchRegionCools
             fn_constructor_kwargs = {
                 "cool_paths": chunk_paths,
-                "resolution": self.resolution,
+                "resolution": self.hic_resolution,
                 "balance": self.balance,
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,  # Note: if the data is HBA data, no need to log transform, otherwise, log transform the data
@@ -301,7 +302,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
         n_operators=1,
         batch_size=8,
         norm_mode=None,
-        resolution=32,
         key_suffix=None,
     ):
         """
@@ -343,7 +343,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "region_key": "region",  # this is what column from the dataframe is acted on by fn
                 "data_key": f"{data_key}_{idx}",
                 "norm_mode": norm_mode,
-                "resolution": resolution,
+                "resolution": self.pos_resolution,
             }
             fn_kwargs = {"key_suffix": key_suffix}
             dataset = dataset.map_batches(
@@ -703,7 +703,6 @@ class BorzoiDatasetOnline(RayRegionDataset):
                     bigwig_paths=file_paths,
                     concurrency=concurrency,
                     norm_mode=None,
-                    resolution=self.pos_resolution,
                     key_suffix=key_suffix,
                     scale_factors=self.dataset_scale_factors[data_key],
                 )
