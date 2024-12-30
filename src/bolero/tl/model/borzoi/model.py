@@ -416,6 +416,53 @@ class Borzoi(nn.Module):
         true = (true_count, true_p, true_upper_bound)
         return total_loss, loss_breakdown, pred, true
 
+    def _separate_bce_poisson_multinomial_loss(self, y_true: dict, y_pred: dict):
+        """Separate loss for ATAC and methylation."""
+        atac_y_true = y_true["atac"]
+        mc_y_true = y_true["mc"]
+        atac_y_pred = y_pred["atac"]
+        mc_y_pred = y_pred["mc"]
+
+        with torch.no_grad():
+            if (self.soft_clamp is not None) and (self.power is not None):
+                atac_y_true = clamp_sqrt_large_value(
+                    atac_y_true,
+                    power=self.power,
+                    threshold=self.soft_clamp,
+                    effective_bool=self.soft_clamp_bool,
+                )
+
+        loss_breakdown = {}
+
+        # atac loss
+        _poisson_multinomial_loss, _poisson_multinomial_loss_breakdown = (
+            poisson_multinomial(
+                y_true=atac_y_true,
+                y_pred=atac_y_pred,
+                total_weight=self.loss_total_weight,
+                weight_range=1,  # 1 means not use the position weighted loss
+                weight_exp=4,
+                epsilon=1e-7,  # this is smallest for float16
+                return_breakdown=True,
+                loss_chunks=getattr(self, "loss_chunks", 1),
+                position_weights=None,
+            )
+        )
+        loss_breakdown.update(_poisson_multinomial_loss_breakdown)
+
+        # methylation loss
+        _bce_loss, _bce_loss_breakdown = bce_loss(
+            mc_y_pred, mc_y_true, return_breakdown=True
+        )
+        loss_breakdown.update(_bce_loss_breakdown)
+
+        # concat loss on channel axis
+        _loss = torch.concat([_poisson_multinomial_loss, _bce_loss], dim=1)
+
+        # processed y_true with atac and mC concatenated on channel axis
+        processed_y_true = torch.concat([atac_y_true, mc_y_true], dim=1)
+        return _loss, loss_breakdown, processed_y_true
+
     def loss(
         self,
         y_pred,
@@ -437,7 +484,11 @@ class Borzoi(nn.Module):
             Power value for convert the y_true before calculating loss.
         """
         with torch.no_grad():
-            y_true = self.crop(y_true)
+            if isinstance(y_true, dict):
+                y_true = {k: self.crop(v) for k, v in y_true.items()}
+            else:
+                y_true = self.crop(y_true)
+
             if loss_type == "poisson_multinomial":
                 if (self.soft_clamp is not None) and (self.power is not None):
                     y_true = clamp_sqrt_large_value(
@@ -463,6 +514,10 @@ class Borzoi(nn.Module):
             )
         elif loss_type == "bce":
             _loss, loss_breakdown = bce_loss(y_pred, y_true, return_breakdown=True)
+        elif loss_type == "separate_bce_poisson_multinomial":
+            _loss, loss_breakdown, y_true = self._separate_bce_poisson_multinomial_loss(
+                y_true, y_pred
+            )
         else:
             raise ValueError(f"loss_type {loss_type} not recognized")
 
@@ -472,8 +527,8 @@ class Borzoi(nn.Module):
             with torch.no_grad():
                 loss_breakdown = {k: v.mean() for k, v in loss_breakdown.items()}
 
-        processed_y_true = y_true
-        return _loss, loss_breakdown, processed_y_true
+        # y_true here should be processed single tensor
+        return _loss, loss_breakdown, y_true
 
 
 class BorzoiWithOutputHead(Borzoi):

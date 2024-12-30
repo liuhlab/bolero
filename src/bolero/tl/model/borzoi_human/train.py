@@ -234,8 +234,56 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         self._set_total_params()
         return
 
-    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+    def _get_y_true(self, batch):
         data_key = self.data_key
+        if isinstance(data_key, list):
+            # y_true is a dict of data_key: data
+            y_true = {}
+            for key in data_key:
+                _data = batch.pop(key)
+                if _data.ndim == 2:
+                    # add the channel dimension to y_true
+                    _data = _data.unsqueeze(1)
+
+                if key.endswith("mc_frac"):
+                    if "mc" in y_true:
+                        # If "mc" already exists, concatenate the new data
+                        y_true["mc"] = torch.cat([y_true["mc"], _data], dim=1)
+                    else:
+                        # If "mc" doesn't exist yet, create new entry
+                        y_true["mc"] = _data
+                else:
+                    y_true[key] = _data
+                
+                # y_true[key] = _data
+        else:
+            # y_true is a single tensor
+            y_true = batch.pop(data_key)
+            if y_true.ndim == 2:
+                # add the channel dimension to y_true
+                y_true = y_true.unsqueeze(1)
+        return y_true
+
+    @torch.no_grad
+    def _post_process_y_pred(self, y_pred) -> torch.Tensor:
+        if isinstance(y_pred, dict):
+            for key in y_pred:
+                _y_pred = y_pred[key].detach()
+                if self.model.loss_type == "separate_bce_poisson_multinomial" and key == "mc":
+                    _y_pred = torch.sigmoid(_y_pred)
+                y_pred[key] = _y_pred
+
+            # turn dict into a single tensor
+            y_pred = torch.cat([y_pred[key] for key in ["atac", "mc"]], dim=1)
+        else:
+            y_pred = y_pred.detach()
+            if self.model.loss_type == "bce":
+                y_pred = torch.sigmoid(y_pred)
+
+        # post processed y_pred is a single tensor
+        return y_pred
+
+    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
         dna_key = "dna_one_hot"
         embedding_key = "cell_type_embedding"
 
@@ -245,10 +293,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         X = batch.pop(dna_key)
         embedding = batch.get(embedding_key, None)
 
-        y_true = batch.pop(data_key)
-        if y_true.ndim == 2:
-            # add the channel dimension to y_true
-            y_true = y_true.unsqueeze(1)
+        y_true = self._get_y_true(batch)
 
         # ==========
         # Forward and Loss
@@ -257,12 +302,8 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         # assert y_true.shape == y_pred.shape, f"Shapes aren't the same. Preds shape: {y_pred.shape}\n Targets shape: {y_true.shape}"
         loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
 
-        y_pred = y_pred.detach()
-
-        with torch.no_grad():
-            if self.model.loss_type == "bce":
-                y_pred = torch.sigmoid(y_pred)
-
+        # post process after calculating loss
+        y_pred = self._post_process_y_pred(y_pred)
         return y_true, y_pred, loss, loss_breakdown
 
     def _print_banner(self, text):

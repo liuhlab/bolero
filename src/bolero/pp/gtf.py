@@ -28,36 +28,6 @@ def universal_mapping(input, mapping: dict):
         raise ValueError(f"Unsupported input type: {type(input)}")
 
 
-def _parse_region(region):
-    if isinstance(region, str):
-        chrom, coords = region.split(":")
-        start, end = map(int, coords.split("-"))
-    else:
-        chrom, start, end = region
-    return chrom, start, end
-
-
-def _find_overlap_regions(bed_df, region, full_overlap=False):
-    chrom, start, end = _parse_region(region)
-    if full_overlap:
-        # bed row is fully inside the region
-        overlap = bed_df[
-            (bed_df["Chromosome"] == chrom)
-            & (bed_df["End"] > start)
-            & (bed_df["End"] < end)
-            & (bed_df["Start"] > start)
-            & (bed_df["Start"] < end)
-        ]
-    else:
-        # bed row is partially inside the region
-        overlap = bed_df[
-            (bed_df["Chromosome"] == chrom)
-            & (bed_df["End"] > start)
-            & (bed_df["Start"] < end)
-        ]
-    return overlap
-
-
 def features_to_bed(features):
     """Convert gffutils.Feature to bed format."""
     columns = ["Chromosome", "Start", "End", "Name", "Strand", "GeneID", "FeatureType"]
@@ -440,13 +410,23 @@ class Transcript(Feature, FeatureSharedPropertyMixin):
         return ax
 
 
+# Currently gtf path is hard coded
+# look for a remote storage solution
 MM10_GTF_PATH = "/large_storage/zhoulab/hanliu/wmb/ref/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gtf"
 MM10_GTFDB_PATH = "/large_storage/zhoulab/hanliu/wmb/ref/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gffutils.db"
+HG38_GTF_PATH = (
+    "/large_storage/zhoulab/hanliu/wmb/ref/hg38/gtf/gencode.v30.annotation.gtf"
+)
+HG38_GTFDB_PATH = (
+    "/large_storage/zhoulab/hanliu/wmb/ref/hg38/gtf/gencode.v30.annotation.gffutils.db"
+)
 
 
 def load_gtf(genome: str = "mm10"):
     """Load GTFDB for genome."""
     if genome == "mm10":
         return GTFDB(MM10_GTFDB_PATH)
+    elif genome == "hg38":
+        return GTFDB(HG38_GTFDB_PATH)
     else:
         raise ValueError(f"Unsupported genome: {genome}")
