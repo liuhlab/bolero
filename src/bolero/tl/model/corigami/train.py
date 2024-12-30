@@ -414,7 +414,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
 
         # only clear the early stopping counter if the pearson correlation is better than tolerance
         previous_best = self.best_correlation
-        if epoch > 30:
+        if epoch > 20:
             if single_batch_pearson > self.best_correlation:
                 self.early_stopping_counter = 0
             else:

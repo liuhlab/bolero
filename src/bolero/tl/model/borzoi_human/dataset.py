@@ -789,7 +789,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         return_regions=True,
         n_batches=None,
         shuffle_rows=300,
-        concurrency=4,
+        concurrency=6,
         **dataloader_kwargs,
     ) -> Iterable[dict[str, Any]]:
         """
