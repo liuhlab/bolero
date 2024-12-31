@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from bolero.pl.track1d import Track1DExamplePlotter, per_row_mse, per_row_pearsonr
+from bolero.pl.utils import figure_to_array
 
 
 class HicExamplePlotter(Track1DExamplePlotter):
@@ -97,6 +98,7 @@ class HicExamplePlotter(Track1DExamplePlotter):
         plot_channel: int = 0,
         vmin: float = -2,
         vmax: float = 2,
+        return_array: bool = False,
     ):
         """
         Plot the target and predicted values in the batch.
@@ -156,4 +158,9 @@ class HicExamplePlotter(Track1DExamplePlotter):
             ax_2.set_xticks([])
             ax_2.set_yticks([])
         plt.tight_layout()
-        return fig, axes
+
+        if return_array:
+            fig_array = figure_to_array(fig)
+            plt.close(fig)
+            fig = fig_array
+        return fig

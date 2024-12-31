@@ -5,7 +5,7 @@ import torch
 init(num_cpus=16, verbose=True)
 
 # %%
-name = "2024-12-11-borzoi-corigami-all-cell-type-true-atac"
+name = "2024-12-31-borzoi-corigami-all-cell-type-true-atac-freeze-borzoi"
 fold_id = 0
 wandb_project = "borzoi_corigami_human_all_cell_types"
 
@@ -39,18 +39,23 @@ config = {
     "fold_split_id": fold_id,
     "max_epochs": 200,
     "patience": 10,
+    "start_early_stop_after_epoch": 20,
     "use_amp": True,
     "use_ema": False,
+    "scheduler": True,
     "train_batches": train_batches,
     "val_batches": val_batches,
-    "batch_size": 4,
+    "batch_size": 2,
     "use_predicted_atac": False,
     "use_dna_embedding": True,
     "lr": lr,
+    "optimizer": "adamw",
     "weight_decay": 0,
-    "std": 0.1,
+    "global_clipnorm": 1,
+    "accumulate_grad": 1,
     "dataloader_concurrency": 6,
     "borzoi_checkpoint_path": borzoi_checkpoint_path,
+    "freeze_borzoi": False,
     # dataset
     "cell_types": cell_types,
     "dataset_path": dataset_path,
@@ -79,6 +84,18 @@ config = BorzoiCorigamiHumanLoRATrainer.make_config(**config)
 
 # %%
 trainer = BorzoiCorigamiHumanLoRATrainer(config)
+
+# # %%
+# dataset = trainer.dataset
+# dataset.train()
+# (train_folds, valid_folds, test_folds, train_regions, valid_regions, test_regions) = dataset.get_train_valid_test(fold=0)
+# dataloader = dataset.get_dataloader(region_bed=train_regions)
+
+# # %%
+# for batch_id, batch in enumerate(dataloader):
+#     print(batch_id, batch)
+#     break
+
 # %%
 trainer.train()
 # %%

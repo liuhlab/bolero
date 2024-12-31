@@ -7,18 +7,25 @@ import torch
 import wandb
 
 from bolero.pl.borzoi import BorzoiExamplePlotter
+from bolero.pl.hic import HicExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
-from bolero.tl.generic.train_helper import CumulativeCounter
+from bolero.tl.generic.train_helper import (
+    CumulativeCounter,
+    CumulativePearson,
+    batch_pearson_correlation,
+    insulation_pearson,
+)
 from bolero.tl.model.borzoi.dataset import BorzoiDataset
 from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAwithArches
+from bolero.tl.model.borzoi.module_output import DualOutputHead
+from bolero.tl.model.borzoi_human.module_hic import Corigami
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import MovingMetric
 
-from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 class TrainerBorzoiDatasetMixin:
     """
@@ -228,6 +235,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "global_clipnorm": 0.1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
+        "pretrained_model": "REQUIRED",
         "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         "accumulate_grad": 4,
@@ -238,6 +246,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "downsample_test_region": None,
         "grad_norm_collector": False,
         "save_state_every_n_epoch": None,
+        "plot_vmin": -2,
+        "plot_vmax": 2,
     }
 
     def __init__(self, config):
@@ -278,20 +288,21 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # if val batches is None, use all batches in the dataset
         size = 0
         mean_val_loss = CumulativeCounter()
-
         mean_loss_breakdown = {}
 
-        if isinstance(model.final_output_head, DualOutputHead):
-
+        if hasattr(model, "final_output_head") and isinstance(
+            model.final_output_head, DualOutputHead
+        ):
             num_channels = len(self.config["data_key"])
             mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
-                        self.device
-                    )
-        else:
-            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
-            self.device
-        )
-
+                self.device
+            )
+        elif hasattr(model, "out_channels"):
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(
+                n_channels=model.out_channles
+            ).to(self.device)
+        elif isinstance(self.model, Corigami):
+            mean_val_corr = CumulativeCounter()
 
         if self.prefix in self.dataset.name_to_pseudobulker:
             # this part is for mouse pseudobulk dataset
@@ -302,23 +313,43 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         example_batches = []  # collect example batches for making images
         data_collector = []  # collect data for further analysis
 
+        across_batch_val_corr = CumulativePearson()
         for batch_id, batch in enumerate(dataloader):
-            y_true, y_pred, loss, loss_breakdown, *additional_results = (
-                self._model_forward_pass(model, batch)
-            )
-
-            if len(additional_results) > 0:
-                additional_results = additional_results[0]
+            if isinstance(self.model, Corigami):
+                region2 = getattr(self.dataset, "region2", None)
+                if region2:
+                    (*_, y_true), (*_, y_pred), loss = self._model_forward_pass(
+                        model, batch
+                    )
+                else:
+                    y_true, y_pred, loss = self._model_forward_pass(model, batch)
+                # across batch pearson
+                across_batch_val_corr.update(y_pred, y_true)
+                # insulation score
+                insulation_score = np.mean(insulation_pearson(y_pred, y_true))
             else:
-                additional_results = {}
+                y_true, y_pred, loss, loss_breakdown, *additional_results = (
+                    self._model_forward_pass(model, batch)
+                )
 
-            mean_val_corr.update(target=y_true, preds=y_pred)
-            for k, v in loss_breakdown.items():
-                try:
-                    mean_loss_breakdown[k].update(v)
-                except KeyError:
-                    mean_loss_breakdown[k] = CumulativeCounter()
-                    mean_loss_breakdown[k].update(v)
+                if len(additional_results) > 0:
+                    additional_results = additional_results[0]
+                else:
+                    additional_results = {}
+
+                for k, v in loss_breakdown.items():
+                    try:
+                        mean_loss_breakdown[k].update(v)
+                    except KeyError:
+                        mean_loss_breakdown[k] = CumulativeCounter()
+                        mean_loss_breakdown[k].update(v)
+                batch.update(loss_breakdown)
+
+            if isinstance(self.model, Corigami):
+                corr = batch_pearson_correlation(y_pred, y_true).detach().cpu()[:, None]
+                mean_val_corr.update(corr)
+            else:
+                mean_val_corr.update(preds=y_pred, target=y_true)
             mean_val_loss.update(loss)
 
             # add additional data into batch dict
@@ -329,7 +360,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
             else:
                 batch["sample_id"] = batch.get("cell_type_id", None)
-            batch.update(loss_breakdown)
+
             if collect_data:
                 data_collector.append(
                     {
@@ -343,11 +374,20 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 example_batches.append(batch)
 
             if ((batch_id + 1) % print_step) == 0:
-                desc_str = (
-                    f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
-                    f"Mean Loss: {mean_val_loss.mean():.3f}; "
-                    f"Mean Track Corr: {mean_val_corr.get_corr_str()}; "
-                )
+                if isinstance(self.model, Corigami):
+                    desc_str = (
+                        f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
+                        f"Loss: {mean_val_loss.mean():.3f}; "
+                        f"Within batch Pearson: {mean_val_corr.mean():.3f}; "
+                        f"Across batch Pearson: {across_batch_val_corr.corr():.3f}; "
+                        f"Insulation Pearson: {insulation_score:.3f}"
+                    )
+                else:
+                    desc_str = (
+                        f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
+                        f"Mean Loss: {mean_val_loss.mean():.3f}; "
+                        f"Mean Track Corr: {mean_val_corr.get_corr_str()}; "
+                    )
                 print(desc_str)
 
         del dataloader
@@ -377,10 +417,25 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         val_loss_breakdown = {k: v.mean() for k, v in mean_loss_breakdown.items()}
         val_corr = mean_val_corr
 
-        if collect_data:
-            return val_loss, val_loss_breakdown, val_corr, wandb_images, data_collector
+        if isinstance(model, Corigami):
+            return (
+                val_loss,
+                val_corr,
+                across_batch_val_corr.corr(),
+                insulation_score,
+                wandb_images,
+            )
         else:
-            return val_loss, val_loss_breakdown, val_corr, wandb_images
+            if collect_data:
+                return (
+                    val_loss,
+                    val_loss_breakdown,
+                    val_corr,
+                    wandb_images,
+                    data_collector,
+                )
+            else:
+                return val_loss, val_loss_breakdown, val_corr, wandb_images
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
@@ -405,32 +460,62 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 batch["gene_names"] = gene_names
 
             try:
-                plotter = BorzoiExamplePlotter(
-                    genome=self.dataset.genome,
-                    true_key=true_key,
-                    pred_key=pred_key,
-                    id_key="sample_id",
-                    plot_mode=(
-                        "atac"
-                        if self.model.loss_type == "poisson_multinomial"
-                        else "mc"
-                    ),
-                )
-                fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
+                if isinstance(self.model, Corigami):
+                    plotter = HicExamplePlotter(true_key, pred_key)
+                    fig = plotter.plot(
+                        batch,
+                        figsize=(40, 20),
+                        dpi=100,
+                        top_example=2,
+                        bottom_example=2,
+                        plot_channel=0,
+                        vmin=self.config["plot_vmin"],
+                        vmax=self.config["plot_vmax"],
+                    )
+                else:
+                    plotter = BorzoiExamplePlotter(
+                        genome=self.dataset.genome,
+                        true_key=true_key,
+                        pred_key=pred_key,
+                        id_key="sample_id",
+                        plot_mode=(
+                            "atac"
+                            if self.model.loss_type == "poisson_multinomial"
+                            else "mc"
+                        ),
+                    )
+                    fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
 
                 if self.dataset.paired_data:
                     nrows = [0, 2]
                 else:
                     nrows = 2
 
-                for channel in range(self.model.out_channels):
-                    fig = plotter.plot(
-                        batch,
-                        channel=channel,
-                        nrows=nrows,
-                        return_array=True,
-                        y_sync=y_sync,
-                    )
+                if hasattr(self.model, "out_channels"):
+                    n_channels = self.model.out_channels
+                else:
+                    n_channels = 1
+                for channel in range(n_channels):
+                    if isinstance(self.model, Corigami):
+                        fig = plotter.plot(
+                            batch,
+                            figsize=(40, 20),
+                            dpi=100,
+                            top_example=2,
+                            bottom_example=2,
+                            plot_channel=0,
+                            vmin=self.config["plot_vmin"],
+                            vmax=self.config["plot_vmax"],
+                            return_array=True,
+                        )
+                    else:
+                        fig = plotter.plot(
+                            batch,
+                            channel=channel,
+                            nrows=nrows,
+                            return_array=True,
+                            y_sync=y_sync,
+                        )
 
                     wandb_images[channel].append(
                         wandb.Image(
@@ -456,20 +541,41 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         train_corr = self.train_corr
         learning_rate = self.cur_lr
         val_loss = self.val_loss
-        val_loss_breakdown = self.val_loss_breakdown
+        val_loss_breakdown = (
+            self.val_loss_breakdown if hasattr(self, "val_loss_breakdown") else {}
+        )
         val_corr = self.val_corr
+        across_batch_val_corr = (
+            self.across_batch_val_corr
+            if hasattr(self, "across_batch_val_corr")
+            else None
+        )
+        insulation_score = (
+            self.insulation_score if hasattr(self, "insulation_score") else None
+        )
+
+        if isinstance(self.model, Corigami):
+            mean_train_corr = train_corr.mean()
+            mean_val_corr = val_corr.mean()
+        else:
+            mean_train_corr = train_corr.get_corr_str()
+            mean_val_corr = val_corr.get_corr_str()
 
         print(
-            f" - (Training)   {epoch} Loss: {train_loss:.3f}; Mean Corr. : {train_corr.get_corr_str()}; "
+            f" - (Training)   {epoch} Loss: {train_loss:.3f}; Mean Corr. : {mean_train_corr}; "
             f"Learning rate {learning_rate}."
         )
         print(
-            f" - (Validation) {epoch} Loss: {val_loss:.3f}; Mean Corr. : {val_corr.get_corr_str()}."
+            f" - (Validation) {epoch} Loss: {val_loss:.3f}; Mean Corr. : {mean_val_corr}."
         )
-        self.model.print_loss_weight()
+        if hasattr(self.model, "print_loss_weight"):
+            self.model.print_loss_weight()
 
         larger_is_better = True  # use corr as the metric, larger is better
-        metric_to_use = val_corr.compute_tensor().mean().item()
+        if isinstance(self.model, Corigami):
+            metric_to_use = val_corr.mean()
+        else:
+            metric_to_use = val_corr.compute_tensor().mean().item()
         previous_best = self.best_val_metric
         if larger_is_better:
             improved = metric_to_use > self.best_val_metric
@@ -496,13 +602,13 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # save checkpoint if the loss is better
         if epoch < self.start_early_stop_after_epoch:
             self.best_val_metric = metric_to_use
-            self._save_checkpint(update_best=True)
+            self._save_checkpoint(update_best=True)
         else:
             if improved:
                 self.best_val_metric = metric_to_use
-                self._save_checkpint(update_best=True)
+                self._save_checkpoint(update_best=True)
             else:
-                self._save_checkpint(update_best=False)
+                self._save_checkpoint(update_best=False)
 
         # save epoch model state for comparing model over epochs
         save_every_n_epoch = self.config.get("save_state_every_n_epoch", None)
@@ -517,12 +623,19 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         }
         for k, v in val_loss_breakdown.items():
             log_dict[f"val/val_loss_{k}"] = v
-        channel_order = self.channel_order
-        for channel, corr in enumerate(val_corr.compute_tensor()):
-            name = channel_order[channel]
-            log_dict[f"val/val_corr_{name}"] = corr
+        if isinstance(self.model, Corigami):
+            log_dict["val/val_corr"] = mean_val_corr
+        else:
+            channel_order = self.channel_order
+            for channel, corr in enumerate(val_corr.compute_tensor()):
+                name = channel_order[channel]
+                log_dict[f"val/val_corr_{name}"] = corr
         for channel_name, channel_imgs in val_imgs.items():
             log_dict[f"val_example/example_tracks_{channel_name}"] = channel_imgs
+        if across_batch_val_corr is not None:
+            log_dict["val/across_batch_val_corr"] = across_batch_val_corr
+        if insulation_score is not None:
+            log_dict["val/insulation_score"] = insulation_score
         wandb.log(log_dict)
 
         flag = self.early_stopping_counter >= self.patience
@@ -626,6 +739,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def _get_optimizer(self):
         optimizer_type = self.config["optimizer"]
+        if not hasattr(self.model, "lora_preset"):
+            self.model.lora_preset = "original"
         parameter_groups = self._fine_grained_lr_groups()
 
         if optimizer_type == "adamw":
@@ -681,21 +796,25 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             # start train epochs
             moving_ave_loss = CumulativeCounter()
 
-            if isinstance(self.model.final_output_head, DualOutputHead):
-
+            if hasattr(self.model, "final_output_head") and isinstance(
+                self.model.final_output_head, DualOutputHead
+            ):
                 num_channels = len(self.config["data_key"])
-                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
-                            self.device
-                        )
-            else:
-                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=self.model.out_channels).to(
-                self.device
-            )          
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(
+                    n_channels=num_channels
+                ).to(self.device)
+            elif hasattr(self.model, "out_channels"):
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(
+                    n_channels=self.model.out_channels
+                ).to(self.device)
+            elif isinstance(self.model, Corigami):
+                moving_ave_corr = CumulativeCounter()
             nan_loss = False
             print_steps = max(5, self.train_batches // 20)
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
+            region2 = getattr(self.dataset, "region2", None)
             for batch_id, batch in enumerate(dataloader):
                 try:
                     auto_cast_context = torch.autocast(
@@ -711,14 +830,26 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         enabled=self.use_amp,
                     )
                 with auto_cast_context:
-                    y_true, y_pred, loss, _, *additional_results = (
-                        self._model_forward_pass(self.model, batch)
-                    )
+                    if isinstance(self.model, Corigami):
+                        # borzoi corigami model forward pass
+                        if region2:
+                            (*_, y_true), (*_, y_pred), loss = self._model_forward_pass(
+                                self.model, batch
+                            )
+                        else:
+                            y_true, y_pred, loss = self._model_forward_pass(
+                                self.model, batch
+                            )
 
-                    if len(additional_results) > 0:
-                        additional_results = additional_results[0]
                     else:
-                        additional_results = {}
+                        y_true, y_pred, loss, _, *additional_results = (
+                            self._model_forward_pass(self.model, batch)
+                        )
+
+                        if len(additional_results) > 0:
+                            additional_results = additional_results[0]
+                        else:
+                            additional_results = {}
 
                     if np.isnan(loss.item()):
                         nan_loss = True
@@ -733,7 +864,15 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 scale_loss = loss / self.accumulate_grad
                 scaler.scale(scale_loss).backward()
                 moving_ave_loss.update(loss.item())
-                moving_ave_corr.update(preds=y_pred, target=y_true)
+                if isinstance(self.model, Corigami):
+                    corr = (
+                        batch_pearson_correlation(y_pred, y_true)
+                        .detach()
+                        .cpu()[:, None]
+                    )
+                    moving_ave_corr.update(corr)
+                else:
+                    moving_ave_corr.update(preds=y_pred, target=y_true)
 
                 # only update optimizer every accumulate_grad steps
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)
@@ -741,22 +880,29 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 if (batch_id + 1) % self.accumulate_grad == 0:
                     if self.config["global_clipnorm"] is not None:
                         scaler.unscale_(optimizer)
-                        param_groups = self.model.get_global_clipnorm_params()
-                        for i, group in enumerate(param_groups):
-                            if len(group) == 0:
-                                continue
-                            if i == 0:
-                                # use the first group (major group) as the total norm
-                                total_norm = torch.nn.utils.clip_grad_norm_(
-                                    group,
-                                    max_norm=self.config["global_clipnorm"],
-                                )
-                                total_norm = total_norm.item()
-                            else:
-                                torch.nn.utils.clip_grad_norm_(
-                                    group,
-                                    max_norm=self.config["global_clipnorm"],
-                                )
+                        if hasattr(self.model, "get_global_clipnorm_params"):
+                            param_groups = self.model.get_global_clipnorm_params()
+                            for i, group in enumerate(param_groups):
+                                if len(group) == 0:
+                                    continue
+                                if i == 0:
+                                    # use the first group (major group) as the total norm
+                                    total_norm = torch.nn.utils.clip_grad_norm_(
+                                        group,
+                                        max_norm=self.config["global_clipnorm"],
+                                    )
+                                    total_norm = total_norm.item()
+                                else:
+                                    torch.nn.utils.clip_grad_norm_(
+                                        group,
+                                        max_norm=self.config["global_clipnorm"],
+                                    )
+                        else:
+                            total_norm = torch.nn.utils.clip_grad_norm_(
+                                self.model.parameters(),
+                                max_norm=self.config["global_clipnorm"],
+                            )
+                            total_norm = total_norm.item()
 
                         # check moving norm and skip step if the norm is too large (e.g. > 99% moving quantile)
                         # this is to prevent outlier gradients from messing up the training
@@ -785,7 +931,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
                 with torch.no_grad():
                     if (batch_id + 1) % print_steps == 0:
-                        _corr = moving_ave_corr.get_corr_str()
+                        if isinstance(self.model, Corigami):
+                            _corr = moving_ave_corr.mean()
+                        else:
+                            _corr = moving_ave_corr.get_corr_str()
                         _loss = moving_ave_loss.mean()
 
                         desc_str = (
@@ -802,17 +951,19 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             "train/train_total_grad_norm": total_norm,
                             "train/learning_rate": optimizer.param_groups[0]["lr"],
                         }
-                        for channel, corr in enumerate(
-                            moving_ave_corr.compute_tensor()
-                        ):
-                            name = self.channel_order[channel]
-                            log_dict[f"train/train_corr_{name}"] = corr
+                        if not isinstance(self.model, Corigami):
+                            for channel, corr in enumerate(
+                                moving_ave_corr.compute_tensor()
+                            ):
+                                name = self.channel_order[channel]
+                                log_dict[f"train/train_corr_{name}"] = corr
                         wandb.log(log_dict)
 
                     if batch_id % example_step == 0:
                         batch["pred_data"] = y_pred
                         batch["true_data"] = y_true
-                        batch.update(additional_results)
+                        if not isinstance(self.model, Corigami):
+                            batch.update(additional_results)
 
                         if self.prefix in self.dataset.name_to_pseudobulker:
                             # this part is for mouse pseudobulk dataset
@@ -860,12 +1011,21 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             self.train_loss = moving_ave_loss.mean()
             self.train_corr = moving_ave_corr
             self.cur_lr = optimizer.param_groups[0]["lr"]
-            (
-                self.val_loss,
-                self.val_loss_breakdown,
-                self.val_corr,
-                self.val_wandb_images,
-            ) = self._validation_step()
+            if isinstance(self.model, Corigami):
+                (
+                    self.val_loss,
+                    self.val_corr,
+                    self.across_batch_val_corr,
+                    self.insulation_score,
+                    self.val_wandb_images,
+                ) = self._validation_step()
+            else:
+                (
+                    self.val_loss,
+                    self.val_loss_breakdown,
+                    self.val_corr,
+                    self.val_wandb_images,
+                ) = self._validation_step()
 
             if np.isnan(self.val_loss):
                 print("Validation loss is NaN, skipping epoch.")
@@ -894,25 +1054,61 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             if self.use_ema:
                 self.ema.eval()
                 self.ema.ema_model.eval()
-                val_loss, val_loss_breakdown, val_corr, wandb_images = (
-                    self._model_validation_step(
+                if isinstance(self.model, Corigami):
+                    (
+                        val_loss,
+                        val_corr,
+                        across_batch_val_corr,
+                        insulation_score,
+                        wandb_images,
+                    ) = self._model_validation_step(
                         model=self.ema.ema_model,
                         dataloader=dataloader,
                         val_batches=val_batches,
                     )
-                )
+                else:
+                    val_loss, val_loss_breakdown, val_corr, wandb_images = (
+                        self._model_validation_step(
+                            model=self.ema.ema_model,
+                            dataloader=dataloader,
+                            val_batches=val_batches,
+                        )
+                    )
+                self.ema.train()
+                self.ema.ema_model.train()
             else:
                 self.model.eval()
-                val_loss, val_loss_breakdown, val_corr, wandb_images = (
-                    self._model_validation_step(
+                if isinstance(self.model, Corigami):
+                    (
+                        val_loss,
+                        val_corr,
+                        across_batch_val_corr,
+                        insulation_score,
+                        wandb_images,
+                    ) = self._model_validation_step(
                         model=self.model,
                         dataloader=dataloader,
                         val_batches=val_batches,
                     )
-                )
+                else:
+                    val_loss, val_loss_breakdown, val_corr, wandb_images = (
+                        self._model_validation_step(
+                            model=self.model,
+                            dataloader=dataloader,
+                            val_batches=val_batches,
+                        )
+                    )
                 self.model.train()
-
-        self.model.freeze_batchnorms()
+        if hasattr(self.model, "freeze_batchnorms"):
+            self.model.freeze_batchnorms()
+        if isinstance(self.model, Corigami):
+            return (
+                val_loss,
+                val_corr,
+                across_batch_val_corr,
+                insulation_score,
+                wandb_images,
+            )
         return val_loss, val_loss_breakdown, val_corr, wandb_images
 
     def _test(self):
@@ -920,25 +1116,48 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         self._update_state_dict()
 
         if self.val_loss is None:
-            self.val_loss, self.val_loss_breakdown, self.val_corr, _ = (
-                self._validation_step()
-            )
+            if isinstance(self.model, Corigami):
+                (
+                    self.val_loss,
+                    self.val_corr,
+                    self.acrosss_batch_val_corr,
+                    self.insulation_score,
+                    _,
+                ) = self._validation_step()
+            else:
+                self.val_loss, self.val_loss_breakdown, self.val_corr, _ = (
+                    self._validation_step()
+                )
 
-        self.test_loss, self.test_loss_breakdown, self.test_corr, wandb_images = (
-            self._validation_step(testing=True)
-        )
+        if isinstance(self.model, Corigami):
+            (
+                self.test_loss,
+                self.test_corr,
+                self.across_batch_test_corr,
+                self.test_insulation_score,
+                wandb_images,
+            ) = self._validation_step(testing=True)
+        else:
+            self.test_loss, self.test_loss_breakdown, self.test_corr, wandb_images = (
+                self._validation_step(testing=True)
+            )
 
         wandb.summary["final_valid_loss"] = self.val_loss
         for k, v in self.val_loss_breakdown.items():
             wandb.summary[f"final_valid_loss_{k}"] = v
         wandb.summary["final_valid_corr"] = self.val_corr.compute().mean()
         wandb.summary["final_test_loss"] = self.test_loss
-        for k, v in self.test_loss_breakdown.items():
-            wandb.summary[f"final_test_loss_{k}"] = v
+        if hasattr(self, "test_loss_breakdown"):
+            for k, v in self.test_loss_breakdown.items():
+                wandb.summary[f"final_test_loss_{k}"] = v
         wandb.summary["final_test_corr"] = self.test_corr.compute().mean()
         wandb.summary["final_image"] = wandb_images
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
+        if hasattr(self, "across_batch_test_corr"):
+            wandb.summary["final_across_batch_test_corr"] = self.across_batch_test_corr
+        if hasattr(self, "test_insulation_score"):
+            wandb.summary["final_insulation_score"] = self.test_insulation_score
         return
 
     def train(self):

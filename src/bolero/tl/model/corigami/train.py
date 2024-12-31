@@ -1,14 +1,12 @@
 import time
 
 import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
 import wandb
 
 from bolero.pl.hic import HicExamplePlotter
-from bolero.pl.utils import figure_to_array
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import (
     CumulativeCounter,
@@ -273,7 +271,7 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         wandb_images = []
         for idx, batch in enumerate(example_batches):
             plotter = HicExamplePlotter(target_key, predict_key)
-            fig, _ = plotter.plot(
+            fig = plotter.plot(
                 batch,
                 figsize=(40, 20),
                 dpi=100,
@@ -283,14 +281,10 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
                 vmin=self.config["plot_vmin"],
                 vmax=self.config["plot_vmax"],
             )
-            fig_array = figure_to_array(fig)
-
-            fig.savefig(f"{self.savename}.example_{epoch}_{idx}.jpg")
-            plt.close(fig)
 
             wandb_images.append(
                 wandb.Image(
-                    fig_array,
+                    fig,
                     mode="RGB",
                     caption=f"Epoch {epoch} Example {idx}",
                     grouping=epoch,

@@ -9,7 +9,6 @@ from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.model.borzoi.train import BorzoiTrainerMixin
 from bolero.tl.model.borzoi_human.dataset import BorzoiDatasetOnline
 from bolero.tl.model.borzoi_human.module_hic import Corigami
-from bolero.tl.model.corigami.train import CorigamiTrainer
 
 
 class TrainerBorzoiHumanDatasetMixin:
@@ -82,6 +81,7 @@ class TrainerBorzoiHumanDatasetMixin:
         # if channel_order is None:
         #     channel_order = [self.data_key] * self.config["out_channels"]
         # self.channel_order = channel_order
+        self.channel_order = ["data"]
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -183,6 +183,7 @@ class BorzoiHumanTrainerMixin(TrainerBorzoiHumanDatasetMixin, BorzoiTrainerMixin
         "use_ema": False,
         "scheduler": True,
         "lr": "REQUIRED",
+        "warmup_steps": 5000,
         "large_lr_scale": 1,
         "optimizer": "adamw",
         "weight_decay": 1e-7,
@@ -254,7 +255,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
                         y_true["mc"] = _data
                 else:
                     y_true[key] = _data
-                
+
                 # y_true[key] = _data
         else:
             # y_true is a single tensor
@@ -269,7 +270,10 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         if isinstance(y_pred, dict):
             for key in y_pred:
                 _y_pred = y_pred[key].detach()
-                if self.model.loss_type == "separate_bce_poisson_multinomial" and key == "mc":
+                if (
+                    self.model.loss_type == "separate_bce_poisson_multinomial"
+                    and key == "mc"
+                ):
                     _y_pred = torch.sigmoid(_y_pred)
                 y_pred[key] = _y_pred
 
@@ -343,7 +347,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         return
 
 
-class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTrainer):
+class BorzoiCorigamiHumanLoRATrainer(BorzoiHumanTrainerMixin):
     """Train LoRA model on pseudobulk single-cell ATAC data."""
 
     trainer_config = {
@@ -355,29 +359,30 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
         "wandb_job_type": "REQUIRED",
         "wandb_name": "REQUIRED",
         "wandb_group": None,
-        "max_epochs": 40,
-        "patience": 20,
+        "max_epochs": 100,
+        "patience": 5,
+        "start_early_stop_after_epoch": 20,
         "use_amp": True,
         "use_ema": False,
         "scheduler": True,
         "lr": 0.0002,
-        "std": 0.1,
+        "optimizer": "adamw",
         "weight_decay": 0,
-        "accumulate_grad": 1,
+        "global_clipnorm": 1,
         "grad_norm_collector": True,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
         "loss_tolerance": 0.0,
-        "pretrained_model": None,
         "plot_vmin": -2,
         "plot_vmax": 2,
-        "clip_grad_norm": 1,
-        "loss_cov_cutoff": 10,
         "plot_example_per_epoch": 9,
-        "use_predicted_atac": False,
-        "use_dna_embedding": True,
+        "accumulate_grad": 4,
+        "shuffle_rows": 300,
+        "use_predicted_atac": "REQUIRED",
+        "use_dna_embedding": "REQUIRED",
         "borzoi_checkpoint_path": "REQUIRED",
         "dataloader_concurrency": 4,
+        "freeze_borzoi": False,
     }
 
     dataset_class = BorzoiDatasetOnline
@@ -447,8 +452,9 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
             )
             model_weights = checkpoint["state_dict"]
             self.borzoi_model.load_state_dict(model_weights)
-            for _, param in self.borzoi_model.named_parameters():
-                param.requires_grad = False
+            if self.config["freeze_borzoi"]:
+                for _, param in self.borzoi_model.named_parameters():
+                    param.requires_grad = False
             self.borzoi_model.to(self.device)
             print(self.borzoi_model)
 
@@ -583,3 +589,25 @@ class BorzoiCorigamiHumanLoRATrainer(TrainerBorzoiHumanDatasetMixin, CorigamiTra
             )
             loss = F.mse_loss(y_pred, y_true)
         return y_true, y_pred, loss
+
+    def train(self) -> None:
+        """
+        Train the model.
+
+        Returns
+        -------
+        None
+        """
+        wandb_run = self._setup_wandb()
+        if wandb_run is None:
+            return
+
+        with wandb_run:
+            self.checkpoint = self._has_last_checkpoint()
+            self._setup_model()
+            self._setup_fit()
+            self._fit()
+            self._test()
+            self._cleanup_env()
+            wandb.finish()
+        return
