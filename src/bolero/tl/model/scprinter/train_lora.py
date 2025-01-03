@@ -1,11 +1,10 @@
-import pathlib
 from copy import deepcopy
 
 import ray
 import torch
-import wandb
 
 from bolero.tl.model.scprinter.dataset import scPrinterDataset
+from bolero.tl.model.scprinter.dataset_online import scPrinterOnlineDataset
 from bolero.tl.model.scprinter.model import seq2PRINTLoRA
 from bolero.tl.model.scprinter.train_base import scFootprintTrainerMixin
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
@@ -34,8 +33,10 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
     pseudobulk_class = RNAVQPseudobulker
 
     def _setup_model(self):
-        config_for_lora = deepcopy(self.config)
-        self.model = seq2PRINTLoRA.create_from_config(config_for_lora)
+        config_for_lora = {
+            k: v for k, v in self.config.items() if k in self.model_class.default_config
+        }
+        self.model = self.model_class.create_from_config(config_for_lora)
         self.model.cuda()
         self._set_total_params()
         return
@@ -94,27 +95,8 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
 
     def train(self) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
-        wandb_run = self._setup_wandb()
-        if wandb_run is None:
-            return
-
-        with wandb_run:
-            self.mode = "lora"
-            flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
-            if flag.exists():
-                print(f"Training already finished, found flag file: {flag}.")
-                return
-
-            # Fit LoRA
-            self.checkpoint = self._has_last_checkpoint()
-            self._setup_model()
-            self._setup_fit()
-            self._fit()
-            self._test()
-            self._cleanup_env()
-            wandb.finish()
-            flag.touch()
-        return
+        self.mode = "lora"
+        super().train()
 
 
 class scFootprintLoRATester(scFootprintLoRATrainer):
@@ -159,3 +141,69 @@ class scFootprintLoRATester(scFootprintLoRATrainer):
         else:
             self.save_batches(data_batches, saveas)
         return
+
+
+class scFootprintLoraTrainerOnline(scFootprintLoRATrainer):
+    trainer_config = scFootprintTrainerMixin.trainer_config.copy()
+
+    trainer_config.update(
+        {
+            "mode": "lora",
+            "lr": 0.0001,
+            "accumulate_grad": 8,
+            "prefix": "pseudobulk",
+        }
+    )
+
+    dataset_class = scPrinterOnlineDataset
+
+    def _setup_model(self):
+        config_for_lora = deepcopy(self.config)
+        self.model = self.model_class.create_from_config(config_for_lora)
+        self.model.cuda()
+        self._set_total_params()
+        return
+
+    def _get_dataset(self):
+        dataset = scFootprintTrainerMixin._get_dataset(self)
+        return dataset
+
+    def _model_forward_pass(self, model, batch):
+        prefix = self.prefix
+        atac_key = f"{prefix}:bulk_data"
+        batch["true_atac"] = batch[atac_key]
+        dna_key = "dna_one_hot"
+        footprint_key = f"{prefix}:bulk_data_footprint"
+        footprinter = self.footprinter
+        embedding = batch["cell_type_embedding"]
+        if "mc_frac" in batch:
+            batch["true_mc"] = batch["mc_frac"]
+
+        # ==========
+        # X
+        # ==========
+        X = batch[dna_key]
+
+        # ==========
+        # y_footprint, y_coverage
+        # ==========
+        batch = footprinter(data=batch)
+        batch["true_footprint"] = batch[footprint_key]
+        batch["true_coverage"] = (
+            batch[atac_key].sum(dim=-1).squeeze(1)
+        )  # remove the channel dim
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        result = model(X, embedding=embedding)
+        batch.update(result)
+
+        # clip pred_mc to the same size of true_mc
+        if "mc_frac" in batch:
+            clip_size = (self.dataset.dna_window - self.dataset.signal_window) // 2
+            batch["pred_mc"] = batch["pred_mc"][..., clip_size:-clip_size]
+
+        loss_dict = model.loss(batch)
+        batch.update(loss_dict)
+        return batch, loss_dict["loss_total"]

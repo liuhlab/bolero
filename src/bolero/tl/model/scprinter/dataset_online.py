@@ -182,7 +182,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
         self,
         dataset,
         batch_size=512,
-        concurrency=1,
+        concurrency=(1, 3),
     ):
         cov_filter_key = self.cov_filter_name
         fn = FilterRegions
@@ -224,14 +224,13 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
         """Sum up data along the cell type axis."""
 
         def merge_fn(batch):
+            eps = 1e-6
             for key in data_keys:
                 if key.endswith("_mc_frac"):
                     mc_type = key.replace("_mc_frac", "")
-                    mc_data = batch[mc_type + "_mc"]
-                    cov_data = batch[mc_type + "_cov"]
-                    mc_frac = mc_data.sum(axis=1, keepdims=True) / cov_data.sum(
-                        axis=1, keepdims=True
-                    )
+                    mc_data = batch[mc_type + "_mc"].sum(axis=1, keepdims=True)
+                    cov_data = batch[mc_type + "_cov"].sum(axis=1, keepdims=True)
+                    mc_frac = mc_data / (cov_data + eps)
                     batch[key] = mc_frac
                 else:
                     # merge along the cell type axis (axis=1)
@@ -324,7 +323,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
             dataset=work_ds,
             data_key="tn5_bias",
             bigwig_paths=[self.tn5_bias_path],
-            concurrency=concurrency,
+            concurrency=1,
             norm_mode=None,
             scale_factors=None,
         )
@@ -337,7 +336,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                     dataset=work_ds,
                     data_key=data_key,
                     bigwig_paths=file_paths,
-                    concurrency=concurrency,
+                    concurrency=(1, concurrency // 4),
                     norm_mode=None,
                     scale_factors=None,
                 )
@@ -346,7 +345,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                     dataset=work_ds,
                     allc_paths=file_paths,
                     mc_prefix=data_key,
-                    concurrency=concurrency,
+                    concurrency=(1, concurrency // 2),
                 )
                 work_ds = self._get_mc_frac(
                     dataset=work_ds,
@@ -369,7 +368,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                 data_1d_keys=data_keys,
                 data_2d_keys=None,
                 chance=0.5,
-                concurrency=(1, 6),
+                concurrency=1,
                 batch_size=512,
             )
 
@@ -384,7 +383,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
             work_ds = self._merge_cell_type(
                 dataset=work_ds,
                 data_keys=[k for k in data_keys if k != "tn5_bias"],
-                concurrency=6,
+                concurrency=2,
             )
         else:
             work_ds = self._convert_to_list_dict(
@@ -393,7 +392,7 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                 # important: tn5_bias is not cell type specific
                 data_1d_keys=[k for k in data_keys if k != "tn5_bias"],
                 data_2d_keys=[],
-                concurrency=6,
+                concurrency=2,
                 key_suffix=None,
                 keep_channel_dim=True,
             )
@@ -475,13 +474,14 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
     def get_train_valid_test(self, fold):
         """Get the train, valid, and test regions for the given fold."""
         (
-            train_folds,
-            valid_folds,
-            test_folds,
             borzoi_train_regions,
             borzoi_valid_regions,
             borzoi_test_regions,
-        ) = BorzoiDatasetOnline.get_train_valid_test(self, fold)
+        ) = self.borzoi_regions.get_train_valid_test_regions(fold)
+        fold_dict = self.borzoi_regions.fold_splits[fold]
+        train_folds = fold_dict["train"]
+        valid_folds = fold_dict["valid"]
+        test_folds = fold_dict["test"]
 
         # convert regions to peak regions
         # TrainerBorzoiDatasetMixin uses the Borzoi regions as train/valid/test regions
@@ -489,7 +489,10 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
         def _intersect_region_with_borzoi_regions(region_bed, borzoi_regions):
             borzoi_regions = pr.PyRanges(borzoi_regions)
             region_bed = region_bed.overlap(borzoi_regions).as_df()
-            region_bed["Original_Name"] = region_bed["region"]
+            try:
+                region_bed["Original_Name"] = region_bed["region"]
+            except KeyError:
+                region_bed["Original_Name"] = region_bed["Name"]
             return region_bed
 
         region_bed = pr.PyRanges(self.bed)

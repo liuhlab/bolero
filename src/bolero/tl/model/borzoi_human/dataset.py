@@ -627,10 +627,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
                 # add channel dimension
                 if keep_dim:
-                    for key in cell_type_related_keys:
+                    for key in data_1d_keys:
                         data = new_data_dict[key]
                         new_data_dict[key] = data[
-                            :, np.newaxis, :
+                            np.newaxis, :
                         ]  # add channel dimension
 
                 list_data_dict.append(new_data_dict)

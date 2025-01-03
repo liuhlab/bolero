@@ -79,7 +79,7 @@ def postprocess_footprint(
     if isinstance(footprint, torch.Tensor):
         footprint = footprint.clone()
         footprint = zscore2pval_torch(footprint)
-        footprint = footprint.cpu().numpy()
+        footprint = footprint.float().cpu().numpy()
     else:
         footprint = zscore2pval(footprint)
 

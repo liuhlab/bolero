@@ -136,7 +136,8 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         example_batches = []  # collect example batches for making images
         data_collector = []  # collect data for further analysis
         for batch_id, batch in enumerate(dataloader):
-            batch, _ = self._model_forward_pass(model, batch)
+            with self.get_autocast():
+                batch, _ = self._model_forward_pass(model, batch)
             # as is in scPrinter
             batch["true_footprint"] = torch.nan_to_num(batch["true_footprint"], nan=0.0)
 
@@ -146,7 +147,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             for k in model.output_keys:
                 loss_logger[k].update(batch[f"loss_{k}"])
                 across_batch_pearson_logger[k].update(
-                    batch["pred_{k}"], batch["true_{k}"]
+                    batch[f"pred_{k}"], batch[f"true_{k}"]
                 )
 
             corr = (
@@ -179,6 +180,11 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # ==========
         self.val_images = self._plot_example_footprints(example_batches)
         self.val_loss = {k: loss_logger[k].mean() for k in model.output_keys}
+        # check nan
+        for k, v in self.val_loss.items():
+            if np.isnan(v):
+                raise ValueError(f"Validation loss has NaN for {k}.")
+
         self.profile_pearson = profile_pearson_counter.mean()
         self.across_pearson = {
             k: across_batch_pearson_logger[k].corr() for k in model.output_keys
@@ -197,7 +203,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 signal=batch["true_atac"],
                 bias=batch["tn5_bias"],
                 target=batch["true_footprint"],
-                predict=batch["pred_score"],
+                predict=batch["pred_footprint"],
                 footprinter=self.footprinter,
             )
             fig, _ = plotter.plot(figsize=(6, 2.5), dpi=100)
@@ -214,7 +220,13 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 )
             )
 
-            # TODO: add mC plot if available, append to wandb_images
+            if "true_mc" in batch:
+                # TODO: add mC plot if available, append to wandb_images
+                # mc plotter
+                # shape (bs, mc_channel, seq_len)
+                _ = batch["true_mc"], batch["pred_mc"]
+                pass
+
         return wandb_images
 
     def _log_save_and_check_stop(self):
@@ -366,6 +378,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
                     if scheduler is not None:
                         scheduler.step()
+                    self.cur_lr = optimizer.param_groups[0]["lr"]
 
                 with torch.no_grad():
                     for key in self.model.output_keys:
@@ -377,6 +390,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             for key in self.model.output_keys
                         }
                         log_dict["train/total_grad_norm"] = total_norm
+                        log_dict["train/learning_rate"] = self.cur_lr
                         wandb.log(log_dict)
 
                     if (batch_id + 1) % example_step == 0:
@@ -388,16 +402,9 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             self._cleanup_env()
 
             self.train_loss = {k: loss_logger[k].mean() for k in self.model.output_keys}
-            self.cur_lr = optimizer.param_groups[0]["lr"]
 
             # validation
             self._validation_step()
-
-            if np.isnan(self.val_loss[0]):
-                print("Validation loss is NaN, skipping epoch.")
-                self._update_state_dict()
-                continue
-
             self.cur_epoch += 1
             stop_flag = self._log_save_and_check_stop()
             if stop_flag:
@@ -420,23 +427,43 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             wandb.summary[f"final_valid_across_pearson_{key}"] = self.across_pearson[
                 key
             ]
-        wandb.summary["final_valid_profile_pearson"] = self.profile_pearson.mean()
+        wandb.summary["final_valid_profile_pearson"] = self.profile_pearson
 
         # test
         self._validation_step(testing=True, val_batches=1500)
         for key in self.model.output_keys:
             wandb.summary[f"final_test_loss_{key}"] = self.val_loss[key]
             wandb.summary[f"final_test_across_pearson_{key}"] = self.across_pearson[key]
-        wandb.summary["final_test_profile_pearson"] = self.profile_pearson.mean()
+        wandb.summary["final_test_profile_pearson"] = self.profile_pearson
         wandb.summary["final_test_image"] = self.val_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
         return
 
-    def train(self):
-        """Train function should be implemented in the subclass."""
-        raise NotImplementedError
+    def train(self) -> None:
+        """Train the scFootprintTrainer model on LoRA mode."""
+        flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
+
+        if flag.exists():
+            print(f"Training already finished, found flag file: {flag}.")
+            return
+
+        wandb_run = self._setup_wandb()
+        if wandb_run is None:
+            return
+
+        with wandb_run:
+            # Fit LoRA
+            self.checkpoint = self._has_last_checkpoint()
+            self._setup_model()
+            self._setup_fit()
+            self._fit()
+            self._test()
+            self._cleanup_env()
+            wandb.finish()
+        flag.touch()
+        return
 
 
 class scFootprintBaseTrainer(scFootprintTrainerMixin):
@@ -500,9 +527,12 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
     def _model_forward_pass(self, model: torch.nn.Module, batch: dict):
         prefix = self.prefix
         atac_key = f"{prefix}:bulk_data"
+        batch["true_atac"] = batch[atac_key]
         dna_key = "dna_one_hot"
         footprint_key = f"{prefix}:bulk_data_footprint"
         footprinter = self.footprinter
+        if "mc_frac" in batch:
+            batch["true_mc"] = batch["mc_frac"]
 
         # ==========
         # X
@@ -521,37 +551,17 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
         # ==========
         # Forward and Loss
         # ==========
-        pred_footprint, pred_coverage = model(X)
-        batch["pred_footprint"] = pred_footprint
-        batch["pred_coverage"] = pred_coverage
+        result = model(X)
+        batch.update(result)
+
+        # clip pred_mc to the same size of true_mc
+        if "mc_frac" in batch:
+            clip_size = (self.dataset.dna_window - self.dataset.signal_window) // 2
+            batch["pred_mc"] = batch["pred_mc"][..., clip_size:-clip_size]
 
         loss_dict = model.loss(batch)
         batch.update(loss_dict)
-        return batch, loss_dict["loss_final"]
-
-    def train(self) -> None:
-        """Train the scFootprintTrainer model on LoRA mode."""
-        flag = pathlib.Path(f"{self.savename}.{self.mode}.success.flag")
-
-        if flag.exists():
-            print(f"Training already finished, found flag file: {flag}.")
-            return
-
-        wandb_run = self._setup_wandb()
-        if wandb_run is None:
-            return
-
-        with wandb_run:
-            # Fit LoRA
-            self.checkpoint = self._has_last_checkpoint()
-            self._setup_model()
-            self._setup_fit()
-            self._fit()
-            self._test()
-            self._cleanup_env()
-            wandb.finish()
-        flag.touch()
-        return
+        return batch, loss_dict["loss_total"]
 
 
 class scFootprintBaseTrainerOnline(scFootprintBaseTrainer):

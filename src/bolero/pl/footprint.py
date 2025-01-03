@@ -30,8 +30,8 @@ class FootPrintExamplePlotter:
     def _tensor_to_array(self, *tensor: torch.Tensor) -> np.ndarray:
         out = []
         for t in tensor:
-            if hasattr(t, "numpy"):
-                t = t.detach().cpu().numpy()
+            if isinstance(t, torch.Tensor):
+                t = t.detach().float().cpu().numpy()
             out.append(t)
         return out
 

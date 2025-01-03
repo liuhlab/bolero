@@ -59,6 +59,7 @@ class seq2PRINT(nn.Module):
         "output_scales": 99,
         "dna_len": 1840,
         "output_len": 800,
+        "mc_channels": 0,
     }
 
     @classmethod
@@ -86,11 +87,16 @@ class seq2PRINT(nn.Module):
         output_len=800,
         output_kernel_size=1,
         output_scales=99,
+        mc_channels=0,
     ):
         # ===============
         # Initialize the model
         # ===============
         super().__init__()
+
+        self.n_filters = n_filters
+        self.dna_len = dna_len
+        self.output_len = output_len
 
         activation = nn.GELU()
 
@@ -119,12 +125,13 @@ class seq2PRINT(nn.Module):
             output_scales=output_scales,
         )
         self.coverage_head = CoverageHead(n_filters=n_filters)
-        self.mc_head = None
 
-        self.n_filters = n_filters
-        self.dna_len = dna_len
-        self.output_len = output_len
         self.output_keys = ["footprint", "coverage"]
+        if mc_channels > 0:
+            self.setup_mc_head(mc_channels=mc_channels)
+        else:
+            self.mc_head = None
+
         return
 
     def setup_mc_head(self, mc_channels):
@@ -178,8 +185,8 @@ class seq2PRINT(nn.Module):
         result = {"pred_footprint": fp_score, "pred_coverage": coverage}
 
         if self.mc_head is not None:
-            mc_score = self.mc_head(X, *args, **kwargs)
-            result["pred_mc"] = mc_score
+            mc_frac = self.mc_head(X, *args, **kwargs)
+            result["pred_mc"] = mc_frac
         return result
 
     @staticmethod
@@ -220,6 +227,8 @@ class seq2PRINT(nn.Module):
             mc_loss = self.mc_loss(
                 y_pred=batch_dict["pred_mc"], y_true=batch_dict["true_mc"]
             )
+            # TODO: mc_loss could be potentially weighted
+            # total_loss += mc_loss * mc_loss_weight
             total_loss += mc_loss
 
         loss_dict = {
@@ -280,6 +289,7 @@ def make_lora_config(
     hidden_dim,
     hidden_layers,
     lora_dropout,
+    mc_channels=0,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
@@ -306,6 +316,10 @@ def make_lora_config(
         "coverage_head": {
             **shared_config,
             "lora_rank": 1,  # total rank 1 * 1
+        },
+        "mc_head": {
+            **shared_config,
+            "lora_rank": mc_channels,  # total rank 1 * 1
         },
     }
     return lora_config
@@ -432,11 +446,14 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         lora_dropout,
     ):
         """Convert the model to LoRA."""
+        mc_channels = self.mc_head.out_channels if self.mc_head is not None else 0
+
         self.lora_config = make_lora_config(
             emb_input_features=emb_input_features,
             hidden_dim=lora_hidden_dim,
             hidden_layers=n_lora_layers,
             lora_dropout=lora_dropout,
+            mc_channels=mc_channels,
         )
 
         for module_names, config in self.lora_config.items():
@@ -456,6 +473,8 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
 
             for module_name in module_names:
                 module = getattr(self, module_name)
+                if module is None:
+                    continue
                 module = convert_to_conditional_lora_model(module, **config)
                 setattr(self, module_name, module)
 
@@ -502,41 +521,3 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "embedding": emb_example,
         }
         return super().model_summary(input_data=input_data)
-
-    def forward(self, X, embedding=None, output_len=None):
-        """
-        Forward pass of the model.
-
-        Parameters
-        ----------
-            X: The input tensor.
-            embedding: The embedding tensor.
-            output_len: The length of the output.
-
-        Returns
-        -------
-            torch.Tensor: The output tensor.
-        """
-        X = self.check_input_dtype(X)
-
-        if output_len is None:
-            output_len = self.output_len
-
-        # process the embedding if kv_bottleneck is used
-        if self.kv_bottleneck is not None:
-            embedding = self.vq_ind_to_emb(embedding)
-
-        # get the motifs
-        X = self.dna_cnn_model(X, embedding=embedding)
-
-        # get the hidden layer
-        X = self.hidden_layer_model(X, embedding=embedding)
-
-        # get the profile
-        fp_score = self.footprint_head(
-            X,
-            embedding=embedding,
-            output_len=output_len,
-        )
-        coverage = self.coverage_head(X, embedding=embedding)
-        return fp_score, coverage

@@ -485,8 +485,8 @@ def batch_pearson_correlation(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
     """
     bs = x.shape[0]
-    x = x.view(bs, -1)
-    y = y.view(bs, -1)
+    x = x.reshape(bs, -1)
+    y = y.reshape(bs, -1)
 
     # Compute means along the batch dimension
     mean_x = torch.mean(x, dim=-1, keepdim=True)
