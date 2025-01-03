@@ -70,7 +70,6 @@ config = {
     "lora_dropout": 0.01,
     "loss_total_weight": loss_total_weight,
     "lora_preset": lora_preset,
-    "context_output": context_out,
     # base model dropout:
     "transformer_attn_dropout": 0.0,
     "transformer_pos_dropout": 0.0,

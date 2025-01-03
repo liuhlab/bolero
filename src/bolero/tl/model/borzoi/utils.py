@@ -1,13 +1,12 @@
-import numpy as np
 import pandas as pd
 import pyranges as pr
 import torch
 
 from bolero.pp.genome import Genome
-from bolero.pp.gtf import GTFDB, MM10_GTFDB_PATH
 from bolero.utils import get_package_dir
 
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
+BORZOI_REGION_SIZE = 524288
 
 
 class BorzoiRegions:
@@ -40,97 +39,85 @@ class BorzoiRegions:
         },
     ]
 
-    def __init__(self):
-        self._hg38 = None
-        self._hg38_regions = None
-        self._hg38_gene_regions = None
-        self._hg38_gene_effective_regions = None
+    def __init__(self, genome):
+        if isinstance(genome, Genome):
+            self.genome = genome
+            self.genome_name = genome.name
+        else:
+            if genome == "hg38":
+                self.genome = Genome("hg38")
+                self.genome_name = "hg38"
+            elif genome == "mm10":
+                self.genome = Genome("mm10")
+                self.genome_name = "mm10"
+            else:
+                raise ValueError(
+                    f"Invalid genome: {genome}, choose from ['hg38', 'mm10']"
+                )
 
-        self._mm10 = None
-        self._mm10_regions = None
-        self._mm10_gene_regions = None
-        self._mm10_gene_effective_regions = None
-
+        self._borzoi_regions = None
         self.cur_idmap = None
-        self.cur_effective_regions = None
+        self._cur_effective_regions = None
 
     @property
-    def hg38_regions(self):
-        """Return hg38 borzoi regions."""
-        if self._hg38_regions is None:
-            self._hg38_regions = pr.read_bed(
-                str(BORZOI_DATA_DIR / "hg38_sequences.bed"), as_df=True
+    def borzoi_regions(self):
+        """Return borzoi regions."""
+        if self._borzoi_regions is None:
+            self._borzoi_regions = pr.read_bed(
+                str(BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed"), as_df=True
             )
-            self._hg38_regions.columns = ["Chromosome", "Start", "End", "Fold"]
-            self._hg38_regions["Fold"] = self._hg38_regions["Fold"].str[4:].astype(int)
-            self._hg38_regions_idmap = dict(enumerate(self._hg38_regions.index))
-        return self._hg38_regions
-
-    @property
-    def hg38_gene_regions(self):
-        """Return hg38 borzoi gene regions."""
-        raise NotImplementedError("hg38_gene_regions is not implemented yet.")
-
-    @property
-    def mm10_regions(self):
-        """Return mm10 borzoi regions."""
-        if self._mm10_regions is None:
-            self._mm10_regions = pr.read_bed(
-                str(BORZOI_DATA_DIR / "mm10_sequences.bed"), as_df=True
+            self._borzoi_regions.columns = ["Chromosome", "Start", "End", "Fold"]
+            self._borzoi_regions["Fold"] = (
+                self._borzoi_regions["Fold"].str[4:].astype(int)
             )
-            self._mm10_regions.columns = ["Chromosome", "Start", "End", "Fold"]
-            self._mm10_regions["Fold"] = self._mm10_regions["Fold"].str[4:].astype(int)
-            self._mm10_regions_idmap = dict(enumerate(self._mm10_regions.index))
-        return self._mm10_regions
+            self.cur_idmap = dict(enumerate(self._borzoi_regions.index))
+        return self._borzoi_regions
 
-    @property
-    def mm10_gene_regions(self):
-        """Return mm10 borzoi gene regions."""
-        if self._mm10_gene_regions is None:
-            self._mm10_gene_regions = pr.read_bed(
-                str(BORZOI_DATA_DIR / "borzoi_mm10_gene.biccn_vm23.bed.gz"), as_df=True
+    def get_tss_center_borzoi_regions(self, tss_bed_path: str):
+        """Return borzoi TSS regions."""
+        if tss_bed_path is None:
+            # prepare TSS bed from gene bed
+            gene_bed = self.genome.gtf_db.gene_bed
+            tss = gene_bed.apply(
+                lambda row: row["Start"] if row["Strand"] == "+" else row["End"], axis=1
             )
-            self._mm10_gene_regions.columns = [
-                "Chromosome",
-                "Start",
-                "End",
-                "Name",
-                "Fold",
-            ]
-            self._mm10_gene_regions["Fold"] = (
-                self._mm10_gene_regions["Fold"].str[4:].astype(int)
-            )
-            self._mm10_gene_regions.set_index("Name", inplace=True)
-            self._mm10_gene_regions_idmap = dict(
-                enumerate(self._mm10_gene_regions.index)
-            )
-            self._mm10_gene_regions.reset_index(inplace=True, drop=True)
+            gene_bed["tss_start"] = tss
+            gene_bed["tss_end"] = tss + 1
+            tss_bed = gene_bed[
+                ["Chromosome", "tss_start", "tss_end", "Name", "Score", "Strand"]
+            ].rename(columns={"tss_start": "Start", "tss_end": "End"})
+            tss_bed = pr.PyRanges(tss_bed)
+        else:
+            tss_bed = pr.read_bed(tss_bed_path)
 
-            # effective gene regions
-            self._mm10_gene_effective_regions = pr.read_bed(
-                str(
-                    BORZOI_DATA_DIR
-                    / "borzoi_mm10_gene.biccn_vm23.effective_gene_region_ext1k.bed.gz"
-                ),
-                as_df=True,
-            )
-            self._mm10_gene_effective_regions.set_index("Name", inplace=True)
+        # Assign to fold based on TSS
+        gene_id_to_fold = []
+        for fold, fold_df in self.borzoi_regions.groupby("Fold"):
+            fold_overlap_tss = tss_bed.overlap(pr.PyRanges(fold_df)).df
+            fold_overlap_tss["Fold"] = fold
+            gene_id_to_fold.append(fold_overlap_tss.set_index("Name")["Fold"])
+        gene_id_to_fold = pd.concat(gene_id_to_fold).to_dict()
+        tss_bed = tss_bed.df
 
-        return self._mm10_gene_regions
+        # some gene in the boarder are not in any fold
+        tss_bed["Fold"] = tss_bed["Name"].map(gene_id_to_fold).values
+        tss_bed = tss_bed.dropna().astype({"Fold": int})
 
-    @property
-    def hg38(self):
-        """Return hg38 genome."""
-        if self._hg38 is None:
-            self._hg38 = Genome("hg38")
-        return self._hg38
+        # extend to BORZOI_REGION_SIZE, center at TSS
+        tss_bed = pr.PyRanges(tss_bed).extend(BORZOI_REGION_SIZE // 2).df
 
-    @property
-    def mm10(self):
-        """Return mm10 genome."""
-        if self._mm10 is None:
-            self._mm10 = Genome("mm10")
-        return self._mm10
+        # final filter and use standard regions
+        pass_end = tss_bed["End"] <= tss_bed["Chromosome"].map(
+            self.genome.chrom_sizes
+        ).astype(int)
+        pass_size = (tss_bed["End"] - tss_bed["Start"]) == BORZOI_REGION_SIZE
+        tss_bed = tss_bed[pass_end & pass_size].copy()
+        # get gene id without version
+        tss_bed["Name"] = tss_bed["Name"].str.split(".").str[0]
+        gene_ids = tss_bed["Name"].values
+        self.cur_idmap = dict(enumerate(gene_ids))
+        tss_bed.reset_index(inplace=True, drop=True)
+        return tss_bed
 
     def _remove_overlap(self, bed1, bed2, bed3):
         """Remove overlap region from bed1 that overlaps with bed2 or bed3."""
@@ -142,74 +129,61 @@ class BorzoiRegions:
                 to_remove.extend(overlap["Original_Name"].values)
         return bed1.df[~bed1.df["Original_Name"].isin(to_remove)].copy()
 
-    def _filter_gene_regions(self, regions, deg_list, idmap):
+    def _filter_gene_regions(self, regions, deg_list):
         """Filter gene regions by deg_list."""
         if isinstance(deg_list, str):
             deg_list = pd.read_csv(deg_list, header=None, index_col=0).index
-        genes = regions.index.map(lambda x: idmap[x].split("_")[0])
-        final_regions = regions.loc[genes.isin(deg_list)].copy()
-
-        n_genes = genes[genes.isin(deg_list)].nunique()
-
-        print(
-            f"DEG list provided. Found {len(final_regions)} regions with {n_genes} genes."
-        )
+        final_regions = regions.loc[regions["Name"].isin(deg_list)].copy()
+        n_genes = final_regions.shape[0]
+        print(f"DEG list provided. Found {n_genes} genes.")
         return final_regions
 
     def get_train_valid_test_regions(
         self,
-        genome,
         split_id,
         region_length=524288,
-        use_gene_regions=False,
+        use_regions="borzoi",
         deg_list=None,
+        tss_bed_path=None,
     ):
         """
         Get train, valid, test regions for a given genome and split id.
         """
-        if genome == "hg38":
-            if use_gene_regions:
-                regions = self.hg38_gene_regions.copy()
-                self.cur_idmap = {}
-            else:
-                regions = self.hg38_regions.copy()
-                self.cur_idmap = self._hg38_regions_idmap
-            genome = self.hg38
-        elif genome == "mm10":
-            if use_gene_regions:
-                regions = self.mm10_gene_regions.copy()
-                self.cur_idmap = self._mm10_gene_regions_idmap
-                self.cur_effective_regions = self._mm10_gene_effective_regions
-                self.cur_gtf_db = GTFDB(MM10_GTFDB_PATH)
-            else:
-                regions = self.mm10_regions.copy()
-                self.cur_idmap = self._mm10_regions_idmap
-            genome = self.mm10
+        if use_regions == "borzoi":
+            regions = self.borzoi_regions.copy()
+        elif use_regions == "borzoi_tss":
+            regions = self.get_tss_center_borzoi_regions(tss_bed_path)
+            if deg_list is not None:
+                regions = self._filter_gene_regions(regions, deg_list)
         else:
-            raise ValueError(f"Invalid genome: {genome}, choose from ['hg38', 'mm10']")
-
-        if use_gene_regions and deg_list is not None:
-            regions = self._filter_gene_regions(regions, deg_list, self.cur_idmap)
+            raise ValueError(
+                f'Ivalid use_regions: {use_regions}, choose from ["borzoi", "borzoi_tss"]'
+            )
 
         id_to_fold = regions["Fold"].to_dict()
         regions["Name"] = regions.index
         # blacklist regions not exist in any folds
-        null_regions_bed = genome.genome_bed.subtract(pr.PyRanges(regions))
-        sized_regions = genome.standard_region_length(
+        null_regions_bed = self.genome.genome_bed.subtract(pr.PyRanges(regions))
+        sized_regions = self.genome.standard_region_length(
             regions,
             region_length,
             remove_blacklist=False,
             keep_original=True,
             boarder_strategy="drop",
         )
+        # add strand info
+        if "Strand" in regions.columns:
+            sized_regions["Strand"] = sized_regions["Original_Name"].map(
+                regions.set_index("Original_Name")["Strand"]
+            )
         # remove null regions
         sized_regions_bed = pr.PyRanges(sized_regions)
-        null_ids = (
-            sized_regions_bed.overlap(null_regions_bed).df["Original_Name"].values
-        )
-        sized_regions = sized_regions[
-            ~sized_regions["Original_Name"].isin(null_ids)
-        ].copy()
+        null_regions = sized_regions_bed.overlap(null_regions_bed).df
+        if null_regions.shape[0] > 0:
+            null_ids = null_regions["Original_Name"].values
+            sized_regions = sized_regions[
+                ~sized_regions["Original_Name"].isin(null_ids)
+            ].copy()
         sized_regions["fold"] = sized_regions["Original_Name"].map(id_to_fold)
 
         # split to folds
@@ -233,60 +207,6 @@ class BorzoiRegions:
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
         return train_regions, valid_regions, test_regions
-
-
-def create_gene_weights(r1, r2, resolution=32, r2_value=1, other_value=0.001):
-    """
-    Create gene weights for a region where position bins
-    belong to r2 has r2_value and other positions has other_value.
-    """
-    r1s, r1e = r1
-    r2s, r2e = r2
-
-    size = (r1e - r1s) // resolution
-    weights = np.full(size, other_value)
-
-    # Determine the overlapping region
-    overlap_start = max(r1s, r2s)
-    overlap_end = min(r1e, r2e)
-
-    # Check if there is an overlap
-    if overlap_start < overlap_end:
-        start_index = (overlap_start - r1s) // resolution
-        end_index = (overlap_end - r1s) // resolution
-        weights[start_index:end_index] = r2_value
-    return weights
-
-
-def add_position_weights_to_batch(
-    batch,
-    genome,
-    region_id_map,
-    effective_regions,
-    resolution=32,
-    gene_value=1,
-    other_value=0.001,
-):
-    """Create region weights for the batch."""
-    region_names = pd.Index(batch["Original_Name"].cpu().numpy()).map(region_id_map)
-    effective_global_coords = genome.get_global_coords(
-        effective_regions.loc[region_names]
-    )
-    region_global_coords = batch["region"].cpu().numpy()
-
-    weight_array = []
-    for r1, r2 in zip(region_global_coords, effective_global_coords):
-        weights = create_gene_weights(
-            r1, r2, resolution=resolution, r2_value=gene_value, other_value=other_value
-        )
-        weight_array.append(weights)
-    weight_array = np.array(weight_array)
-    weight_tensor = (
-        torch.Tensor(weight_array).half().unsqueeze(1).to(batch["region"].device)
-    )
-    # shape: (bs, 1, length)
-    batch["position_weights"] = weight_tensor
-    return batch
 
 
 def compute_total_grad_norm(parameters, norm_type=2):

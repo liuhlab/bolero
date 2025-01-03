@@ -40,6 +40,7 @@ from bolero.tl.generic.module_lora_cond import (
     collapse_lora_model_,
     convert_to_conditional_lora_model,
 )
+from bolero.tl.model.borzoi.module_output import OutputHead
 from bolero.tl.model.scprinter.module import CoverageHead, FootprintsHead
 from bolero.utils import validate_config
 
@@ -118,9 +119,16 @@ class seq2PRINT(nn.Module):
             output_scales=output_scales,
         )
         self.coverage_head = CoverageHead(n_filters=n_filters)
+        self.mc_head = None
 
+        self.n_filters = n_filters
         self.dna_len = dna_len
         self.output_len = output_len
+        return
+
+    def setup_mc_head(self, mc_channels):
+        """Setup output head for methylation."""
+        self.mc_head = OutputHead(in_channels=self.n_filters, out_channels=mc_channels)
         return
 
     def check_input_dtype(self, X):

@@ -54,6 +54,7 @@ class RayGenomeChunkDataset(GenericDataset):
         shuffle_files=False,
         read_parquet_kwargs: Optional[dict] = None,
         max_regions_per_genome_chunk=None,
+        load_one_hot=True,
     ) -> None:
         """
         Initialize the RaySingleCellDataset.
@@ -101,8 +102,10 @@ class RayGenomeChunkDataset(GenericDataset):
             self.genome = Genome(genome)
         else:
             self.genome = genome
-        # trigger one hot loading
-        _ = self.genome.genome_one_hot
+
+        if load_one_hot:
+            # trigger one hot loading
+            _ = self.genome.genome_one_hot
 
         self.window_size = config["window_size"]
         self.step_size = config["step_size"]
@@ -204,6 +207,7 @@ class RayGenomeChunkDataset(GenericDataset):
         concurrency,
         pos_resolution=None,
         add_original_name=False,
+        add_strand=False,
     ):
         # generate region from bed file
         fn = GenerateRegions
@@ -214,6 +218,7 @@ class RayGenomeChunkDataset(GenericDataset):
             "max_regions": max_regions,
             "pos_resolution": pos_resolution,
             "add_original_name": add_original_name,
+            "add_strand": add_strand,
         }
         dataset = dataset.flat_map(
             fn=fn,
@@ -222,7 +227,7 @@ class RayGenomeChunkDataset(GenericDataset):
         )
         return dataset
 
-    def _get_dna_one_hot(self, dataset, concurrency):
+    def _get_dna_one_hot(self, dataset, concurrency=1):
         fn = FetchRegionOneHot
         fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
 
@@ -335,6 +340,7 @@ class RayGenomeChunkDataset(GenericDataset):
         data_iter_kwargs: dict,
         as_torch=True,
         shuffle_rows=1000,
+        shuffle_eval=False,
         n_batches=None,
         batch_size=64,
         skip_first=None,
@@ -346,6 +352,10 @@ class RayGenomeChunkDataset(GenericDataset):
         """
         if n_batches is not None and skip_first is not None:
             n_batches += skip_first
+        if self.is_train() or shuffle_eval:
+            shuffle_rows = shuffle_rows
+        else:
+            shuffle_rows = None
 
         # this is adapted from the ray.data.iterator.DataIterator.iter_batches
         # https://github.com/ray-project/ray/blob/master/python/ray/data/iterator.py#L106
@@ -360,9 +370,7 @@ class RayGenomeChunkDataset(GenericDataset):
 
             _kwargs = {
                 "prefetch_batches": 3,
-                "local_shuffle_buffer_size": (
-                    shuffle_rows if self.is_train() else None
-                ),
+                "local_shuffle_buffer_size": shuffle_rows,
                 "drop_last": True,
                 "batch_size": batch_size,
             }
@@ -585,10 +593,17 @@ class RayRegionDataset(GenericDataset):
         dataset = dataset.select_columns(keep_cols)
         return dataset
 
-    def get_processed_dataset(self, chroms=None, shuffle_bed=False, bed=None):
+    def get_processed_dataset(
+        self, chroms=None, shuffle_bed=False, bed=None, max_jitter=0
+    ):
         """Get the processed dataset."""
         if bed is None:
             bed = self.bed.copy()
+
+        if self.is_train() and (max_jitter > 0):
+            jitter = np.random.randint(-max_jitter, max_jitter, size=len(bed))
+            bed["Start"] += jitter
+            bed["End"] += jitter
 
         if isinstance(bed, pr.PyRanges):
             bed = bed.df

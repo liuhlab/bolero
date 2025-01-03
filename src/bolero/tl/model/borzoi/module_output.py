@@ -14,40 +14,56 @@ from .module import (
 )
 
 
-class CountDataProcessor(nn.Module):
-    """
-    ATACProcessor is a neural network module designed to process ATAC-seq count data.
-
-    # TODO: Change to dilated convolutions and gradually increase channels
-    """
-
-    def __init__(
-        self,
-        in_channels=1,
-        dna_emb_dims=1536,
-        seq_len=16384,
-        kernel_size=4,
-        api_dropout=0.1,
-    ):
+class MLP(nn.Module):
+    def __init__(self, in_channel, out_channel):
         super().__init__()
-
-        self.layers = SequentialwithArgs(
-            nn.Conv1d(
-                in_channels, dna_emb_dims, kernel_size=kernel_size, padding="same"
-            ),
-            nn.LayerNorm(seq_len),
-            nn.GELU(approximate="tanh"),
-            nn.Dropout(api_dropout),
+        self.scale = nn.Sequential(
+            nn.Linear(in_channel, out_channel),
+            nn.GroupNorm(1, out_channel),
+            nn.GELU(),
         )
+        self.res = nn.Sequential(
+            nn.Linear(out_channel, out_channel),
+            nn.GroupNorm(1, out_channel),
+            nn.GELU(),
+        )
+        self.activate = nn.GELU()
 
-    def forward(self, atac_counts, *args, **kwargs):
+    def forward(self, x):
         """
-        Process ATAC-seq counts
+        It consists of three components
+        - Scaling
+        - Residual
+        - ReLU
         """
-        atac_log = torch.log1p(atac_counts)
+        scaled = x
+        for module in self.scale:
+            scaled = module(scaled)
+        identity = scaled
+        res_out = scaled
+        for module in self.res:
+            res_out = module(res_out)
+        out = self.activate(res_out + identity)
+        return out
 
-        atac_processed = self.layers(atac_log, *args, **kwargs)
-        return atac_processed
+
+class CountDataProcessor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        in_channels = [1, 8, 64, 512]
+        out_channels = [8, 64, 512, 1920]
+        conv_blocks = []
+        for _in, _out in zip(in_channels, out_channels):
+            conv_blocks.append(MLP(_in, _out))
+        self.conv_blocks = nn.Sequential(*conv_blocks)
+
+    def forward(self, x):
+        """
+        Forward pass of the CountDataProcessor
+        """
+        # log1p transform count
+        x = torch.log1p(x)
+        return self.conv_blocks(x)
 
 
 class DilatedAttentionArgs:
@@ -182,6 +198,67 @@ class OutputHead(SequentialwithArgs):
         )
 
 
+class GeneCountOutputHead(nn.Module):
+    """Version 2: use dialated convolutions and only take center bin to predict gene count"""
+
+    def __init__(self, embedding_dim=1920, n_blocks=8):
+        super().__init__()
+
+        self.conv_blocks = nn.ModuleList()
+
+        in_channels = embedding_dim
+        dil = 1
+        for _ in range(n_blocks):
+            self.conv_blocks.append(
+                nn.Sequential(
+                    nn.Conv1d(
+                        in_channels,
+                        in_channels,
+                        kernel_size=3,
+                        padding=dil,
+                        dilation=dil,
+                    ),
+                    nn.GroupNorm(1, in_channels),
+                    nn.GELU(),
+                    nn.Conv1d(
+                        in_channels,
+                        in_channels,
+                        kernel_size=3,
+                        padding=dil,
+                        dilation=dil,
+                    ),
+                    nn.GroupNorm(1, in_channels),
+                )
+            )
+            dil *= 2
+        self.reception_field = int(dil * 2)
+
+        self.final_fc = nn.Linear(in_channels, 1)
+        self.activation = nn.Softplus()
+
+    def forward(self, x):
+        """Compute the forward pass of the Gene Count Output Head."""
+        # x shape: (bs, 1920, 16352)
+        seq_len = x.shape[-1]
+        if len(self.conv_blocks) > 0:
+            # take the middle bins (likely promoter related)
+            promoter_slice = slice(
+                seq_len // 2 - self.reception_field, seq_len // 2 + self.reception_field
+            )
+            x = x[:, :, promoter_slice]
+            middle = self.reception_field
+            for conv in self.conv_blocks:
+                x = conv(x)
+        else:
+            # no conv blocks
+            middle = seq_len // 2
+        # x shape: (bs, 1920)
+        x = self.final_fc(x[:, :, middle])
+        # x shape: (bs, 1)
+        x = self.activation(x)
+        return x
+
+
 class DualOutputHead(SequentialwithArgs):
     # TG TODO: Needed if we have 2 channels? Needless computation for each head. Maybe activate within loss.
     """A dual output head that produces both activated and raw logit outputs."""
@@ -205,16 +282,15 @@ class RNAOutputHead(nn.Module):
         self,
         # Borzoi model
         output_channels=1,
-        seq_len=16384,
         embed_dim=1920,
         # Epi input Processor
         epi_input=False,
-        epi_dropout=0.1,
+        epi_dropout=0.0,
         epi_channels=1,
         # transformer
-        num_layers=0,
-        num_heads=16,
-        final_conv_dropout=0.05,
+        num_layers=8,
+        num_heads=32,
+        final_conv_dropout=0.0,
         dilated_ratio=(1, 2, 4, 8, 16, 32),
         segment_length=(512, 1024, 2048, 4096, 8192, 16384),
         xpos_rel_pos=False,
@@ -223,13 +299,7 @@ class RNAOutputHead(nn.Module):
         super().__init__()
 
         if epi_input:
-            self.epi_processor = CountDataProcessor(
-                in_channels=epi_channels,
-                dna_emb_dims=embed_dim,
-                seq_len=seq_len,
-                kernel_size=5,
-                api_dropout=epi_dropout,
-            )
+            self.epi_processor = CountDataProcessor()
         else:
             self.epi_processor = nn.Identity()
 
@@ -280,6 +350,29 @@ class RNAOutputHead(nn.Module):
         # Apply Output Head to predict RNA raw count track signal
         output = self.output_head(x)
         return output
+
+
+class GeneCountAttnOutputHead(RNAOutputHead):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.final_fc = nn.Linear(kwargs.get("embed_dim", 1920), 1)
+        self.activation = nn.Softplus()
+
+    def forward(self, x: torch.Tensor, epi_input=None):
+        """Forward pass of the GeneCountAttnOutputHead"""
+        if epi_input is not None:
+            x = x + self.epi_processor(epi_input)
+
+        x = x.permute(0, 2, 1)
+        x = self.attn_layers(x)
+        x = x.permute(0, 2, 1)
+
+        # taka the middle bin for count prediction
+        seq_len = x.shape[-1]
+        middle = seq_len // 2
+        x = self.final_fc(x[:, :, middle])
+        x = self.activation(x)
+        return x
 
 
 class ContextOutputHead(nn.Module, KVBottleNeckMixin):

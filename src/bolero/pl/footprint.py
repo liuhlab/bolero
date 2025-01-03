@@ -35,6 +35,10 @@ class FootPrintExamplePlotter:
         predict: np.ndarray,
         footprinter: Callable,
     ):
+        if signal.ndim == 3:
+            signal = signal.squeeze(1)
+        if bias.ndim == 3:
+            bias = bias.squeeze(1)
         self.signal = signal
         self.bias = bias
         self.target = footprinter.postprocess_footprint(target)

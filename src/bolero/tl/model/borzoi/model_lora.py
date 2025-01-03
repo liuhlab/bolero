@@ -12,6 +12,8 @@ from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module_output import (
     ContextOutputHead,
     DualOutputHead,
+    GeneCountAttnOutputHead,
+    GeneCountOutputHead,
     OutputHead,
     RNAOutputHead,
     ScoobyOutputHead,
@@ -163,9 +165,11 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # Setup Output Head
         # place holder for other modalities
-        self.context_output = False
+        self.no_lora_on_output = False
         self.rna_output_head = None
         self.upper_bound_head = None
+        if output_head_kwargs is None:
+            output_head_kwargs = {}
         if output_head_type == "count":
             self.setup_output_head(out_channels=out_channels)
             self.loss_type = "poisson_multinomial"
@@ -175,15 +179,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             self.loss_type = "bce"
         elif output_head_type == "dual_atac_mc":
             # output logits, loss function will be bce for mC and poisson multinomial for ATAC output (after softplus activation for ATAC)
-            if output_head_kwargs is None:
-                output_head_kwargs = {}
             self.setup_dual_output_head(**output_head_kwargs)
             self.loss_type = "separate_bce_poisson_multinomial"
         elif output_head_type == "rna":
             self.setup_rna_head(rna_channels=out_channels)
             self.loss_type = "poisson_multinomial"
         elif output_head_type == "countext":
-            self.context_output = True
+            self.no_lora_on_output = True
             self.final_output_head = ContextOutputHead(
                 in_channels=1920,
                 out_channels=out_channels,
@@ -207,6 +209,16 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             self.loss_type = "poisson_multinomial"
         elif output_head_type == "upper_bound":
             self.setup_profile_head()
+            self.loss_type = "poisson_multinomial"
+        elif output_head_type == "gene_count":
+            self.setup_gene_count_head(out_channels=out_channels, **output_head_kwargs)
+            # this loss type is still for the tracks, gene count loss is separate
+            self.loss_type = "poisson_multinomial"
+        elif output_head_type == "gene_count_attn":
+            self.setup_gene_count_attn_head(
+                out_channels=out_channels, **output_head_kwargs
+            )
+            # this loss type is still for the tracks, gene count loss is separate
             self.loss_type = "poisson_multinomial"
         else:
             raise ValueError(f"output_head_type: {output_head_type} is invalid")
@@ -300,6 +312,28 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return
 
+    def setup_gene_count_head(self, out_channels, activation="softplus", n_blocks=8):
+        """Setup a single gene count output head."""
+        self.setup_output_head(out_channels=out_channels, activation=activation)
+
+        self.gene_count_head = GeneCountOutputHead(
+            embedding_dim=1920, n_blocks=n_blocks
+        )
+        # input shape: (bs, 1920, 16352)
+        # output shape: (bs, 1)
+        # activation: softplus
+        return
+
+    def setup_gene_count_attn_head(self, out_channels, activation="softplus", **kwargs):
+        """Setup a single gene count output head."""
+        self.setup_output_head(out_channels=out_channels, activation=activation)
+
+        self.gene_count_head = GeneCountAttnOutputHead(embed_dim=1920, **kwargs)
+        # input shape: (bs, 1920, 16352)
+        # output shape: (bs, 1)
+        # activation: softplus
+        return
+
     def _setup_channel_loss_weights(
         self, channel_loss_weight, learnable_channel_loss_weight
     ):
@@ -349,23 +383,25 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         for name, param in self.named_parameters():
             if "output_head" in name:
                 continue
+            if "gene_count_head" in name:
+                continue
             param.requires_grad = False
         return
 
-    def load_checkpoint_from_path(self, checkpoint_path):
+    def load_checkpoint_from_path(self, checkpoint_path, strict=True):
         """Load the pre-trained LoRA model."""
         print("Loading LoRA model weights from:", checkpoint_path)
         _checkpoint = torch.load(checkpoint_path, weights_only=False)
         if isinstance(_checkpoint, dict):
             if "model_state_dict" in _checkpoint:
-                self.load_state_dict(_checkpoint["model_state_dict"])
+                self.load_state_dict(_checkpoint["model_state_dict"], strict=strict)
             elif "state_dict" in _checkpoint:
-                self.load_state_dict(_checkpoint["state_dict"])
+                self.load_state_dict(_checkpoint["state_dict"], strict=strict)
             else:
-                self.load_state_dict(_checkpoint)
+                self.load_state_dict(_checkpoint, strict=strict)
         else:
             # load the model directly
-            self.load_state_dict(_checkpoint.state_dict())
+            self.load_state_dict(_checkpoint.state_dict(), strict=strict)
         del _checkpoint
         return
 
@@ -398,7 +434,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         config_func = LORA_CONFIG_FUNCTIONS[preset]
         lora_config = config_func(**kwargs)
 
-        if self.context_output:
+        if self.no_lora_on_output:
             # do not lora convert the context output head
             lora_config.pop("final_output_head", None)
 
@@ -447,7 +483,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         for name, param in self.named_parameters():
             if "kv_bottleneck" in name:
                 param.requires_grad = True
-            if ("final_output_head" in name) and (self.context_output):
+            if ("final_output_head" in name) and (self.no_lora_on_output):
                 param.requires_grad = True
         return
 
@@ -605,6 +641,17 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         if reduce:
             final_loss = final_loss.mean()
         return final_loss, loss_breakdown, y_true_a, y_true_b
+
+    def gene_count_loss(self, y_pred, y_true, reduce=True):
+        """Compute the gene count loss."""
+        # mse loss on log transformed values
+        # y_pred is from softplus activation, also at count scale
+        y_pred = torch.log1p(y_pred)
+        y_true = torch.log1p(y_true)
+        loss = nn.functional.mse_loss(y_pred, y_true, reduction="none")
+        if reduce:
+            loss = loss.mean()
+        return loss
 
     def print_loss_weight(self):
         """Print the loss weight for each channel."""

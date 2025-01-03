@@ -1,4 +1,5 @@
 import itertools
+import math
 import pathlib
 import shutil
 import subprocess
@@ -360,13 +361,16 @@ def validate_config(config, default_config, allow_extra_keys=True):
     if len(required_missing) > 0:
         error_msg += f"Required fields missing from config: {required_missing}\n"
 
-    if not allow_extra_keys:
-        extra_keys = []
-        for k in config.keys():
-            if k not in default_config:
-                extra_keys.append(k)
-        if len(extra_keys) > 0:
+    extra_keys = []
+    for k in config.keys():
+        if k not in default_config:
+            extra_keys.append(k)
+
+    if len(extra_keys) > 0:
+        if not allow_extra_keys:
             error_msg += f"Extra keys found in config: {extra_keys}\n"
+        else:
+            print("Warning: Extra keys found in config:", extra_keys)
 
     if len(error_msg) > 0:
         raise ValueError(error_msg)
@@ -478,3 +482,13 @@ def parse_mc_pattern(pattern: str) -> set:
         all_pos_list.append(IUPAC_TABLE[base])
     context_set = {"".join(i) for i in itertools.product(*all_pos_list)}
     return context_set
+
+
+def exponential_linspace_int(start, end, num, divisible_by=1):
+    """Create a linspace in exponential space, rounded to the nearest divisible_by."""
+
+    def _round(x):
+        return int(round(x / divisible_by) * divisible_by)
+
+    base = math.exp(math.log(end / start) / (num - 1))
+    return [_round(start * base**i) for i in range(num)]

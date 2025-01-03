@@ -74,7 +74,7 @@ class LoRALayer:
         if lora_dropout > 0.0:
             self.lora_dropout = nn.Dropout(p=lora_dropout)
         else:
-            self.lora_dropout = lambda x: x
+            self.lora_dropout = nn.Identity()
 
         self.lora_A: nn.Parameter
         self.lora_B: nn.Parameter
@@ -88,6 +88,8 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
         embedding_dim: int,
         lora_rank: int = 1,
         lora_alpha: int = None,
+        lora_scale: int = 1,
+        lora_dropout: float = 0.0,
         **kwargs,
     ):
         nn.Embedding.__init__(self, num_embeddings, embedding_dim, **kwargs)
@@ -95,19 +97,15 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
             self,
             lora_rank=lora_rank,
             lora_alpha=lora_alpha,
-            lora_dropout=0,
+            lora_scale=lora_scale,
+            lora_dropout=lora_dropout,
         )
         # Actual trainable parameters
-        if lora_rank > 0:
-            self.lora_A = nn.Parameter(
-                self.weight.new_zeros((lora_rank, num_embeddings))
-            )
-            self.lora_B = nn.Parameter(
-                self.weight.new_zeros((embedding_dim, lora_rank))
-            )
-            self.scaling = self.lora_alpha / self.r
-            # Freezing the pre-trained weight matrix
-            self.weight.requires_grad = False
+        self.lora_A = nn.Parameter(self.weight.new_zeros((lora_rank, num_embeddings)))
+        self.lora_B = nn.Parameter(self.weight.new_zeros((embedding_dim, lora_rank)))
+        self.scaling = self.lora_alpha / self.r
+        # Freezing the pre-trained weight matrix
+        self.weight.requires_grad = False
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -139,17 +137,45 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
 
     def forward(self, x: torch.Tensor):
         """Forward pass of the LoRA layer."""
-        result = nn.Embedding.forward(self, x)
-        after_A = F.embedding(
+        lora_ab = self.lora_dropout(self.lora_B @ self.lora_A) * self.scaling
+        lora_weight = self.weight + lora_ab.transpose(0, 1)
+        result = F.embedding(
             x,
-            self.lora_A.transpose(0, 1),
+            lora_weight,
             self.padding_idx,
             self.max_norm,
             self.norm_type,
             self.scale_grad_by_freq,
             self.sparse,
         )
-        result += (after_A @ self.lora_B.transpose(0, 1)) * self.scaling
+        return result
+
+    @classmethod
+    def from_nn(
+        cls,
+        embed_module: nn.Embedding,
+        lora_rank: int = 1,
+        lora_alpha: float = None,
+        lora_scale: int = 1,
+        lora_dropout: float = 0.0,
+    ) -> "LoRALinear":
+        """
+        Create a LoRALinear instance from an existing nn.Linear module.
+        """
+        lora_embed = cls(
+            num_embeddings=embed_module.num_embeddings,
+            embedding_dim=embed_module.embedding_dim,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
+            lora_scale=lora_scale,
+            lora_dropout=lora_dropout,
+            device=embed_module.weight.device,
+            dtype=embed_module.weight.dtype,
+        )
+
+        # Copy the original weight and bias to the new LoRALinear instance
+        lora_embed.weight.data = embed_module.weight.data.clone()
+        return lora_embed
 
 
 class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):

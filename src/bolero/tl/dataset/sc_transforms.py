@@ -225,6 +225,7 @@ class GenerateRegions:
         max_regions=None,
         pos_resolution=None,
         add_original_name=False,
+        add_strand=False,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -236,6 +237,7 @@ class GenerateRegions:
         self.max_regions = max_regions
         self.pos_resolution = 1 if pos_resolution is None else pos_resolution
         self.add_original_name = add_original_name
+        self.add_strand = add_strand
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -267,6 +269,8 @@ class GenerateRegions:
             if self.add_original_name:
                 # has to be int
                 data_col["Original_Name"] = int(row["Original_Name"])
+            if self.add_strand:
+                data_col["Strand"] = 1 if row["Strand"] == "+" else 0
             for key, value in data_dict.items():
                 if key in self.action_keys:
                     rstart = start - offset

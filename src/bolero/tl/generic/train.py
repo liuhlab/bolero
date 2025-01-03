@@ -318,7 +318,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
     model_class = GenericModel
 
     def __init__(self, config):
-        validate_config(config, self.get_default_config(), allow_extra_keys=False)
+        validate_config(config, self.get_default_config(), allow_extra_keys=True)
         self.config: dict = config.copy()
 
         # mode controls global trainer behavior in initial training or LoRA fine tuning
@@ -407,7 +407,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         """
         config = cls.get_default_config()
         config.update(kwargs)
-        validate_config(config, cls.get_default_config(), allow_extra_keys=False)
+        validate_config(config, cls.get_default_config(), allow_extra_keys=True)
         return config
 
     def _setup_wandb(self, use_wandb: bool = True):

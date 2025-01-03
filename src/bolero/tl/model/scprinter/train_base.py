@@ -3,7 +3,6 @@ import pathlib
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
-import pyranges as pr
 import torch
 import wandb
 
@@ -17,6 +16,7 @@ from bolero.tl.generic.train_helper import (
 )
 from bolero.tl.model.borzoi.train import TrainerBorzoiDatasetMixin
 from bolero.tl.model.scprinter.dataset import scPrinterDatasetBase
+from bolero.tl.model.scprinter.dataset_online import scPrinterOnlineDataset
 from bolero.tl.model.scprinter.model import seq2PRINT
 
 
@@ -70,30 +70,24 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         return
 
     def _setup_dataset(self):
-        super()._setup_dataset()
+        """
+        Set up the dataset by splitting it into train, valid, and test sets.
+        """
+        # create dataset
+        self.dataset = self._get_dataset()
+
+        # train, valid, test split by fold
+        (
+            self.train_folds,
+            self.valid_folds,
+            self.test_folds,
+            self.train_regions,
+            self.valid_regions,
+            self.test_regions,
+        ) = self.dataset.get_train_valid_test(self.config["fold_split_id"])
 
         # add footprinter
-        self.footprinter = self.dataset.get_footprinter(prefix=self.prefix)
-
-        # convert regions to peak regions
-        # TrainerBorzoiDatasetMixin uses the Borzoi regions as train/valid/test regions
-        # Here we need to intersect the Borzoi regions with the peak regions
-        def _intersect_region_with_borzoi_regions(region_bed, borzoi_regions):
-            borzoi_regions = pr.PyRanges(borzoi_regions)
-            region_bed = region_bed.overlap(borzoi_regions).as_df()
-            region_bed["Original_Name"] = region_bed["Name"]
-            return region_bed
-
-        region_bed = pr.read_bed(self.config["region_bed_path"])
-        self.train_regions = _intersect_region_with_borzoi_regions(
-            region_bed, self.train_regions
-        )
-        self.valid_regions = _intersect_region_with_borzoi_regions(
-            region_bed, self.valid_regions
-        )
-        self.test_regions = _intersect_region_with_borzoi_regions(
-            region_bed, self.test_regions
-        )
+        self.footprinter = self.dataset.get_footprinter()
         return
 
     # =============================
@@ -353,6 +347,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
+        total_norm = 0
         while self.cur_epoch <= max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -598,7 +593,6 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
     @classmethod
     def make_config(cls, **config):
         """Make config for the trainer."""
-        config["cov_filter_name"] = cls.trainer_config["prefix"]
         config["n_pseudobulks"] = 1
         config = super().make_config(**config)
         return config
@@ -691,3 +685,7 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
             wandb.finish()
         flag.touch()
         return
+
+
+class scFootprintBaseTrainerOnline(scFootprintBaseTrainer):
+    dataset_class = scPrinterOnlineDataset

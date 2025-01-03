@@ -164,7 +164,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
         self.n_pseudobulks = n_pseudobulks
         self.cov_filter_name = cov_filter_name
         self.use_borzoi_regions = use_borzoi_regions
-        self.borzoi_regions = BorzoiRegions()
+        self.borzoi_regions = BorzoiRegions(self.genome)
 
         self.name_to_pseudobulker = OrderedDict()
         return
@@ -178,7 +178,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
 
         train_regions, valid_regions, test_regions = (
             self.borzoi_regions.get_train_valid_test_regions(
-                self.genome.name, split_id=fold, region_length=self.dna_window
+                split_id=fold, region_length=self.dna_window
             )
         )
         return (
@@ -425,6 +425,7 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 "data_prefix": f"{idx}_{mc_prefix}_",
                 "data_suffix": key_suffix,
                 "region_key": "region",
+                "resolution": self.pos_resolution,
                 "mc_context": mc_context,
             }
             dataset = dataset.map_batches(
@@ -573,12 +574,13 @@ class BorzoiDatasetOnline(RayRegionDataset):
         data_2d_keys=("hic",),
         concurrency=6,
         key_suffix=None,
+        keep_channel_dim=False,
     ):
         """
         Convert the data to list of dict.
         """
 
-        def _convert_data(data_dict, key_suffix=None):
+        def _convert_data(data_dict, key_suffix=None, keep_dim=keep_channel_dim):
             if key_suffix is None:
                 key_suffix = [""]
 
@@ -622,6 +624,14 @@ class BorzoiDatasetOnline(RayRegionDataset):
                 for k in data_dict.keys():
                     if k not in cell_type_related_keys:
                         new_data_dict[k] = data_dict[k]
+
+                # add channel dimension
+                if keep_dim:
+                    for key in cell_type_related_keys:
+                        data = new_data_dict[key]
+                        new_data_dict[key] = data[
+                            :, np.newaxis, :
+                        ]  # add channel dimension
 
                 list_data_dict.append(new_data_dict)
 

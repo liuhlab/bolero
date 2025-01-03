@@ -14,11 +14,11 @@ from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAwithArches
+from bolero.tl.model.borzoi.module_output import DualOutputHead
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import MovingMetric
 
-from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 class TrainerBorzoiDatasetMixin:
     """
@@ -171,6 +171,8 @@ class TrainerBorzoiDatasetMixin:
         torch.utils.data.DataLoader
             The validation dataloader.
         """
+        batch_size_fold = self.config.get("validation_batch_fold", 3)
+        batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
         dataloader = self.dataset.get_dataloader(
             folds=self.valid_folds,
@@ -178,6 +180,7 @@ class TrainerBorzoiDatasetMixin:
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
+            batch_size=batch_size,  # this will overwrite the batch size in training
         )
         return dataloader
 
@@ -194,6 +197,8 @@ class TrainerBorzoiDatasetMixin:
         torch.utils.data.DataLoader
             The test dataloader.
         """
+        batch_size_fold = self.config.get("validation_batch_fold", 3)
+        batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
         dataloader = self.dataset.get_dataloader(
             folds=self.test_folds,
@@ -201,6 +206,7 @@ class TrainerBorzoiDatasetMixin:
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
+            batch_size=batch_size,  # this will overwrite the batch size in training
         )
         return dataloader
 
@@ -238,6 +244,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "downsample_test_region": None,
         "grad_norm_collector": False,
         "save_state_every_n_epoch": None,
+        "validation_batch_fold": 3,
     }
 
     def __init__(self, config):
@@ -261,6 +268,22 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
     def _setup_model(self):
         raise NotImplementedError
 
+    def _autocast_context(self):
+        try:
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.bfloat16,
+                enabled=self.config.get("use_amp", True),
+            )
+        except RuntimeError:
+            # some GPU, such as T4 does not support bfloat16
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.float16,
+                enabled=self.config.get("use_amp", True),
+            )
+        return auto_cast_context
+
     @torch.no_grad()
     def _model_validation_step(
         self,
@@ -282,16 +305,14 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         mean_loss_breakdown = {}
 
         if isinstance(model.final_output_head, DualOutputHead):
-
             num_channels = len(self.config["data_key"])
             mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
-                        self.device
-                    )
+                self.device
+            )
         else:
-            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=model.out_channels).to(
-            self.device
-        )
-
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(
+                n_channels=model.out_channels
+            ).to(self.device)
 
         if self.prefix in self.dataset.name_to_pseudobulker:
             # this part is for mouse pseudobulk dataset
@@ -303,9 +324,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         data_collector = []  # collect data for further analysis
 
         for batch_id, batch in enumerate(dataloader):
-            y_true, y_pred, loss, loss_breakdown, *additional_results = (
-                self._model_forward_pass(model, batch)
-            )
+            with self._autocast_context():
+                y_true, y_pred, loss, loss_breakdown, *additional_results = (
+                    self._model_forward_pass(model, batch)
+                )
 
             if len(additional_results) > 0:
                 additional_results = additional_results[0]
@@ -329,6 +351,13 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
             else:
                 batch["sample_id"] = batch.get("cell_type_id", None)
+            # region to region name
+            idmap = self.dataset.borzoi_regions.cur_idmap
+            region_name = np.array(
+                [idmap[i] for i in batch["Original_Name"].cpu().numpy()]
+            )
+            batch["region_name"] = region_name
+
             batch.update(loss_breakdown)
             if collect_data:
                 data_collector.append(
@@ -390,19 +419,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
     ):
         epoch = self.cur_epoch + 1
         wandb_images = defaultdict(list)
-        borzoi_regions = self.dataset.borzoi_regions
 
         for idx, batch in enumerate(example_batches):
             if idx >= self.plot_example_per_epoch:
                 break
-            region_ids = batch["Original_Name"].cpu().numpy()
-            region_names = np.array([borzoi_regions.cur_idmap[i] for i in region_ids])
-            if getattr(self.dataset, "use_gene_regions", False):
-                gene_names = borzoi_regions.cur_gtf_db.gene_id_to_name(
-                    [r.split("_")[0] for r in region_names]
-                )
-                batch["region_names"] = region_names
-                batch["gene_names"] = gene_names
 
             try:
                 plotter = BorzoiExamplePlotter(
@@ -682,36 +702,22 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             moving_ave_loss = CumulativeCounter()
 
             if isinstance(self.model.final_output_head, DualOutputHead):
-
                 num_channels = len(self.config["data_key"])
-                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
-                            self.device
-                        )
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(
+                    n_channels=num_channels
+                ).to(self.device)
             else:
-                moving_ave_corr = MeanPearsonCorrCoefPerChannel(n_channels=self.model.out_channels).to(
-                self.device
-            )          
+                moving_ave_corr = MeanPearsonCorrCoefPerChannel(
+                    n_channels=self.model.out_channels
+                ).to(self.device)
             nan_loss = False
             print_steps = max(5, self.train_batches // 20)
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
             for batch_id, batch in enumerate(dataloader):
-                try:
-                    auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(":")[0],
-                        dtype=torch.bfloat16,
-                        enabled=self.use_amp,
-                    )
-                except RuntimeError:
-                    # some GPU, such as T4 does not support bfloat16
-                    auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(":")[0],
-                        dtype=torch.float16,
-                        enabled=self.use_amp,
-                    )
-                with auto_cast_context:
-                    y_true, y_pred, loss, _, *additional_results = (
+                with self._autocast_context():
+                    y_true, y_pred, loss, loss_breakdown, *additional_results = (
                         self._model_forward_pass(self.model, batch)
                     )
 
@@ -802,6 +808,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                             "train/train_total_grad_norm": total_norm,
                             "train/learning_rate": optimizer.param_groups[0]["lr"],
                         }
+                        for loss_name, loss_value in loss_breakdown.items():
+                            log_dict[f"train/train_loss_{loss_name}"] = loss_value
                         for channel, corr in enumerate(
                             moving_ave_corr.compute_tensor()
                         ):
@@ -1191,23 +1199,12 @@ class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
     trainer_config = BorzoiLoRATrainer.trainer_config.copy()
     trainer_config["lora_checkpoint_path"] = "REQUIRED"
 
-    def _setup_rna_model(self, freeze_other_modules=True):
-        print("Setting up model for RNA data")
-        # add RNA output head
-        # freeze all other parts of the model
-        self.model.setup_rna_head(
-            rna_channels=1, freeze_other_modules=freeze_other_modules
-        )
-        self.mode = "rna"
-        return
-
     def _setup_model(self):
         super()._setup_model(print_model=False)
 
         # load the pre-trained LoRA model
         self.model.load_checkpoint_from_path(self.config["lora_checkpoint_path"])
 
-        self._setup_rna_model()
         print(self.model)
         return
 
@@ -1232,6 +1229,73 @@ class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
         loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
 
         y_pred = y_pred.detach()
+        return y_true, y_pred, loss, loss_breakdown
+
+
+class BorzoiLoRATrainerWithGeneCount(BorzoiLoRATrainer):
+    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
+    trainer_config.update(
+        {"gene_loss_weight": 1, "freeze_borzoi": False, "lora_checkpoint_path": None}
+    )
+
+    def _setup_model(self, print_model=True):
+        super()._setup_model(print_model=False)
+
+        if self.config.get("freeze_borzoi", False):
+            print("Freeze the Borzoi model except the gene count head.")
+            for name, params in self.model.named_parameters():
+                # freeze everything except the gene count head
+                if not name.startswith("gene_count_head"):
+                    params.requires_grad = False
+            assert (
+                self.config["lora_checkpoint_path"] is not None
+            ), "LoRA checkpoint path is required for freezing the model."
+
+        if self.config.get("lora_checkpoint_path", None) is not None:
+            # load the pre-trained LoRA model
+            self.model.load_checkpoint_from_path(
+                self.config["lora_checkpoint_path"], strict=False
+            )
+
+        if print_model:
+            print(self.model)
+        self._set_total_params()
+        return
+
+    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
+        data_key = f"{self.prefix}:bulk_data"
+        dna_key = "dna_one_hot"
+        embedding_key = f"{self.prefix}:embedding_data"
+        position_weights = batch.get("position_weights", None)
+
+        # ==========
+        # Get batch data
+        # ==========
+        X = batch.pop(dna_key)
+        embedding = batch.get(embedding_key, None)
+        y_true = batch.pop(data_key)
+
+        # ==========
+        # Forward and Loss
+        # ==========
+        y_pred, dna_emb = model(X, embedding=embedding, return_dna_embedding=True)
+
+        loss, loss_breakdown, y_true = model.loss(
+            y_true=y_true, y_pred=y_pred, position_weights=position_weights
+        )
+
+        y_pred = y_pred.detach()
+
+        # ==========
+        # Gene count forward and loss
+        # ==========
+        gene_true = batch["gene_count"]  # (bs, 1)
+        gene_pred = model.gene_count_head(dna_emb)
+        gene_loss = model.gene_count_loss(y_pred=gene_pred, y_true=gene_true)
+        loss_breakdown["gene_count_mse"] = gene_loss.item()
+        loss += gene_loss * self.config["gene_loss_weight"]
+
+        batch["gene_pred"] = gene_pred
         return y_true, y_pred, loss, loss_breakdown
 
 
@@ -1278,4 +1342,9 @@ class BorzoiLoRATester(BorzoiTesterMixin, BorzoiLoRATrainer):
 
 class BorzoiArchTester(BorzoiTesterMixin, BorzoiArchTrainer):
     trainer_config = BorzoiArchTrainer.trainer_config.copy()
+    trainer_config["checkpoint_path"] = "REQUIRED"
+
+
+class BorzoiGeneCountTester(BorzoiTesterMixin, BorzoiLoRATrainerWithGeneCount):
+    trainer_config = BorzoiLoRATrainerWithGeneCount.trainer_config.copy()
     trainer_config["checkpoint_path"] = "REQUIRED"

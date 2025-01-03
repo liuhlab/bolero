@@ -155,11 +155,15 @@ def make_all_conditional_lora_config(
             **shared_config,
             "lora_rank": 30,
             "exclude_cond_lora_patterns": [
+                # linear projections inside regular attention
                 "to_q",
                 "to_k",
                 "to_v",
                 "to_out",
                 "to_rel_k",
+                # linear projections inside flash attention
+                "mha.Wqkv",
+                "mha.out_proj",
             ],
         },
         (

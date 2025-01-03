@@ -30,18 +30,19 @@ def model_summary(
     col_names=("num_params",),
 ):
     """Print model summary."""
-    device = next(model.parameters()).device
+    with torch.autocast("cuda"):
+        device = next(model.parameters()).device
 
-    s = summary(
-        model,
-        depth=depth,
-        row_settings=row_settings,
-        input_size=input_size,
-        input_data=input_data,
-        cache_forward_pass=cache_forward_pass,
-        col_names=col_names,
-        device=device,
-    ).__repr__()
+        s = summary(
+            model,
+            depth=depth,
+            row_settings=row_settings,
+            input_size=input_size,
+            input_data=input_data,
+            cache_forward_pass=cache_forward_pass,
+            col_names=col_names,
+            device=device,
+        ).__repr__()
     return s
 
 
@@ -59,6 +60,7 @@ class Borzoi(nn.Module):
         # borzoi crop to 6144 for loss
         # But I found 16352 or 6144 doesn't has impact on cell-type-specific model
         "crop_to_length": 16352,
+        "flash_attn": False,
     }
 
     @classmethod
@@ -81,6 +83,7 @@ class Borzoi(nn.Module):
         soft_clamp=None,
         soft_clamp_bool=None,
         crop_to_length=16352,
+        flash_attn=False,
     ):
         """Initialize Borzoi model."""
         super().__init__()
@@ -137,6 +140,7 @@ class Borzoi(nn.Module):
                 ff_dropout=transformer_ff_dropout,
                 num_rel_pos_features=32,
                 seq_len=4096,
+                flash_attn=flash_attn,
             )
             for _ in range(8)
         ]
@@ -361,8 +365,6 @@ class Borzoi(nn.Module):
             y_pred=pred_upper_bound,
             y_true=true_upper_bound,
             total_weight=self.loss_total_weight,
-            weight_range=1,  # 1 means not use the position weighted loss
-            weight_exp=4,
             epsilon=1e-7,  # this is smallest for float16
             return_breakdown=True,
             loss_chunks=getattr(self, "loss_chunks", 1),
@@ -375,8 +377,6 @@ class Borzoi(nn.Module):
             y_pred=pred_count,
             y_true=true_count,
             total_weight=self.loss_total_weight,
-            weight_range=1,  # 1 means not use the position weighted loss
-            weight_exp=4,
             epsilon=1e-7,  # this is smallest for float16
             return_breakdown=True,
             loss_chunks=getattr(self, "loss_chunks", 1),
@@ -505,8 +505,6 @@ class Borzoi(nn.Module):
                 y_true=y_true,
                 y_pred=y_pred,
                 total_weight=self.loss_total_weight,
-                weight_range=1,  # 1 means not use the position weighted loss
-                weight_exp=4,
                 epsilon=1e-7,  # this is smallest for float16
                 return_breakdown=True,
                 loss_chunks=getattr(self, "loss_chunks", 1),

@@ -1,6 +1,5 @@
 from typing import Optional
 
-import numpy as np
 import torch
 from einops import rearrange
 from torch.nn import functional as F
@@ -102,39 +101,6 @@ class MeanPearsonCorrCoefPerChannel(Metric):
         return ", ".join([f"{c:.3f}" for c in corr])
 
 
-def get_position_weights(
-    seq_len: int, weight_range: float, weight_exp: int, device: str
-):
-    """
-    Generate smooth position-wise weights that are high in the middle and low at the ends.
-
-    This function creates a set of weights for positions in a sequence, where the weights
-    are highest in the middle of the sequence and decrease towards the ends. The weights
-    are normalized to have a maximum value of 1. Note that this function is not used in
-    the referenced paper.
-
-    Args:
-        seq_len (int): The length of the sequence.
-        weight_range (float): The range of the weights.
-        weight_exp (int): The exponent used to control the smoothness of the weights.
-                          This value is adjusted to be an even number.
-        device (str): The device to which the tensors are moved (e.g., 'cpu' or 'cuda').
-
-    Returns
-    -------
-        torch.Tensor: A tensor containing the position-wise weights, with shape (1, seq_len, 1).
-    """
-    weight_exp = max(2, weight_exp // 2 * 2)  # Ensure weight_exp is even number
-    pos_start = -(seq_len / 2 - 0.5)
-    pos_end = seq_len / 2 + 0.5
-    positions = torch.arange(pos_start, pos_end, dtype=torch.float32).to(device)
-    sigma = -pos_start / (np.log(weight_range)) ** (1 / weight_exp)
-    position_weights = torch.exp(-((positions / sigma) ** weight_exp))
-    position_weights /= torch.max(position_weights)
-    position_weights = position_weights.unsqueeze(0).unsqueeze(-1)
-    return position_weights
-
-
 def _log(t, eps=1e-20):
     return torch.log(t.clamp(min=eps))
 
@@ -148,8 +114,6 @@ def poisson_multinomial(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
     total_weight: float = 0.16,
-    weight_range: float = 1,
-    weight_exp: int = 4,
     epsilon: float = 1e-7,
     return_breakdown: bool = False,
     loss_chunks: int = 1,
@@ -180,15 +144,7 @@ def poisson_multinomial(
 
     valid_mask = torch.isfinite(y_true)
 
-    # Position-specific weights (similar to TensorFlow code)
-    if weight_range < 1:
-        raise ValueError("Poisson Multinomial weight_range must be >=1")
-    elif weight_range == 1:
-        weight_scale = valid_mask.sum(dim=-1).float()
-    else:
-        position_weights = get_position_weights(
-            seq_len, weight_range, weight_exp, y_true.device
-        )
+    weight_scale = valid_mask.sum(dim=-1).float()
 
     if position_weights is not None:
         # Apply position weights to true and predicted values

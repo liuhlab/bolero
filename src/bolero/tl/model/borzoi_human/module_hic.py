@@ -7,20 +7,11 @@ import torch.nn as nn
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
 from bolero.tl.model.corigami.model import model_summary
 from bolero.tl.model.corigami.module import AttnModule, ConvBlock, Decoder
+from bolero.utils import exponential_linspace_int
 from bolero.utils import validate_config
 
 # DNA input: (bs, ch, seq_len) (bs, 1920, 16384), pos resolution 32bp
 # ATAC input: (bs, ch, seq_len) (bs, 1, 16384), pos resolution 32bp
-
-
-def exponential_linspace_int(start, end, num, divisible_by=1):
-    """Create a linspace in exponential space, rounded to the nearest divisible_by."""
-
-    def _round(x):
-        return int(round(x / divisible_by) * divisible_by)
-
-    base = math.exp(math.log(end / start) / (num - 1))
-    return [_round(start * base**i) for i in range(num)]
 
 
 class Encoder(nn.Module):

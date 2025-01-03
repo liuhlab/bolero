@@ -195,7 +195,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.bias_column = "tn5_bias"
         self.name_to_pseudobulker = OrderedDict()
 
-        self.borzoi_regions = BorzoiRegions()
+        self.borzoi_regions = BorzoiRegions(self.genome)
 
         # Borzoi dataset requires these attributes but not used in scPrinter
         self.pos_resolution = None  # scPrinter is single base pair resolution

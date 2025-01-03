@@ -91,7 +91,7 @@ class CoverageHead(GenericModule):
         X_out = self.to_out(X, *args, **kwargs)
 
         cov = self.softplus(X_out).sum(dim=-1)
-        return cov[..., 0]
+        return cov[..., 0]  # shape: (batch_size,)
 
     def reset_parameters(self):
         """Reset the parameters of the module."""

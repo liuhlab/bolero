@@ -44,10 +44,6 @@ class BorzoiExamplePlotter:
         """Plot the true and predicted data for a batch of examples."""
         y_true = batch[self.true_key]
         y_pred = batch[self.pred_key]
-        if "position_weights" in batch:
-            position_weights = batch["position_weights"].cpu().numpy()
-        else:
-            position_weights = None
 
         if "region_names" in batch:
             region_names = batch["region_names"]
@@ -97,13 +93,6 @@ class BorzoiExamplePlotter:
 
             chrom, start, end, *_ = regions.iloc[row_id]
             region = f"{chrom}:{start}-{end}"
-
-            if position_weights is not None:
-                position_weights_1d = position_weights[row_id, channel]
-                high_weight_bins = self._get_high_weight_bins(position_weights_1d)
-                zoomin_range = high_weight_bins[0]
-                zoomin_slice = slice(*zoomin_range)
-                y_max_pair = None
 
             if region_names is not None:
                 gene_name = gene_names[row_id]
@@ -230,13 +219,3 @@ class BorzoiExamplePlotter:
             axes[2].set(ylim=(0, y_zoomin_max))
             axes[3].set(ylim=(0, y_zoomin_max))
         return
-
-    @staticmethod
-    def _get_high_weight_bins(position_weights_1d):
-        # position into disjoint bins
-        high_weight_pos = np.where(position_weights_1d > 0.1)[0]
-        edges = np.diff(high_weight_pos) != 1
-        starts = high_weight_pos[np.insert(edges, 0, True)]
-        ends = high_weight_pos[np.append(edges, True)]
-        high_weight_bins = list(zip(starts, ends))  # list[(start, end)]
-        return high_weight_bins

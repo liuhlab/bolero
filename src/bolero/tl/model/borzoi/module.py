@@ -257,6 +257,56 @@ class Attention(nn.Module):
         return out
 
 
+"""
+This code below is from borzoi-pytorch, for the flashzoi checkpoint.
+License: https://github.com/johahi/borzoi-pytorch/blob/main/LICENSE
+Biorxiv: https://www.biorxiv.org/content/10.1101/2024.12.18.629121v1
+"""
+
+
+class FlashAttention(nn.Module):
+    def __init__(
+        self,
+        dim=1536,
+        heads=8,
+        dropout=0.15,
+        pos_dropout=0.15,  # Not used
+        rotary_emb_base=20000.0,
+        rotary_emb_scale_base=None,
+    ):
+        super().__init__()
+        _ = pos_dropout
+
+        from flash_attn.modules.mha import MHA
+
+        self.mha = MHA(
+            use_flash_attn=True,
+            embed_dim=dim,
+            num_heads=heads,
+            num_heads_kv=(heads // 2),
+            qkv_proj_bias=True,  # False,
+            out_proj_bias=True,
+            dropout=dropout,
+            softmax_scale=(dim / heads) ** -0.5,
+            causal=False,
+            rotary_emb_dim=128,
+            rotary_emb_base=rotary_emb_base,
+            rotary_emb_scale_base=rotary_emb_scale_base,
+            fused_bias_fc=False,
+        )
+
+        nn.init.kaiming_normal_(self.mha.Wqkv.weight, nonlinearity="relu")
+        nn.init.zeros_(self.mha.out_proj.weight)
+        nn.init.zeros_(self.mha.out_proj.bias)
+        nn.init.ones_(self.mha.Wqkv.bias)
+
+    def forward(self, x, *args, **kwargs):
+        """FlashAttention forward pass."""
+        # additional args and kwargs are not used as we don't expect conditional LoRA on this module
+        out = self.mha(x)
+        return out
+
+
 class ConvDna(nn.Module):
     def __init__(self, in_channels=4, out_channels=512, dna_kernel_size=15):
         super().__init__()
@@ -356,20 +406,31 @@ class TransformerLayer(nn.Module):
         ff_dropout=0.2,
         num_rel_pos_features=32,
         seq_len=4096,
+        flash_attn=False,
     ):
         super().__init__()
         self.layers = SequentialwithArgs(
             Residual(
                 SequentialwithArgs(
                     nn.LayerNorm(channels, eps=0.001),
-                    Attention(
-                        dim=channels,
-                        heads=heads,
-                        dim_key=dim_key,
-                        attn_dropout=attn_dropout,
-                        pos_dropout=pos_dropout,
-                        num_rel_pos_features=num_rel_pos_features,
-                        seq_len=seq_len,
+                    (
+                        Attention(
+                            dim=channels,
+                            heads=heads,
+                            dim_key=dim_key,
+                            attn_dropout=attn_dropout,
+                            pos_dropout=pos_dropout,
+                            num_rel_pos_features=num_rel_pos_features,
+                            seq_len=seq_len,
+                        )
+                        if not flash_attn
+                        # use flash attention with RoPE
+                        else FlashAttention(
+                            dim=channels,
+                            heads=heads,
+                            dropout=attn_dropout,
+                            pos_dropout=pos_dropout,
+                        )
                     ),
                     nn.Dropout(ff_dropout),
                 )

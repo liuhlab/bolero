@@ -11,6 +11,7 @@ If perform flat transformations (from one row to many rows), use ray.data.Datase
 These transform classes take a data dictionary and returns a list of modified data dictionaries.
 """
 
+from collections import defaultdict
 from typing import Union
 
 import numpy as np
@@ -170,7 +171,6 @@ class ReverseComplement:
             dna_key (str): The key to access the DNA sequence in the data dictionary.
             signal_key (str or List[str]): The key(s) to access the signal(s) in the data dictionary.
                 If a single string is provided, it will be converted to a list.
-            input_type (str, optional): The input type of the data, choose from 'row' or 'batch'. Defaults to 'row'.
             prob (float, optional): The probability of applying the transformation. Defaults to 0.5.
         """
         if isinstance(dna_key, str):
@@ -219,6 +219,53 @@ class ReverseComplement:
                 print(k, v.shape)
             raise e
         return data
+
+
+class ReverseComplmentMinusStrand:
+    def __init__(
+        self, dna_key, signal_key, strand_key="Strand", pos_strand=1, neg_strand=0
+    ):
+        if isinstance(dna_key, str):
+            dna_key = [dna_key]
+        if isinstance(signal_key, str):
+            signal_key = [signal_key]
+        self.dna_key = dna_key
+        self.signal_key = signal_key
+        self.strand_key = strand_key
+        self.pos_strand = pos_strand
+        self.neg_strand = neg_strand
+
+        self.flip_dna_axis = (-1, -2)
+        self.flip_signal_axis = -1
+        return
+
+    def __call__(self, data: dict) -> dict:
+        """Reverse complement when strand is negative."""
+        new_data = defaultdict(list)
+
+        bs = data[self.dna_key[0]].shape[0]
+        other_key = [k for k in data if k not in (self.dna_key + self.signal_key)]
+        for i in range(bs):
+            strand = data[self.strand_key][i]
+            if strand == self.neg_strand:
+                for k in self.dna_key:
+                    new_data[k].append(np.flip(data[k][i], axis=self.flip_dna_axis))
+                for k in self.signal_key:
+                    new_data[k].append(np.flip(data[k][i], axis=self.flip_signal_axis))
+                for k in other_key:
+                    new_data[k].append(data[k][i])
+                new_data["is_reverse_comp"].append(np.ones(1, dtype=np.int32))
+            elif strand == self.pos_strand:
+                for k in data.keys():
+                    new_data[k].append(data[k][i])
+                new_data["is_reverse_comp"].append(np.zeros(1, dtype=np.int32))
+            else:
+                raise ValueError(
+                    f"Invalid strand value: {strand}, "
+                    f"must be {self.pos_strand} or {self.neg_strand}"
+                )
+        new_data = {k: np.stack(v) for k, v in new_data.items()}
+        return new_data
 
 
 class BatchRegionEmbedding:

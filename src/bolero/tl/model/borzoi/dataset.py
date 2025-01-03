@@ -14,9 +14,10 @@ from bolero.tl.dataset.sc_transforms import GeneratePseudobulk
 from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
+    ReverseComplmentMinusStrand,
 )
 
-from .utils import BorzoiRegions, add_position_weights_to_batch
+from .utils import BorzoiRegions
 
 DNA_NAME = "dna_one_hot"
 
@@ -250,6 +251,32 @@ class GenerateBorzoiPseudobulkProfiler:
         return data_dict
 
 
+class GetGeneCountData:
+    def __init__(self, pid_map, gid_map, pid_key, gid_key):
+        self.pid_map = pid_map
+        self.gid_map = gid_map
+        self.pid_key = pid_key
+        self.gid_key = gid_key
+        pass
+
+    def __call__(self, batch: dict, remote_gene_df: ray.ObjectRef) -> dict:
+        """Get gene count data for the batch."""
+        if self.gid_map is None:
+            gids = [str(gid) for gid in batch[self.gid_key]]
+        else:
+            gids = [str(self.gid_map[gid]) for gid in batch[self.gid_key]]
+        pids = [str(self.pid_map[pid]) for pid in batch[self.pid_key]]
+
+        remote_gene_df = ray.get(remote_gene_df)
+
+        gene_values = []
+        for pid, gid in zip(pids, gids):
+            gene_values.append(remote_gene_df.loc[pid, gid])
+        gene_values = np.array(gene_values)[:, None]
+        batch["gene_count"] = gene_values
+        return batch
+
+
 class BorzoiDataset(RayGenomeChunkDataset):
     """Singel cell pseudobulk dataset for Borzoi model."""
 
@@ -259,6 +286,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "dna_window": 524288,
         "pos_resolution": 32,
         "reverse_complement": True,
+        "rc_mode": "random",
         "max_jitter": 3,
         "n_pseudobulks": 100,
         "shuffle_files": True,
@@ -266,13 +294,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "min_cov": 0,
         "paired_data": False,
         "normalize_cov": None,
-        "use_gene_regions": False,
         "deg_list": None,
         "use_pseudobulk_profile": False,
         "reduce_resolution": False,
-        # only applicable when use gene regions
-        "gene_weight": 1.0,
-        "background_weight": 1e-4,
+        "use_regions": "borzoi",
+        "gene_data_path": None,
+        "tss_bed_path": None,
     }
 
     def __init__(
@@ -282,6 +309,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         dna_window: int = 524288,
         pos_resolution: int = 32,
         reverse_complement: bool = True,
+        rc_mode: str = "random",
         max_jitter: int = 3,
         n_pseudobulks: int = 100,
         cov_filter_name: str = None,
@@ -290,12 +318,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         min_cov: int = 0,
         paired_data=False,
         normalize_cov=None,
-        use_gene_regions=False,
         deg_list=None,
         use_pseudobulk_profile=False,
-        gene_weight=1.0,
-        background_weight=1e-4,
         reduce_resolution=False,
+        use_regions="borzoi",
+        gene_data_path=None,
+        tss_bed_path=None,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -311,21 +339,22 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.pos_resolution = pos_resolution
         self.max_jitter = max_jitter
         self.reverse_complement = reverse_complement
+        self.rc_mode = rc_mode
         self.n_pseudobulks = n_pseudobulks
         self.cov_filter_name = cov_filter_name
         self.min_cov = min_cov
         self.paired_data = paired_data
         self.normalize_cov = normalize_cov
-        self.use_gene_regions = use_gene_regions
         self.deg_list = deg_list
         self.use_pseudobulk_profile = use_pseudobulk_profile
-        self.gene_weight = gene_weight
-        self.background_weight = background_weight
         self.reduce_resolution = reduce_resolution
 
         self.name_to_pseudobulker = OrderedDict()
 
-        self.borzoi_regions = BorzoiRegions()
+        self.borzoi_regions = BorzoiRegions(self.genome)
+        self.use_regions = use_regions
+        self.gene_data_path = gene_data_path
+        self.tss_bed_path = tss_bed_path
         return
 
     def get_train_valid_test(
@@ -343,17 +372,16 @@ class BorzoiDataset(RayGenomeChunkDataset):
         valid_folds = fold_split["valid"]
         test_folds = fold_split["test"]
 
-        use_gene_regions = getattr(self, "use_gene_regions", False)
         deg_list = getattr(self, "deg_list", None)
         if region_length is None:
             region_length = self.dna_window
         train_regions, valid_regions, test_regions = (
             self.borzoi_regions.get_train_valid_test_regions(
-                self.genome.name,
                 split_id=fold,
                 region_length=region_length,
-                use_gene_regions=use_gene_regions,
+                use_regions=self.use_regions,
                 deg_list=deg_list,
+                tss_bed_path=self.tss_bed_path,
             )
         )
 
@@ -421,10 +449,18 @@ class BorzoiDataset(RayGenomeChunkDataset):
         -------
         None
         """
-        _rc = ReverseComplement(
-            dna_key=self.dna_column,
-            signal_key=self.signal_columns,
-        )
+        if self.use_regions == "borzoi_tss" and self.rc_mode == "minus_strand":
+            print("Reverse complement minus strand")
+            _rc = ReverseComplmentMinusStrand(
+                dna_key=self.dna_column,
+                signal_key=self.signal_columns,
+                strand_key="Strand",
+            )
+        else:
+            _rc = ReverseComplement(
+                dna_key=self.dna_column,
+                signal_key=self.signal_columns,
+            )
         dataset = dataset.map_batches(_rc, batch_size=batch_size)
         return dataset
 
@@ -465,11 +501,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         return fold_dirs
 
     def _read_parquet(self, folds):
-        _dataset = ray.data.read_parquet(
-            self._get_folds_dir(folds),
-            file_extensions=["parquet"],
-            **self.read_parquet_kwargs,
-        )
+        kwargs = {
+            "paths": self._get_folds_dir(folds),
+            "file_extensions": ["parquet"],
+        }
+        kwargs.update(self.read_parquet_kwargs)
+        _dataset = ray.data.read_parquet(**kwargs)
         return _dataset
 
     def _filter_min_cov(
@@ -578,9 +615,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
             "n_pseudobulks": self.n_pseudobulks,
             "paired_data": self.paired_data,
             "normalize_cov": self.normalize_cov,
-            "reduce_resolution": self.pos_resolution
-            if self.reduce_resolution
-            else None,
+            "reduce_resolution": (
+                self.pos_resolution if self.reduce_resolution else None
+            ),
             **kwargs,
         }
         name_to_pseudobulker = self.name_to_pseudobulker
@@ -601,6 +638,35 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.signal_columns = list(set(region_action_keys))
         return dataset
 
+    def _add_gene_counts(self, dataset, concurrency=1, batch_size=16):
+        if self.use_regions == "borzoi_tss":
+            assert self.gene_data_path is not None, "gene_data_path is required"
+
+        import anndata
+
+        gene_count_df = anndata.read_h5ad(self.gene_data_path).to_df()
+        gene_count_df_remote = ray.put(gene_count_df)
+
+        fn = GetGeneCountData
+        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
+        prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
+        fn_constructor_kwargs = {
+            "pid_map": pseudobulker.pseudobulk_ids,
+            "gid_map": self.borzoi_regions.cur_idmap,
+            "pid_key": f"{prefix}:pseudobulk_ids",
+            "gid_key": "Original_Name",
+        }
+        fn_kwargs = {"remote_gene_df": gene_count_df_remote}
+
+        dataset = dataset.map_batches(
+            fn=fn,
+            fn_constructor_kwargs=fn_constructor_kwargs,
+            fn_kwargs=fn_kwargs,
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        return dataset
+
     def _get_processed_dataset(
         self,
         folds,
@@ -617,7 +683,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         Preprocess the dataset to return pseudobulk region rows.
         """
         if compressed_bytes_to_tensor_concurrency is None:
-            compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
+            compressed_bytes_to_tensor_concurrency = (1, concurrency // 3)
         if generate_pseudobulk_concurrency is None:
             generate_pseudobulk_concurrency = (1, concurrency)
         if generate_regions_concurrency is None:
@@ -667,6 +733,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 concurrency=generate_regions_concurrency,
                 pos_resolution=self.pos_resolution,
                 add_original_name=add_original_name,
+                add_strand=self.use_regions == "borzoi_tss",
             )
         return dataset
 
@@ -715,6 +782,13 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 filter_prefix="pseudobulk",
             )
 
+        if self.use_regions == "borzoi_tss":
+            work_ds = self._add_gene_counts(
+                dataset=work_ds,
+                concurrency=1,
+                batch_size=batch_size,
+            )
+
         # add dna one hot
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
@@ -735,29 +809,34 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
     def get_dataloader(
         self,
-        folds,
-        region_bed,
-        as_torch=True,
-        n_batches=None,
-        shuffle_rows=500,
-        concurrency=32,
-        **dataloader_kwargs,
+        folds: list[int],
+        region_bed: str,
+        as_torch: bool = True,
+        n_batches: int = None,
+        batch_size: int = None,
+        shuffle_rows: int = 500,
+        concurrency: int = 32,
+        **dataloader_kwargs: Any,
     ) -> Iterable[dict[str, Any]]:
         """
         Get the dataloader.
 
         Parameters
         ----------
-        local_shuffle_buffer_size : int, optional
-            The size of the local shuffle buffer, by default 10000.
-        randomize_block_order : bool, optional
-            Whether to randomize the block order, by default False.
+        folds : list
+            List of folds to include in the dataset.
+        region_bed : str
+            Path to the BED file containing the regions.
         as_torch : bool, optional
             Whether to return a PyTorch dataloader, by default True.
-        device : str, optional
-            The device to use, by default None.
-        return_cells : bool, optional
-            Whether to return the cell ids, by default False.
+        n_batches : int, optional
+            Number of batches to return, by default None.
+        batch_size : int, optional
+            Batch size, by default None.
+        shuffle_rows : int, optional
+            The size of the local shuffle buffer, by default 500.
+        concurrency : int, optional
+            The number of workers to use for processing the dataset, by default 32.
         **dataloader_kwargs
             Additional keyword arguments pass to ray.data.Dataset.iter_batches.
 
@@ -780,23 +859,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
             as_torch=as_torch,
             shuffle_rows=shuffle_rows,
             n_batches=n_batches,
-            batch_size=self.batch_size,
+            batch_size=self.batch_size if batch_size is None else batch_size,
         )
         return loader
 
     def maybe_preprocess_batch(self, batch):
         """Maybe add region weights to weight on gene regions."""
-        if self.use_gene_regions:
-            batch = add_position_weights_to_batch(
-                batch=batch,
-                genome=self.genome,
-                region_id_map=self.borzoi_regions.cur_idmap,
-                effective_regions=self.borzoi_regions.cur_effective_regions,
-                resolution=32,
-                gene_value=self.gene_weight,
-                other_value=self.background_weight,
-            )
-
         if self.use_pseudobulk_profile:
             batch = self._normalize_by_profile(batch)
         return batch

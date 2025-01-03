@@ -15,6 +15,7 @@ from .module_embedding import EmbeddingMLP
 from .module_lora import (
     DoRAMixin,
     LoRAConv,
+    LoRAEmbedding,
     LoRALinear,
     mark_only_lora_as_trainable,
     name_in_patterns,
@@ -575,6 +576,7 @@ def convert_to_conditional_lora_model(
     output_layer_groups: int = 1,
     convert_linear=False,
     convert_conv=False,
+    convert_embedding=False,
     lora_rank=1,
     lora_alpha=None,
     lora_scale=1,
@@ -667,6 +669,13 @@ def convert_to_conditional_lora_model(
             and convert_conv
         ):
             lora_cls = ConditionalLoRAConv if conditional else LoRAConv
+            modules_to_modify.append((name, module, lora_cls))
+        elif isinstance(module, nn.Embedding) and convert_embedding:
+            if conditional:
+                raise NotImplementedError(
+                    "Conditional LoRA for nn.Embedding is not implemented yet."
+                )
+            lora_cls = LoRAEmbedding
             modules_to_modify.append((name, module, lora_cls))
         else:
             pass
