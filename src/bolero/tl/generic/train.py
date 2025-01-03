@@ -654,6 +654,23 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
         return scheduler
 
+    def get_autocast(self):
+        """Get autocast context."""
+        try:
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.bfloat16,
+                enabled=self.use_amp,
+            )
+        except RuntimeError:
+            # some GPU, such as T4 does not support bfloat16
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.float16,
+                enabled=self.use_amp,
+            )
+        return auto_cast_context
+
     def _collect_grad_norm(self, model):
         if self.grad_norm_collector is not None:
             self.grad_norm_collector.collect(model)
@@ -724,26 +741,22 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             if self.use_ema:
                 self.ema.eval()
                 self.ema.ema_model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.ema.ema_model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
+                results = self._model_validation_step(
+                    model=self.ema.ema_model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
                 )
                 # self.ema.train()
                 # self.ema.ema_model.train()
             else:
                 self.model.eval()
-                val_loss, single_batch_pearson, across_batch_pearson, wandb_images = (
-                    self._model_validation_step(
-                        model=self.model,
-                        dataloader=dataloader,
-                        val_batches=val_batches,
-                    )
+                results = self._model_validation_step(
+                    model=self.model,
+                    dataloader=dataloader,
+                    val_batches=val_batches,
                 )
                 self.model.train()
-        return val_loss, single_batch_pearson, across_batch_pearson, wandb_images
+        return results
 
     def _save_checkpoint(self, update_best: bool):
         epoch_info = {

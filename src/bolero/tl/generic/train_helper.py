@@ -417,6 +417,9 @@ class CumulativePearson:
             x (np.ndarray or torch.Tensor): The x values to be added to the counter.
             y (np.ndarray or torch.Tensor): The y values to be added to the counter.
         """
+        assert (
+            x.shape == y.shape
+        ), f"Shape mismatch between x and y, {x.shape} != {y.shape}"
         self.x_counter.update(x)
         self.y_counter.update(y)
         self.xy_counter.update(x * y)
@@ -455,6 +458,10 @@ class CumulativePearson:
         correlation = covariance / (
             math.sqrt(variance_x * variance_y) + 1e-8
         )  # Adding small value for numerical stability
+
+        assert (
+            -1 <= correlation <= 1
+        ), f"Invalid correlation value {correlation}, {covariance}, {variance_x}, {variance_y}"
         return correlation
 
 
@@ -477,6 +484,10 @@ def batch_pearson_correlation(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         It is computed as the covariance of x and y divided by the product of their standard deviations.
 
     """
+    bs = x.shape[0]
+    x = x.view(bs, -1)
+    y = y.view(bs, -1)
+
     # Compute means along the batch dimension
     mean_x = torch.mean(x, dim=-1, keepdim=True)
     mean_y = torch.mean(y, dim=-1, keepdim=True)

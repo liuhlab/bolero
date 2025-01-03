@@ -326,7 +326,6 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
             bigwig_paths=[self.tn5_bias_path],
             concurrency=concurrency,
             norm_mode=None,
-            resolution=1,
             scale_factors=None,
         )
 
@@ -340,7 +339,6 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                     bigwig_paths=file_paths,
                     concurrency=concurrency,
                     norm_mode=None,
-                    resolution=1,
                     scale_factors=None,
                 )
             elif file_type in ("allc",):
@@ -403,6 +401,20 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
         # Turn region into global coordinates (str to numbers)
         work_ds = self._process_region_columns(dataset=work_ds, keep_regions=True)
         work_ds = work_ds.drop_columns(["Original_Name"])
+
+        if (
+            self.data_key_to_mc_context is not None
+            and len(self.data_key_to_mc_context) > 1
+        ):
+            # combine the mc_frac channels
+            mc_frac_keys = [
+                f"{data_key}_mc_frac" for data_key in self.data_key_to_mc_context.keys()
+            ]
+            work_ds = self._combine_channels(
+                dataset=work_ds,
+                key_list=mc_frac_keys,
+                out_key="mc_frac",
+            )
 
         # rename keys
         work_ds = self._rename_keys(

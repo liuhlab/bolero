@@ -27,6 +27,14 @@ class FootPrintExamplePlotter:
 
     """
 
+    def _tensor_to_array(self, *tensor: torch.Tensor) -> np.ndarray:
+        out = []
+        for t in tensor:
+            if hasattr(t, "numpy"):
+                t = t.detach().cpu().numpy()
+            out.append(t)
+        return out
+
     def __init__(
         self,
         signal: np.ndarray,
@@ -35,6 +43,10 @@ class FootPrintExamplePlotter:
         predict: np.ndarray,
         footprinter: Callable,
     ):
+        signal, bias, target, predict = self._tensor_to_array(
+            signal, bias, target, predict
+        )
+
         if signal.ndim == 3:
             signal = signal.squeeze(1)
         if bias.ndim == 3:

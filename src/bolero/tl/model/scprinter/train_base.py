@@ -1,6 +1,5 @@
 import pathlib
 
-import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -67,6 +66,14 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         self.model: torch.nn.Module = None
         self._setup_env()
         self._setup_dataset()
+
+        # placeholders
+        self.cur_lr = 0
+        self.train_loss = None
+        self.val_loss = None
+        self.val_images = None
+        self.profile_pearson = None
+        self.across_pearson = None
         return
 
     def _setup_dataset(self):
@@ -117,139 +124,81 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         self,
         model,
         dataloader,
-        val_batches,
         collect_data=False,
+        **kwargs,
     ):
-        print_step = max(5, val_batches // 20)
-        # if val batches is None, use all batches in the dataset
-
-        prefix = self.prefix
-        atac_key = f"{prefix}:bulk_data"
-        bias_key = "tn5_bias"
-        footprint_key = f"{prefix}:bulk_data_footprint"
-        footprinter = self.footprinter
-
-        size = 0
-        val_loss = [0, 0]
+        loss_logger = {k: CumulativeCounter() for k in model.output_keys}
         profile_pearson_counter = CumulativeCounter()
-        across_batch_pearson_fp = CumulativePearson()
-        across_batch_pearson_cov = CumulativePearson()
+        across_batch_pearson_logger = {
+            k: CumulativePearson() for k in model.output_keys
+        }
 
         example_batches = []  # collect example batches for making images
         data_collector = []  # collect data for further analysis
         for batch_id, batch in enumerate(dataloader):
-            (
-                y_footprint,
-                y_coverage,
-                pred_footprint,
-                pred_coverage,
-                loss_footprint,
-                loss_coverage,
-            ) = self._model_forward_pass(model, batch)
-
-            pred_score_img = pred_footprint.clone().detach().cpu().numpy()
-            y_footprint = torch.nan_to_num(y_footprint, nan=0)
+            batch, _ = self._model_forward_pass(model, batch)
             # as is in scPrinter
-            pred_footprint = pred_footprint.reshape((len(pred_footprint), -1))
-            y_footprint = y_footprint.reshape((len(y_footprint), -1))
-
-            val_loss[0] += loss_footprint.item()
-            val_loss[1] += loss_coverage.item()
+            batch["true_footprint"] = torch.nan_to_num(batch["true_footprint"], nan=0.0)
 
             # ==========
-            # Within batch pearson and save for across batch pearson
+            # Loss and Pearson correlation
             # ==========
-            # within batch pearson
+            for k in model.output_keys:
+                loss_logger[k].update(batch[f"loss_{k}"])
+                across_batch_pearson_logger[k].update(
+                    batch["pred_{k}"], batch["true_{k}"]
+                )
+
             corr = (
-                batch_pearson_correlation(pred_footprint, y_footprint)
+                batch_pearson_correlation(
+                    batch["pred_footprint"], batch["true_footprint"]
+                )
                 .detach()
                 .cpu()[:, None]
             )
             profile_pearson_counter.update(corr)
-            # save for across batch pearson
-            across_batch_pearson_fp.update(pred_footprint, y_footprint)
-            across_batch_pearson_cov.update(pred_coverage, y_coverage)
 
-            size += 1
             if batch_id < self.plot_example_per_epoch:
-                batch["pred_score"] = pred_score_img
                 example_batches.append(batch)
-
-            if ((batch_id + 1) % print_step) == 0:
-                desc_str = (
-                    f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
-                    f"FP Loss: {val_loss[0]/size:.3f}; "
-                    f"Cov Loss: {val_loss[1]/size:.3f}; "
-                    f"Profile Pearson: {profile_pearson_counter.mean():.3f}; "
-                    f"Across batch Pearson: FP {across_batch_pearson_fp.corr():.3f}; "
-                    f"Cov {across_batch_pearson_cov.corr():.3f}"
-                )
-                print(desc_str)
 
             # Collect batch data for validation
             if collect_data:
                 # add addtional data into batch dict
-                batch_data = {
-                    "pred_footprint": pred_footprint,
-                    "pred_coverage": pred_coverage,
-                    "loss_footprint": loss_footprint,
-                    "loss_coverage": loss_coverage,
-                    "true_footprint": y_footprint,
-                    "true_coverage": y_coverage,
-                    f"{prefix}:pseudobulk_ids": batch[f"{prefix}:pseudobulk_ids"],
-                    "region": batch["region"],
-                }
                 data_collector.append(
                     {
                         k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-                        for k, v in batch_data.items()
+                        for k, v in batch.items()
                     }
                 )
 
         del dataloader
         self._cleanup_env()
 
-        wandb_images = self._plot_example_footprints(
-            example_batches, footprinter, atac_key, bias_key, footprint_key
-        )
-
         # ==========
-        # Loss
+        # Save val results
         # ==========
-        val_loss = [l / size for l in val_loss]
-
-        # ==========
-        # Within batch pearson
-        # ==========
-        profile_pearson = np.array([profile_pearson_counter.mean()])
-
-        # ==========
-        # Across batch pearson
-        # ==========
-        across_corr = [
-            across_batch_pearson_fp.corr(),
-            across_batch_pearson_cov.corr(),
-        ]
+        self.val_images = self._plot_example_footprints(example_batches)
+        self.val_loss = {k: loss_logger[k].mean() for k in model.output_keys}
+        self.profile_pearson = profile_pearson_counter.mean()
+        self.across_pearson = {
+            k: across_batch_pearson_logger[k].corr() for k in model.output_keys
+        }
         if collect_data:
-            return val_loss, profile_pearson, across_corr, wandb_images, data_collector
-        else:
-            return val_loss, profile_pearson, across_corr, wandb_images
+            return data_collector
 
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
 
-    def _plot_example_footprints(
-        self, example_batches, footprinter, atac_key, bias_key, footprint_key
-    ):
+    def _plot_example_footprints(self, example_batches):
         epoch = self.cur_epoch + 1
         wandb_images = []
         for idx, batch in enumerate(example_batches):
             plotter = FootPrintExamplePlotter(
-                signal=batch[atac_key],
-                bias=batch[bias_key],
-                target=batch[footprint_key],
+                signal=batch["true_atac"],
+                bias=batch["tn5_bias"],
+                target=batch["true_footprint"],
                 predict=batch["pred_score"],
-                footprinter=footprinter,
+                footprinter=self.footprinter,
             )
             fig, _ = plotter.plot(figsize=(6, 2.5), dpi=100)
             fig_array = figure_to_array(fig)
@@ -264,30 +213,24 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     file_type="jpg",  # reduce file size
                 )
             )
+
+            # TODO: add mC plot if available, append to wandb_images
         return wandb_images
 
-    def _log_save_and_check_stop(self, example_images):
+    def _log_save_and_check_stop(self):
         epoch = self.cur_epoch
-        train_fp_loss = self.train_fp_loss
-        train_cov_loss = self.train_cov_loss
-        learning_rate = self.cur_lr
-        val_fp_loss, val_cov_loss = self.val_loss
-        profile_pearson = self.val_profile_pearson
-        across_pearson = self.val_across_pearson
 
-        print(
-            f" - (Training) {epoch} FP Loss: {train_fp_loss:.3f}; "
-            f"Cov Loss: {train_cov_loss:.3f}; Learning rate {learning_rate}."
-        )
-        print(
-            f" - (Validation) {epoch} FP Loss: {val_fp_loss:.3f}; Cov Loss: {val_cov_loss:.3f}"
-        )
-        print(f"Profile pearson {profile_pearson[0]:.3f}")
-        print(f"Across peak pearson footprint {across_pearson[0]:.3f}")
-        print(f"Across peak pearson coverage {across_pearson[1]:.3f}")
+        loss_str = ";\n".join([f"{k}: {v:.3f}" for k, v in self.train_loss.items()])
+        print(f" - (Training) {epoch}\n{loss_str};\nLearning rate {self.cur_lr}.")
+        loss_str = ";\n".join([f"{k}: {v:.3f}" for k, v in self.val_loss.items()])
+        print(f" - (Validation) {epoch}\n{loss_str};")
+        print(f"Profile pearson {self.profile_pearson:.3f}")
+        for k, p in self.across_pearson.items():
+            print(f"Across peak pearson {k} {p:.3f}")
 
-        # only clear the early stopping counter if the loss improvement is better than tolerance
+        # determine early stop based on footprint loss
         previous_best = self.best_val_loss
+        val_fp_loss = self.val_loss["footprint"]
         if val_fp_loss < self.best_val_loss - self.loss_tolerance:
             self.early_stopping_counter = 0
         else:
@@ -298,40 +241,56 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             f"Loss at epoch {epoch}: {val_fp_loss:.3f}; "
             f"Early stopping counter: {self.early_stopping_counter}"
         )
+
         # save checkpoint if the loss is better
         if epoch < self.start_early_stop_after_epoch:
             self.best_val_loss = val_fp_loss
-            self._save_checkpint(update_best=True)
+            self._save_checkpoint(update_best=True)
         else:
             if val_fp_loss < self.best_val_loss:
                 self.best_val_loss = val_fp_loss
-                self._save_checkpint(update_best=True)
+                self._save_checkpoint(update_best=True)
             else:
-                self._save_checkpint(update_best=False)
+                self._save_checkpoint(update_best=False)
 
         wandb.log(
             {
-                "train/train_fp_loss": train_fp_loss,
-                "train/train_cov_loss": train_cov_loss,
-                "val/val_fp_loss": val_fp_loss,
-                "val/val_cov_loss": val_cov_loss,
+                **{f"train/train_loss_{k}": v for k, v in self.train_loss.items()},
+                **{f"val/val_loss_{k}": v for k, v in self.val_loss.items()},
                 "val/best_val_loss": self.best_val_loss,
                 "val/early_stopping_counter": self.early_stopping_counter,
-                "val/profile_pearson": profile_pearson[0],
-                "val/across_pearson_footprint": across_pearson[0],
-                "val/across_pearson_coverage": across_pearson[1],
-                "val_example/example_footprints": example_images,
+                "val/profile_pearson": self.profile_pearson,
+                **{
+                    f"val/across_pearson_{k}": v for k, v in self.across_pearson.items()
+                },
+                "val_example/example_footprints": self.val_images,
             }
         )
 
         flag = self.early_stopping_counter >= self.patience
         return flag
 
-    def _fit(self, max_epochs=None):
-        atac_key = f"{self.prefix}:bulk_data"
-        bias_key = "tn5_bias"
-        footprint_key = f"{self.prefix}:bulk_data_footprint"
+    def _global_clipnorm(self):
+        self.scaler.unscale_(self.optimizer)
+        if self.config["global_clipnorm"] is not None:
+            # clip footprint parameters
+            total_norm = torch.nn.utils.clip_grad_norm_(
+                self.model.footprint_parameters(),
+                max_norm=self.config["global_clipnorm"],
+            )
+            total_norm = total_norm.item()
 
+            # clip coverage parameters
+            torch.nn.utils.clip_grad_norm_(
+                self.model.coverage_parameters(),
+                max_norm=self.config["global_clipnorm"] * 3,
+            )
+
+        # collect grad norm if needed
+        self._collect_grad_norm(self.model)
+        return total_norm
+
+    def _fit(self, max_epochs=None):
         if max_epochs is None:
             max_epochs = self.max_epochs
 
@@ -348,6 +307,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
         total_norm = 0
+        loss_logger = {k: CumulativeCounter() for k in self.model.output_keys}
         while self.cur_epoch <= max_epochs and not stop_flag:
             # one can manually create a stop flag file to stop the training
             # path: f"{self.savename}.stop.flag"
@@ -373,74 +333,29 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             dataloader = self.get_train_dataloader(batches=self.train_batches)
 
             # start train epochs
-            moving_avg_fp_loss = 0
-            moving_avg_cov_loss = 0
-            cur_cov_loss = 1e10
-            cur_fp_loss = 1e10
-            nan_loss = False
-
             print_steps = max(5, self.train_batches // 50)
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
             for batch_id, batch in enumerate(dataloader):
-                try:
-                    auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(":")[0],
-                        dtype=torch.bfloat16,
-                        enabled=self.use_amp,
-                    )
-                except RuntimeError:
-                    # some GPU, such as T4 does not support bfloat16
-                    auto_cast_context = torch.autocast(
-                        device_type=str(self.device).split(":")[0],
-                        dtype=torch.float16,
-                        enabled=self.use_amp,
-                    )
+                with self.get_autocast():
+                    batch, loss = self._model_forward_pass(self.model, batch)
 
-                with auto_cast_context:
-                    *_, pred_fp, _, loss_footprint, loss_coverage = (
-                        self._model_forward_pass(self.model, batch)
-                    )
-                    batch["pred_score"] = pred_fp.detach().float().cpu().numpy()
-
-                    # because coverage_head is detached from other part of the model
-                    # here we just add the loss without lambda weight
-                    loss = (loss_footprint + loss_coverage) / self.accumulate_grad
+                    # take final loss and scale by accumulate_grad
+                    loss = loss / self.accumulate_grad
 
                     if np.isnan(loss.item()):
-                        nan_loss = True
-                        print("Training loss has NaN, skipping epoch.")
-                        self._update_state_dict()
-                        break
+                        raise ValueError("Training loss has NaN.")
 
                 # ==========
                 # Backward
                 # ==========
                 scaler.scale(loss).backward()
-                moving_avg_fp_loss += loss_footprint.item()
-                moving_avg_cov_loss += loss_coverage.item()
                 # only update optimizer every accumulate_grad steps
                 # this is equivalent to updating every step but with larger batch size (batch_size * accumulate_grad)
                 # however, with larger batch size, the GPU memory usage will be higher
                 if (batch_id + 1) % self.accumulate_grad == 0:
-                    scaler.unscale_(optimizer)
-                    if self.config["global_clipnorm"] is not None:
-                        # clip footprint parameters
-                        total_norm = torch.nn.utils.clip_grad_norm_(
-                            self.model.footprint_parameters(),
-                            max_norm=self.config["global_clipnorm"],
-                        )
-                        total_norm = total_norm.item()
-
-                        # clip coverage parameters
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.coverage_parameters(),
-                            max_norm=self.config["global_clipnorm"] * 3,
-                        )
-
-                    # collect grad norm if needed
-                    self._collect_grad_norm(self.model)
+                    total_norm = self._global_clipnorm()
 
                     scaler.step(optimizer)
                     scaler.update()
@@ -453,66 +368,30 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         scheduler.step()
 
                 with torch.no_grad():
+                    for key in self.model.output_keys:
+                        loss_logger[key].update(batch[f"loss_{key}"])
+
                     if (batch_id + 1) % print_steps == 0:
                         log_dict = {
-                            "train/fp_loss": loss_footprint.item(),
-                            "train/cov_loss": loss_coverage.item(),
-                            "train/total_grad_norm": total_norm,
+                            f"train/loss_{key}": batch[f"loss_{key}"]
+                            for key in self.model.output_keys
                         }
+                        log_dict["train/total_grad_norm"] = total_norm
                         wandb.log(log_dict)
-
-                        _fp_loss = moving_avg_fp_loss / (batch_id + 1)
-                        _cov_loss = moving_avg_cov_loss / (batch_id + 1)
-                        desc_str = (
-                            f" - (Training) {self.cur_epoch} [{batch_id}/{self.train_batches}] "
-                            f"Ave FP Loss: {_fp_loss:.3f} "
-                            f"Ave Cov Loss: {_cov_loss:.3f} "
-                            f"Last grad norm: {total_norm:.4f} "
-                            f"Last FP Loss: {loss_footprint.item():.3f} "
-                            f"Last Cov Loss: {loss_coverage.item():.3f}"
-                        )
-
-                        if _fp_loss > (cur_fp_loss + 0.5):
-                            batch["cur_fp_loss"] = _fp_loss
-                            batch["last_fp_loss"] = cur_fp_loss
-                            batch["cur_cov_loss"] = _cov_loss
-                            batch["last_cov_loss"] = cur_cov_loss
-                            print(f"Batch {batch_id} loss increased.")
-                            joblib.dump(
-                                batch,
-                                f"{self.savename}.epoch{self.cur_epoch}.batch{batch_id}.joblib",
-                            )
-
-                        cur_fp_loss = _fp_loss
-                        cur_cov_loss = _cov_loss
-                        print(desc_str)
 
                     if (batch_id + 1) % example_step == 0:
                         # plot example footprints
-                        example_images = self._plot_example_footprints(
-                            [batch],
-                            self.footprinter,
-                            atac_key=atac_key,
-                            bias_key=bias_key,
-                            footprint_key=footprint_key,
-                        )
+                        example_images = self._plot_example_footprints([batch])
                         wandb.log({"train_example/example_footprints": example_images})
 
             del dataloader
             self._cleanup_env()
-            if nan_loss:
-                # epoch break due to nan loss, skip validation
-                continue
 
-            self.train_fp_loss = moving_avg_fp_loss / (batch_id + 1)
-            self.train_cov_loss = moving_avg_cov_loss / (batch_id + 1)
+            self.train_loss = {k: loss_logger[k].mean() for k in self.model.output_keys}
             self.cur_lr = optimizer.param_groups[0]["lr"]
-            (
-                self.val_loss,
-                self.val_profile_pearson,
-                self.val_across_pearson,
-                wandb_images,
-            ) = self._validation_step()
+
+            # validation
+            self._validation_step()
 
             if np.isnan(self.val_loss[0]):
                 print("Validation loss is NaN, skipping epoch.")
@@ -520,7 +399,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 continue
 
             self.cur_epoch += 1
-            stop_flag = self._log_save_and_check_stop(example_images=wandb_images)
+            stop_flag = self._log_save_and_check_stop()
             if stop_flag:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True
@@ -533,36 +412,23 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # load final best checkpoint for testing
         self._update_state_dict()
 
-        (
-            self.val_loss,
-            self.val_profile_pearson,
-            self.val_across_pearson,
-            _,
-        ) = self._validation_step(val_batches=1500)
-        valid_across_pearson_footprint, valid_across_pearson_coverage = (
-            self.val_across_pearson
-        )
-        (
-            self.test_loss,
-            self.test_profile_pearson,
-            self.test_across_pearson,
-            wandb_images,
-        ) = self._validation_step(testing=True, val_batches=1500)
-        test_across_pearson_footprint, test_across_pearson_coverage = (
-            self.test_across_pearson
-        )
+        # validation
+        if self.val_loss is None:
+            self._validation_step(val_batches=1500)
+        for key in self.model.output_keys:
+            wandb.summary[f"final_valid_loss_{key}"] = self.val_loss[key]
+            wandb.summary[f"final_valid_across_pearson_{key}"] = self.across_pearson[
+                key
+            ]
+        wandb.summary["final_valid_profile_pearson"] = self.profile_pearson.mean()
 
-        wandb.summary["final_valid_fp_loss"] = self.val_loss[0]
-        wandb.summary["final_valid_cov_loss"] = self.val_loss[1]
-        wandb.summary["final_valid_within"] = self.val_profile_pearson[0]
-        wandb.summary["final_valid_across"] = valid_across_pearson_footprint
-        wandb.summary["final_valid_cov"] = valid_across_pearson_coverage
-        wandb.summary["final_test_fp_loss"] = self.test_loss[0]
-        wandb.summary["final_test_cov_loss"] = self.test_loss[1]
-        wandb.summary["final_test_within"] = self.test_profile_pearson[0]
-        wandb.summary["final_test_across"] = test_across_pearson_footprint
-        wandb.summary["final_test_cov"] = test_across_pearson_coverage
-        wandb.summary["final_image"] = wandb_images
+        # test
+        self._validation_step(testing=True, val_batches=1500)
+        for key in self.model.output_keys:
+            wandb.summary[f"final_test_loss_{key}"] = self.val_loss[key]
+            wandb.summary[f"final_test_across_pearson_{key}"] = self.across_pearson[key]
+        wandb.summary["final_test_profile_pearson"] = self.profile_pearson.mean()
+        wandb.summary["final_test_image"] = self.val_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
@@ -647,20 +513,21 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
         # y_footprint, y_coverage
         # ==========
         batch = footprinter(data=batch)
-        y_footprint = batch[footprint_key]
-        y_coverage = batch[atac_key].sum(dim=-1)
+        batch["true_footprint"] = batch[footprint_key]
+        batch["true_coverage"] = (
+            batch[atac_key].sum(dim=-1).squeeze(1)
+        )  # remove the channel dim
 
         # ==========
         # Forward and Loss
         # ==========
         pred_footprint, pred_coverage = model(X)
-        fp_loss, cov_loss = model.loss(
-            y_footprint=y_footprint,
-            y_coverage=y_coverage,
-            pred_footprint=pred_footprint,
-            pred_coverage=pred_coverage,
-        )
-        return y_footprint, y_coverage, pred_footprint, pred_coverage, fp_loss, cov_loss
+        batch["pred_footprint"] = pred_footprint
+        batch["pred_coverage"] = pred_coverage
+
+        loss_dict = model.loss(batch)
+        batch.update(loss_dict)
+        return batch, loss_dict["loss_final"]
 
     def train(self) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""

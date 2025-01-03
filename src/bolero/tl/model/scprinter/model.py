@@ -124,11 +124,16 @@ class seq2PRINT(nn.Module):
         self.n_filters = n_filters
         self.dna_len = dna_len
         self.output_len = output_len
+        self.output_keys = ["footprint", "coverage"]
         return
 
     def setup_mc_head(self, mc_channels):
         """Setup output head for methylation."""
-        self.mc_head = OutputHead(in_channels=self.n_filters, out_channels=mc_channels)
+        # mc head has no activation
+        self.mc_head = OutputHead(
+            in_channels=self.n_filters, out_channels=mc_channels, activation=None
+        )
+        self.output_keys.append("mc")
         return
 
     def check_input_dtype(self, X):
@@ -142,7 +147,7 @@ class seq2PRINT(nn.Module):
                 X = X.float()
         return X
 
-    def forward(self, X, *args, output_len=None, **kwargs):
+    def forward(self, X, *args, output_len=None, **kwargs) -> dict:
         """
         Forward pass of the model.
 
@@ -170,7 +175,12 @@ class seq2PRINT(nn.Module):
         # get the profile
         fp_score = self.footprint_head(X, *args, output_len=output_len, **kwargs)
         coverage = self.coverage_head(X, *args, **kwargs)
-        return fp_score, coverage
+        result = {"pred_footprint": fp_score, "pred_coverage": coverage}
+
+        if self.mc_head is not None:
+            mc_score = self.mc_head(X, *args, **kwargs)
+            result["pred_mc"] = mc_score
+        return result
 
     @staticmethod
     def footprint_loss(y_pred, y_true):
@@ -190,11 +200,36 @@ class seq2PRINT(nn.Module):
         )
         return loss
 
-    def loss(self, y_footprint, y_coverage, pred_footprint, pred_coverage):
+    @staticmethod
+    def mc_loss(y_pred, y_true):
+        """BCE loss for methylation."""
+        loss = F.binary_cross_entropy_with_logits(y_pred, y_true, reduction="mean")
+        return loss
+
+    def loss(self, batch_dict: dict) -> dict:
         """Compute the loss."""
-        fp_loss = self.footprint_loss(y_pred=pred_footprint, y_true=y_footprint)
-        cov_loss = self.coverage_loss(y_pred=pred_coverage, y_true=y_coverage)
-        return fp_loss, cov_loss
+        fp_loss = self.footprint_loss(
+            y_pred=batch_dict["pred_footprint"], y_true=batch_dict["true_footprint"]
+        )
+        cov_loss = self.coverage_loss(
+            y_pred=batch_dict["pred_coverage"], y_true=batch_dict["true_coverage"]
+        )
+        total_loss = fp_loss + cov_loss
+
+        if self.mc_head is not None:
+            mc_loss = self.mc_loss(
+                y_pred=batch_dict["pred_mc"], y_true=batch_dict["true_mc"]
+            )
+            total_loss += mc_loss
+
+        loss_dict = {
+            "loss_total": total_loss,
+            "loss_footprint": fp_loss,
+            "loss_coverage": cov_loss,
+        }
+        if self.mc_head is not None:
+            loss_dict["loss_mc"] = mc_loss
+        return loss_dict
 
     def model_summary(
         self,
