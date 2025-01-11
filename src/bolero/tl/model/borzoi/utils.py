@@ -110,8 +110,8 @@ class BorzoiRegions:
         pass_end = tss_bed["End"] <= tss_bed["Chromosome"].map(
             self.genome.chrom_sizes
         ).astype(int)
-        pass_size = (tss_bed["End"] - tss_bed["Start"]) == BORZOI_REGION_SIZE
-        tss_bed = tss_bed[pass_end & pass_size].copy()
+        tss_bed = tss_bed[pass_end].copy()
+        tss_bed["End"] = tss_bed["Start"] + BORZOI_REGION_SIZE
         # get gene id without version
         tss_bed["Name"] = tss_bed["Name"].str.split(".").str[0]
         gene_ids = tss_bed["Name"].values
