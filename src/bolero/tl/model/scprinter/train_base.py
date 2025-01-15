@@ -544,9 +544,11 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
         # ==========
         batch = footprinter(data=batch)
         batch["true_footprint"] = batch[footprint_key]
-        batch["true_coverage"] = (
-            batch[atac_key].sum(dim=-1).squeeze(1)
-        )  # remove the channel dim
+        atac_region_sum = batch[atac_key].sum(dim=-1)
+        if atac_region_sum.ndim == 2:
+            # remove the channel dim
+            atac_region_sum = atac_region_sum.squeeze(1)
+        batch["true_coverage"] = atac_region_sum
 
         # ==========
         # Forward and Loss

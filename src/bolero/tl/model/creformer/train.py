@@ -361,13 +361,13 @@ class CREFormerTrainerMixin(
         # save checkpoint if the loss is better
         if epoch < self.start_early_stop_after_epoch:
             self.best_val_metric = metric_to_use
-            self._save_checkpint(update_best=True)
+            self._save_checkpoint(update_best=True)
         else:
             if improved:
                 self.best_val_metric = metric_to_use
-                self._save_checkpint(update_best=True)
+                self._save_checkpoint(update_best=True)
             else:
-                self._save_checkpint(update_best=False)
+                self._save_checkpoint(update_best=False)
 
         # save epoch model state for comparing model over epochs
         save_every_n_epoch = self.config.get("save_state_every_n_epoch", None)

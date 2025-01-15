@@ -379,9 +379,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
             self.borzoi_regions.get_train_valid_test_regions(
                 split_id=fold,
                 region_length=region_length,
-                use_regions=self.use_regions,
+                use_regions=getattr(self, "use_regions", "borzoi"),
                 deg_list=deg_list,
-                tss_bed_path=self.tss_bed_path,
+                tss_bed_path=getattr(self, "tss_bed_path", None),
             )
         )
 

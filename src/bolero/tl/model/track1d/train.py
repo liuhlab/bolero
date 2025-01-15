@@ -270,9 +270,9 @@ class Track1DTrainerMixin(GenericTrainer):
         # save checkpoint if the loss is better
         if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            self._save_checkpint(update_best=True)
+            self._save_checkpoint(update_best=True)
         else:
-            self._save_checkpint(update_best=False)
+            self._save_checkpoint(update_best=False)
         if self.wandb_active:
             wandb.log(
                 {

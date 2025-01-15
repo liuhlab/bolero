@@ -196,6 +196,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.name_to_pseudobulker = OrderedDict()
 
         self.borzoi_regions = BorzoiRegions(self.genome)
+        self.use_regions = "borzoi"
 
         # Borzoi dataset requires these attributes but not used in scPrinter
         self.pos_resolution = None  # scPrinter is single base pair resolution
@@ -247,14 +248,11 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         dataset = dataset.map_batches(_cropper_squeeze, batch_size=batch_size)
         return dataset
 
-    def get_footprinter(
-        self,
-        prefix: str,
-    ) -> BatchFootPrint:
+    def get_footprinter(self) -> BatchFootPrint:
         """
         Get the footprint for a specific region and sample.
         """
-        atac_keys = [f"{prefix}:bulk_data"]
+        atac_keys = [f"{self.prefix}:bulk_data"]
 
         fn = BatchFootPrint
         fn_constructor_kwargs = {
@@ -432,27 +430,6 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
             **dataloader_kwargs,
         )
         return loader
-
-    def get_train_valid_test(
-        self,
-        fold,
-        downsample_train_region=None,
-        downsample_valid_region=None,
-        downsample_test_region=None,
-        seed=0,
-    ):
-        """Get the train, valid, and test folds and regions."""
-        # still use Borzoi region length here to be consistent with Borzi
-        # later we will overlap borzoi regions with the peak regions
-        results = super().get_train_valid_test(
-            fold=fold,
-            downsample_train_region=downsample_train_region,
-            downsample_valid_region=downsample_valid_region,
-            downsample_test_region=downsample_test_region,
-            region_length=524288,
-            seed=seed,
-        )
-        return results
 
 
 class GenerateBaseModelPseudobulk:
