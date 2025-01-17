@@ -641,7 +641,7 @@ class Genome:
         - The method updates the 'Name' column of the regions to reflect the adjusted positions.
 
         """
-        regions_bed_df = understand_regions(regions, as_df=True)
+        regions_bed_df = understand_regions(regions, as_df=True).copy()
         # standardize columns
         _columns = regions_bed_df.columns.tolist()
         _columns[:3] = ["Chromosome", "Start", "End"]
@@ -1069,3 +1069,11 @@ class Genome:
         return parse_global_coords(
             chrom_offsets=self.chrom_offsets, global_coords=global_coords
         )
+
+    def get_motif_db(
+        self, motif_db_name="JASPAR2024_CORE_vertebrates", max_length=None
+    ):
+        """Get JASPAR motif database object."""
+        from bolero.tl.motif.jaspar import JASPARMotifDatabase
+
+        return JASPARMotifDatabase(motif_db_name, max_length=max_length)

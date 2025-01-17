@@ -718,7 +718,7 @@ def convert_to_conditional_lora_model(
 
 def collapse_lora_model_(model, *args, **kwargs):
     """
-    Collapse all LoRA layers in the given model in place
+    Collapse all LoRA layers in the given model and return a new model with collapsed non-LoRA layers.
 
     Args:
         model (nn.Module): The model with LoRA layers.
@@ -727,6 +727,7 @@ def collapse_lora_model_(model, *args, **kwargs):
     -------
         nn.Module: The model with collapsed LoRA layers.
     """
+    model = deepcopy(model)
     for name, module in model.named_modules():
         if hasattr(module, "collapse"):
             set_submodule_by_name(model, name, module.collapse(*args, **kwargs))

@@ -9,8 +9,10 @@ import numpy as np
 import pandas as pd
 import pyBigWig
 import seaborn as sns
+import torch
 from Bio import motifs
 from matplotlib import pyplot as plt
+from tangermeme.tools.fimo import fimo
 
 # get pkg_data path from package root
 import bolero
@@ -345,6 +347,8 @@ class JASPARMotifDatabase:
 
         self.motif_names = [motif.name for motif in self.motifs]
         self.motif_dict = {motif.name: motif for motif in self.motifs}
+        self.motif_name_to_id = {k: v.motif_id for k, v in self.motif_dict.items()}
+        self._motif_tensor_dict = None
         return
 
     def __len__(self):
@@ -404,6 +408,36 @@ class JASPARMotifDatabase:
         Get the string representation of the motif database.
         """
         return f"JASPARMotifDatabase ({self.db}) with {len(self)} motifs"
+
+    def _get_pwm_tensor_dict(self):
+        if self._motif_tensor_dict is not None:
+            return self._motif_tensor_dict
+
+        motif_dict = {
+            k: torch.from_numpy(v.pwm.T.values) for k, v in self.motif_dict.items()
+        }
+        if torch.cuda.is_available():
+            motif_dict = {k: v.cuda() for k, v in motif_dict.items()}
+        self._motif_tensor_dict = motif_dict
+        return motif_dict
+
+    def fimo(self, dna_one_hot, **kwargs):
+        """
+        Run FIMO on a DNA sequence.
+        - dna_one_hot shape: (region, 4, seq_len)
+
+        See details in tangermeme.tools.fimo.fimo
+        """
+        pwm_tensor_dict = self._get_pwm_tensor_dict()
+        if isinstance(dna_one_hot, np.ndarray):
+            dna_one_hot = torch.from_numpy(dna_one_hot).half()
+        if torch.cuda.is_available():
+            dna_one_hot = dna_one_hot.cuda()
+        results = fimo(motifs=pwm_tensor_dict, sequences=dna_one_hot, **kwargs)
+        results = pd.concat([d for d in results if d.shape[0] > 0])
+
+        results["motif_id"] = results["motif_name"].map(self.motif_name_to_id)
+        return results
 
 
 JASPAR_TFBS_GENOME_BIGBED_URL = (

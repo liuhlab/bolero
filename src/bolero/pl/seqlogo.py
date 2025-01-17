@@ -12,7 +12,8 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
 
-from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, one_hot_decoding
+from bolero import Genome
+from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, one_hot_decoding, one_hot_encoding
 
 DEFAULT_BASE_COLOR = (
     "#006f3c",
@@ -467,3 +468,84 @@ class ConsensusMotifPlotter:
             rectangle_cutoff=rectangle_cutoff,
             rasterize=rasterize,
         )
+
+
+class AttributionPlotter:
+    def __init__(self, genome):
+        if isinstance(genome, str):
+            genome = Genome(genome)
+        self.genome = genome
+
+    def _plot_motif_as_vspan(self, ax, motifs, color="#11111111", y=None, label=True):
+        if y is None:
+            y = ax.get_ylim()[1]
+        for _, row in motifs.iterrows():
+            ax.axvspan(row["start"], row["end"], color=color)
+            center = (row["start"] + row["end"]) / 2
+            if label:
+                ax.text(center, y, row["motif_name"], ha="center", va="bottom")
+        return
+
+    def plot(
+        self,
+        ax,
+        attribution,
+        sequence=None,
+        region=None,
+        motifs=None,
+        motif_mode="vspan",
+        rectangle_ratio=0.98,
+        rasterize=True,
+        motif_color="#11111111",
+        motif_y=None,
+        motif_label=True,
+    ):
+        """
+        Plot attribution scores and motif annotations on an axes object.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            The axes object to which the plot will be added.
+        attribution : np.ndarray
+            The attribution scores, which will be plotted on 1D, projected to the sequence.
+        sequence : str or np.ndarray, optional
+            The sequence of the region. Either sequence or region must be provided.
+        region : tuple, optional
+            The region of the sequence. Either sequence or region must be provided.
+        motifs : pd.DataFrame, optional
+            The motifs to be plotted. Motif should be pre-filtered to reduce overlap.
+        motif_mode : str, optional
+            Plot mode for motifs. Default is "vspan".
+        rectangle_ratio : float, optional
+            The ratio of the weights below which the elements are approximated as rectangles. Default is 0.98.
+        rasterize : bool, optional
+            Whether to rasterize the patches. Default is True.
+        motif_color : str, optional
+            The color of the motif. Default is "#11111111".
+        motif_y : float, optional
+            The y-coordinate of the motif. Default is None.
+        motif_label : bool, optional
+            Whether to label the motifs. Default is True.
+        """
+        if sequence is None:
+            assert region is not None, "Either sequence or region must be provided."
+            sequence = self.genome.get_region_one_hot(region)
+        else:
+            if isinstance(sequence, str):
+                one_hot_encoding(sequence)
+
+        if (attribution.ndim == 2) and (attribution.shape[0] == 4):
+            attribution = (attribution * sequence).sum(axis=0)
+
+        plotter = ConsensusMotifPlotter.from_scores_1d(attribution, sequence)
+        plotter.plot(ax, rectangle_ratio=rectangle_ratio, rasterize=rasterize)
+
+        if motifs is not None:
+            if motif_mode == "vspan":
+                self._plot_motif_as_vspan(
+                    ax, motifs, color=motif_color, y=motif_y, label=motif_label
+                )
+            else:
+                raise ValueError(f"Invalid motif_mode: {motif_mode}")
+        return

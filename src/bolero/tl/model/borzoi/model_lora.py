@@ -4,7 +4,10 @@ import torch
 from torch import nn
 
 from bolero.tl.generic.module_embedding import EmbeddingMLP, KVBottleNeckMixin
-from bolero.tl.generic.module_lora_cond import convert_to_conditional_lora_model
+from bolero.tl.generic.module_lora_cond import (
+    collapse_lora_model_,
+    convert_to_conditional_lora_model,
+)
 
 from .metrics import mse_diff_loss
 from .model import Borzoi, model_summary
@@ -252,6 +255,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             channel_loss_weight=channel_loss_weight,
             learnable_channel_loss_weight=learnable_channel_loss_weight,
         )
+
+        # for collaps
+        self.colapsed = False
         return
 
     def setup_rna_head(self, rna_channels, freeze_other_modules=True):
@@ -447,6 +453,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         setattr(self, name, module)
         return
 
+    def collapse_lora(self, embedding):
+        """Collapse the LoRA model into base form given an embedding."""
+        model = collapse_lora_model_(self, embedding)
+        model.colapsed = True
+        model.eval()
+        return model
+
     def convert_to_lora(self):
         """Convert the model to LoRA."""
         for module_names, config in self.lora_config.items():
@@ -532,12 +545,15 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return summary_str
 
-    def forward(self, x, embedding, crop=True, return_dna_embedding=False):
+    def forward(self, x, embedding=None, crop=True, return_dna_embedding=False):
         """Borzoi forward pass to get final output."""
-        if self.kv_bottleneck is not None:
-            embedding = self.vq_ind_to_emb(embedding)
+        if not self.colapsed:
+            assert embedding is not None, "embedding is required for LoRA model"
+        else:
+            if self.kv_bottleneck is not None:
+                embedding = self.vq_ind_to_emb(embedding)
 
-        x = super().forward(x, embedding=embedding, crop=crop)
+            x = super().forward(x, embedding=embedding, crop=crop)
         output = self.final_output_head(x, embedding=embedding)
 
         if return_dna_embedding:

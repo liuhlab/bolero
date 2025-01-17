@@ -431,6 +431,67 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         )
         return loader
 
+    def get_train_valid_test(
+        self,
+        fold,
+        downsample_train_region=None,
+        downsample_valid_region=None,
+        downsample_test_region=None,
+        seed=0,
+    ):
+        """Get the train, valid, and test folds and regions."""
+        # still use Borzoi region length here to be consistent with Borzi
+        # later we will overlap borzoi regions with the peak regions
+        (
+            train_folds,
+            valid_folds,
+            test_folds,
+            borzoi_train_regions,
+            borzoi_valid_regions,
+            borzoi_test_regions,
+        ) = super().get_train_valid_test(
+            fold=fold,
+            downsample_train_region=downsample_train_region,
+            downsample_valid_region=downsample_valid_region,
+            downsample_test_region=downsample_test_region,
+            region_length=524288,
+            seed=seed,
+        )
+
+        # convert regions to peak regions
+        # TrainerBorzoiDatasetMixin uses the Borzoi regions as train/valid/test regions
+        # Here we need to intersect the Borzoi regions with the peak regions
+        import pyranges as pr
+
+        def _intersect_region_with_borzoi_regions(region_bed, borzoi_regions):
+            borzoi_regions = pr.PyRanges(borzoi_regions)
+            region_bed = region_bed.overlap(borzoi_regions).as_df()
+            try:
+                region_bed["Original_Name"] = region_bed["region"]
+            except KeyError:
+                region_bed["Original_Name"] = region_bed["Name"]
+            return region_bed
+
+        region_bed = pr.PyRanges(self.bed)
+        train_regions = _intersect_region_with_borzoi_regions(
+            region_bed, borzoi_train_regions
+        )
+        valid_regions = _intersect_region_with_borzoi_regions(
+            region_bed, borzoi_valid_regions
+        )
+        test_regions = _intersect_region_with_borzoi_regions(
+            region_bed, borzoi_test_regions
+        )
+
+        return (
+            train_folds,
+            valid_folds,
+            test_folds,
+            train_regions,
+            valid_regions,
+            test_regions,
+        )
+
 
 class GenerateBaseModelPseudobulk:
     """
