@@ -553,7 +553,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             if self.kv_bottleneck is not None:
                 embedding = self.vq_ind_to_emb(embedding)
 
-            x = super().forward(x, embedding=embedding, crop=crop)
+        x = super().forward(x, embedding=embedding, crop=crop)
         output = self.final_output_head(x, embedding=embedding)
 
         if return_dna_embedding:
