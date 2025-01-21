@@ -152,7 +152,7 @@ class SlurmManager:
             print(
                 f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, waiting for jobs to finish..."
             )
-            time.sleep(np.random.randint(100, 500))
+            time.sleep(60)
 
         _run = True
         # submitted before

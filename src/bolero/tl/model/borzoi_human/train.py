@@ -78,10 +78,10 @@ class TrainerBorzoiHumanDatasetMixin:
             self.config["fold_split_id"],
         )
 
-        # channel_order = self.config.get("channel_order", None)
-        # if channel_order is None:
-        #     channel_order = [self.data_key] * self.config["out_channels"]
-        # self.channel_order = channel_order
+        channel_order = self.config.get("channel_order", None)
+        if channel_order is None:
+            channel_order = [self.data_key] * self.config["out_channels"]
+        self.channel_order = channel_order
         return
 
     def _get_dataset(self) -> BorzoiDatasetOnline:
@@ -254,7 +254,7 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
                         y_true["mc"] = _data
                 else:
                     y_true[key] = _data
-                
+
                 # y_true[key] = _data
         else:
             # y_true is a single tensor
@@ -269,7 +269,10 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
         if isinstance(y_pred, dict):
             for key in y_pred:
                 _y_pred = y_pred[key].detach()
-                if self.model.loss_type == "separate_bce_poisson_multinomial" and key == "mc":
+                if (
+                    self.model.loss_type == "separate_bce_poisson_multinomial"
+                    and key == "mc"
+                ):
                     _y_pred = torch.sigmoid(_y_pred)
                 y_pred[key] = _y_pred
 

@@ -14,7 +14,6 @@ genome = "{GENOME}"
 
 sample_dirs = {SAMPLE_DIRS}
 
-tfbs_cutoff = {TFBS_CUTOFF}
 modisco_n = {MODISCO_N}
 jaspar_meme_path = "{JASPAR_MEME_PATH}"
 if jaspar_meme_path == "None":
@@ -157,7 +156,7 @@ def prepare_modisco_pipeline(
     genome: str,
     sample_dirs: list[str],
     output_dir: str = "./",
-    tfbs_cutoff: float = 0.2,
+    snakefile_suffix="",
     modisco_n: int = 1000000,
     jaspar_meme_path: str = None,
     cpu: int = 16,
@@ -173,8 +172,6 @@ def prepare_modisco_pipeline(
         A list of sample_dir containing modisco input npz files extracted by dump_npz_from_parquet
     output_dir : str, optional
         The output directory for the pipeline (default is './').
-    tfbs_cutoff : float, optional
-        The cutoff value for TFBS (default is 0.2).
     modisco_n : int, optional
         The number of modisco iterations (default is 1000000).
     jaspar_meme_path : str, optional
@@ -189,12 +186,11 @@ def prepare_modisco_pipeline(
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    snakefile_path = output_dir / "Snakefile"
+    snakefile_path = output_dir / f"Snakefile{snakefile_suffix}"
     if not snakefile_path.exists():
         pipeline = MODISCO_PIPELINE_TEMPLATE.format(
             GENOME=genome,
             SAMPLE_DIRS=[str(path) for path in sample_dirs],
-            TFBS_CUTOFF=tfbs_cutoff,
             MODISCO_N=modisco_n,
             JASPAR_MEME_PATH=jaspar_meme_path,
         )
@@ -203,7 +199,7 @@ def prepare_modisco_pipeline(
     else:
         print("Snakefile already exists. Skipping writing Snakefile.")
 
-    snakefile_finemo_path = output_dir / "Snakefile_finemo"
+    snakefile_finemo_path = output_dir / f"Snakefile_finemo{snakefile_suffix}"
     if not snakefile_finemo_path.exists():
         pipeline = FINEMO_PIPELINE_TEMPLATE.format(
             SAMPLE_DIRS=[str(path) for path in sample_dirs],
@@ -310,7 +306,12 @@ class ModiscoPattern:
 
     @classmethod
     def from_modisco_group(
-        cls, name, h5_group, tomtom_path, load_subpatterns=False, load_seqlets=False
+        cls,
+        name,
+        h5_group,
+        tomtom_path=None,
+        load_subpatterns=False,
+        load_seqlets=False,
     ):
         """
         Create a ModiscoPattern object from a modisco group.
