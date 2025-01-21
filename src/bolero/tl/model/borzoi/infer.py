@@ -369,7 +369,7 @@ class BorzoiInferencer:
                 ds.to_zarr(temp_out_path, mode="w")
             temp_out_path.rename(chunk_out_path)
 
-            success_flag.touch()
+        success_flag.touch()
         return
 
 
