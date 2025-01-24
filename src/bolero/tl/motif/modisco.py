@@ -58,7 +58,7 @@ rule modisco_report:
 
 FINEMO_PIPELINE_TEMPLATE = """
 sample_dirs = {SAMPLE_DIRS}
-finemo_width=800
+finemo_width= {FINEMO_WIDTH}
 
 rule all:
     input:
@@ -154,6 +154,7 @@ def dump_npz_from_parquet(
 
 def prepare_modisco_pipeline(
     genome: str,
+    finemo_width: int,
     sample_dirs: list[str],
     output_dir: str = "./",
     snakefile_suffix="",
@@ -168,6 +169,8 @@ def prepare_modisco_pipeline(
     ----------
     genome : str
         The genome to use for the pipeline.
+    finemo_width : int
+        The width of the finemo regions.
     sample_dirs : list[str]
         A list of sample_dir containing modisco input npz files extracted by dump_npz_from_parquet
     output_dir : str, optional
@@ -202,7 +205,7 @@ def prepare_modisco_pipeline(
     snakefile_finemo_path = output_dir / f"Snakefile_finemo{snakefile_suffix}"
     if not snakefile_finemo_path.exists():
         pipeline = FINEMO_PIPELINE_TEMPLATE.format(
-            SAMPLE_DIRS=[str(path) for path in sample_dirs],
+            SAMPLE_DIRS=[str(path) for path in sample_dirs], FINEMO_WIDTH=finemo_width
         )
         with open(snakefile_finemo_path, "w") as f:
             f.write(pipeline)
