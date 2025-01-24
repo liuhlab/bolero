@@ -440,8 +440,6 @@ class Borzoi(nn.Module):
                 y_true=atac_y_true,
                 y_pred=atac_y_pred,
                 total_weight=self.loss_total_weight,
-                weight_range=1,  # 1 means not use the position weighted loss
-                weight_exp=4,
                 epsilon=1e-7,  # this is smallest for float16
                 return_breakdown=True,
                 loss_chunks=getattr(self, "loss_chunks", 1),

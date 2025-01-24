@@ -172,12 +172,22 @@ class PeakDataSummary(GeneDataSummary):
         return super().__call__(data_dict, suffix=suffix)
 
 
-def _clip_at_center(data, clip_length):
-    seq_len = data.shape[-1]
-    radius = clip_length // 2
-    start = seq_len // 2 - radius
-    end = start + clip_length
-    return data[..., start:end]
+def _clip_at_center(data, clip_length, modality='atac'):
+    
+    if isinstance(data, dict):
+        data = data[modality]
+        seq_len = data.shape[-1]
+        radius = clip_length // 2
+        start = seq_len // 2 - radius
+        end = start + clip_length
+        return data[..., start:end]
+
+    else:
+        seq_len = data.shape[-1]
+        radius = clip_length // 2
+        start = seq_len // 2 - radius
+        end = start + clip_length
+        return data[..., start:end]
 
 
 def _clip_bed_region_at_center(bed, clip_length):
