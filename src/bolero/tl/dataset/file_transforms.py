@@ -168,21 +168,25 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
         data_dict = super().__call__(data_dict)
 
         for suffix in self.data_suffix:
-            total_mc_values = data_dict[f"{self.data_prefix}mc{suffix}"]
-            total_cov_values = data_dict[f"{self.data_prefix}cov{suffix}"]
+            total_mc_values = data_dict[f"{self.data_prefix}mc{suffix}"] # Shape: (n_regions, n_bw, region_length)
+            total_cov_values = data_dict[f"{self.data_prefix}cov{suffix}"] # Shape: (n_regions, n_bw, region_length)
 
             assert (
                 total_mc_values.shape == total_cov_values.shape
             ), f"cov and mv values arent same shape {total_mc_values.shape} and {total_cov_values.shape}"
-            n_regions, n_bw, region_length = total_mc_values.shape
-            bin_size = self.resolution
-            n_bins = region_length // bin_size
+            if self.resolution > 1:
+                n_regions, n_bw, region_length = total_mc_values.shape
+                bin_size = self.resolution
+                n_bins = region_length // bin_size
 
-            reshaped_mc = total_mc_values.reshape(n_regions, n_bw, n_bins, bin_size)
-            reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
+                # New shape will be (n_regions, n_bw, n_bins, bin_size)
+                reshaped_mc = total_mc_values.reshape(n_regions, n_bw, n_bins, bin_size)
+                reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
 
-            total_mc_values = reshaped_mc.sum(axis=-1)
-            total_cov_values = reshaped_cov.sum(axis=-1)
+                # Resulting shape: (n_regions, n_bw, n_bins)
+                total_mc_values = reshaped_mc.sum(axis=-1)
+                total_cov_values = reshaped_cov.sum(axis=-1)
+
             data_dict[f"{self.data_prefix}mc{suffix}"] = total_mc_values
             data_dict[f"{self.data_prefix}cov{suffix}"] = total_cov_values
         return data_dict
@@ -603,32 +607,33 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
                 self.data_key + suffix
             ]  # Shape: (n_regions, n_bw, region_length)
 
-            # Get the shape parameters
-            n_regions, n_bw, region_length = total_values.shape
+            if self.resolution > 1:
+                # Get the shape parameters
+                n_regions, n_bw, region_length = total_values.shape
 
-            # Define the bin size
-            bin_size = self.resolution
+                # Define the bin size
+                bin_size = self.resolution
 
-            # Calculate the number of bins
-            n_bins = region_length // bin_size
+                # Calculate the number of bins
+                n_bins = region_length // bin_size
 
-            # Check if the region_length is divisible by bin_size
-            if region_length % bin_size != 0:
-                # If not, trim the excess data to make it divisible
-                trimmed_length = n_bins * bin_size
-                total_values = total_values[:, :, :trimmed_length]
-                print(
-                    f"Warning: region_length ({region_length}) is not divisible by bin_size ({bin_size}). "
-                    f"Trimmed to {trimmed_length}."
-                )
+                # Check if the region_length is divisible by bin_size
+                if region_length % bin_size != 0:
+                    # If not, trim the excess data to make it divisible
+                    trimmed_length = n_bins * bin_size
+                    total_values = total_values[:, :, :trimmed_length]
+                    print(
+                        f"Warning: region_length ({region_length}) is not divisible by bin_size ({bin_size}). "
+                        f"Trimmed to {trimmed_length}."
+                    )
 
-            # Reshape and aggregate the data to reduce the resolution
-            # New shape will be (n_regions, n_bw, n_bins, bin_size)
-            reshaped = total_values.reshape(n_regions, n_bw, n_bins, bin_size)
+                # Reshape and aggregate the data to reduce the resolution
+                # New shape will be (n_regions, n_bw, n_bins, bin_size)
+                reshaped = total_values.reshape(n_regions, n_bw, n_bins, bin_size)
 
-            # Aggregate by taking the sum across the bin_size axis
-            # Resulting shape: (n_regions, n_bw, n_bins)
-            total_values = reshaped.sum(axis=-1)
+                # Aggregate by taking the sum across the bin_size axis
+                # Resulting shape: (n_regions, n_bw, n_bins)
+                total_values = reshaped.sum(axis=-1)
 
             # If normalization is set to "log", apply log transformation
             if self.norm_mode == "log":

@@ -357,10 +357,6 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
             else:
                 raise ValueError(f"Unknown file type: {file_type}")
 
-        # filter coverage
-        if self.cov_filter_name is not None:
-            work_ds = self._filter_bed_regions(dataset=work_ds)
-
         if self.reverse_complement and self.is_train():
             work_ds = self._get_reverse_complement_dataset(
                 work_ds,
@@ -396,6 +392,10 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
                 key_suffix=None,
                 keep_channel_dim=True,
             )
+
+        # filter coverage
+        if self.cov_filter_name is not None:
+            work_ds = self._filter_bed_regions(dataset=work_ds)
 
         # Turn region into global coordinates (str to numbers)
         work_ds = self._process_region_columns(dataset=work_ds, keep_regions=True)
