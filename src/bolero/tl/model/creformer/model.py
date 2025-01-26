@@ -261,33 +261,32 @@ class CREFormer(nn.Module):
         torch.Tensor
             Elementary stage output, shape (n_peaks, 2048)
         """
-        # CLS.shape [n_peak * 8, 1, 2048]
-        CLS = self.dna_embed(torch.ones(n_peaks * 8, 1, dtype=int, device=self.device))
-        # x_POS_1.shape [129, 2048] (1 cls + 128 bp)
-        x_POS_1 = self.pos1_embed(pos1)
-
         # for 1024 bp peak region, cut to 8*128 bins
         dna_in = dna_in.int().reshape(n_peaks * 8, 128)
         atac_in = atac_in.int().reshape(n_peaks * 8, 128)
         # x_mul.shape [n_peak * 8, 128, 2048]
         x_mul = self.dna_embed(dna_in) + self.atac_embed(atac_in)
         # x_embed.shape [n_peak * 8, 129, 2048]
+        # CLS.shape [n_peak * 8, 1, 2048]
+        CLS = self.dna_embed(torch.ones(n_peaks * 8, 1, dtype=int, device=self.device))
         x_embed = torch.cat((CLS, x_mul), dim=1)
 
         # attention within 128bp bins
         # x_enc_1.shape [44, 8, 2048]
         # take the first token for each region, and reshape to get 8 bp
+        # x_POS_1.shape [129, 2048] (1 cls + 128 bp)
+        x_POS_1 = self.pos1_embed(pos1)
         x_enc_1 = self.encoder_1(x_embed + x_POS_1)
         x_enc_1 = x_enc_1[:, 0, :].reshape(n_peaks, 8, 2048)
 
         # attention across the 8 128bp bins
         # x_POS_2.shape [8, 2048]
         x_POS_2 = self.pos2_embed(pos2)
-        # x_enc_2.shape [44, 8, 2048]
+        # x_enc_2.shape [n_peaks, 8, 2048]
         x_enc_2 = self.encoder_2(x_enc_1 + x_POS_2)
 
         # attention pooling across 8 bins and merge them into one embedding vector
-        # x_enc_2.shape [44, 2048]
+        # x_enc_2.shape [n_peaks, 2048]
         x_enc_2 = self.attention_pool(x_enc_2)
         return x_enc_2
 
