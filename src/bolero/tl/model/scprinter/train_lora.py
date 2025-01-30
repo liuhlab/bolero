@@ -18,9 +18,9 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 0.0001,
+            "lr": 0.0005,
             # Lora related files
-            "accumulate_grad": 8,
+            "accumulate_grad": 4,
             "vq_records_path": "REQUIRED",
             "use_vq_emb": False,
             "prefix": "pseudobulk",
@@ -157,8 +157,8 @@ class scFootprintLoraTrainerOnline(scFootprintLoRATrainer):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 0.0001,
-            "accumulate_grad": 8,
+            "lr": 0.0005,
+            "accumulate_grad": 4,
             "prefix": "pseudobulk",
         }
     )

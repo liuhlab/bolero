@@ -129,15 +129,15 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
     default_config = {
         "dataset_path": "REQUIRED",
         "genome": "REQUIRED",
-        "batch_size": 64,
+        "batch_size": 128,
         "dna_window": 1840,
         "signal_window": 1000,
         "max_jitter": 128,
         "clip_min": -10,
         "clip_max": 10,
-        "n_pseudobulks": 100,
+        "n_pseudobulks": 10,
         "cov_filter_name": "REQUIRED",
-        "min_cov": 30,
+        "min_cov": 40,
         "max_cov": 100000,
         "low_cov_ratio": 0.1,
         "reverse_complement": True,
@@ -150,14 +150,14 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self,
         dataset_path: str,
         genome,
-        batch_size: int = 64,
+        batch_size: int = 128,
         dna_window: int = 1840,
         signal_window: int = 1000,
         max_jitter: int = 128,
         clip_min: float = -10,
         clip_max: float = 10,
         n_pseudobulks: int = 10,
-        min_cov: int = 30,
+        min_cov: int = 40,
         max_cov: int = 100000,
         low_cov_ratio: float = 0.1,
         cov_filter_name: str = None,
@@ -350,7 +350,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
             region_bed, standard_length, keep_original=True
         )
 
-        compressed_bytes_to_tensor_concurrency = (1, 1)
+        compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
         generate_pseudobulk_concurrency = (1, concurrency // 4)
         generate_regions_concurrency = (1, concurrency)
         work_ds = self._get_processed_dataset(

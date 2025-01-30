@@ -43,11 +43,11 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "global_clipnorm": 0.2,
         "train_batches": 5000,
         "val_batches": 1000,
-        "warmup_steps": 5000,
+        "warmup_steps": 1000,
         "weight_decay": 1e-4,
         "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
-        "accumulate_grad": 8,
+        "accumulate_grad": 4,
         "dataloader_concurrency": 16,
         "downsample_train_region": None,
         "downsample_valid_region": None,
@@ -474,7 +474,7 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
     trainer_config.update(
         {
             "mode": "base",
-            "lr": 0.003,  # use 0.003 for base init, 0.0003 for fine-tune
+            "lr": 0.002,
             # dataset related files
             "pretrained_model": None,
             "prefix": "pseudobulk",
