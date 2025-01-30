@@ -33,7 +33,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_name": None,
         "max_epochs": 80,
         "patience": 5,
-        "start_early_stop_after_epoch": 30,
+        "start_early_stop_after_epoch": 25,
         "use_amp": True,
         "use_ema": True,
         "scheduler": True,
