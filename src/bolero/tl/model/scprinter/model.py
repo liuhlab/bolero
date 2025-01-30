@@ -460,6 +460,8 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             if isinstance(module_names, str):
                 module_names = (module_names,)
 
+            # use layer norm
+            config["norm_type"] = "layer"
             if self.kv_bottleneck_mode == "local":
                 config["kv_bottleneck"] = True
                 config["num_memories"] = self.num_memories
@@ -468,8 +470,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
                 config["additional_embs"] = self.additional_embs
                 config["emb_input"] = self.emb_input
                 config["emb_input_dims"] = self.emb_input_dims
-                # use layer norm
-                config["norm_type"] = "layer"
 
             for module_name in module_names:
                 module = getattr(self, module_name)
