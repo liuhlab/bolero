@@ -2,6 +2,7 @@ import pathlib
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pyranges as pr
 import torch
 import wandb
 
@@ -82,7 +83,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         """
         # create dataset
         self.dataset = self._get_dataset()
-
+        self.dataset.bed = pr.read_bed(self.config["region_bed_path"], as_df=True)
         # train, valid, test split by fold
         (
             self.train_folds,

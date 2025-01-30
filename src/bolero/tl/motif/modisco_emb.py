@@ -79,11 +79,13 @@ def modisco_seqlets_embedding(
     sign = -1 if sign.lower() == "neg" else 1
 
     # Step 1: Generate coarse resolution
+    print("1. Generating coarse representation")
     coarse_affmat_nn, seqlet_neighbors = affinitymat.cosine_similarity_from_seqlets(
         seqlets=seqlets, n_neighbors=nearest_neighbors_to_compute, sign=sign
     )
 
     # Step 2: Generate fine representation
+    print("2. Generating fine representation")
     fine_affmat_nn = affinitymat.jaccard_from_seqlets(
         seqlets=seqlets,
         seqlet_neighbors=seqlet_neighbors,
@@ -92,6 +94,7 @@ def modisco_seqlets_embedding(
 
     # Optional Step 3: Filter by correlation
     if corr_filter:
+        print("3. Filtering by correlation")
         seqlets, seqlet_neighbors, fine_affmat_nn = _filter_by_correlation(
             seqlets,
             seqlet_neighbors,
@@ -101,6 +104,7 @@ def modisco_seqlets_embedding(
         )
 
     # Step 4: Create distance matrix
+    print("4. Creating distance matrix")
     n_seqlet = len(seqlet_neighbors)
     dist_mat = np.ones((n_seqlet, n_seqlet))
 
@@ -108,6 +112,7 @@ def modisco_seqlets_embedding(
         dist_mat[row, neighbor] -= aff
 
     # Step 5: Run t-SNE
+    print("5. Running t-SNE")
     embeddings, tsne = _tsne(
         dist_mat, perplexity=tsne_perplexity, n_jobs=n_jobs, n_components=n_components
     )

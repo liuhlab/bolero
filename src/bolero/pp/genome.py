@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from bolero.pp.genome_dataset import GenomeOneHotZarr
 from bolero.pp.gtf import load_gtf
-from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence
+from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, Sequence, one_hot_decoding
 from bolero.utils import (
     download_file,
     get_default_save_dir,
@@ -1004,6 +1004,22 @@ class Genome:
                 "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
             )
         return self.genome_one_hot.get_region_one_hot(*args)
+
+    def get_region_sequence(self, *args):
+        """
+        Returns the sequence of a genomic region.
+
+        Parameters
+        ----------
+        *args: Variable length argument list specifying the genomic region.
+
+        Returns
+        -------
+        str: The sequence of the specified genomic region.
+        """
+        one_hot = self.get_region_one_hot(*args)
+        seq = one_hot_decoding(one_hot)
+        return seq
 
     def get_regions_one_hot(self, regions):
         """

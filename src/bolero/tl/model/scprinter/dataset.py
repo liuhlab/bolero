@@ -165,6 +165,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         shuffle_files=True,
         read_parquet_kwargs=None,
         max_regions_per_genome_chunk: int = 100,
+        **kwargs,
     ):
         RayGenomeChunkDataset.__init__(
             self,
@@ -199,9 +200,12 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.use_regions = "borzoi"
 
         # Borzoi dataset requires these attributes but not used in scPrinter
-        self.pos_resolution = None  # scPrinter is single base pair resolution
+        self.pos_resolution = 1  # scPrinter is single base pair resolution
+        self.reduce_resolution = False
         self.normalize_cov = False  # footprint needs raw counts
         self.paired_data = False
+
+        self.prefix = kwargs.pop("prefix", "pseudobulk")
         return
 
     def __repr__(self) -> str:
@@ -536,7 +540,6 @@ class scPrinterDatasetBase(scPrinterDataset):
     )
 
     def __init__(self, *args, **kwargs):
-        self.prefix = kwargs.pop("prefix", "pseudobulk")
         self.sample_rows = kwargs.pop("sample_rows", 1000)
         print(
             f"Getting pseudobulk with random {self.sample_rows} rows in {self.prefix} data_key."

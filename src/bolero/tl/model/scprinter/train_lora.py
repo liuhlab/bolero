@@ -61,10 +61,13 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
     def _model_forward_pass(self, model, batch):
         prefix = self.config["prefix"]
         atac_key = f"{prefix}:bulk_data"
+        batch["true_atac"] = batch[atac_key]
         dna_key = "dna_one_hot"
         cell_embedding_key = f"{prefix}:embedding_data"
         footprint_key = f"{prefix}:bulk_data_footprint"
         footprinter = self.footprinter
+        if "mc_frac" in batch:
+            batch["true_mc"] = batch["mc_frac"].to(self.device)
 
         # ==========
         # X
@@ -76,22 +79,27 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         # y_footprint, y_coverage
         # ==========
         batch = footprinter(data=batch)
-        y_footprint = batch[footprint_key]
-
-        y_coverage = batch[atac_key].sum(dim=-1)
+        batch["true_footprint"] = batch[footprint_key]
+        atac_region_sum = batch[atac_key].sum(dim=-1)
+        if atac_region_sum.ndim == 2:
+            # remove the channel dim
+            atac_region_sum = atac_region_sum.squeeze(1)
+        batch["true_coverage"] = atac_region_sum
 
         # ==========
         # Forward and Loss
         # ==========
-        pred_footprint, pred_coverage = model(X, embedding=embedding)
-        fp_loss, cov_loss = model.loss(
-            y_footprint=y_footprint,
-            y_coverage=y_coverage,
-            pred_footprint=pred_footprint,
-            pred_coverage=pred_coverage,
-        )
+        result = model(X, embedding=embedding)
+        batch.update(result)
 
-        return y_footprint, y_coverage, pred_footprint, pred_coverage, fp_loss, cov_loss
+        # clip pred_mc to the same size of true_mc
+        if "mc_frac" in batch:
+            clip_size = (self.dataset.dna_window - self.dataset.signal_window) // 2
+            batch["pred_mc"] = batch["pred_mc"][..., clip_size:-clip_size]
+
+        loss_dict = model.loss(batch)
+        batch.update(loss_dict)
+        return batch, loss_dict["loss_total"]
 
     def train(self) -> None:
         """Train the scFootprintTrainer model on LoRA mode."""
