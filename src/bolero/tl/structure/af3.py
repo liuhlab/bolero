@@ -24,7 +24,7 @@ def get_chain_interval(chain_ids):
     )  # Shift by +1 to mark the start of new segments
     start_indices = np.insert(change_indices, 0, 0)  # First segment starts at index 0
     end_indices = np.append(
-        change_indices, len(arr) - 1
+        change_indices, len(arr)
     )  # Last segment ends at the last index
     intervals = {
         arr[start]: (start, end) for start, end in zip(start_indices, end_indices)
@@ -199,7 +199,45 @@ class AF3Result:
             self._structure = parser.get_structure("af3", str(self._model_path))
         return self._structure
 
-    def view(self, **kwargs):
+    @property
+    def num_atoms(self):
+        """Number of atoms."""
+        return len(self.confidences_data["atom_plddts"])
+
+    @property
+    def num_tokens(self):
+        """Number of residues."""
+        return len(self.confidences_data["token_res_ids"])
+
+    def set_atom_bfactors(self, value="atom_plddts"):
+        """Set atom bfactor with atom or residue level values."""
+        if isinstance(value, str):
+            if value == "atom_plddts":
+                for atom, score in zip(
+                    self.structure.get_atoms(), self.confidences_data["atom_plddts"]
+                ):
+                    atom.set_bfactor(score)
+            else:
+                raise ValueError(
+                    f"Unknown value: {value}, possible values: 'atom_plddts'"
+                )
+        else:
+            # assume value is list or array or series
+            if len(value) == self.num_atoms:
+                for atom, score in zip(self.structure.get_atoms(), value):
+                    atom.set_bfactor(score)
+            elif len(value) == self.num_tokens:
+                for residue, score in zip(self.structure.get_residues(), value):
+                    for atom in residue:
+                        atom.set_bfactor(score)
+            else:
+                raise ValueError(
+                    f"Length of value ({len(value)}) does not match number of "
+                    f"atoms ({self.num_atoms}) or tokens ({self.num_tokens})."
+                )
+        return
+
+    def view(self, hue="chain", hue_norm=(0, 100), colormap="RdYlBu", **kwargs):
         """
         Simple visualization in jupyter using NGLView.
         """
@@ -208,6 +246,31 @@ class AF3Result:
         except ImportError:
             raise ImportError("Please install nglview to visualize model.") from None
 
+        use_bfactor = True
+        if isinstance(hue, str):
+            if hue == "chain":
+                # default hue is chain
+                use_bfactor = False
+            elif hue.lower() in ("atom_plddt", "plddt"):
+                self.set_atom_bfactors(value="atom_plddts")
+            elif hue == "bfactor":
+                pass
+            else:
+                raise ValueError(
+                    f"Unknown hue: {hue}, possible values: 'chain', 'atom_plddt'"
+                )
+        else:
+            self.set_atom_bfactors(value=hue)
+
         # Visualize using NGLView
         view = nv.show_biopython(self.structure, **kwargs)
+
+        if use_bfactor:
+            view.clear_representations()
+            view.add_representation(
+                "cartoon",
+                color="bfactor",
+                colorScale=colormap,  # Uses the Viridis colormap
+                colorDomain=hue_norm,  # Maps pLDDT values correctly
+            )
         return view
