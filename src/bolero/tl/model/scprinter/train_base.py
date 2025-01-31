@@ -83,7 +83,8 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         """
         # create dataset
         self.dataset = self._get_dataset()
-        self.dataset.bed = pr.read_bed(self.config["region_bed_path"], as_df=True)
+        if not hasattr(self.dataset, "bed"):
+            self.dataset.bed = pr.read_bed(self.config["region_bed_path"], as_df=True)
         # train, valid, test split by fold
         (
             self.train_folds,
@@ -268,7 +269,6 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
         wandb.log(
             {
-                **{f"train/train_loss_{k}": v for k, v in self.train_loss.items()},
                 **{f"val/val_loss_{k}": v for k, v in self.val_loss.items()},
                 "val/best_val_loss": self.best_val_loss,
                 "val/early_stopping_counter": self.early_stopping_counter,
