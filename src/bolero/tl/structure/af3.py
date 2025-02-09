@@ -1,7 +1,10 @@
+import itertools
 import json
 import pathlib
+import string
 from itertools import combinations, combinations_with_replacement
 
+import joblib
 import numpy as np
 import pandas as pd
 from Bio.PDB.MMCIFParser import MMCIFParser
@@ -77,7 +80,7 @@ class AF3Result:
     def input_data(self):
         """Input data."""
         if self._input_data is None:
-            self._input_data = _json_load(self._input_data_path)
+            self._input_data = AF3Input.load(self._input_data_path)
         return self._input_data
 
     @property
@@ -274,3 +277,346 @@ class AF3Result:
                 colorDomain=hue_norm,  # Maps pLDDT values correctly
             )
         return view
+
+
+def _id_generator():
+    alphabet = string.ascii_uppercase  # 'A' to 'Z'
+    length = 1
+
+    while length <= 4:
+        for id_tuple in itertools.product(alphabet, repeat=length):
+            yield "".join(id_tuple)
+        length += 1
+
+
+def _truncate_long_strings(obj, max_length=30):
+    """Recursively truncate long string values in JSON objects."""
+    if isinstance(obj, dict):
+        return {
+            k: (
+                _truncate_long_strings(v, max_length)
+                if k != "templates"
+                else f"{len(v)} mmCIF templates"
+            )
+            for k, v in obj.items()
+        }
+    elif isinstance(obj, list):
+        return [_truncate_long_strings(v, max_length) for v in obj]
+    elif isinstance(obj, str) and len(obj) > max_length:
+        return obj[:max_length] + "..."
+    else:
+        return obj
+
+
+def _get_gene_af3_cache_path(gene, genome, af3_cache_dir):
+    record = genome.get_gene_protein_sequence(gene, sel_longest=True)
+    if record is None:
+        raise FileNotFoundError(f"Gene {gene} not found in genome.")
+    acc = record.id
+    af3_cache_path = f"{af3_cache_dir}/{acc}.msa_and_template.joblib.gz"
+    if not pathlib.Path(af3_cache_path).exists():
+        raise FileNotFoundError(f"AF3 cache file not found: {af3_cache_path}")
+    return af3_cache_path
+
+
+def truncate_single_msa_seq(seq, start, end):
+    """Function to get truncated MSA sequence (ignoring lowercase insertions)."""
+    # encode char
+    arr = np.frombuffer(seq.encode(), dtype=np.uint8)
+    # pos not in lower char [a-z] (insertions)
+    valid_pos = ~((arr >= 97) & (arr <= 122))
+    # -1 because first valid pos should start from 0
+    pos_idx = valid_pos.cumsum() - 1
+    start_idx = pos_idx.searchsorted(start, side="left")
+    end_idx = pos_idx.searchsorted(end, side="left")
+    return seq[start_idx:end_idx]
+
+
+def truncate_a3m_msa(unpaired_msa: str, start: int, end: int) -> str:
+    """
+    Truncate an A3M MSA string to a given start and end slice, handling variable sequence lengths.
+
+    Args:
+        unpaired_msa (str): A3M formatted MSA string.
+        start (int): 0-based start index (inclusive).
+        end (int): 0-based end index (exclusive).
+
+    Returns
+    -------
+        str: Truncated A3M formatted MSA string.
+    """
+    lines = unpaired_msa.strip().split("\n")
+
+    # Separate headers and sequences
+    header = ""
+    new_lines = []
+    for line in lines:
+        if line.startswith(">"):
+            header = line
+        else:
+            nl = truncate_single_msa_seq(line, start, end)
+            if nl.count("-") != len(nl):
+                # only add non-empty record
+                new_lines.extend([header, nl])
+    return "\n".join(new_lines)
+
+
+def truncate_templates(templates: list, start: int, end: int, min_length=10) -> list:
+    """
+    Truncates a list of template dictionaries to match the given start and end slice.
+
+    Args:
+        templates (list): A list of templates in AlphaFold 3 format.
+        start (int): The 0-based start index (inclusive).
+        end (int): The 0-based end index (exclusive).
+        min_length (int): Only include truncated templates with usable indices > min_length.
+
+    Returns
+    -------
+        list: The truncated template list.
+    """
+    truncated_templates = []
+    for template in templates:
+        temp_idx = np.array([template["queryIndices"], template["templateIndices"]])
+        idx_start = temp_idx[0].searchsorted(start, side="left")
+        idx_end = temp_idx[0].searchsorted(end, side="left")
+        if (idx_end - idx_start) > min_length:
+            # only return templates with enough indices remained
+            template["queryIndices"] = temp_idx[0, idx_start:idx_end].tolist()
+            template["templateIndices"] = temp_idx[1, idx_start:idx_end].tolist()
+            truncated_templates.append(template)
+    return truncated_templates
+
+
+class AF3Input:
+    def __init__(
+        self,
+        name,
+        modelSeeds=1,
+        sequences=None,
+        bondedAtomPairs=None,
+        userCCD=None,
+        dialect="alphafold3",
+        version=2,
+    ):
+        """
+        Init AF3Input json data.
+
+        See documentation for more information:
+        https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md
+        """
+        if isinstance(modelSeeds, int):
+            modelSeeds = [modelSeeds]
+        if sequences is None:
+            sequences = []
+
+        self.json_data = {
+            "name": name,
+            "modelSeeds": modelSeeds,
+            "sequences": sequences,
+            "dialect": dialect,
+            "version": version,
+        }
+        if userCCD is not None:
+            self.json_data["userCCD"] = userCCD
+        if bondedAtomPairs is not None:
+            self.json_data["bondedAtomPairs"] = bondedAtomPairs
+
+        self._chain_ids = set()
+        for seq in sequences:
+            for d in seq.values():
+                _id = d["id"]
+                if isinstance(_id, str):
+                    self._chain_ids.add(_id)
+                else:
+                    for i in _id:
+                        self._chain_ids.add(i)
+        self._id_generator = _id_generator()
+        return
+
+    def _get_next_chain_id(self):
+        while True:
+            try:
+                _id = next(self._id_generator)
+                if _id not in self._chain_ids:
+                    break
+            except StopIteration:
+                raise StopIteration(
+                    "Chain ID generator exhausted, there seems to be huge numbre of chains in this input."
+                ) from None
+        return _id
+
+    def _prepare_chain_id(self, chain_id=None, repeat=1):
+        if chain_id is None:
+            chain_id = [self._get_next_chain_id() for _ in range(repeat)]
+        for _id in chain_id:
+            assert _id not in self._chain_ids, f"Chain ID {chain_id} already exists."
+            self._chain_ids.add(_id)
+        if len(chain_id) == 1:
+            chain_id = chain_id[0]
+        return chain_id
+
+    def add_protein(self, sequence, chain_id=None, repeat=1, **kwargs):
+        """
+        Add protein to AF3Input.
+
+        Args:
+            pid: Protein ID
+            sequence: Protein sequence
+            repeat: Make number of copies for this chain in the model
+            **kwargs: Additional keyword arguments
+        """
+        chain_id = self._prepare_chain_id(chain_id, repeat)
+        protein = {"protein": {"id": chain_id, "sequence": sequence}}
+        protein["protein"].update(kwargs)
+        self.json_data["sequences"].append(protein)
+        return
+
+    def add_protein_from_cache(
+        self,
+        cache_data,
+        chain_id=None,
+        repeat=1,
+        truncate_region=None,
+        min_template_length=10,
+    ):
+        """
+        Add protein with MSA and template cache from a file.
+        """
+        if isinstance(cache_data, dict):
+            data = cache_data
+        else:
+            # assume its file path
+            data = joblib.load(cache_data)
+        for _, chain_data in data.items():
+            if truncate_region is not None:
+                chain_data = self.truncate_protein_chain_data(
+                    chain_data, truncate_region, min_template_length=min_template_length
+                )
+            self.add_protein(chain_id=chain_id, repeat=repeat, **chain_data)
+        return
+
+    @staticmethod
+    def truncate_protein_chain_data(chain_data, truncate_region, min_template_length):
+        """Truncate protein chain MSA and templates."""
+        start, end = truncate_region
+        chain_data["unpairedMsa"] = truncate_a3m_msa(
+            chain_data["unpairedMsa"], start, end
+        )
+        chain_data["templates"] = truncate_templates(
+            chain_data["templates"], start, end, min_length=min_template_length
+        )
+        return chain_data
+
+    def add_dna(
+        self,
+        sequence,
+        chain_id=None,
+        repeat=1,
+        modifications: list[dict] = None,
+        add_rc_strand=True,
+    ):
+        """
+        Add DNA to AF3Input.
+
+        Args:
+            sequence: DNA sequence
+            modifications: List of modifications, each modification is a dict with keys:
+        """
+        sequence = sequence.upper()
+
+        chain_id = self._prepare_chain_id(chain_id, repeat)
+        dna = {"dna": {"id": chain_id, "sequence": sequence}}
+        if modifications is not None:
+            dna["dna"]["modifications"] = modifications
+        self.json_data["sequences"].append(dna)
+        if add_rc_strand:
+            rc_sequence = sequence.translate(str.maketrans("ATCG", "TAGC"))[::-1]
+            self.add_dna(sequence=rc_sequence, repeat=repeat, add_rc_strand=False)
+        return
+
+    def add_ligand_ccd(self, ccdCodes, chain_id=None, repeat=1):
+        """
+        Add ligand to AF3Input.
+
+        Args:
+            ccdCodes: List of chemical component dictionary codes
+        """
+        chain_id = self._prepare_chain_id(chain_id, repeat)
+        if isinstance(ccdCodes, str):
+            ccdCodes = [ccdCodes]
+        ligand = {"ligand": {"id": chain_id, "ccdCodes": ccdCodes}}
+        self.json_data["sequences"].append(ligand)
+        return
+
+    def add_ligand_smiles(self, smiles, chain_id=None, repeat=1):
+        """
+        Add ligand to AF3Input.
+
+        Args:
+            smiles: SMILES string
+        """
+        chain_id = self._prepare_chain_id(chain_id, repeat)
+        ligand = {"ligand": {"id": chain_id, "smiles": smiles}}
+        self.json_data["sequences"].append(ligand)
+        return
+
+    def dump(self, path):
+        """
+        Dump AF3Input json data to a file.
+        """
+        with open(path, "w") as f:
+            json.dump(self.json_data, f, indent=4)
+        return
+
+    @classmethod
+    def load(cls, path):
+        """
+        Load AF3Input json data from a file.
+        """
+        with open(path) as f:
+            json_data = json.load(f)
+        return cls(**json_data)
+
+    @classmethod
+    def from_design(cls, name, design, genome, af3_cache_dir, **kwargs):
+        """
+        Create AF3Input from design list.
+
+        Example design list:
+        # repeated names will be merged atuomatically in the input json
+
+        design = [
+            {"protein": ["Fos", "Fos", "Jun", "Jun"]},
+            {"DNA": ["TGACTCA", "TGACGTCA", "CACTGGCT"]},
+        ]
+        """
+        af3_input = AF3Input(name=name, **kwargs)
+        for seq_dict in design:
+            for seq_type, seq_list in seq_dict.items():
+                seq_and_repeats = list(pd.Series(seq_list).value_counts().items())
+                match seq_type.lower():
+                    case "protein":
+                        for prot, repeat in seq_and_repeats:
+                            af3_cache_path = _get_gene_af3_cache_path(
+                                prot, genome, af3_cache_dir
+                            )
+                            af3_input.add_protein_from_cache(
+                                af3_cache_path, repeat=repeat
+                            )
+                    case "dna":
+                        for seq, repeat in seq_and_repeats:
+                            af3_input.add_dna(sequence=seq, repeat=repeat)
+                    case "ligand_ccd" | "ligand":
+                        for lig, repeat in seq_and_repeats:
+                            af3_input.add_ligand_ccd(lig, repeat=repeat)
+                    case "ligand_smiles":
+                        for lig, repeat in seq_and_repeats:
+                            af3_input.add_ligand_smiles(lig, repeat=repeat)
+        return af3_input
+
+    def __repr__(self):
+        truncated_data = _truncate_long_strings(self.json_data)
+        head = f"AF3Input object with {len(self._chain_ids)} chains\n\n"
+        print_str = head + json.dumps(truncated_data, indent=4, ensure_ascii=False)
+        return print_str

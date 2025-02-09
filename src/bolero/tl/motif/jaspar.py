@@ -265,6 +265,17 @@ class JASPARMotif:
         seqs = one_hot_to_sequence(one_hot, list(self.pwm.columns))
         return seqs
 
+    def consensus_sequence(self):
+        """
+        Get the consensus sequence of the motif.
+
+        Returns
+        -------
+        - str: The consensus sequence.
+        """
+        consensus = "".join(self.pwm.idxmax(axis=1).values)
+        return "".join(consensus)
+
 
 class JASPARMotifDatabase:
     """
@@ -336,6 +347,7 @@ class JASPARMotifDatabase:
         self.base_order = base_order
 
         self.motifs = []
+        self.motif_id_dict = {}
         for (motif_id, motif_name), pwm in motif_pwms.items():
             motif_name = name_parser(motif_name)
             motif = JASPARMotif(
@@ -344,6 +356,7 @@ class JASPARMotifDatabase:
             if max_length is not None:
                 motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
+            self.motif_id_dict[motif_id] = motif
 
         self.motif_names = [motif.name for motif in self.motifs]
         self.motif_dict = {motif.name: motif for motif in self.motifs}
