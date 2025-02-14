@@ -1,10 +1,15 @@
 import pathlib
+import warnings
 
 import h5py
+import logomaker
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pyranges as pr
 import ray
+import seaborn as sns
+import torch
 from modiscolite.core import Seqlet
 
 from bolero import Genome
@@ -256,9 +261,99 @@ class ModiscoSeqlet(Seqlet):
         self.name = name
         super().__init__(example_idx, start, end, is_revcomp)
 
-        self.sequence = sequence
-        self.contrib_scores = contrib_scores
-        self.hypothetical_contribs = hypothetical_contribs
+        self.sequence = sequence  # shape (len, 4)
+        self.contrib_scores = contrib_scores  # shape (len, 4)
+        self.hypothetical_contribs = hypothetical_contribs  # shape (len, 4)
+
+    def get_trimed_matrix(self, key="sequence", trim_threshold=0.3, score_type="ic"):
+        """
+        Trim the sequence by contribution score > max(contrib_scores) * trim_threshold.
+        """
+        ppm = getattr(self, key)
+
+        # filter by information content
+        ic = self._get_info_content(self.sequence)
+        pass_ic = ic >= trim_threshold
+
+        # filter by contribution score
+        cwm = self.contrib_scores
+        score = np.sum(np.abs(cwm), axis=1)
+        trim_thresh = (
+            np.max(score) * trim_threshold
+        )  # Cut off anything less than 30% of max score
+        pass_contrib = score >= trim_thresh
+
+        pass_inds = np.where(pass_ic & pass_contrib)[0]
+        if len(pass_inds) == 0:
+            trimmed = np.zeros((0, 4))
+        else:
+            trimmed = ppm[np.min(pass_inds) : np.max(pass_inds) + 1]
+        return trimmed
+
+    def get_tangermeme_input(self, key="sequence", trim_threshold=0.3):
+        """
+        Get the sequence and contribution scores for TangerMEME input.
+        """
+        data = self.get_trimed_matrix(key=key, trim_threshold=trim_threshold)
+        data = torch.from_numpy(data.T)
+        return data
+
+    @staticmethod
+    def _get_info_content(pwm):
+        """
+        Calculate the information content of a PWM.
+        """
+        pwm = pwm.T  # shape (4, len)
+        entropy = -np.sum(pwm * np.log2(pwm + 1e-10), axis=0)
+        max_ic = np.log2(4)  # max possible information content for 4 bases (DNA)
+        info_content = max_ic - entropy
+        return info_content
+
+    def plot_on_ax(self, ax, key="sequence", trim_threshold=0.3, **kwargs):
+        """
+        Plot motif logo on an Axes
+        """
+        data = self.get_trimed_matrix(key=key, trim_threshold=trim_threshold)
+        if key == "sequence":
+            data_info = self._get_info_content(data)
+            data = data * data_info[:, None]
+
+        # Create a sequence logo
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            data = pd.DataFrame(data, columns=list("ACGT"))
+            logo = logomaker.Logo(data, ax=ax, **kwargs)
+        return logo
+
+    def plot(self, key="sequence", trim_threshold=0.3):
+        """Visualize the motif."""
+        data = self.get_trimed_matrix(key=key, trim_threshold=trim_threshold)
+
+        _, ax = plt.subplots(figsize=(len(data) / 4, 1), dpi=100)
+        self.plot_on_ax(ax, key=key, trim_threshold=trim_threshold)
+        ax.set_title(f"{self.name}", fontsize=8)
+        if key == "sequence":
+            ax.set_ylabel("IC (Bits)", fontsize=8)
+        else:
+            ax.set_ylabel("Attribution", fontsize=8)
+        sns.despine(ax=ax)
+        return
+
+    def consensus_sequence(self):
+        """
+        Get the consensus sequence of the motif.
+
+        Returns
+        -------
+        - str: The consensus sequence.
+        """
+        consensus = (
+            pd.DataFrame(self.sequence, columns=("A", "G", "C", "T"))
+            .idxmax(axis=1)
+            .values
+        )
+        consensus = "".join(consensus)
+        return "".join(consensus)
 
 
 class ModiscoPattern:

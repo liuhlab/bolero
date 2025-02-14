@@ -348,16 +348,11 @@ def truncate_a3m_msa(unpaired_msa: str, start: int, end: int) -> str:
     lines = unpaired_msa.strip().split("\n")
 
     # Separate headers and sequences
-    header = ""
     new_lines = []
     for line in lines:
-        if line.startswith(">"):
-            header = line
-        else:
-            nl = truncate_single_msa_seq(line, start, end)
-            if nl.count("-") != len(nl):
-                # only add non-empty record
-                new_lines.extend([header, nl])
+        if not line.startswith(">"):
+            line = truncate_single_msa_seq(line, start, end)
+        new_lines.append(line)
     return "\n".join(new_lines)
 
 
@@ -382,7 +377,8 @@ def truncate_templates(templates: list, start: int, end: int, min_length=10) -> 
         idx_end = temp_idx[0].searchsorted(end, side="left")
         if (idx_end - idx_start) > min_length:
             # only return templates with enough indices remained
-            template["queryIndices"] = temp_idx[0, idx_start:idx_end].tolist()
+            # offset the query indices to start from 0
+            template["queryIndices"] = (temp_idx[0, idx_start:idx_end] - start).tolist()
             template["templateIndices"] = temp_idx[1, idx_start:idx_end].tolist()
             truncated_templates.append(template)
     return truncated_templates
@@ -489,7 +485,7 @@ class AF3Input:
             # assume its file path
             data = joblib.load(cache_data)
         for _, chain_data in data.items():
-            if truncate_region is not None:
+            if truncate_region is not None and len(truncate_region) == 2:
                 chain_data = self.truncate_protein_chain_data(
                     chain_data, truncate_region, min_template_length=min_template_length
                 )
@@ -503,9 +499,11 @@ class AF3Input:
         chain_data["unpairedMsa"] = truncate_a3m_msa(
             chain_data["unpairedMsa"], start, end
         )
+        chain_data["pairedMsa"] = truncate_a3m_msa(chain_data["pairedMsa"], start, end)
         chain_data["templates"] = truncate_templates(
             chain_data["templates"], start, end, min_length=min_template_length
         )
+        chain_data["sequence"] = chain_data["sequence"][start:end]
         return chain_data
 
     def add_dna(
@@ -598,11 +596,20 @@ class AF3Input:
                 match seq_type.lower():
                     case "protein":
                         for prot, repeat in seq_and_repeats:
+                            prot, *truncate_region = prot.split(":")
+                            if len(truncate_region) == 1:
+                                truncate_region = list(
+                                    map(int, truncate_region[0].split("-"))
+                                )
+                            else:
+                                truncate_region = None
                             af3_cache_path = _get_gene_af3_cache_path(
                                 prot, genome, af3_cache_dir
                             )
                             af3_input.add_protein_from_cache(
-                                af3_cache_path, repeat=repeat
+                                af3_cache_path,
+                                repeat=repeat,
+                                truncate_region=truncate_region,
                             )
                     case "dna":
                         for seq, repeat in seq_and_repeats:
