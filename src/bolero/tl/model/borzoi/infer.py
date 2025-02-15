@@ -7,6 +7,7 @@ import pyranges as pr
 import torch
 import xarray as xr
 from captum.attr import InputXGradient
+from tangermeme.ersatz import dinucleotide_shuffle, multisubstitute, substitute
 from tqdm import tqdm
 
 from bolero.pp.genome import Genome
@@ -172,8 +173,7 @@ class PeakDataSummary(GeneDataSummary):
         return super().__call__(data_dict, suffix=suffix)
 
 
-def _clip_at_center(data, clip_length, modality='atac'):
-    
+def _clip_at_center(data, clip_length, modality="atac"):
     if isinstance(data, dict):
         data = data[modality]
         seq_len = data.shape[-1]
@@ -203,6 +203,49 @@ def _project_attr(attr, dna_one_hot):
     # (bs, 1, seq_len) or (sample, bs, 1, seq_len)
     attr = (attr * dna_one_hot).sum(-2)
     return attr
+
+
+def get_rand_one_hot(genome, bed, shuffle_range=None, n_shuffle=1, random_state=0):
+    """
+    Take sequence from real genome regions, then perform dinucleotide shuffle.
+
+    Parameters
+    ----------
+    genome : Genome
+        Genome object.
+    bed : pd.DataFrame
+        Bed file.
+    shuffle_range : tuple, optional
+        Shuffle range (start, end). If provided, will only do shuffle withing this range of the region. Default is None.
+    n_shuffle : int, optional
+        Number of shuffle per region. Default is 1.
+    random_state : int, optional
+        Random state. Default is 0.
+    """
+    rand_one_hot = genome.get_regions_one_hot(bed)
+    rand_one_hot = rand_one_hot.swapaxes(1, 2).astype("float16")
+    rand_one_hot = torch.from_numpy(rand_one_hot).half()
+
+    if shuffle_range is None:
+        to_shuffle = rand_one_hot
+    else:
+        ss, se = shuffle_range
+        to_shuffle = rand_one_hot[..., ss:se].clone()
+
+    shuffle_rand_one_hot = dinucleotide_shuffle(
+        to_shuffle, n=n_shuffle, random_state=random_state
+    ).view(-1, 4, to_shuffle.shape[-1])
+
+    if shuffle_range is None:
+        rand_one_hot = shuffle_rand_one_hot
+    else:
+        ss, se = shuffle_range
+        if n_shuffle > 1:
+            rand_one_hot = rand_one_hot.repeat(n_shuffle, 1)
+        rand_one_hot[..., ss:se] = shuffle_rand_one_hot
+
+    # shape (n_region * n_shuffle, 4, region_length)
+    return rand_one_hot
 
 
 class BorzoiInferencer:
@@ -289,18 +332,112 @@ class BorzoiInferencer:
         all_data = torch.cat(all_data, dim=0)
         return all_data
 
-    @torch.no_grad()
     def _single_predict(self, model, bed):
         all_data = []
         for i in range(0, bed.shape[0], self.batch_size):
             batch_bed = bed.iloc[i : i + self.batch_size]
             batch_dna = self._get_dna_one_hot(batch_bed)
-            with torch.amp.autocast("cuda"):
-                outputs = model(batch_dna)
+
+            outputs = self._forward_pass(model, batch_dna)
             outputs = _clip_at_center(outputs, self.peak_bins)
             all_data.append(outputs.cpu())
         all_data = torch.cat(all_data, dim=0)
         return all_data
+
+    @torch.no_grad()
+    def _forward_pass(self, model, data):
+        with torch.amp.autocast("cuda"):
+            outputs = model(data)
+        return outputs
+
+    def _prepare_marginalize_one_hot(
+        self,
+        motifs,
+        distances,
+        region_bed,
+        n_regions,
+        shuffle_size=10000,
+        random_state=0,
+        insert_motif=True,
+    ):
+        # get region one hot
+        # dinucleotide shuffle the middle shuffle_size region
+        center = self.model_dna_length // 2
+        shuffle_radius = shuffle_size // 2
+        shuffle_range = (center - shuffle_radius, center + shuffle_radius)
+        rand_bed = region_bed.sample(n_regions, random_state=random_state)
+        rand_one_hot = get_rand_one_hot(
+            genome=self.genome,
+            bed=rand_bed,
+            shuffle_range=shuffle_range,
+            n_shuffle=1,
+            random_state=random_state,
+        )
+
+        if insert_motif:
+            # insert motif into the center of the region
+            if isinstance(motifs, str):
+                # substitute single motif into region center
+                substitute_start = center - len(motifs) // 2
+                final_one_hot = substitute(rand_one_hot, motifs, start=substitute_start)
+            else:
+                total_substitute_length = 0
+                for motif in motifs:
+                    total_substitute_length += len(motif)
+                if isinstance(distances, int):
+                    total_substitute_length += (len(motifs) - 1) * distances
+                else:
+                    total_substitute_length += sum(distances)
+                substitute_start = center - total_substitute_length // 2
+                final_one_hot = multisubstitute(
+                    rand_one_hot, motifs, distances, start=substitute_start
+                )
+        else:
+            final_one_hot = rand_one_hot
+        return final_one_hot
+
+    def _marginalize(
+        self,
+        model,
+        motifs,
+        distances,
+        region_bed,
+        n_regions,
+        random_state=0,
+        shuffle_size=1000,
+    ):
+        n_batches = n_regions // self.batch_size
+
+        null_results = []
+        motif_results = []
+        valid_batch_count = 0
+        while valid_batch_count < n_batches:
+            try:
+                random_state += 1
+                for _insert in [False, True]:
+                    one_hot_data = self._prepare_marginalize_one_hot(
+                        motifs,
+                        distances,
+                        region_bed,
+                        n_regions=self.batch_size,
+                        random_state=random_state,
+                        insert_motif=_insert,
+                        shuffle_size=shuffle_size,
+                    )
+                    one_hot_data = one_hot_data.cuda()
+                    result = self._forward_pass(model, one_hot_data)
+                    result = _clip_at_center(result, self.peak_bins)
+                    if _insert:
+                        motif_results.append(result)
+                    else:
+                        null_results.append(result)
+                valid_batch_count += 1
+            except ValueError:
+                print("invalid batch", random_state)
+                continue  # skip invalid batch
+        null_results = torch.cat(null_results, dim=0)
+        motif_results = torch.cat(motif_results, dim=0)
+        return null_results, motif_results
 
     def infer(
         self, embedding: pd.DataFrame, bed: str, mode="attr", progress_bar=True
