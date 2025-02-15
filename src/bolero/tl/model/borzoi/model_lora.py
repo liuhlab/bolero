@@ -257,7 +257,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
 
         # for collaps
-        self.colapsed = False
+        self.collapsed = False
         return
 
     def setup_rna_head(self, rna_channels, freeze_other_modules=True):
@@ -456,7 +456,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
     def collapse_lora(self, embedding):
         """Collapse the LoRA model into base form given an embedding."""
         model = collapse_lora_model_(self, embedding)
-        model.colapsed = True
+        model.collapsed = True
         model.eval()
         return model
 
@@ -547,7 +547,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
     def forward(self, x, embedding=None, crop=True, return_dna_embedding=False):
         """Borzoi forward pass to get final output."""
-        if not self.colapsed:
+        if not self.collapsed:
             assert embedding is not None, "embedding is required for LoRA model"
         else:
             if self.kv_bottleneck is not None:

@@ -265,7 +265,7 @@ class ModiscoSeqlet(Seqlet):
         self.contrib_scores = contrib_scores  # shape (len, 4)
         self.hypothetical_contribs = hypothetical_contribs  # shape (len, 4)
 
-    def get_trimed_matrix(self, key="sequence", trim_threshold=0.3, score_type="ic"):
+    def get_trimed_matrix(self, key="sequence", trim_threshold=0.3):
         """
         Trim the sequence by contribution score > max(contrib_scores) * trim_threshold.
         """
@@ -339,7 +339,7 @@ class ModiscoSeqlet(Seqlet):
         sns.despine(ax=ax)
         return
 
-    def consensus_sequence(self):
+    def get_consensus_sequence(self, trim_threshold=0.3, rc=False):
         """
         Get the consensus sequence of the motif.
 
@@ -347,13 +347,15 @@ class ModiscoSeqlet(Seqlet):
         -------
         - str: The consensus sequence.
         """
+        seq = self.get_trimed_matrix(key="sequence", trim_threshold=trim_threshold)
         consensus = (
-            pd.DataFrame(self.sequence, columns=("A", "G", "C", "T"))
-            .idxmax(axis=1)
-            .values
+            pd.DataFrame(seq, columns=("A", "G", "C", "T")).idxmax(axis=1).values
         )
         consensus = "".join(consensus)
-        return "".join(consensus)
+
+        if rc:
+            consensus = consensus.translate(str.maketrans("AGCT", "TCGA"))[::-1]
+        return consensus
 
 
 class ModiscoPattern:
@@ -542,11 +544,21 @@ class ModiscoResults:
         return self._neg_patterns
 
     @property
+    def neg_seqlets(self):
+        """Get the representative seqlet for each negative pattern."""
+        return [p.to_seqlet() for p in self.neg_patterns]
+
+    @property
     def pos_patterns(self):
         """Modisco patterns with positive attribution scores."""
         if self._pos_patterns is None:
             self._pos_patterns, self._neg_patterns = self._get_patterns_from_h5()
         return self._pos_patterns
+
+    @property
+    def pos_seqlets(self):
+        """Get the representative seqlet for each positive pattern."""
+        return [p.to_seqlet() for p in self.pos_patterns]
 
     @property
     def dna_one_hot(self) -> np.ndarray:

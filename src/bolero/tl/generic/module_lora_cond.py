@@ -420,6 +420,21 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             weight = lora_weights
         return weight
 
+    def _lora_ab(self, *args, **kwargs):
+        lora_weights = super()._lora_ab(*args, **kwargs)
+        _i = self.in_channels // self.groups
+        _o = self.out_channels
+        _k = self.kernel_size
+        if self.conv_type == "1d":
+            lora_weights = rearrange(lora_weights, "b (i k) o -> b o i k", i=_i, k=_k)
+        elif self.conv_type == "2d":
+            lora_weights = rearrange(
+                lora_weights, "b (i k1) (o k2) -> b o i k1 k2", i=_i, o=_o, k1=_k, k2=_k
+            )
+        elif self.conv_type == "3d":
+            raise NotImplementedError
+        return lora_weights
+
     def _prepare_conv1d_lora(self, x, *args, **kwargs):
         """
         Get the LoRA added weights for a 1D convolution.
@@ -429,12 +444,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             torch.Tensor: The LoRA added weights with shape (batch_size * out_channels, in_channels, kernel_size).
         """
         lora_weights = self._lora_ab(*args, **kwargs)
-        _i = self.in_channels // self.groups
-        _k = self.kernel_size
-        lora_weights = rearrange(lora_weights, "b (i k) o -> b o i k", i=_i, k=_k)
-
         base_weights = rearrange(self.conv.weight, "o i k -> 1 o i k")
-
         weights = base_weights + lora_weights
         weights = self._maybe_to_dora_weights(weights)
         weights = rearrange(weights, "b o i k -> (b o) i k")
@@ -455,15 +465,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             torch.Tensor: The LoRA added weights with shape (batch_size * out_channels, in_channels, kernel_size, kernel_size).
         """
         lora_weights = self._lora_ab(*args, **kwargs)
-        _i = self.in_channels // self.groups
-        _o = self.out_channels
-        _k = self.kernel_size
-        lora_weights = rearrange(
-            lora_weights, "b (i k1) (o k2) -> b o i k1 k2", i=_i, o=_o, k1=_k, k2=_k
-        )
-
         base_weights = rearrange(self.conv.weight, "o i k1 k2 -> 1 o i k1 k2")
-
         weights = rearrange(base_weights + lora_weights, "b o i k1 k2 -> (b o) i k1 k2")
         weights = self._maybe_to_dora_weights(weights)
 
