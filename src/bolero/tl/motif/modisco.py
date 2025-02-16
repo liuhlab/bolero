@@ -349,7 +349,7 @@ class ModiscoSeqlet(Seqlet):
         """
         seq = self.get_trimed_matrix(key="sequence", trim_threshold=trim_threshold)
         consensus = (
-            pd.DataFrame(seq, columns=("A", "G", "C", "T")).idxmax(axis=1).values
+            pd.DataFrame(seq, columns=("A", "C", "G", "T")).idxmax(axis=1).values
         )
         consensus = "".join(consensus)
 

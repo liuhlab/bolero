@@ -205,7 +205,15 @@ def _project_attr(attr, dna_one_hot):
     return attr
 
 
-def get_rand_one_hot(genome, bed, shuffle_range=None, n_shuffle=1, random_state=0):
+def get_rand_one_hot(
+    genome,
+    bed,
+    shuffle_range=None,
+    n_shuffle=1,
+    random_state=0,
+    motifs=None,
+    distances=None,
+):
     """
     Take sequence from real genome regions, then perform dinucleotide shuffle.
 
@@ -226,16 +234,41 @@ def get_rand_one_hot(genome, bed, shuffle_range=None, n_shuffle=1, random_state=
     rand_one_hot = rand_one_hot.swapaxes(1, 2).astype("float16")
     rand_one_hot = torch.from_numpy(rand_one_hot).half()
 
+    # select part of the sequence to shuffle
     if shuffle_range is None:
         to_shuffle = rand_one_hot
     else:
         ss, se = shuffle_range
         to_shuffle = rand_one_hot[..., ss:se].clone()
-
+    to_shuffle = fill_n_with_random_base(to_shuffle)
     shuffle_rand_one_hot = dinucleotide_shuffle(
         to_shuffle, n=n_shuffle, random_state=random_state
     ).view(-1, 4, to_shuffle.shape[-1])
 
+    # insert motif into the center of the region
+    if motifs is not None:
+        if isinstance(motifs, str):
+            # substitute single motif into region center
+            substitute_start = shuffle_rand_one_hot.shape[-1] // 2 - len(motifs) // 2
+            shuffle_rand_one_hot = substitute(
+                shuffle_rand_one_hot, motifs, start=substitute_start
+            )
+        else:
+            if isinstance(distances, int):
+                distances = [distances for _ in range(len(motifs) - 1)]
+            motif_lengths = [
+                len(motif) if isinstance(motif, str) else motif.shape[-1]
+                for motif in motifs
+            ]
+            total_substitute_length = sum(distances) + sum(motif_lengths)
+            substitute_start = (
+                shuffle_rand_one_hot.shape[-1] // 2 - total_substitute_length // 2
+            )
+            shuffle_rand_one_hot = multisubstitute(
+                shuffle_rand_one_hot, motifs, distances, start=substitute_start
+            )
+
+    # put the shuffled sequence back to the original position
     if shuffle_range is None:
         rand_one_hot = shuffle_rand_one_hot
     else:
@@ -246,6 +279,22 @@ def get_rand_one_hot(genome, bed, shuffle_range=None, n_shuffle=1, random_state=
 
     # shape (n_region * n_shuffle, 4, region_length)
     return rand_one_hot
+
+
+def fill_n_with_random_base(one_hot):
+    """
+    Fill "N" positions with random bases.
+
+    input shape (bs, 4, seq_len)
+    """
+    mask = one_hot.sum(dim=1) == 0  # Find "N" positions (batch_size, seq_len)
+    if mask.any():
+        batch_indices, seq_indices = torch.where(mask)  # Get batch & sequence indices
+        random_bases = torch.randint(
+            0, 4, (batch_indices.numel(),), device=one_hot.device
+        )  # Choose random bases
+        one_hot[batch_indices, random_bases, seq_indices] = 1  # Assign random bases
+    return one_hot
 
 
 class BorzoiInferencer:
@@ -372,29 +421,10 @@ class BorzoiInferencer:
             shuffle_range=shuffle_range,
             n_shuffle=1,
             random_state=random_state,
+            motifs=motifs if insert_motif else None,
+            distances=distances if insert_motif else None,
         )
-
-        if insert_motif:
-            # insert motif into the center of the region
-            if isinstance(motifs, str):
-                # substitute single motif into region center
-                substitute_start = center - len(motifs) // 2
-                final_one_hot = substitute(rand_one_hot, motifs, start=substitute_start)
-            else:
-                total_substitute_length = 0
-                for motif in motifs:
-                    total_substitute_length += len(motif)
-                if isinstance(distances, int):
-                    total_substitute_length += (len(motifs) - 1) * distances
-                else:
-                    total_substitute_length += sum(distances)
-                substitute_start = center - total_substitute_length // 2
-                final_one_hot = multisubstitute(
-                    rand_one_hot, motifs, distances, start=substitute_start
-                )
-        else:
-            final_one_hot = rand_one_hot
-        return final_one_hot
+        return rand_one_hot
 
     def _marginalize(
         self,
@@ -404,40 +434,122 @@ class BorzoiInferencer:
         region_bed,
         n_regions,
         random_state=0,
-        shuffle_size=1000,
+        shuffle_size=20000,
+        reduce=True,
     ):
         n_batches = n_regions // self.batch_size
 
         null_results = []
         motif_results = []
-        valid_batch_count = 0
-        while valid_batch_count < n_batches:
-            try:
-                random_state += 1
-                for _insert in [False, True]:
-                    one_hot_data = self._prepare_marginalize_one_hot(
-                        motifs,
-                        distances,
-                        region_bed,
-                        n_regions=self.batch_size,
-                        random_state=random_state,
-                        insert_motif=_insert,
-                        shuffle_size=shuffle_size,
-                    )
-                    one_hot_data = one_hot_data.cuda()
-                    result = self._forward_pass(model, one_hot_data)
-                    result = _clip_at_center(result, self.peak_bins)
-                    if _insert:
-                        motif_results.append(result)
-                    else:
-                        null_results.append(result)
-                valid_batch_count += 1
-            except ValueError:
-                print("invalid batch", random_state)
-                continue  # skip invalid batch
+        for idx in range(n_batches):
+            _random_state = random_state + idx
+            for _insert in [False, True]:
+                one_hot_data = self._prepare_marginalize_one_hot(
+                    motifs,
+                    distances,
+                    region_bed,
+                    n_regions=self.batch_size,
+                    random_state=_random_state,
+                    insert_motif=_insert,
+                    shuffle_size=shuffle_size,
+                )
+                one_hot_data = one_hot_data.cuda()
+                result = self._forward_pass(model, one_hot_data)
+                result = _clip_at_center(result, self.peak_bins)
+                if _insert:
+                    motif_results.append(result)
+                else:
+                    null_results.append(result)
         null_results = torch.cat(null_results, dim=0)
         motif_results = torch.cat(motif_results, dim=0)
+        if reduce:
+            # sum bins to get region level score
+            null_results = null_results.sum(dim=(1, 2))
+            motif_results = motif_results.sum(dim=(1, 2))
         return null_results, motif_results
+
+    def marginalize_seqlet_pair(
+        self,
+        embedding,
+        region_bed,
+        seqlet1,
+        seqlet2=None,
+        distances="default",
+        n_regions=100,
+        random_state=0,
+        shuffle_size=20000,
+        trim_threshold=0.3,
+    ):
+        """Marginalize seqlet pair for given embedding and region bed."""
+        # prepare seqlet and distances
+        if seqlet2 is None:
+            seqlet2 = seqlet1
+
+        if distances == "default":
+            # 22 distances * 100 regions * 3 orientation = 6600 samples
+            distances = (
+                list(range(0, 10)) + list(range(10, 60, 10)) + list(range(60, 151, 15))
+            )
+
+        # prepare region and model
+        bed = understand_regions(region_bed)
+        region_bed = self.genome.standard_region_length(
+            bed, self.model_dna_length, remove_blacklist=True
+        )
+        emb_model = self._collapse_model(embedding)
+
+        total_results = {}
+
+        # run single motif
+        seq1 = seqlet1.get_consensus_sequence(trim_threshold=trim_threshold)
+        seq2 = seqlet2.get_consensus_sequence(trim_threshold=trim_threshold)
+        for idx, seq in enumerate([seq1, seq2]):
+            if (idx == 1) and (seq1 == seq2):
+                total_results["single:seqlet1"] = total_results["single:seqlet0"]
+                continue
+
+            null_results, motif_results = self._marginalize(
+                model=emb_model,
+                motifs=seq,
+                distances=None,
+                region_bed=region_bed,
+                n_regions=n_regions * 2,
+                random_state=random_state,
+                shuffle_size=shuffle_size,
+            )
+            total_results[f"single:seqlet{idx}"] = {
+                "null": null_results.cpu().numpy(),
+                "motif": motif_results.cpu().numpy(),
+            }
+
+        # run seqlet pair
+        seq_strands = [(0, 0), (0, 1), (1, 0)]
+        for strand1, strand2 in seq_strands:
+            motifs = [
+                seqlet1.get_consensus_sequence(
+                    trim_threshold=trim_threshold, rc=strand1 == 1
+                ),
+                seqlet2.get_consensus_sequence(
+                    trim_threshold=trim_threshold, rc=strand2 == 1
+                ),
+            ]
+            for distance in distances:
+                null_results, motif_results = self._marginalize(
+                    model=emb_model,
+                    motifs=motifs,
+                    distances=distance,
+                    region_bed=region_bed,
+                    n_regions=n_regions * 2,
+                    random_state=random_state,
+                    shuffle_size=shuffle_size,
+                )
+                total_results[
+                    f"pair:seqlet1_{strand1}:seqlet2_{strand2}:{distance}"
+                ] = {
+                    "null": null_results.cpu().numpy(),
+                    "motif": motif_results.cpu().numpy(),
+                }
+        return total_results
 
     def infer(
         self, embedding: pd.DataFrame, bed: str, mode="attr", progress_bar=True

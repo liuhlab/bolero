@@ -433,7 +433,10 @@ class ConsensusMotifPlotter:
         # check score shape
         if scores.ndim == 1:
             scores = scores.reshape(-1, 1)
-        assert scores.shape == (len(nucleotides), 1)
+        assert scores.shape == (
+            len(nucleotides),
+            1,
+        ), f"Scores {scores.shape} must be of shape ({len(nucleotides)}, 1)."
 
         # make colors
         list_of_colors = []
@@ -535,8 +538,10 @@ class AttributionPlotter:
             if isinstance(sequence, str):
                 one_hot_encoding(sequence)
 
-        if (attribution.ndim == 2) and (attribution.shape[0] == 4):
-            attribution = (attribution * sequence).sum(axis=0)
+        if attribution.ndim == 2:
+            if attribution.shape[0] == 4:
+                attribution = attribution.T
+            attribution = (attribution * sequence).sum(axis=1)
 
         plotter = ConsensusMotifPlotter.from_scores_1d(attribution, sequence)
         plotter.plot(ax, rectangle_ratio=rectangle_ratio, rasterize=rasterize)
