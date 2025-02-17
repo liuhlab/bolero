@@ -7,6 +7,7 @@ import pyranges as pr
 import torch
 import xarray as xr
 from captum.attr import InputXGradient
+from einops import rearrange
 from tangermeme.ersatz import dinucleotide_shuffle, multisubstitute, substitute
 from tqdm import tqdm
 
@@ -205,34 +206,54 @@ def _project_attr(attr, dna_one_hot):
     return attr
 
 
-def get_rand_one_hot(
+def prepare_marginalize_one_hot(
     genome,
     bed,
-    shuffle_range=None,
+    n_regions,
+    shuffle_size,
     n_shuffle=1,
     random_state=0,
     motifs=None,
     distances=None,
+    seq_fold=16,
 ):
     """
-    Take sequence from real genome regions, then perform dinucleotide shuffle.
+    Take sequence from real genome regions, then perform dinucleotide shuffle and insert motif(s).
 
     Parameters
     ----------
     genome : Genome
         Genome object.
     bed : pd.DataFrame
-        Bed file.
-    shuffle_range : tuple, optional
-        Shuffle range (start, end). If provided, will only do shuffle withing this range of the region. Default is None.
+        Bed file to sample regions to prepare dna one hot.
+    n_regions : int
+        Number of regions to sample.
+    shuffle_size : int
+        Only dinuc shuffle this size of the region in the middle.
     n_shuffle : int, optional
         Number of shuffle per region. Default is 1.
     random_state : int, optional
         Random state. Default is 0.
+    motifs : str or list of str, optional
+        Motif to insert. Default is None.
+    distances : int or list of int, optional
+        Distance between multiple motifs. Default is None.
+    seq_fold : int, optional
+        Fold sequence and then shuffle and insert motifs. Default is 16.
     """
+    # get region one hot
+    # dinucleotide shuffle the middle shuffle_size region
+    bed = bed.sample(n_regions, random_state=random_state)
     rand_one_hot = genome.get_regions_one_hot(bed)
     rand_one_hot = rand_one_hot.swapaxes(1, 2).astype("float16")
     rand_one_hot = torch.from_numpy(rand_one_hot).half()
+
+    if seq_fold > 1:
+        rand_one_hot = rearrange(rand_one_hot, "b c (f l) -> (b f) c l", f=seq_fold)
+
+    center = rand_one_hot.shape[-1] // 2
+    shuffle_radius = shuffle_size // 2
+    shuffle_range = (center - shuffle_radius, center + shuffle_radius)
 
     # select part of the sequence to shuffle
     if shuffle_range is None:
@@ -276,6 +297,11 @@ def get_rand_one_hot(
         if n_shuffle > 1:
             rand_one_hot = rand_one_hot.repeat(n_shuffle, 1)
         rand_one_hot[..., ss:se] = shuffle_rand_one_hot
+
+    if seq_fold > 1:
+        rand_one_hot = rearrange(
+            rand_one_hot, "(b f ns) c l -> (b ns) c (f l)", f=seq_fold, ns=n_shuffle
+        )
 
     # shape (n_region * n_shuffle, 4, region_length)
     return rand_one_hot
@@ -399,33 +425,6 @@ class BorzoiInferencer:
             outputs = model(data)
         return outputs
 
-    def _prepare_marginalize_one_hot(
-        self,
-        motifs,
-        distances,
-        region_bed,
-        n_regions,
-        shuffle_size=10000,
-        random_state=0,
-        insert_motif=True,
-    ):
-        # get region one hot
-        # dinucleotide shuffle the middle shuffle_size region
-        center = self.model_dna_length // 2
-        shuffle_radius = shuffle_size // 2
-        shuffle_range = (center - shuffle_radius, center + shuffle_radius)
-        rand_bed = region_bed.sample(n_regions, random_state=random_state)
-        rand_one_hot = get_rand_one_hot(
-            genome=self.genome,
-            bed=rand_bed,
-            shuffle_range=shuffle_range,
-            n_shuffle=1,
-            random_state=random_state,
-            motifs=motifs if insert_motif else None,
-            distances=distances if insert_motif else None,
-        )
-        return rand_one_hot
-
     def _marginalize(
         self,
         model,
@@ -434,27 +433,32 @@ class BorzoiInferencer:
         region_bed,
         n_regions,
         random_state=0,
-        shuffle_size=20000,
+        shuffle_size=2048,
         reduce=True,
+        seq_fold=16,
     ):
-        n_batches = n_regions // self.batch_size
+        n_batches = max(1, n_regions // self.batch_size // seq_fold)
 
         null_results = []
         motif_results = []
         for idx in range(n_batches):
             _random_state = random_state + idx
             for _insert in [False, True]:
-                one_hot_data = self._prepare_marginalize_one_hot(
-                    motifs,
-                    distances,
-                    region_bed,
+                one_hot_data = prepare_marginalize_one_hot(
+                    genome=self.genome,
+                    bed=region_bed,
                     n_regions=self.batch_size,
-                    random_state=_random_state,
-                    insert_motif=_insert,
                     shuffle_size=shuffle_size,
+                    n_shuffle=1,
+                    random_state=_random_state,
+                    motifs=motifs if _insert else None,
+                    distances=distances if _insert else None,
+                    seq_fold=seq_fold,
                 )
                 one_hot_data = one_hot_data.cuda()
                 result = self._forward_pass(model, one_hot_data)
+                if seq_fold > 1:
+                    result = rearrange(result, "b c (f l) -> (b f) c l", f=seq_fold)
                 result = _clip_at_center(result, self.peak_bins)
                 if _insert:
                     motif_results.append(result)
@@ -468,6 +472,16 @@ class BorzoiInferencer:
             motif_results = motif_results.sum(dim=(1, 2))
         return null_results, motif_results
 
+    @staticmethod
+    def seqlet_to_seq(seqlet, **kwargs):
+        """Convert seqlet to sequence."""
+        if isinstance(seqlet, str):
+            if kwargs.get("rc", False):
+                seqlet = seqlet.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+            return seqlet
+        else:
+            return seqlet.get_consensus_sequence(**kwargs)
+
     def marginalize_seqlet_pair(
         self,
         embedding,
@@ -479,6 +493,7 @@ class BorzoiInferencer:
         random_state=0,
         shuffle_size=20000,
         trim_threshold=0.3,
+        seq_fold=16,
     ):
         """Marginalize seqlet pair for given embedding and region bed."""
         # prepare seqlet and distances
@@ -501,8 +516,8 @@ class BorzoiInferencer:
         total_results = {}
 
         # run single motif
-        seq1 = seqlet1.get_consensus_sequence(trim_threshold=trim_threshold)
-        seq2 = seqlet2.get_consensus_sequence(trim_threshold=trim_threshold)
+        seq1 = self.seqlet_to_seq(seqlet1, trim_threshold=trim_threshold)
+        seq2 = self.seqlet_to_seq(seqlet2, trim_threshold=trim_threshold)
         for idx, seq in enumerate([seq1, seq2]):
             if (idx == 1) and (seq1 == seq2):
                 total_results["single:seqlet1"] = total_results["single:seqlet0"]
@@ -516,6 +531,7 @@ class BorzoiInferencer:
                 n_regions=n_regions * 2,
                 random_state=random_state,
                 shuffle_size=shuffle_size,
+                seq_fold=seq_fold,
             )
             total_results[f"single:seqlet{idx}"] = {
                 "null": null_results.cpu().numpy(),
@@ -526,11 +542,11 @@ class BorzoiInferencer:
         seq_strands = [(0, 0), (0, 1), (1, 0)]
         for strand1, strand2 in seq_strands:
             motifs = [
-                seqlet1.get_consensus_sequence(
-                    trim_threshold=trim_threshold, rc=strand1 == 1
+                self.seqlet_to_seq(
+                    seqlet1, trim_threshold=trim_threshold, rc=strand1 == 1
                 ),
-                seqlet2.get_consensus_sequence(
-                    trim_threshold=trim_threshold, rc=strand2 == 1
+                self.seqlet_to_seq(
+                    seqlet2, trim_threshold=trim_threshold, rc=strand2 == 1
                 ),
             ]
             for distance in distances:
