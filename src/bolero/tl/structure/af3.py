@@ -7,7 +7,8 @@ from itertools import combinations, combinations_with_replacement
 import joblib
 import numpy as np
 import pandas as pd
-from Bio.PDB.MMCIFParser import MMCIFParser
+
+from .mmcif import mmCIFStructure
 
 
 def _json_load(path):
@@ -100,38 +101,15 @@ class AF3Result:
     @property
     def atom_table(self):
         """Atom table."""
-        if self._atom_table is None:
-            atom_to_token = []
-            for model in self.structure:
-                for chain in model:
-                    for residue in chain:
-                        for atom in residue:
-                            atom_to_token.append(
-                                [atom.name, residue.id[1], residue.resname, chain.id]
-                            )
-            atom_table = pd.DataFrame(
-                atom_to_token,
-                columns=["atom_name", "residue_chain_ids", "residue_name", "chain"],
-            )
-            atom_table["pLDDT"] = self.confidences_data["atom_plddts"]
-        return atom_table
+        return self.structure.atom_table
 
     def get_residue_ave_plddts(self):
         """Get residue atom average pLDDT."""
-        res_plddt = (
-            self.atom_table.groupby(["chain", "residue_chain_ids", "residue_name"])[
-                "pLDDT"
-            ]
-            .mean()
-            .reset_index()
-        )
-        return res_plddt
+        return self.structure.get_residue_ave_plddts()
 
     def get_residue_ca_plddts(self):
         """Get residue alpha carbon (CA) pLDDT."""
-        ca_plddt = self.atom_table[self.atom_table["atom_name"] == "CA"]
-        ca_plddt.pop("atom_name")
-        return ca_plddt
+        return self.structure.get_residue_ca_plddts()
 
     @property
     def contact_probs(self):
@@ -197,9 +175,7 @@ class AF3Result:
     def structure(self):
         """The structure object."""
         if self._structure is None:
-            # Load the mmCIF file
-            parser = MMCIFParser()
-            self._structure = parser.get_structure("af3", str(self._model_path))
+            self._structure = mmCIFStructure(self._model_path)
         return self._structure
 
     @property
@@ -212,71 +188,9 @@ class AF3Result:
         """Number of residues."""
         return len(self.confidences_data["token_res_ids"])
 
-    def set_atom_bfactors(self, value="atom_plddts"):
-        """Set atom bfactor with atom or residue level values."""
-        if isinstance(value, str):
-            if value == "atom_plddts":
-                for atom, score in zip(
-                    self.structure.get_atoms(), self.confidences_data["atom_plddts"]
-                ):
-                    atom.set_bfactor(score)
-            else:
-                raise ValueError(
-                    f"Unknown value: {value}, possible values: 'atom_plddts'"
-                )
-        else:
-            # assume value is list or array or series
-            if len(value) == self.num_atoms:
-                for atom, score in zip(self.structure.get_atoms(), value):
-                    atom.set_bfactor(score)
-            elif len(value) == self.num_tokens:
-                for residue, score in zip(self.structure.get_residues(), value):
-                    for atom in residue:
-                        atom.set_bfactor(score)
-            else:
-                raise ValueError(
-                    f"Length of value ({len(value)}) does not match number of "
-                    f"atoms ({self.num_atoms}) or tokens ({self.num_tokens})."
-                )
-        return
-
-    def view(self, hue="chain", hue_norm=(0, 100), colormap="RdYlBu", **kwargs):
-        """
-        Simple visualization in jupyter using NGLView.
-        """
-        try:
-            import nglview as nv
-        except ImportError:
-            raise ImportError("Please install nglview to visualize model.") from None
-
-        use_bfactor = True
-        if isinstance(hue, str):
-            if hue == "chain":
-                # default hue is chain
-                use_bfactor = False
-            elif hue.lower() in ("atom_plddt", "plddt"):
-                self.set_atom_bfactors(value="atom_plddts")
-            elif hue == "bfactor":
-                pass
-            else:
-                raise ValueError(
-                    f"Unknown hue: {hue}, possible values: 'chain', 'atom_plddt'"
-                )
-        else:
-            self.set_atom_bfactors(value=hue)
-
-        # Visualize using NGLView
-        view = nv.show_biopython(self.structure, **kwargs)
-
-        if use_bfactor:
-            view.clear_representations()
-            view.add_representation(
-                "cartoon",
-                color="bfactor",
-                colorScale=colormap,  # Uses the Viridis colormap
-                colorDomain=hue_norm,  # Maps pLDDT values correctly
-            )
-        return view
+    def view(self, **kwargs):
+        """View the structure."""
+        return self.structure.view(**kwargs)
 
 
 def _id_generator():
