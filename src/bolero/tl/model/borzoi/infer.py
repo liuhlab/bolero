@@ -647,6 +647,109 @@ class BorzoiInferencer:
         success_flag.touch()
         return
 
+    def random_activation_iter(
+        self,
+        embedding,
+        bed,
+        batch_size=8,
+        shuffle=True,
+        region_chunk=1000,
+        emb_chunk=100,
+        pred_cutoff=0.03,
+        clip_to=None,
+        reshape=True,
+    ):
+        """
+        Get random activation for given embedding and bed for training SAE.
+
+        Parameters
+        ----------
+        embedding : pd.DataFrame
+            Embedding dataframe.
+        bed : pd.DataFrame
+            Bed file to sample regions to prepare dna one hot.
+        batch_size : int, optional
+            Batch size for borzoi inference. Default is 8.
+        shuffle : bool, optional
+            Shuffle embedding and bed. Default is True.
+        region_chunk : int, optional
+            Region chunk size. Default is 1000.
+        emb_chunk : int, optional
+            Embedding chunk size. Default is 100.
+        pred_cutoff : float, optional
+            Output head prediction cutoff. Default is 0.03.
+        clip_to : int, optional
+            Clip final seq dim to this size. Default is None.
+        reshape : bool, optional
+            Reshape output to (n_token, act_dim). Default is True.
+        """
+        bed = self._prepare_bed(bed)
+        if shuffle:
+            embedding = embedding.sample(frac=1).reset_index(drop=True)
+            bed = bed.sample(frac=1).reset_index(drop=True)
+        n_embedding = embedding.shape[0]
+        n_region = bed.shape[0]
+
+        if n_embedding > emb_chunk or n_region > region_chunk:
+            for emb_chunk_i in range(0, n_embedding, emb_chunk):
+                for region_chunk_i in range(0, n_region, region_chunk):
+                    emb_chunk_df = embedding.iloc[emb_chunk_i : emb_chunk_i + emb_chunk]
+                    region_chunk_df = bed.iloc[
+                        region_chunk_i : region_chunk_i + region_chunk
+                    ]
+                    yield from self.random_activation_iter(
+                        emb_chunk_df,
+                        region_chunk_df,
+                        batch_size,
+                        shuffle=False,
+                        region_chunk=region_chunk,
+                        emb_chunk=emb_chunk,
+                        pred_cutoff=pred_cutoff,
+                        clip_to=clip_to,
+                        reshape=reshape,
+                    )
+        else:
+            # create an random shuffle without replace of emb and region combination
+            rand_idx = np.random.permutation(n_embedding * n_region)
+            rand_region_idx = rand_idx // n_embedding
+            rand_emb_idx = rand_idx % n_embedding
+
+            for batch_start in range(0, rand_idx.size, batch_size):
+                batch_end = min(batch_start + batch_size, rand_idx.size)
+                batch_region_idx = rand_region_idx[batch_start:batch_end]
+                batch_emb_idx = rand_emb_idx[batch_start:batch_end]
+
+                emb_batch = embedding.iloc[batch_emb_idx].values
+                emb_batch = torch.from_numpy(emb_batch).cuda()
+                region_batch = bed.iloc[batch_region_idx]
+                dna_one_hot = self._get_dna_one_hot(region_batch)
+                dna_one_hot.requires_grad = False
+                act = self._model_activation(
+                    dna_one_hot, emb_batch, pred_cutoff, clip_to, reshape
+                )
+                yield act
+
+    @torch.inference_mode()
+    def _model_activation(self, dna, emb, pred_cutoff=0.1, clip_to=None, reshape=True):
+        with torch.amp.autocast("cuda"):
+            # pred shape (bs, 1, 16352)
+            # act shape (bs, 1920, 16352)
+            pred, act = self.model(x=dna, embedding=emb, return_dna_embedding=True)
+
+            if clip_to is not None:
+                pred = _clip_at_center(pred, clip_to)
+                act = _clip_at_center(act, clip_to)
+
+            if reshape:
+                mask = rearrange((pred > pred_cutoff).any(dim=1), "b l -> (b l)")
+                act = rearrange(act, "b c l -> (b l) c")
+
+                # keep activation if any channel is above pred_cutoff
+                use_act = act[mask]
+                return use_act
+            else:
+                return pred, act
+
 
 class BorzoiInferenceDataset:
     def __init__(self, dataset, genome):

@@ -547,7 +547,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
     def forward(self, x, embedding=None, crop=True, return_dna_embedding=False):
         """Borzoi forward pass to get final output."""
-        if not self.collapsed:
+        if not getattr(self, "collapsed", False):
             assert embedding is not None, "embedding is required for LoRA model"
         else:
             if self.kv_bottleneck is not None:
