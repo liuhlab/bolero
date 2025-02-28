@@ -729,6 +729,53 @@ class BorzoiInferencer:
                 )
                 yield act
 
+    def fixed_activation_iter(
+        self,
+        embedding,
+        bed,
+        batch_size=8,
+        clip_to=None,
+    ):
+        """
+        Get fixed activation for given embedding and bed for inference SAE.
+
+        Parameters
+        ----------
+        embedding : pd.DataFrame
+            Embedding dataframe.
+        bed : pd.DataFrame
+            Bed file to sample regions to prepare dna one hot.
+        batch_size : int, optional
+            Batch size for borzoi inference. Default is 8.
+        pred_cutoff : float, optional
+            Output head prediction cutoff. Default is 0.03.
+        clip_to : int, optional
+            Clip final seq dim to this size. Default is None.
+        """
+        bed = self._prepare_bed(bed)
+        n_embedding = embedding.shape[0]
+        n_region = bed.shape[0]
+
+        for emb_i in range(0, n_embedding):
+            for region_chunk_i in range(0, n_region, batch_size):
+                region_chunk_df = bed.iloc[region_chunk_i : region_chunk_i + batch_size]
+                emb_i = np.array([emb_i] * region_chunk_df.shape[0])
+                emb_batch = embedding.iloc[emb_i].values
+                emb_batch = torch.from_numpy(emb_batch).cuda()
+                dna_one_hot = self._get_dna_one_hot(region_chunk_df)
+                dna_one_hot.requires_grad = False
+                pred, act = self._model_activation(
+                    dna=dna_one_hot, emb=emb_batch, clip_to=clip_to, reshape=False
+                )
+                data = {
+                    "pred": pred,  # tensor (bs, 1, clip_to)
+                    "act": act,  # tensor (bs, 1920, clip_to)
+                    "region": region_chunk_df,  # pd.DataFrame (bs, 3)
+                    "emb": emb_batch.cpu().numpy(),  # np.array (bs, emb_dim)
+                    "emb_id": emb_i,  # np.array (bs, )
+                }
+                yield data
+
     @torch.inference_mode()
     def _model_activation(self, dna, emb, pred_cutoff=0.1, clip_to=None, reshape=True):
         with torch.amp.autocast("cuda"):

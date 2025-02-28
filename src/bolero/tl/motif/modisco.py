@@ -404,6 +404,30 @@ class ModiscoPattern:
             hypothetical_contribs=self.hypothetical_contribs,
         )
 
+    def get_all_seqlet_instances(self):
+        """Get all seqlet instances of the pattern."""
+        instances = []
+        for i, (sequence, contrib_scores, hypothetical_contribs) in enumerate(
+            zip(
+                self.seqlets["sequence"],
+                self.seqlets["contrib_scores"],
+                self.seqlets["hypothetical_contribs"],
+            )
+        ):
+            instances.append(
+                ModiscoSeqlet(
+                    name=f"{self.name}_{i}",
+                    example_idx=i,
+                    start=None,
+                    end=None,
+                    is_revcomp=False,
+                    sequence=sequence,
+                    contrib_scores=contrib_scores,
+                    hypothetical_contribs=hypothetical_contribs,
+                )
+            )
+        return instances
+
     @classmethod
     def from_modisco_group(
         cls,

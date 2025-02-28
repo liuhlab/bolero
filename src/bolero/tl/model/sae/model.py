@@ -6,6 +6,8 @@ Citation:
 https://arxiv.org/abs/2412.06410
 """
 
+import json
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -70,6 +72,24 @@ class BaseAutoencoder(nn.Module):
 
 
 class BatchTopKSAE(BaseAutoencoder):
+    @classmethod
+    def from_pretrained(cls, cfg_path, ckpt_path):
+        """Create a BatchTopKSAE model from a pretrained checkpoint."""
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+            dtype = cfg["dtype"].split(".")[-1]
+            match dtype:
+                case "float32":
+                    dtype = torch.float32
+                case "float64":
+                    dtype = torch.float64
+                case _:
+                    raise ValueError(f"Unsupported dtype: {dtype}")
+            cfg["dtype"] = dtype
+        model = cls(cfg)
+        model.load_state_dict(torch.load(ckpt_path, weights_only=True))
+        return model
+
     def __init__(self, cfg):
         super().__init__(cfg)
 
@@ -90,6 +110,30 @@ class BatchTopKSAE(BaseAutoencoder):
         self._update_inactive_features(acts_topk)
         output = self.get_loss_dict(x, x_reconstruct, acts, acts_topk, x_mean, x_std)
         return output
+
+    @torch.inference_mode()
+    def infer(self, x, return_recons=False, topk=True):
+        """BatchTopKSAE inference pass without loss."""
+        x, x_mean, x_std = self._preprocess_input(x)
+        x_cent = x - self.b_dec
+        acts = F.relu(x_cent @ self.W_enc)
+        if topk:
+            acts_topk = torch.topk(
+                acts.flatten(), self.cfg["top_k"] * x.shape[0], dim=-1
+            )
+            acts_topk = (
+                torch.zeros_like(acts.flatten())
+                .scatter(-1, acts_topk.indices, acts_topk.values)
+                .reshape(acts.shape)
+            )
+            acts = acts_topk
+
+        if return_recons:
+            x_reconstruct = acts @ self.W_dec + self.b_dec
+            sae_out = self._postprocess_output(x_reconstruct, x_mean, x_std)
+            return acts, sae_out
+        else:
+            return acts
 
     def get_loss_dict(self, x, x_reconstruct, acts, acts_topk, x_mean, x_std):
         """Collect loss values for the forward pass output."""
