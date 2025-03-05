@@ -38,7 +38,7 @@ rule modisco:
     params:
         modisco_n=modisco_n
     threads:
-        5
+        15
     shell:
         "modisco motifs "
         "-s {{input.dna_path}} "
@@ -163,7 +163,7 @@ def prepare_modisco_pipeline(
     sample_dirs: list[str],
     output_dir: str = "./",
     snakefile_suffix="",
-    modisco_n: int = 1000000,
+    modisco_n: int = 100000,
     jaspar_meme_path: str = None,
     cpu: int = 16,
 ) -> None:
