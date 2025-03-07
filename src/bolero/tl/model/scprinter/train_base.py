@@ -93,7 +93,12 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             self.train_regions,
             self.valid_regions,
             self.test_regions,
-        ) = self.dataset.get_train_valid_test(self.config["fold_split_id"])
+        ) = self.dataset.get_train_valid_test(
+            self.config["fold_split_id"],
+            downsample_train_region=self.config["downsample_train_region"],
+            downsample_valid_region=self.config["downsample_valid_region"],
+            downsample_test_region=self.config["downsample_test_region"],
+        )
 
         # add footprinter
         self.footprinter = self.dataset.get_footprinter()
@@ -127,8 +132,12 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         model,
         dataloader,
         collect_data=False,
+        save_keys=None,
         **kwargs,
     ):
+        if save_keys is not None:
+            save_keys = set(save_keys)
+
         loss_logger = {k: CumulativeCounter() for k in model.output_keys}
         profile_pearson_counter = CumulativeCounter()
         across_batch_pearson_logger = {
@@ -167,12 +176,17 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             # Collect batch data for validation
             if collect_data:
                 # add addtional data into batch dict
-                data_collector.append(
-                    {
-                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-                        for k, v in batch.items()
-                    }
-                )
+                new_batch = {}
+                for k, v in batch.items():
+                    if (save_keys is not None) and (k not in save_keys):
+                        continue
+                    if isinstance(v, torch.Tensor):
+                        if k == "region":
+                            v = v.float().cpu().numpy()
+                        else:
+                            v = v.half().cpu().numpy()
+                    new_batch[k] = v
+                data_collector.append(new_batch)
 
         del dataloader
         self._cleanup_env()
@@ -314,11 +328,14 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         ema = self.ema
         self.val_loss = None
 
-        stop_flag = self.early_stopping_counter >= self.patience
         if self.cur_epoch > 0:
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
+            if self.cur_epoch <= self.start_early_stop_after_epoch:
+                self.early_stopping_counter = 0
+        stop_flag = self.early_stopping_counter >= self.patience
+
         total_norm = 0
         loss_logger = {k: CumulativeCounter() for k in self.model.output_keys}
         while self.cur_epoch <= max_epochs and not stop_flag:

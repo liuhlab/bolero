@@ -123,20 +123,26 @@ class scFootprintLoRATester(scFootprintLoRATrainer):
         return
 
     @staticmethod
-    def save_batches(data_batches, saveas, num_rows_per_file=100):
+    def save_batches(data_batches, saveas, num_rows_per_file=10, save_keys=None):
         """Save the data batches to parquet."""
+        if save_keys is not None:
+            save_keys = set(save_keys)
+            data_batches = [
+                {k: v for k, v in batch.items() if k in save_keys}
+                for batch in data_batches
+            ]
         dataset = ray.data.from_items(data_batches)
         dataset.write_parquet(saveas, num_rows_per_file=num_rows_per_file)
         return
 
     @torch.inference_mode()
-    def test(self, saveas=None, device="cuda"):
+    def test(self, saveas=None, device="cuda", save_keys=None):
         """Test the Borzoi LoRA model."""
         self._setup_model()
         model = self.model.to(device)
 
         dataloader = self.get_test_dataloader(batches=None)
-        *_, data_batches = self._model_validation_step(
+        data_batches = self._model_validation_step(
             model=model,
             dataloader=dataloader,
             val_batches=None,
@@ -147,7 +153,9 @@ class scFootprintLoRATester(scFootprintLoRATrainer):
         if saveas is None:
             return data_batches
         else:
-            self.save_batches(data_batches, saveas)
+            self.save_batches(
+                data_batches, saveas, num_rows_per_file=10, save_keys=save_keys
+            )
         return
 
 

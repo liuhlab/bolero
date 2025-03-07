@@ -31,7 +31,7 @@ class TrainedRNALoraModel:
     default_config: dict = {
         "model": "REQUIRED",
         "vq_records": "REQUIRED",
-        "use_vq_emb": True,
+        "use_vq_emb": False,
     }
 
     def __init__(

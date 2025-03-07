@@ -455,9 +455,9 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
             borzoi_test_regions,
         ) = super().get_train_valid_test(
             fold=fold,
-            downsample_train_region=downsample_train_region,
-            downsample_valid_region=downsample_valid_region,
-            downsample_test_region=downsample_test_region,
+            downsample_train_region=None,
+            downsample_valid_region=None,
+            downsample_test_region=None,
             region_length=524288,
             seed=seed,
         )
@@ -486,6 +486,26 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         test_regions = _intersect_region_with_borzoi_regions(
             region_bed, borzoi_test_regions
         )
+
+        if downsample_train_region and (
+            downsample_train_region < train_regions.shape[0]
+        ):
+            train_regions = train_regions.sample(
+                downsample_train_region, random_state=seed
+            )
+            print(f"Downsampled train regions to {downsample_train_region}")
+        if downsample_valid_region and (
+            downsample_valid_region < valid_regions.shape[0]
+        ):
+            valid_regions = valid_regions.sample(
+                downsample_valid_region, random_state=seed
+            )
+            print(f"Downsampled valid regions to {downsample_valid_region}")
+        if downsample_test_region and (downsample_test_region < test_regions.shape[0]):
+            test_regions = test_regions.sample(
+                downsample_test_region, random_state=seed
+            )
+            print(f"Downsampled test regions to {downsample_test_region}")
 
         return (
             train_folds,

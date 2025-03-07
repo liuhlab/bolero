@@ -128,7 +128,7 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
 
         suffix_list = self.suffix
         cycling = len(suffix_list)
-
+        print("before pseudobulk", data_dict["pseudobulk"].shape)
         # merge rows (cell or sample) to bulk and also get embedding data
         this_bulk_dict = {}
         for idx, (

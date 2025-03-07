@@ -656,18 +656,19 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
     def get_autocast(self):
         """Get autocast context."""
+        use_amp = getattr(self, "use_amp", True)
         try:
             auto_cast_context = torch.autocast(
                 device_type=str(self.device).split(":")[0],
                 dtype=torch.bfloat16,
-                enabled=self.use_amp,
+                enabled=use_amp,
             )
         except RuntimeError:
             # some GPU, such as T4 does not support bfloat16
             auto_cast_context = torch.autocast(
                 device_type=str(self.device).split(":")[0],
                 dtype=torch.float16,
-                enabled=self.use_amp,
+                enabled=use_amp,
             )
         return auto_cast_context
 
