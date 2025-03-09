@@ -25,7 +25,7 @@ PKG_DATA_PATH = pathlib.Path(bolero.__file__).parent / "pkg_data"
 
 JASPAR_MTOFI_DBS = {
     "_".join(p.name.split(".")[0].split("_")[:3]): p
-    for p in pathlib.Path(PKG_DATA_PATH).glob("jaspar/*.motif_pwm.dict")
+    for p in pathlib.Path(PKG_DATA_PATH).glob("jaspar/*dict*")
 }
 
 # The above motif_pwm.dict files are generated from the JASPAR 2024 CORE motif database using dump_jaspar_motif_pwm_dict
@@ -356,6 +356,7 @@ class JASPARMotifDatabase:
             if max_length is not None:
                 motif.clip_pwm_by_entropy(max_length)
             self.motifs.append(motif)
+            assert motif_id not in self.motif_id_dict
             self.motif_id_dict[motif_id] = motif
 
         self.motif_names = [motif.name for motif in self.motifs]
