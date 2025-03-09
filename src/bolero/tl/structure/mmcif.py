@@ -3,8 +3,11 @@ import gzip
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from Bio.PDB.MMCIFParser import MMCIFParser
 from scipy.ndimage import gaussian_filter1d
+
+from .code import converter
 
 
 def merge_segments(segments, min_size=50):
@@ -93,6 +96,53 @@ def segment_protein_chain_plddt(
     return merged_segments
 
 
+def plot_plddt_segments(all_segments, ca_atom_table):
+    """Plot pLDDT segments on top of raw pLDDT scores."""
+    n_chain = len(all_segments["chain"].unique())
+    _, axes = plt.subplots(
+        figsize=(10, 1.5 * n_chain), nrows=n_chain, constrained_layout=True
+    )
+    if n_chain == 1:
+        axes = [axes]
+    for ax, (chain, chain_segments) in zip(axes, all_segments.groupby("chain")):
+        chain_table = ca_atom_table[ca_atom_table["chain"] == chain].reset_index(
+            drop=True
+        )
+        ax.plot(chain_table["pLDDT"], label="Raw pLDDT", alpha=0.7)
+        for _, (start, end, score, _) in chain_segments.iterrows():
+            ax.hlines(
+                y=score,
+                xmin=start,
+                xmax=end,
+                colors="grey",
+                linestyle="--",
+                linewidth=1,
+            )
+            ax.vlines(x=start, ymin=0, ymax=100, colors="grey", linewidth=1)
+            print(
+                f"Segment: {start}-{end}, Size: {end - start}, Mean pLDDT: {score:.2f}"
+            )
+        ax.vlines(x=end, ymin=0, ymax=100, colors="grey", linewidth=1)
+        ax.set_title(f"Chain {chain}")
+        ax.set_ylabel("pLDDT")
+        ax.set_ylim(0, 100)
+    ax = axes[-1]
+    ax.set_xlabel("Residue Position")
+    plt.show()
+
+
+def get_segments_mean_pae(pae, segments):
+    """
+    Get mean PAE for each segment pair.
+    """
+    seg_pae = {}
+    for seg_a, (starta, enda, *_) in segments.iterrows():
+        for seg_b, (startb, endb, *_) in segments.iterrows():
+            seg_mean_pae = pae[starta:enda, startb:endb].mean()
+            seg_pae[seg_a, seg_b] = seg_mean_pae
+    return pd.Series(seg_pae).unstack().astype("float32")
+
+
 class mmCIFStructure:
     def __init__(self, mmcif_path, name="structure"):
         if str(mmcif_path).endswith(".gz"):
@@ -102,6 +152,9 @@ class mmCIFStructure:
             self.structure = MMCIFParser().get_structure(name, mmcif_path)
 
         self._atom_table = None
+        self.pae = None
+        self.converter = converter
+        self.residual_offset = 0
 
     @property
     def atom_table(self):
@@ -185,9 +238,40 @@ class mmCIFStructure:
 
     def get_residue_ca_plddts(self):
         """Get residue alpha carbon (CA) pLDDT."""
-        ca_plddt = self.atom_table[self.atom_table["atom_name"] == "CA"]
+        ca_plddt = self.atom_table[self.atom_table["atom_name"] == "CA"].reset_index(
+            drop=True
+        )
         ca_plddt.pop("atom_name")
         return ca_plddt
+
+    def plot_plddt_and_pae(self):
+        """Plot pLDDT and PAE."""
+        plddt = self.get_residue_ca_plddts()["pLDDT"].values
+        pae = self.pae
+        length = plddt.size
+
+        fig = plt.figure(figsize=(4, 4), dpi=200, constrained_layout=False)
+        gs = fig.add_gridspec(8, 8, wspace=0.3, hspace=0.3)
+
+        # plddt
+        ax = fig.add_subplot(gs[0, :-1])
+        ax.plot(np.arange(length), plddt, linewidth=1)
+        ax.set(xlim=(0, length), ylim=(0, 103), xticklabels=[])
+        sns.despine(ax=ax)
+        ax = fig.add_subplot(gs[1:, -1])
+        ax.plot(plddt, np.arange(length), linewidth=1)
+        ax.set(xlim=(0, 103), ylim=(0, length), yticklabels=[])
+        sns.despine(ax=ax)
+        if pae is None:
+            return fig
+
+        # pae
+        ax = fig.add_subplot(gs[1:, :-1])
+        im = ax.imshow(pae, aspect="auto", cmap="Greens_r", vmin=0, vmax=30)
+        ax.set(ylim=(0, length))
+        cax = fig.add_subplot(gs[0, -1])
+        fig.colorbar(im, cax=cax, orientation="vertical", label="")
+        return fig
 
     def get_protein_plddt_segments(
         self, threshold=70, smoothing_sigma=5, min_region_size=30, plot=False
@@ -222,35 +306,11 @@ class mmCIFStructure:
         all_segments = pd.concat(all_segments)
 
         if plot:
-            n_chain = len(all_segments["chain"].unique())
-            _, axes = plt.subplots(
-                figsize=(10, 1.5 * n_chain), nrows=n_chain, constrained_layout=True
-            )
-            if n_chain == 1:
-                axes = [axes]
-            for ax, (chain, chain_segments) in zip(axes, all_segments.groupby("chain")):
-                chain_table = ca_atom_table[
-                    ca_atom_table["chain"] == chain
-                ].reset_index(drop=True)
-                ax.plot(chain_table["pLDDT"], label="Raw pLDDT", alpha=0.7)
-                for _, (start, end, score, _) in chain_segments.iterrows():
-                    ax.hlines(
-                        y=score,
-                        xmin=start,
-                        xmax=end,
-                        colors="grey",
-                        linestyle="--",
-                        linewidth=1,
-                    )
-                    ax.vlines(x=start, ymin=0, ymax=100, colors="grey", linewidth=1)
-                    print(
-                        f"Segment: {start}-{end}, Size: {end - start}, Mean pLDDT: {score:.2f}"
-                    )
-                ax.vlines(x=end, ymin=0, ymax=100, colors="grey", linewidth=1)
-                ax.set_title(f"Chain {chain}")
-                ax.set_ylabel("pLDDT")
-                ax.set_ylim(0, 100)
-            ax = axes[-1]
-            ax.set_xlabel("Residue Position")
-            plt.show()
+            plot_plddt_segments(all_segments, self.get_residue_ca_plddts()["pLDDT"])
         return all_segments
+
+    def get_sequence(self):
+        """Get the protein sequence of the structure."""
+        residule = self.get_residue_ca_plddts()["residue_name"]
+        seq = "".join(self.converter.triple_to_single(residule).values)
+        return seq
