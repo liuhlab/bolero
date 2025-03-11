@@ -43,7 +43,7 @@ class SlurmManager:
         partition: str = "gpu",
         cpus_per_task: int = 32,
         mem_per_cpu: str = "4G",
-        gpus: int = 1,
+        gpus: int = 0,
         output: str = "auto",
         error: str = "auto",
         exclude: str = "",
@@ -51,7 +51,12 @@ class SlurmManager:
         chdir: str = ".",
         max_jobs: int = 16,
     ):
-        self.job_type = "gpu" if "gpu" in partition.lower() else "cpu"
+        job_type = "cpu"
+        if ("gpu" in partition.lower()) or (gpus > 0):
+            job_type = "gpu"
+            if gpus == 0:
+                gpus = 1
+        self.job_type = job_type
         self.command = command
         self.config = {
             "job-name": job_name,
@@ -143,16 +148,23 @@ class SlurmManager:
             return True
         return False
 
-    def submit(self, rerun: bool = False):
+    def submit(self, rerun: bool = False, block=True):
         """Submit the job to slurm."""
         self._create_script()
 
         # check max jobs
-        while self._reach_max_jobs():
-            print(
-                f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, waiting for jobs to finish..."
-            )
-            time.sleep(60)
+        if block:
+            while self._reach_max_jobs():
+                print(
+                    f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, waiting for jobs to finish..."
+                )
+                time.sleep(60)
+        else:
+            if self._reach_max_jobs():
+                print(
+                    f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, skip."
+                )
+                return
 
         _run = True
         # submitted before
@@ -184,7 +196,7 @@ class SlurmManager:
             # sbatch and get the job id
             # sbatch output is like "Submitted batch job 12345678"
             try:
-                time.sleep(np.random.randint(1, 10))
+                time.sleep(np.random.randint(1, 5))
                 process = subprocess.run(
                     ["sbatch", self._script_path],
                     capture_output=True,
@@ -226,3 +238,103 @@ class SlurmManager:
         """Get my running job ids from squeue."""
         jobs = SlurmManager.get_running_jobs()
         return [job.job_id for job in jobs]
+
+
+def cancel_job(job_id):
+    """Cancel a job by job id."""
+    subprocess.run(["scancel", job_id], capture_output=True, text=True)
+    return
+
+
+class PreemptibleManager:
+    def __init__(
+        self,
+        command_list,
+        job_name="job",
+        time: str = "12:00:00",
+        cpus_per_task: int = 16,
+        mem_per_cpu: str = "4G",
+        gpus: int = 0,
+        output: str = "auto",
+        error: str = "auto",
+        exclude: str = "",
+        nodelist: str = "",
+        chdir: str = ".",
+        max_jobs: int = 16,
+    ):
+        if isinstance(command_list, str):
+            with open(command_list) as f:
+                command_list = [l.strip() for l in f.readlines()]
+        self.command_dict = dict(enumerate(command_list))
+        self.job_name = job_name
+
+        self.job_config = {
+            "time": time,
+            "partition": "preemptible",
+            "cpus-per-task": cpus_per_task,
+            "mem-per-cpu": mem_per_cpu,
+            "gpus": gpus,
+            "output": output,
+            "error": error,
+            "exclude": exclude,
+            "nodelist": nodelist,
+            "chdir": chdir,
+            "max_jobs": max_jobs,
+        }
+
+    def submit(self):
+        """Submit commands with preemptible jobs."""
+        submitted_jobs = {}
+
+        while len(self.command_dict) > 0:
+            # go through all commands
+            submitted_idx = set(submitted_jobs.values())
+            for idx, command in self.command_dict.items():
+                if idx in submitted_idx:
+                    # already submitted
+                    continue
+                job_name = f"{self.job_name}_{idx}"
+                manager = SlurmManager(
+                    job_name=job_name, command=command, **self.job_config
+                )
+                slurm_id = manager.submit(block=False)
+                if slurm_id is not None:
+                    submitted_jobs[slurm_id] = idx
+                else:
+                    # reaches max jobs
+                    break
+
+            time.sleep(2)
+
+            my_jobs = SlurmManager.get_running_jobs(running_only=False, mine_only=True)
+            my_job_ids = {job.job_id for job in my_jobs}
+            for slurm_id, idx in submitted_jobs.items():
+                if slurm_id not in my_job_ids:
+                    # job disappeared, treat as finished
+                    idx = submitted_jobs[slurm_id]
+                    self.command_dict.pop(idx, None)
+
+            # resubmit preempted jobs
+            for job in my_jobs:
+                if job.job_id not in submitted_jobs:
+                    # maybe some other job manager is running, do not touch it
+                    continue
+                if job.info_dict["state_description"] == "launch failed requeued held":
+                    # job is preeempted and waiting in the same node
+                    # we can cancel the job and resubmit, so it actually gets to wait in another node
+                    slurm_id = job.job_id
+                    cancel_job(slurm_id)
+                    # resubmit job
+                    idx = submitted_jobs.pop(slurm_id)
+                    command = self.command_dict[idx]
+                    job_name = f"{self.job_name}_{idx}"
+                    manager = SlurmManager(
+                        job_name=job_name, command=command, **self.job_config
+                    )
+                    new_slurm_id = manager.submit(
+                        block=True
+                    )  # wait for the job to be submitted
+                    submitted_jobs[new_slurm_id] = idx
+                    print(
+                        f"Job {slurm_id} is preempted and resubmitted as {new_slurm_id}."
+                    )

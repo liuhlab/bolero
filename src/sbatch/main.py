@@ -1,6 +1,6 @@
 import click
 
-from .sbatch import SlurmManager
+from .sbatch import PreemptibleManager, SlurmManager
 
 
 @click.command()
@@ -9,7 +9,7 @@ from .sbatch import SlurmManager
 @click.option("--partition", default="cpu", help="Partition", show_default=True)
 @click.option("--cpus-per-task", default=32, help="CPUs per task", show_default=True)
 @click.option("--mem-per-cpu", default="4G", help="Memory per CPU", show_default=True)
-@click.option("--gpus", default=1, help="gpus", show_default=True)
+@click.option("--gpus", default=0, help="gpus", show_default=True)
 @click.option("--output", default="auto", help="Output file", show_default=True)
 @click.option("--error", default="auto", help="Error file", show_default=True)
 @click.option("--exclude", default="", help="Exclude nodes", show_default=True)
@@ -22,6 +22,7 @@ from .sbatch import SlurmManager
     help="Max number of jobs to submit to current partition",
     show_default=True,
 )
+@click.option("--preempt", is_flag=True, help="Preempt job", show_default=True)
 @click.argument("command", nargs=-1)
 def submitter(
     job_name,
@@ -37,23 +38,41 @@ def submitter(
     chdir,
     rerun,
     command,
+    preempt,
     max_jobs=16,
 ):
     """Submit a job to slurm"""
-    manager = SlurmManager(
-        job_name=job_name,
-        command=" ".join(command),
-        time=time,
-        partition=partition,
-        cpus_per_task=cpus_per_task,
-        mem_per_cpu=mem_per_cpu,
-        gpus=gpus,
-        output=output,
-        error=error,
-        exclude=exclude,
-        nodelist=nodelist,
-        chdir=chdir,
-        max_jobs=max_jobs,
-    )
-    _job_id = manager.submit(rerun=rerun)
+    if preempt:
+        manager = PreemptibleManager(
+            job_name=job_name,
+            command_list=command,  # here command should be list or path to a list of command
+            time=time,
+            cpus_per_task=cpus_per_task,
+            mem_per_cpu=mem_per_cpu,
+            gpus=gpus,
+            output=output,
+            error=error,
+            exclude=exclude,
+            nodelist=nodelist,
+            chdir=chdir,
+            max_jobs=max_jobs,
+        )
+        manager.submit()
+    else:
+        manager = SlurmManager(
+            job_name=job_name,
+            command=" ".join(command),
+            time=time,
+            partition=partition,
+            cpus_per_task=cpus_per_task,
+            mem_per_cpu=mem_per_cpu,
+            gpus=gpus,
+            output=output,
+            error=error,
+            exclude=exclude,
+            nodelist=nodelist,
+            chdir=chdir,
+            max_jobs=max_jobs,
+        )
+        _job_id = manager.submit(rerun=rerun)
     return

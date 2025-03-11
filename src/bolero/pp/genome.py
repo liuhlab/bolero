@@ -1139,7 +1139,10 @@ class Genome:
 
         if gene_name not in uniport_idmap:
             # try gene id
-            gene_name = self.gtf_db.gene_name_to_id(gene_name).split(".")[0]
+            try:
+                gene_name = self.gtf_db.gene_name_to_id(gene_name).split(".")[0]
+            except KeyError:
+                pass
 
         prot_acc_list = uniport_idmap.get(gene_name, [])
         use_records = [s for acc, s in uniport_records.items() if acc in prot_acc_list]

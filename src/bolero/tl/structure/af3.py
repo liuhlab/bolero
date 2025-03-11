@@ -1,14 +1,29 @@
 import itertools
 import json
 import pathlib
+import re
 import string
+import subprocess
+import tempfile
 from itertools import combinations, combinations_with_replacement
 
 import joblib
 import numpy as np
 import pandas as pd
 
+from .code import converter
 from .mmcif import mmCIFStructure
+
+_LOCAL_DEFAULT = {
+    "af3_code_dir": "/large_storage/zhoulab/hanliu/wmb/ref/af3/alphafold3/",
+    "af3_model_dir": "/scratch/zhoulab/hanliu/af3/model",
+    "af3_db_dir": "/scratch/zhoulab/hanliu/af3/public_databases",
+    "af3_singularity_sif": "/scratch/zhoulab/hanliu/af3/alphafold3.sif",
+    "msa_cache_dir": "/large_storage/zhoulab/hanliu/wmb/ref/af3/msa_cache/protein",
+}
+_LOCAL_DEFAULT = {
+    k: p if pathlib.Path(p).exists() else None for k, p in _LOCAL_DEFAULT.items()
+}
 
 
 def _json_load(path):
@@ -51,9 +66,14 @@ class AF3Result:
         self._pae = None
         self._chain_intervals = None
         self._structure = None
+        self.converter = converter
 
     def _get_run_name(self):
-        name = list(self.output_dir.glob("*_data.json"))[0].name[:-10]
+        _input_jsons = list(self.output_dir.glob("*_data.json"))
+        assert (
+            len(_input_jsons) == 1
+        ), f"Multiple or no input json found in output dir {self.output_dir}."
+        name = _input_jsons[0].name[:-10]
         return name
 
     @property
@@ -192,6 +212,102 @@ class AF3Result:
         """View the structure."""
         return self.structure.view(**kwargs)
 
+    def get_minimum_results(self):
+        """
+        Get minimum results and save in a single dict.
+
+        Minimum results include:
+        - chain summary data like iptm, ptm, clash, frac_disorder etc.
+        - chain name, size, sequence
+        - Ca pLDDT at uint8
+        - pae (not symetric) at uint8
+        - contact_prob * 100 (not symetric) at uint8
+        - mmCIF file content
+        """
+        # raw pae at uint8
+        pae = np.round(self.confidences_data["pae"]).astype("uint8")
+
+        # raw contact_prob * 100 at uint8
+        contact_prob = np.round(
+            np.array(self.confidences_data["contact_probs"]) * 100
+        ).astype("uint8")
+
+        # get pLDDT and chain info
+        plddt = self.get_residue_ca_plddts()
+        plddt["pLDDT"] = plddt["pLDDT"].round().astype("uint8")
+
+        # add chain name, size, seq
+        chain_size = plddt["chain"].value_counts().sort_index()
+        chains = chain_size.index
+        chain_seqs = {}
+        for chain in chains:
+            chain_seq = plddt.loc[plddt["chain"] == chain, "residue_name"]
+            chain_seq = "".join(self.converter.triple_to_single(chain_seq).tolist())
+            chain_seqs[chain] = chain_seq
+        self.summary_data["chain_size"] = chain_size.values.tolist()
+        self.summary_data["chains"] = chains.tolist()
+        self.summary_data["chain_seqs"] = chain_seqs
+
+        # add mmCIF file content
+        with open(self._model_path) as f:
+            mmcif_content = f.read()
+
+        # gather all data
+        core_metric = {
+            **self.summary_data,
+            "plddt": plddt["pLDDT"].values,
+            "pae": pae,
+            "contact_prob": contact_prob,
+            "mmcif": mmcif_content,
+        }
+        return core_metric
+
+
+class AF3ResultMinimum(AF3Result):
+    def __init__(self, minimum_path):
+        self.minimum_path = minimum_path
+        self.content = joblib.load(minimum_path)
+        self._structure = None
+
+    @property
+    def chain_names(self):
+        """List of chain names."""
+        return self.content["chains"]
+
+    @property
+    def chain_intervals(self):
+        """Chain intervals."""
+        chain_intervals = {}
+        cur_start = 0
+        for chain, chain_size in zip(
+            self.content["chains"], self.content["chain_size"]
+        ):
+            chain_intervals[chain] = (cur_start, cur_start + chain_size)
+            cur_start += chain_size
+        return chain_intervals
+
+    @property
+    def pae(self):
+        """Predicted alignment error (PAE) symetric."""
+        pae = self.content["pae"]
+        pae = (pae + pae.T) // 2
+        return pae
+
+    @property
+    def contact_probs(self):
+        """Contact probabilities symetric."""
+        contact_probs = self.content["contact_prob"]
+        contact_probs = (contact_probs + contact_probs.T) / 200
+        contact_probs = contact_probs.astype("float16")
+        return contact_probs
+
+    @property
+    def structure(self):
+        """The structure object."""
+        if self._structure is None:
+            self._structure = mmCIFStructure(self.content["mmcif"])
+        return self._structure
+
 
 def _id_generator():
     alphabet = string.ascii_uppercase  # 'A' to 'Z'
@@ -225,11 +341,14 @@ def _truncate_long_strings(obj, max_length=30):
 def _get_gene_af3_cache_path(gene, genome, af3_cache_dir):
     record = genome.get_gene_protein_sequence(gene, sel_longest=True)
     if record is None:
-        raise FileNotFoundError(f"Gene {gene} not found in genome.")
-    acc = record.id
+        acc = gene  # assume gene is a protein accession
+    else:
+        acc = record.id
     af3_cache_path = f"{af3_cache_dir}/{acc}.msa_and_template.joblib.gz"
     if not pathlib.Path(af3_cache_path).exists():
-        raise FileNotFoundError(f"AF3 cache file not found: {af3_cache_path}")
+        raise FileNotFoundError(
+            f"AF3 cache file not found: {af3_cache_path} for {gene}"
+        )
     return af3_cache_path
 
 
@@ -320,6 +439,9 @@ class AF3Input:
         if sequences is None:
             sequences = []
 
+        # af3 will do name convertion anyway, do it early here to avoid miss-match
+        name = re.sub(r"[^a-z0-9-]", "-", name.lower())
+        self.name = name
         self.json_data = {
             "name": name,
             "modelSeeds": modelSeeds,
@@ -491,7 +613,7 @@ class AF3Input:
         return cls(**json_data)
 
     @classmethod
-    def from_design(cls, name, design, genome, af3_cache_dir, **kwargs):
+    def from_design(cls, name, design, genome, af3_cache_dir=None, **kwargs):
         """
         Create AF3Input from design list.
 
@@ -503,6 +625,9 @@ class AF3Input:
             {"DNA": ["TGACTCA", "TGACGTCA", "CACTGGCT"]},
         ]
         """
+        if af3_cache_dir is None:
+            af3_cache_dir = _LOCAL_DEFAULT["msa_cache_dir"]
+
         af3_input = AF3Input(name=name, **kwargs)
         for seq_dict in design:
             for seq_type, seq_list in seq_dict.items():
@@ -541,3 +666,130 @@ class AF3Input:
         head = f"AF3Input object with {len(self._chain_ids)} chains\n\n"
         print_str = head + json.dumps(truncated_data, indent=4, ensure_ascii=False)
         return print_str
+
+    def infer(
+        self, save_dir, return_minimum=True, delete_temp=True, verbose=False, redo=False
+    ):
+        """
+        Run AlphaFold3 inference with no data pipeline.
+        """
+        save_dir = pathlib.Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        final_path = save_dir / f"{self.name}_af3_inference.gz"
+        temp_path = save_dir / f"{self.name}_af3_inference_temp.gz"
+        if final_path.exists() and not redo:
+            return final_path
+
+        runner = AF3Runner()
+        # temp AF3 input/output path will be saved in a temp dir
+        # only minimum results of the best model will be returned here
+        result = runner.af3_inference_no_data_pipeline(
+            self,
+            return_minimum=return_minimum,
+            delete_temp=delete_temp,
+            verbose=verbose,
+        )
+
+        joblib.dump(result, temp_path)
+        temp_path.rename(final_path)
+        return final_path
+
+
+AF3_INFER_NO_DATA_PIPELINE = """
+singularity exec --nv \
+--bind {run_dir}:/root/af_run \
+--bind {af3_code_dir}:/root/alphafold3 \
+--bind /tmp:/root/tmp \
+--bind {af3_model_dir}:/root/models \
+--bind {af3_db_dir}:/root/public_databases \
+{af3_singularity_sif} \
+python /root/alphafold3/run_alphafold.py \
+--json_path=/root/af_run/{input_file_name} \
+--model_dir=/root/models \
+--db_dir=/root/public_databases \
+--output_dir=/root/af_run \
+--jax_compilation_cache_dir=/root/tmp/ \
+--norun_data_pipeline
+"""
+
+
+class AF3Runner:
+    def __init__(
+        self,
+        af3_code_dir=None,
+        af3_model_dir=None,
+        af3_db_dir=None,
+        af3_singularity_sif=None,
+    ):
+        self.af3_code_dir = (
+            af3_code_dir if af3_code_dir else _LOCAL_DEFAULT["af3_code_dir"]
+        )
+        assert pathlib.Path(
+            self.af3_code_dir
+        ).exists(), "AF3 path not provided or not exist."
+        self.af3_model_dir = (
+            af3_model_dir if af3_model_dir else _LOCAL_DEFAULT["af3_model_dir"]
+        )
+        assert pathlib.Path(
+            self.af3_model_dir
+        ).exists(), "Model dir not provided or not exist."
+        self.af3_db_dir = af3_db_dir if af3_db_dir else _LOCAL_DEFAULT["af3_db_dir"]
+        assert pathlib.Path(
+            self.af3_db_dir
+        ).exists(), "Database dir not provided or not exist."
+        self.af3_singularity_sif = (
+            af3_singularity_sif
+            if af3_singularity_sif
+            else _LOCAL_DEFAULT["af3_singularity_sif"]
+        )
+        assert pathlib.Path(
+            self.af3_singularity_sif
+        ).exists(), "Singularity SIF not provided or not exist."
+        return
+
+    def af3_inference_no_data_pipeline(
+        self,
+        af3_input,
+        output_dir=None,
+        return_minimum=True,
+        delete_temp=True,
+        verbose=False,
+    ):
+        """
+        Run AlphaFold3 inference with no data pipeline.
+        """
+        if output_dir is None:
+            output_dir = tempfile.mkdtemp(prefix="af3_")
+            is_temp_dir = True
+        else:
+            is_temp_dir = False
+
+        input_json_path = f"{output_dir}/input.json"
+        af3_input.dump(input_json_path)
+
+        script_path = f"{output_dir}/run.sh"
+        infer_script = AF3_INFER_NO_DATA_PIPELINE.format(
+            af3_code_dir=self.af3_code_dir,
+            af3_model_dir=self.af3_model_dir,
+            af3_db_dir=self.af3_db_dir,
+            af3_singularity_sif=self.af3_singularity_sif,
+            run_dir=output_dir,
+            input_file_name="input.json",
+        )
+        with open(script_path, "w") as f:
+            f.write(infer_script)
+
+        subprocess.run(
+            ["bash", script_path],
+            check=True,
+            stdout=subprocess.PIPE if not verbose else None,
+            stderr=subprocess.STDOUT if not verbose else None,
+        )
+
+        result = AF3Result(f"{output_dir}/{af3_input.name}")
+        if return_minimum:
+            result = result.get_minimum_results()
+        if is_temp_dir and delete_temp:
+            subprocess.run(["rm", "-rf", output_dir], check=True)
+        return result

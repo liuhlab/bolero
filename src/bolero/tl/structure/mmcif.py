@@ -1,4 +1,5 @@
 import gzip
+import io
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -145,11 +146,16 @@ def get_segments_mean_pae(pae, segments):
 
 class mmCIFStructure:
     def __init__(self, mmcif_path, name="structure"):
-        if str(mmcif_path).endswith(".gz"):
-            with gzip.open(mmcif_path, "rt") as f:
-                self.structure = MMCIFParser().get_structure(name, f)
+        mmcif_path = str(mmcif_path)
+        if "\n" in mmcif_path:
+            # assume mmcif_path is the actual mmcif content
+            self.structure = MMCIFParser().get_structure(name, io.StringIO(mmcif_path))
         else:
-            self.structure = MMCIFParser().get_structure(name, mmcif_path)
+            if str(mmcif_path).endswith(".gz"):
+                with gzip.open(mmcif_path, "rt") as f:
+                    self.structure = MMCIFParser().get_structure(name, f)
+            else:
+                self.structure = MMCIFParser().get_structure(name, mmcif_path)
 
         self._atom_table = None
         self.pae = None
