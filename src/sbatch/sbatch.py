@@ -164,7 +164,7 @@ class SlurmManager:
                 print(
                     f"Max jobs {self.max_jobs} reached for partition {self.config['partition']}, skip."
                 )
-                return
+                return None
 
         _run = True
         # submitted before
@@ -173,7 +173,9 @@ class SlurmManager:
                 running_job_id = f.read()
             job_id = running_job_id
 
-            if int(running_job_id) in self.get_running_job_ids():
+            if (running_job_id != "") and (
+                int(running_job_id) in self.get_running_job_ids()
+            ):
                 # still running
                 print(
                     f"Job {self.config['job-name']} is already running in job id {running_job_id}"
@@ -242,7 +244,7 @@ class SlurmManager:
 
 def cancel_job(job_id):
     """Cancel a job by job id."""
-    subprocess.run(["scancel", job_id], capture_output=True, text=True)
+    subprocess.run(["scancel", str(job_id)], capture_output=True, text=True)
     return
 
 
@@ -266,13 +268,14 @@ class PreemptibleManager:
             with open(command_list) as f:
                 command_list = [l.strip() for l in f.readlines()]
         self.command_dict = dict(enumerate(command_list))
+        print(f"Total {len(self.command_dict)} commands to submit.")
         self.job_name = job_name
 
         self.job_config = {
             "time": time,
             "partition": "preemptible",
-            "cpus-per-task": cpus_per_task,
-            "mem-per-cpu": mem_per_cpu,
+            "cpus_per_task": cpus_per_task,
+            "mem_per_cpu": mem_per_cpu,
             "gpus": gpus,
             "output": output,
             "error": error,
@@ -285,56 +288,68 @@ class PreemptibleManager:
     def submit(self):
         """Submit commands with preemptible jobs."""
         submitted_jobs = {}
+        cum_job = 0
 
         while len(self.command_dict) > 0:
+            print(f"Submitting {len(self.command_dict)} jobs in this round...")
             # go through all commands
             submitted_idx = set(submitted_jobs.values())
             for idx, command in self.command_dict.items():
                 if idx in submitted_idx:
                     # already submitted
                     continue
-                job_name = f"{self.job_name}_{idx}"
+                job_name = f"{self.job_name}_{cum_job}"
+                cum_job += 1
                 manager = SlurmManager(
                     job_name=job_name, command=command, **self.job_config
                 )
                 slurm_id = manager.submit(block=False)
                 if slurm_id is not None:
-                    submitted_jobs[slurm_id] = idx
+                    submitted_jobs[str(slurm_id)] = idx
                 else:
                     # reaches max jobs
                     break
 
-            time.sleep(2)
+            time.sleep(600)
 
+            print("Checking running jobs...")
             my_jobs = SlurmManager.get_running_jobs(running_only=False, mine_only=True)
-            my_job_ids = {job.job_id for job in my_jobs}
+            running_job_ids = {str(job.job_id) for job in my_jobs if job.running()}
+            my_job_ids = {str(job.job_id) for job in my_jobs}
+            print(f"Total {len(running_job_ids)} running jobs:", running_job_ids)
             for slurm_id, idx in submitted_jobs.items():
                 if slurm_id not in my_job_ids:
                     # job disappeared, treat as finished
-                    idx = submitted_jobs[slurm_id]
+                    idx = submitted_jobs[str(slurm_id)]
                     self.command_dict.pop(idx, None)
 
             # resubmit preempted jobs
+            print("Checking preempted jobs...")
+            print(submitted_jobs)
+
             for job in my_jobs:
-                if job.job_id not in submitted_jobs:
+                if str(job.job_id) not in submitted_jobs:
                     # maybe some other job manager is running, do not touch it
                     continue
-                if job.info_dict["state_description"] == "launch failed requeued held":
+                if "requeued" in job.info_dict["state_description"].lower():
                     # job is preeempted and waiting in the same node
                     # we can cancel the job and resubmit, so it actually gets to wait in another node
                     slurm_id = job.job_id
                     cancel_job(slurm_id)
+                    time.sleep(5)
                     # resubmit job
-                    idx = submitted_jobs.pop(slurm_id)
+                    idx = submitted_jobs.pop(str(slurm_id))
                     command = self.command_dict[idx]
-                    job_name = f"{self.job_name}_{idx}"
+
+                    job_name = f"{self.job_name}_{cum_job}"
+                    cum_job += 1
                     manager = SlurmManager(
                         job_name=job_name, command=command, **self.job_config
                     )
                     new_slurm_id = manager.submit(
-                        block=True
+                        block=True, rerun=True
                     )  # wait for the job to be submitted
-                    submitted_jobs[new_slurm_id] = idx
+                    submitted_jobs[str(new_slurm_id)] = idx
                     print(
                         f"Job {slurm_id} is preempted and resubmitted as {new_slurm_id}."
                     )

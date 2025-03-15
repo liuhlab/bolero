@@ -43,9 +43,10 @@ def submitter(
 ):
     """Submit a job to slurm"""
     if preempt:
+        print("Running preemptible job")
         manager = PreemptibleManager(
             job_name=job_name,
-            command_list=command,  # here command should be list or path to a list of command
+            command_list=command[0],  # here command should be path to a list of command
             time=time,
             cpus_per_task=cpus_per_task,
             mem_per_cpu=mem_per_cpu,
