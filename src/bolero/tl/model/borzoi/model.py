@@ -30,7 +30,7 @@ def model_summary(
     col_names=("num_params",),
 ):
     """Print model summary."""
-    with torch.autocast("cuda"):
+    with torch.autocast("cuda", dtype=torch.bfloat16):
         device = next(model.parameters()).device
 
         s = summary(

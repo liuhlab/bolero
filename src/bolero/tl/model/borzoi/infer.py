@@ -386,7 +386,7 @@ class BorzoiInferencer:
         """Run attribution for a single embedding."""
 
         def _forward_hook(dna):
-            with torch.amp.autocast("cuda"):
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
                 outputs = model(dna)  # Shape: (batch_size, 1, 16352)
             # Shape: (batch_size, )
             outputs = _clip_at_center(outputs, self.peak_bins)
@@ -421,7 +421,7 @@ class BorzoiInferencer:
 
     @torch.no_grad()
     def _forward_pass(self, model, data):
-        with torch.amp.autocast("cuda"):
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             outputs = model(data)
         return outputs
 
@@ -778,7 +778,7 @@ class BorzoiInferencer:
 
     @torch.inference_mode()
     def _model_activation(self, dna, emb, pred_cutoff=0.1, clip_to=None, reshape=True):
-        with torch.amp.autocast("cuda"):
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             # pred shape (bs, 1, 16352)
             # act shape (bs, 1920, 16352)
             pred, act = self.model(x=dna, embedding=emb, return_dna_embedding=True)
