@@ -257,8 +257,8 @@ class Genome:
         self._gtf_db = None
 
         # protein sequence
-        self._uniport_seq_records = None
-        self._uniport_idmap = None
+        self._uniprot_seq_records = None
+        self._uniprot_idmap = None
         return
 
     def __repr__(self):
@@ -1107,45 +1107,45 @@ class Genome:
         return JASPARMotifDatabase(motif_db_name, max_length=max_length)
 
     @property
-    def uniport_records(self):
+    def uniprot_records(self):
         """Get the swiss-port records for this species"""
-        if self._uniport_seq_records is None:
+        if self._uniprot_seq_records is None:
             species = GENOME_TO_SPECIES[self.name].replace(" ", "_")
             file_path = (
-                f"~/ref/uniport/sport_per_species/{species}.sport_records.joblib.gz"
+                f"~/ref/uniprot/sport_per_species/{species}.sport_records.joblib.gz"
             )
             file_path = pathlib.Path(file_path).expanduser()
-            gene_prot_map_path = f"~/ref/uniport/sport_per_species/{species}.gene_to_prot_idmap.joblib.gz"
+            gene_prot_map_path = f"~/ref/uniprot/sport_per_species/{species}.gene_to_prot_idmap.joblib.gz"
             gene_prot_map_path = pathlib.Path(gene_prot_map_path).expanduser()
 
             # {prot_acc: SeqRecord}
-            self._uniport_seq_records = joblib.load(file_path)
+            self._uniprot_seq_records = joblib.load(file_path)
             # {gene_id: [prot_acc]}
-            self._uniport_idmap = joblib.load(gene_prot_map_path)
-        return self._uniport_seq_records
+            self._uniprot_idmap = joblib.load(gene_prot_map_path)
+        return self._uniprot_seq_records
 
     @property
-    def uniport_idmap(self):
+    def uniprot_idmap(self):
         """Get the gene to protein id map for this species"""
-        if self._uniport_idmap is None:
-            # trigger the loading of uniport_records
-            _ = self.uniport_records
-        return self._uniport_idmap
+        if self._uniprot_idmap is None:
+            # trigger the loading of uniprot_records
+            _ = self.uniprot_records
+        return self._uniprot_idmap
 
     def get_gene_protein_sequence(self, gene_name, sel_longest=True):
         """Get the protein sequence for a gene."""
-        uniport_records = self.uniport_records
-        uniport_idmap = self._uniport_idmap
+        uniprot_records = self.uniprot_records
+        uniprot_idmap = self._uniprot_idmap
 
-        if gene_name not in uniport_idmap:
+        if gene_name not in uniprot_idmap:
             # try gene id
             try:
                 gene_name = self.gtf_db.gene_name_to_id(gene_name).split(".")[0]
             except KeyError:
                 pass
 
-        prot_acc_list = uniport_idmap.get(gene_name, [])
-        use_records = [s for acc, s in uniport_records.items() if acc in prot_acc_list]
+        prot_acc_list = uniprot_idmap.get(gene_name, [])
+        use_records = [s for acc, s in uniprot_records.items() if acc in prot_acc_list]
 
         if sel_longest:
             if len(use_records) > 0:

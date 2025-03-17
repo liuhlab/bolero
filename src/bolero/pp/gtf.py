@@ -55,6 +55,8 @@ def features_to_bed(features):
 class GTFDB(FeatureDB):
     _gene_id_to_name: dict[str, str]
     _gene_name_to_id: dict[str, str]
+    _gene_id_base_to_name: dict[str, str]
+    _gene_name_to_id_base: dict[str, str]
     gene_ids: list[str]
     gene_names: list[str]
     transcript_ids: list[str]
@@ -94,7 +96,13 @@ class GTFDB(FeatureDB):
 
         basic_info_dict = {
             "_gene_id_to_name": gene_id_to_name,
+            "_gene_id_base_to_name": {
+                k.split(".")[0]: v for k, v in gene_id_to_name.items()
+            },
             "_gene_name_to_id": gene_name_to_id,
+            "_gene_name_to_id_base": {
+                v: k.split(".")[0] for k, v in gene_name_to_id.items()
+            },
             "gene_ids": gene_ids,
             "gene_names": gene_names,
             "transcript_ids": transcript_ids,
@@ -109,6 +117,14 @@ class GTFDB(FeatureDB):
     def gene_id_to_name(self, gene_id):
         """Convert gene ID to gene name."""
         return universal_mapping(gene_id, self._gene_id_to_name)
+
+    def gene_id_base_to_name(self, gene_id):
+        """Convert gene ID base to gene name."""
+        return universal_mapping(gene_id, self._gene_id_base_to_name)
+
+    def gene_name_to_id_base(self, gene_name):
+        """Convert gene name to gene ID base."""
+        return universal_mapping(gene_name, self._gene_name_to_id_base)
 
     @property
     def gene_bed(self):

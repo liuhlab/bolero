@@ -3,6 +3,7 @@ import os
 import joblib
 import torch
 import wandb
+from peft import LoraConfig, get_peft_model
 
 from bolero.tl.structure.esm import ESMC
 
@@ -16,7 +17,7 @@ def _init_wandb(cfg):
     )
 
 
-def _log_wandb(output, step, wandb_run, index=None):
+def _log_wandb(output, wandb_run, prefix="train"):
     metrics_to_log = [
         "loss",
         "auc",
@@ -24,27 +25,49 @@ def _log_wandb(output, step, wandb_run, index=None):
         "top5_acc",
     ]
     log_dict = {k: output[k].item() for k in metrics_to_log if k in output}
-
-    if index is not None:
-        log_dict = {f"{k}_{index}": v for k, v in log_dict.items()}
-
-    wandb_run.log(log_dict, step=step)
+    log_dict = {f"{prefix}/{k}": v for k, v in log_dict.items()}
+    wandb_run.log(log_dict)
 
 
 def _save_checkpoint(sae, cfg, step):
-    save_dir = f"checkpoints/{cfg['name']}_{step}"
+    save_dir = "checkpoints/"
     os.makedirs(save_dir, exist_ok=True)
+    prefix = f"{cfg['name']}_"
 
     # Save model state
-    ckpt_path = os.path.join(save_dir, "clip.pt")
+    ckpt_path = f"{save_dir}{prefix}clip.pt"
     torch.save(sae.state_dict(), ckpt_path)
 
     # Save config
-    config_path = os.path.join(save_dir, "config.json")
+    config_path = f"{save_dir}{prefix}config.joblib"
     joblib.dump(cfg, config_path)
 
 
-def train(model, data_iter, cfg):
+def get_esmc_model(lora_rank=64, finetune_type="lora"):
+    """Get the ESMC model with LoRA configuration."""
+    esmc = ESMC()
+    model = esmc.model
+
+    # 2. Define LoRA configuration
+    lora_config = LoraConfig(
+        r=lora_rank,  # Rank of low-rank adapters
+        lora_alpha=2 * lora_rank,  # Scaling factor
+        lora_dropout=0.0,  # Dropout for LoRA layers
+        # Adjust target_modules to match your model's attention/linear layer names
+        target_modules=["out_proj", "ffn.1", "ffn.3"],
+        bias="none",
+        use_dora=finetune_type == "dora",
+    )
+
+    # 3. Inject LoRA adapters into the model
+    model = get_peft_model(model, lora_config)
+
+    # Print information about trainable parameters
+    model.print_trainable_parameters()
+    return model
+
+
+def train(model, dataset, cfg):
     """Train the model."""
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg["lr"], betas=(cfg["beta1"], cfg["beta2"])
@@ -53,11 +76,14 @@ def train(model, data_iter, cfg):
 
     wandb_run = _init_wandb(cfg)
 
-    for i, batch in enumerate(data_iter):
+    # train
+    dataset.train()
+    train_data_iter = dataset.iter_batches(cfg["batch_size"])
+    for i, batch in enumerate(train_data_iter):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             result = model(batch)
 
-        _log_wandb(result, i, wandb_run)
+        _log_wandb(result, wandb_run, "train")
 
         if (i + 1) % cfg["checkpoint_freq"] == 0:
             _save_checkpoint(model, cfg, i)
@@ -72,6 +98,19 @@ def train(model, data_iter, cfg):
 
     _save_checkpoint(model, cfg, i)
 
+    # eval
+    dataset.eval()
+    eval_data_iter = dataset.iter_batches(cfg["batch_size"])
+    for batch in eval_data_iter:
+        with torch.inference_mode(), torch.autocast(
+            device_type="cuda", dtype=torch.bfloat16
+        ):
+            result = model(batch)
+        _log_wandb(result, wandb_run, "eval")
+
+    wandb_run.finish()
+    return
+
 
 def prepare_train(feather_path, name, esmc_model=None, **kwargs):
     """
@@ -84,8 +123,7 @@ def prepare_train(feather_path, name, esmc_model=None, **kwargs):
     name : str
         The name of the wandb run.
     **kwargs
-        Optional keyword arguments to override the default configuration of
-        BatchTopKSAE model and training.
+        Optional keyword arguments to override the default configuration.
     """
     default_cfg = {
         "name": name,
@@ -93,22 +131,44 @@ def prepare_train(feather_path, name, esmc_model=None, **kwargs):
         "lr": 1e-3,
         "beta1": 0.9,
         "beta2": 0.98,
-        "checkpoint_freq": 100,
+        "checkpoint_freq": 99999,
         "max_grad_norm": 100,
         "batch_size": 2,
         "accumulation_steps": 1,
         "freeze_encoder": True,
+        "train_folds": [0, 1, 2, 3, 4, 5, 6],
+        "eval_folds": [7],
+        "lora_rank": 64,
+        "finetune_type": "lora",
     }
     cfg = {**default_cfg, **kwargs}
 
     if esmc_model is None:
-        esmc = ESMC()
-        esmc_model = esmc.model
+        esmc_model = get_esmc_model(cfg["lora_rank"], cfg["finetune_type"])
 
     model = CLIP(encoder=esmc_model, freeze_encoder=cfg["freeze_encoder"])
     model = model.to("cuda")
-    dataset = FeatherDataset(feather_path)
-    dataset.train()
-    data_iter = dataset.iter_batches(cfg["batch_size"])
+    dataset = FeatherDataset(
+        feather_path, train_folds=cfg["train_folds"], eval_folds=cfg["eval_folds"]
+    )
+    return model, dataset, cfg
 
-    return model, data_iter, cfg
+
+def from_checkpoint(prefix, merge_lora=True):
+    """Create a model from a checkpoint."""
+    config_path = f"{prefix}_config.joblib"
+    cfg = joblib.load(config_path)
+
+    esmc_model = get_esmc_model(
+        cfg["lora_rank"], cfg["finetune_type"]
+    )  # Load the ESMC model with the same configuration
+
+    model = CLIP(encoder=esmc_model, freeze_encoder=cfg["freeze_encoder"])
+    model.load_state_dict(torch.load(f"{prefix}_clip.pt", weights_only=True))
+
+    if merge_lora and hasattr(model.encoder, "merge_and_unload"):
+        print("Merged LoRA weights into the base model.")
+        model.encoder = model.encoder.merge_and_unload()
+
+    model = model.to("cuda")
+    return model

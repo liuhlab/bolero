@@ -270,8 +270,42 @@ class DDIDataloader:
         return
 
 
-class FeatherDataset:
-    def __init__(self, data, max_len=512, concat_dim="batch", device="cuda"):
+class TokenizerMixin:
+    def __init__(self, device):
+        self.esm_tokenizer = EsmSequenceTokenizer(
+            clean_up_tokenization_spaces=True,
+        )
+        self.device = device
+
+    def _tokenize(self, sequence: list[str]) -> torch.Tensor:
+        pad = self.esm_tokenizer.pad_token_id
+        assert pad is not None
+        return stack_variable_length_tensors(
+            [
+                encoding.tokenize_sequence(
+                    x, self.esm_tokenizer, add_special_tokens=True
+                )
+                for x in sequence
+            ],
+            constant_value=pad,
+        ).to(self.device)
+
+
+def _get_device(device: str):
+    return torch.device(device) if torch.cuda.is_available() else torch.device("cpu")
+
+
+class FeatherDataset(TokenizerMixin):
+    def __init__(
+        self,
+        data,
+        train_folds,
+        eval_folds,
+        max_len=512,
+        concat_dim="batch",
+        device="cuda",
+    ):
+        self.device = _get_device(device)
         if isinstance(data, (str, pathlib.Path)):
             data = pd.read_feather(data)
         self.ddi_pdb = data
@@ -280,15 +314,17 @@ class FeatherDataset:
         seq2_filter = self.ddi_pdb["chain2_seq"].map(lambda s: len(s)) <= max_len
         self.ddi_pdb = self.ddi_pdb[seq1_filter & seq2_filter].copy()
 
-        self.esm_tokenizer = EsmSequenceTokenizer(
-            clean_up_tokenization_spaces=True,
-        )
+        self.ddi_pdb_train = self.ddi_pdb[
+            self.ddi_pdb["fold_id"].isin(train_folds)
+        ].reset_index(drop=True)
+        self.ddi_pdb_eval = self.ddi_pdb[
+            self.ddi_pdb["fold_id"].isin(eval_folds)
+        ].reset_index(drop=True)
+
+        TokenizerMixin.__init__(self, device=self.device)
         self.max_len = max_len
         self.concat_dim = concat_dim
 
-        self.device = (
-            torch.device(device) if torch.cuda.is_available() else torch.device("cpu")
-        )
         self.training = True
 
     def train(self):
@@ -299,11 +335,11 @@ class FeatherDataset:
         """Eval mode"""
         self.training = False
 
-    def _sample_epoch_ddi_pdb_table(self):
+    @staticmethod
+    def _sample_epoch_ddi_pdb_table(table):
         """Sample one interaction record for each (ddi_id, pdb_id) pair"""
-        ddi_pdb = self.ddi_pdb
         use_rows = []
-        id_table = ddi_pdb[["ddi_id", "pdb_id"]].copy()
+        id_table = table[["ddi_id", "pdb_id"]].copy()
         for _, df in id_table.groupby(["ddi_id", "pdb_id"], observed=True):
             if df.shape[0] == 1:
                 use_rows.append(df.index[0])
@@ -311,7 +347,7 @@ class FeatherDataset:
                 use_rows.append(np.random.choice(df.index))
         # shuffle rows
         np.random.shuffle(use_rows)
-        use_ddi_pdb = ddi_pdb.loc[pd.Index(use_rows)].reset_index(drop=True)
+        use_ddi_pdb = table.loc[pd.Index(use_rows)].reset_index(drop=True)
         return use_ddi_pdb
 
     def tokenize_batch(self, batch_df):
@@ -338,25 +374,14 @@ class FeatherDataset:
         batch_tensor = self._tokenize(seq_list)
         return batch_tensor
 
-    def _tokenize(self, sequence: list[str]) -> torch.Tensor:
-        pad = self.esm_tokenizer.pad_token_id
-        assert pad is not None
-        return stack_variable_length_tensors(
-            [
-                encoding.tokenize_sequence(
-                    x, self.esm_tokenizer, add_special_tokens=True
-                )
-                for x in sequence
-            ],
-            constant_value=pad,
-        ).to(self.device)
-
     def iter_batches(self, batch_size):
         """
         Iterate over batches of ddi_pdb table
         """
         if self.training:
-            ddi_pdb = self._sample_epoch_ddi_pdb_table()
+            ddi_pdb = self._sample_epoch_ddi_pdb_table(self.ddi_pdb_train)
+        else:
+            ddi_pdb = self._sample_epoch_ddi_pdb_table(self.ddi_pdb_eval)
 
         num_batches = int(np.ceil(len(self.ddi_pdb) / batch_size))
         for i in range(num_batches):
@@ -364,5 +389,50 @@ class FeatherDataset:
             if batch_records.shape[0] < batch_size:
                 break
 
+            batch_records = self.tokenize_batch(batch_records)
+            yield batch_records
+
+
+class SequenceDataset(TokenizerMixin):
+    def __init__(
+        self,
+        chain_seqs: list[str],
+        window=512,
+        step_size=128,
+    ):
+        self.chain_seqs = chain_seqs
+        self.window = window
+        self.step_size = step_size
+        self.chain_tiles = self._tile_seq(chain_seqs)
+        self.device = _get_device("cuda")
+
+        TokenizerMixin.__init__(self, device=self.device)
+        return
+
+    def _tile_seq(self, seqs):
+        records = []
+        for chain_id, seq in enumerate(seqs):
+            for tile_id, tile_start in enumerate(range(0, len(seq), self.step_size)):
+                tile_end = min(len(seq), tile_start + self.window)
+                records.append([chain_id, tile_id, seq[tile_start:tile_end]])
+                if tile_end == len(seq):
+                    break
+        return pd.DataFrame(records, columns=["chain_id", "tile_id", "seq"])
+
+    def tokenize_batch(self, batch_df):
+        """
+        Tokenize a batch of protein sequence
+        """
+        seq_list = batch_df["seq"].tolist()
+        batch_tensor = self._tokenize(seq_list)
+        return batch_tensor
+
+    def iter_batches(self, batch_size=64):
+        """
+        Iterate over batches of ddi_pdb table
+        """
+        num_batches = int(np.ceil(len(self.chain_tiles) / batch_size))
+        for i in range(num_batches):
+            batch_records = self.chain_tiles.iloc[i * batch_size : (i + 1) * batch_size]
             batch_records = self.tokenize_batch(batch_records)
             yield batch_records
