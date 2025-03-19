@@ -78,7 +78,7 @@ def train(model, dataset, cfg):
 
     # train
     dataset.train()
-    train_data_iter = dataset.iter_batches(cfg["batch_size"])
+    train_data_iter = dataset.iter_batches(cfg["batch_size"], cfg["groupby_go_and_tax"])
     for i, batch in enumerate(train_data_iter):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             result = model(batch)
@@ -100,7 +100,11 @@ def train(model, dataset, cfg):
 
     # eval
     dataset.eval()
-    eval_data_iter = dataset.iter_batches(cfg["batch_size"])
+    eval_data_iter = dataset.iter_batches(
+        cfg["eval_batch_size"],
+        cfg["groupby_go_and_tax"],
+        nbatch=cfg["max_eval_batches"],
+    )
     for batch in eval_data_iter:
         with torch.inference_mode(), torch.autocast(
             device_type="cuda", dtype=torch.bfloat16
@@ -112,7 +116,7 @@ def train(model, dataset, cfg):
     return
 
 
-def prepare_train(feather_path, name, esmc_model=None, **kwargs):
+def prepare_train(feather_path, name, esmc_model=None, pdb_go_tax_path=None, **kwargs):
     """
     Main training function.
 
@@ -140,16 +144,28 @@ def prepare_train(feather_path, name, esmc_model=None, **kwargs):
         "eval_folds": [7],
         "lora_rank": 64,
         "finetune_type": "lora",
+        "groupby_go_and_tax": False,
+        "concat_dim": "batch",
+        "eval_batch_size": 128,
+        "max_eval_batches": 500,
     }
     cfg = {**default_cfg, **kwargs}
 
     if esmc_model is None:
         esmc_model = get_esmc_model(cfg["lora_rank"], cfg["finetune_type"])
 
-    model = CLIP(encoder=esmc_model, freeze_encoder=cfg["freeze_encoder"])
+    model = CLIP(
+        encoder=esmc_model,
+        freeze_encoder=cfg["freeze_encoder"],
+        concat_dim=cfg["concat_dim"],
+    )
     model = model.to("cuda")
     dataset = FeatherDataset(
-        feather_path, train_folds=cfg["train_folds"], eval_folds=cfg["eval_folds"]
+        feather_path,
+        train_folds=cfg["train_folds"],
+        eval_folds=cfg["eval_folds"],
+        pdb_go_tax_path=pdb_go_tax_path,
+        concat_dim=cfg["concat_dim"],
     )
     return model, dataset, cfg
 

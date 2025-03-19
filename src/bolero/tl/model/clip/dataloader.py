@@ -1,4 +1,5 @@
 import pathlib
+import random
 
 import joblib
 import numpy as np
@@ -295,12 +296,57 @@ def _get_device(device: str):
     return torch.device(device) if torch.cuda.is_available() else torch.device("cpu")
 
 
+def random_batch_id_sampler(data, batch_size=64):
+    """
+    Generator that yields batches of items of size batch_size from a dictionary of lists.
+
+    It maintains a separate list of keys (for efficiency) and updates it whenever a key is removed.
+    For each batch:
+      - Randomly selects a key from the maintained keys list.
+      - Determines the number of items needed (batch_size minus current batch length).
+      - If the selected key's list has more than the needed items, it takes exactly the needed items
+        and updates that list.
+      - If the key's list has fewer or equal items, it takes all of them and removes the key from
+        both the dictionary and the keys list.
+
+    Yields
+    ------
+        A list of exactly batch_size items.
+    """
+    keys = list(data.keys())
+
+    batch = set()
+    while keys:
+        while len(batch) < batch_size and keys:
+            # Choose a random key from the maintained keys list.
+            key = random.choice(keys)
+            needed = batch_size - len(batch)
+            current_list = data[key]
+
+            if len(current_list) > needed:
+                # If more items are available than needed, take only the needed amount.
+                batch.update(current_list[:needed])
+                new_list = current_list[needed:]
+                data[key] = new_list
+            else:
+                # If the list doesn't have enough, take all of them and remove the key.
+                batch.update(current_list)
+                del data[key]
+                keys.remove(key)
+
+        # Yield exactly batch_size items.
+        batch_list = list(batch)
+        yield batch_list[:batch_size]
+        batch = set(batch_list[batch_size:])
+
+
 class FeatherDataset(TokenizerMixin):
     def __init__(
         self,
         data,
         train_folds,
         eval_folds,
+        pdb_go_tax_path=None,
         max_len=512,
         concat_dim="batch",
         device="cuda",
@@ -324,6 +370,14 @@ class FeatherDataset(TokenizerMixin):
         TokenizerMixin.__init__(self, device=self.device)
         self.max_len = max_len
         self.concat_dim = concat_dim
+
+        if pdb_go_tax_path is not None:
+            table = pd.read_feather(pdb_go_tax_path)
+            self.pdb_go_tax = table[
+                table["PDB"].isin(self.ddi_pdb["pdb_id"])
+            ].reset_index(drop=True)
+        else:
+            self.pdb_go_tax = None
 
         self.training = True
 
@@ -350,6 +404,20 @@ class FeatherDataset(TokenizerMixin):
         use_ddi_pdb = table.loc[pd.Index(use_rows)].reset_index(drop=True)
         return use_ddi_pdb
 
+    def _get_pdb_groups(self, ddi_pdb):
+        pdb_go_tax = self.pdb_go_tax[
+            self.pdb_go_tax["PDB"].isin(ddi_pdb["pdb_id"])
+        ].copy()
+        pdb_go_tax = pdb_go_tax.sample(frac=1, replace=False)
+        pdb_groups = {
+            (tax, go): df["PDB"].unique()
+            for (tax, go), df in tqdm(
+                pdb_go_tax.groupby(["TAX_ID", "GO_ID"], observed=True),
+                desc="PDB ID Grouping",
+            )
+        }
+        return pdb_groups
+
     def tokenize_batch(self, batch_df):
         """
         Tokenize a batch of protein sequence pairs, chain1, chain2 are concatenated
@@ -374,7 +442,50 @@ class FeatherDataset(TokenizerMixin):
         batch_tensor = self._tokenize(seq_list)
         return batch_tensor
 
-    def iter_batches(self, batch_size):
+    def _iter_records(self, ddi_pdb, batch_size):
+        """
+        Global random sample
+        """
+        num_batches = int(np.ceil(len(ddi_pdb) / batch_size))
+        for i in range(num_batches):
+            batch_records = ddi_pdb.iloc[i * batch_size : (i + 1) * batch_size]
+            if batch_records.shape[0] < batch_size:
+                break
+            yield batch_records
+
+    def _iter_records_with_group(self, ddi_pdb, batch_size):
+        """
+        Sample batch records that is grouped by GO and TAX,
+        therefore prot seq are more likely coming from the same species and function group.
+        """
+        pdb_groups = self._get_pdb_groups(ddi_pdb)
+
+        pdb_id_batches = list(
+            tqdm(
+                random_batch_id_sampler(pdb_groups, batch_size=batch_size),
+                "PDB ID Batch",
+            )
+        )
+        random.shuffle(pdb_id_batches)
+
+        batch_rows = []
+        batch_row_count = 0
+        for pdb_id_batch in tqdm(pdb_id_batches):
+            use_rows = ddi_pdb[ddi_pdb["pdb_id"].isin(pdb_id_batch)].drop_duplicates(
+                subset=["ddi_id"]
+            )
+            if use_rows.shape[0] > batch_size:
+                use_rows = use_rows.sample(batch_size, replace=False)
+            batch_rows.append(use_rows)
+            batch_row_count += use_rows.shape[0]
+            if batch_row_count >= batch_size:
+                batch_df = pd.concat(batch_rows)
+                yield batch_df.iloc[:batch_size].copy()
+                batch_rows = [batch_df.iloc[batch_size:].copy()]
+                batch_row_count = 0
+        return
+
+    def iter_batches(self, batch_size, groupby_go_and_tax=False, nbatch=None):
         """
         Iterate over batches of ddi_pdb table
         """
@@ -383,14 +494,16 @@ class FeatherDataset(TokenizerMixin):
         else:
             ddi_pdb = self._sample_epoch_ddi_pdb_table(self.ddi_pdb_eval)
 
-        num_batches = int(np.ceil(len(self.ddi_pdb) / batch_size))
-        for i in range(num_batches):
-            batch_records = ddi_pdb.iloc[i * batch_size : (i + 1) * batch_size]
-            if batch_records.shape[0] < batch_size:
-                break
+        if groupby_go_and_tax:
+            rec_iter = self._iter_records_with_group(ddi_pdb, batch_size)
+        else:
+            rec_iter = self._iter_records(ddi_pdb, batch_size)
 
+        for idx, batch_records in enumerate(rec_iter):
             batch_records = self.tokenize_batch(batch_records)
             yield batch_records
+            if nbatch is not None and idx >= nbatch:
+                break
 
 
 class SequenceDataset(TokenizerMixin):

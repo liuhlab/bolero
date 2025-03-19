@@ -55,8 +55,11 @@ class CLIP(nn.Module):
         emb_dim=1152,
         latent_dim=1152,
         temperature_init=0.5,
+        concat_dim="batch",
     ):
         super().__init__()
+        self.concat_dim = concat_dim
+
         self.encoder = encoder
 
         if freeze_encoder:
@@ -72,37 +75,10 @@ class CLIP(nn.Module):
         self.text_projection = nn.Linear(emb_dim, latent_dim)
         self.image_projection = nn.Linear(emb_dim, latent_dim)
 
-    @staticmethod
-    def _calc_auc(text_to_image, batch_size):
-        with torch.no_grad():
-            flat_similarity_matrix = text_to_image.clone().view(-1)
-            auc_labels = torch.zeros(batch_size * batch_size).to(text_to_image)
-            auc_labels[torch.arange(batch_size) * (batch_size + 1)] = 1
-            auroc = AUROC(task="binary")
-            contra_auc = torch.tensor(
-                [auroc(flat_similarity_matrix, auc_labels).item()]
-            ).to(text_to_image)
-        return contra_auc
+        self.cls_token_id = self.encoder.tokenizer.cls_token_id
 
-    @staticmethod
-    def _accuracy(output, batch_size, topk):
-        target = torch.tensor(list(range(batch_size))).to(output)
-        with torch.no_grad():
-            maxk = max(topk)
-            size = target.size(0)
-            _, pred = output.topk(maxk, 1, True, True)
-
-            pred = pred.t()
-            correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-            res = []
-            for k in topk:
-                correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-                res.append(correct_k.mul_(1.0 / size))
-        return res
-
-    @staticmethod
-    def _calculate_cl_loss(text_to_image, image_to_text):
+    def cl_loss(self, text_to_image, image_to_text):
+        """Contrastive loss"""
         # exponentiate
         text_to_image_exp, image_to_text_exp = map(
             torch.exp, (text_to_image, image_to_text)
@@ -111,12 +87,10 @@ class CLIP(nn.Module):
         text_to_image_pos, image_to_text_pos = map(
             _matrix_diag, (text_to_image_exp, image_to_text_exp)
         )
-
         # denominator
         text_to_image_denom, image_to_text_denom = (
             t.sum(dim=-1) for t in (text_to_image_exp, image_to_text_exp)
         )
-
         # calculate CL loss
         text_to_image_loss = (-log(text_to_image_pos) + log(text_to_image_denom)).mean(
             dim=-1
@@ -127,6 +101,44 @@ class CLIP(nn.Module):
         cl_losses = (text_to_image_loss + image_to_text_loss) / 2
         return cl_losses
 
+    @torch.no_grad()
+    def auc(self, text_to_image, batch_size):
+        """Calculate AUC"""
+        flat_similarity_matrix = text_to_image.clone().view(-1)
+        auc_labels = torch.zeros(batch_size * batch_size).to(text_to_image)
+        auc_labels[torch.arange(batch_size) * (batch_size + 1)] = 1
+        auroc = AUROC(task="binary")
+        contra_auc = torch.tensor(
+            [auroc(flat_similarity_matrix, auc_labels).item()]
+        ).to(text_to_image)
+        return contra_auc
+
+    @torch.no_grad()
+    def accuracy(self, text_to_image, batch_size, topk):
+        """Calculate accuracy"""
+        target = torch.tensor(list(range(batch_size))).to(text_to_image)
+        maxk = max(topk)
+        size = target.size(0)
+        _, pred = text_to_image.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(1.0 / size))
+        return res
+
+    def calc_similarity(self, emb1, emb2):
+        """Calculate similarity matrix"""
+        text_emb = self.text_projection(emb1)  # (t, d)
+        text_emb = F.normalize(text_emb, dim=-1)
+        img_emb = self.image_projection(emb2)  # (i, d)
+        img_emb = F.normalize(img_emb, dim=-1)
+        temp = self.temperature.exp()
+        text_to_image = einsum(text_emb, img_emb, "t d, i d -> t i") * temp
+        image_to_text = rearrange(text_to_image, "t i -> i t")
+        return text_to_image, image_to_text
+
     def forward(self, x):
         """Forward pass"""
         emb = _model_forward_with_context(
@@ -136,68 +148,35 @@ class CLIP(nn.Module):
         )
 
         # Split and take CLS Token
-        batch_size = emb.shape[0] // 2
-        emb1 = emb[:batch_size, 0, :]
-        emb2 = emb[batch_size:, 0, :]
+        if self.concat_dim == "batch":
+            batch_size = emb.shape[0] // 2
+            emb1 = emb[:batch_size, 0, :]
+            emb2 = emb[batch_size:, 0, :]
+        else:
+            batch_size = emb.shape[0]
+            # get CLS token location and split into two
+            mask = x == self.cls_token_id
+            nz = mask.nonzero()
+            positions = nz[:, 1].view(mask.shape[0], 2)  # shape (bs, 2)
+            cls_emb = emb.gather(
+                1, positions.unsqueeze(-1).expand(-1, -1, emb.shape[-1])
+            )
+            emb1, emb2 = torch.split(cls_emb, 1, dim=1)  # (batch_size, 1, emb_dim)
+            emb1 = emb1.squeeze(1)
+            emb2 = emb2.squeeze(1)
 
         # Similarity Matrix
-        text_emb = self.text_projection(emb1)  # (batch_size, latent_dim)
-        text_emb = F.normalize(text_emb, dim=-1)
-        img_emb = self.image_projection(emb2)  # (batch_size, latent_dim)
-        img_emb = F.normalize(img_emb, dim=-1)
-        temp = self.temperature.exp()
-        text_to_image = einsum(text_emb, img_emb, "t d, i d -> t i") * temp
-        image_to_text = rearrange(text_to_image, "t i -> i t")
+        text_to_image, image_to_text = self.calc_similarity(emb1, emb2)
 
-        # calculate loss
-        # exponentiate
-        text_to_image_exp, image_to_text_exp = map(
-            torch.exp, (text_to_image, image_to_text)
-        )
-        # numerators
-        text_to_image_pos, image_to_text_pos = map(
-            _matrix_diag, (text_to_image_exp, image_to_text_exp)
-        )
-        # denominator
-        text_to_image_denom, image_to_text_denom = (
-            t.sum(dim=-1) for t in (text_to_image_exp, image_to_text_exp)
-        )
-        # calculate CL loss
-        text_to_image_loss = (-log(text_to_image_pos) + log(text_to_image_denom)).mean(
-            dim=-1
-        )
-        image_to_text_loss = (-log(image_to_text_pos) + log(image_to_text_denom)).mean(
-            dim=-1
-        )
-        cl_losses = (text_to_image_loss + image_to_text_loss) / 2
+        # Loss
+        cl_losses = self.cl_loss(text_to_image, image_to_text)
 
         # AUC
-        with torch.no_grad():
-            flat_similarity_matrix = text_to_image.clone().view(-1)
-            auc_labels = torch.zeros(batch_size * batch_size).to(text_to_image)
-            auc_labels[torch.arange(batch_size) * (batch_size + 1)] = 1
-            auroc = AUROC(task="binary")
-            contra_auc = torch.tensor(
-                [auroc(flat_similarity_matrix, auc_labels).item()]
-            ).to(text_to_image)
+        contra_auc = self.auc(text_to_image, batch_size)
 
         # ACC
-        def accuracy(output, target, topk):
-            with torch.no_grad():
-                maxk = max(topk)
-                size = target.size(0)
-                _, pred = output.topk(maxk, 1, True, True)
-                pred = pred.t()
-                correct = pred.eq(target.view(1, -1).expand_as(pred))
-                res = []
-                for k in topk:
-                    correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-                    res.append(correct_k.mul_(1.0 / size))
-                return res
-
-        acc_labels = torch.tensor(list(range(batch_size))).to(text_to_image)
-        contra_top1_acc, contra_top5_acc = accuracy(
-            text_to_image, acc_labels, topk=(1, 5)
+        contra_top1_acc, contra_top5_acc = self.accuracy(
+            text_to_image, batch_size, topk=(1, 5)
         )
 
         result = {
@@ -245,3 +224,193 @@ class CLIP(nn.Module):
             freeze=self.freeze_encoder,
         )
         return emb
+
+
+# class CLIPMLP(nn.Module):
+#     def __init__(
+#         self,
+#         encoder,
+#         freeze_encoder=True,
+#         emb_dim=1152,
+#         latent_dim=576,
+#         temperature_init=0.5,
+#         concat_dim="batch",
+#     ):
+#         super().__init__()
+#         self.concat_dim = concat_dim
+
+#         self.encoder = encoder
+
+#         if freeze_encoder:
+#             for param in self.encoder.parameters():
+#                 param.requires_grad = False
+#             encoder.eval()
+#         self.freeze_encoder = freeze_encoder
+
+#         self.temperature = nn.Parameter(
+#             torch.tensor(temperature_init, dtype=torch.float32)
+#         )
+
+#         self.mlp = nn.Sequential(
+#             nn.LayerNorm(2 * emb_dim),
+#             nn.Linear(2 * emb_dim, latent_dim),
+#             nn.GELU(),
+#             nn.LayerNorm(latent_dim),
+#             nn.Linear(latent_dim, latent_dim // 4),
+#             nn.GELU(),
+#             nn.LayerNorm(latent_dim // 4),
+#             nn.Linear(latent_dim // 4, latent_dim // 16),
+#             nn.GELU(),
+#             nn.LayerNorm(latent_dim // 16),
+#             nn.Linear(latent_dim // 16, 1),
+#         )
+
+#         self.cls_token_id = self.encoder.tokenizer.cls_token_id
+
+#     def diagnalize(self, text_emb, img_emb):
+#         text_emb = repeat(text_emb, "t d -> t i d", i=img_emb.shape[0])
+#         img_emb = repeat(img_emb, "i d -> t i d", t=text_emb.shape[0])
+#         combine = torch.concat([text_emb, img_emb], dim=-1)  # shape (t, i, 2d)
+#         return combine
+
+#     def calc_similarity(self, emb1, emb2):
+#         combine = self.diagnalize(emb1, emb2)
+#         text_to_image = self.mlp(combine)
+#         text_to_image = text_to_image.squeeze(-1)
+#         image_to_text = rearrange(text_to_image, "t i -> i t")
+#         return text_to_image, image_to_text
+
+#     def forward(self, x):
+#         """Forward pass"""
+#         emb = _model_forward_with_context(
+#             fn=self.encoder,
+#             args=(x,),
+#             freeze=self.freeze_encoder,
+#         )
+
+#         # Split and take CLS Token
+#         if self.concat_dim == "batch":
+#             batch_size = emb.shape[0] // 2
+#             emb1 = emb[:batch_size, 0, :]
+#             emb2 = emb[batch_size:, 0, :]
+#         else:
+#             batch_size = emb.shape[0]
+#             # get CLS token location and split into two
+#             mask = x == self.cls_token_id
+#             nz = mask.nonzero()
+#             positions = nz[:, 1].view(mask.shape[0], 2)  # shape (bs, 2)
+#             cls_emb = emb.gather(
+#                 1, positions.unsqueeze(-1).expand(-1, -1, emb.shape[-1])
+#             )
+#             emb1, emb2 = torch.split(cls_emb, 1, dim=1)  # (batch_size, 1, emb_dim)
+#             emb1 = emb1.squeeze(1)
+#             emb2 = emb2.squeeze(1)
+
+#         # Similarity Matrix
+#         text_to_image, image_to_text = self.calc_similarity(emb1, emb2)
+
+#         # Loss
+#         cl_losses = self.cl_loss(text_to_image, image_to_text)
+
+#         # AUC
+#         contra_auc = self.auc(text_to_image, batch_size)
+
+#         # ACC
+#         contra_top1_acc, contra_top5_acc = self.accuracy(
+#             text_to_image, batch_size, topk=(1, 5)
+#         )
+
+#         result = {
+#             "loss": cl_losses,
+#             "auc": contra_auc,
+#             "top1_acc": contra_top1_acc,
+#             "top5_acc": contra_top5_acc,
+#         }
+#         return result
+
+#     def cl_loss(self, text_to_image, image_to_text):
+#         """Contrastive loss"""
+#         # exponentiate
+#         text_to_image_exp, image_to_text_exp = map(
+#             torch.exp, (text_to_image, image_to_text)
+#         )
+#         # numerators
+#         text_to_image_pos, image_to_text_pos = map(
+#             _matrix_diag, (text_to_image_exp, image_to_text_exp)
+#         )
+#         # denominator
+#         text_to_image_denom, image_to_text_denom = (
+#             t.sum(dim=-1) for t in (text_to_image_exp, image_to_text_exp)
+#         )
+#         # calculate CL loss
+#         text_to_image_loss = (-log(text_to_image_pos) + log(text_to_image_denom)).mean(
+#             dim=-1
+#         )
+#         image_to_text_loss = (-log(image_to_text_pos) + log(image_to_text_denom)).mean(
+#             dim=-1
+#         )
+#         cl_losses = (text_to_image_loss + image_to_text_loss) / 2
+#         return cl_losses
+
+#     @torch.no_grad()
+#     def auc(self, text_to_image, batch_size):
+#         flat_similarity_matrix = text_to_image.clone().view(-1)
+#         auc_labels = torch.zeros(batch_size * batch_size).to(text_to_image)
+#         auc_labels[torch.arange(batch_size) * (batch_size + 1)] = 1
+#         auroc = AUROC(task="binary")
+#         contra_auc = torch.tensor(
+#             [auroc(flat_similarity_matrix, auc_labels).item()]
+#         ).to(text_to_image)
+#         return contra_auc
+
+#     @torch.no_grad()
+#     def accuracy(self, text_to_image, batch_size, topk):
+#         target = torch.tensor(list(range(batch_size))).to(text_to_image)
+#         maxk = max(topk)
+#         size = target.size(0)
+#         _, pred = text_to_image.topk(maxk, 1, True, True)
+#         pred = pred.t()
+#         correct = pred.eq(target.view(1, -1).expand_as(pred))
+#         res = []
+#         for k in topk:
+#             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+#             res.append(correct_k.mul_(1.0 / size))
+#         return res
+
+#     def _get_text_logits(self, text_emb, img_emb):
+#         """Get logits from text and image embeddings."""
+#         temp = self.temperature.exp()
+#         text_emb = self.text_projection(text_emb)
+#         text_emb = F.normalize(text_emb, dim=-1)
+#         img_emb = self.image_projection(img_emb)
+#         img_emb = F.normalize(img_emb, dim=-1)
+#         text_logits = einsum(text_emb, img_emb, "t d, i d -> t i") * temp
+#         return text_logits
+
+#     def _get_img_logits(self, img_emb, text_emb):
+#         """Get logits from image and text embeddings."""
+#         temp = self.temperature.exp()
+#         img_emb = self.image_projection(img_emb)
+#         img_emb = F.normalize(img_emb, dim=-1)
+#         text_emb = self.text_projection(text_emb)
+#         text_emb = F.normalize(text_emb, dim=-1)
+#         img_logits = einsum(img_emb, text_emb, "i d, t d -> i t") * temp
+#         return img_logits
+
+#     @torch.no_grad()
+#     def _get_logits(self, query_emb, target_emb):
+#         """Get logits from query and target embeddings."""
+#         text_logits = self._get_text_logits(query_emb, target_emb)
+#         # img_logits = self._get_img_logits(query_emb, target_emb)
+#         # logits = (text_logits + img_logits) / 2
+#         return text_logits
+
+#     @torch.no_grad()
+#     def embedding(self, x):
+#         """Get embeddings from a trained CLIP model."""
+#         emb = _model_forward_with_context(
+#             fn=self.encoder,
+#             args=(x,),
+#             freeze=self.freeze_encoder,
+#         )
+#         return emb
