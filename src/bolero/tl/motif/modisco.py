@@ -269,7 +269,13 @@ class ModiscoSeqlet(Seqlet):
         """
         Trim the sequence by contribution score > max(contrib_scores) * trim_threshold.
         """
-        ppm = getattr(self, key)
+        try:
+            ppm = getattr(self, key)
+        except AttributeError as e:
+            raise AttributeError(
+                f"Key '{key}' not found in ModiscoSeqlet, "
+                f"possible keys are ['sequence', 'contrib_scores', 'hypothetical_contribs']"
+            ) from e
 
         # filter by information content
         ic = self._get_info_content(self.sequence)

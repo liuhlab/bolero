@@ -5,7 +5,7 @@ from modiscolite.tfmodisco import _filter_by_correlation
 from openTSNE import TSNE, affinity
 
 
-def _tsne(dist_mat, perplexity=10, n_jobs=1, n_components=2):
+def _tsne(dist_mat, perplexity=10, n_jobs=-1, n_components=2):
     # Create a custom affinity object
     custom_affinity = affinity.PerplexityBasedNN(
         data=dist_mat,
@@ -37,6 +37,7 @@ def modisco_seqlets_embedding(
     corr_filter=False,
     n_jobs=1,
     n_components=2,
+    tsne=True,
 ):
     """
     Calculate affinity matrix between seqlets and embed them in 2D space using t-SNE.
@@ -112,10 +113,16 @@ def modisco_seqlets_embedding(
         dist_mat[row, neighbor] -= aff
 
     # Step 5: Run t-SNE
-    print("5. Running t-SNE")
-    embeddings, tsne = _tsne(
-        dist_mat, perplexity=tsne_perplexity, n_jobs=n_jobs, n_components=n_components
-    )
-    seqlet_names = [seqlet.name for seqlet in seqlets]
-    embeddings = pd.DataFrame(embeddings, index=seqlet_names)
-    return dist_mat, embeddings, tsne
+    if tsne:
+        print("5. Running t-SNE")
+        embeddings, tsne = _tsne(
+            dist_mat,
+            perplexity=tsne_perplexity,
+            n_jobs=n_jobs,
+            n_components=n_components,
+        )
+        seqlet_names = [seqlet.name for seqlet in seqlets]
+        embeddings = pd.DataFrame(embeddings, index=seqlet_names)
+        return dist_mat, embeddings, tsne
+    else:
+        return dist_mat, None, None
