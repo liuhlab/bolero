@@ -470,7 +470,7 @@ class GenomeOneHotZarr(GenomePositionZarr):
         region_one_hot = self.get_region_data(chrom, start, end)
         return region_one_hot
 
-    def get_regions_one_hot(self, regions):
+    def get_regions_one_hot(self, regions, mode=None):
         """
         Get the one-hot encoded representation of the given regions.
 
@@ -493,17 +493,24 @@ class GenomeOneHotZarr(GenomePositionZarr):
         """
         # get global coords
         if isinstance(regions, pd.DataFrame):
+            
+            snp_info = regions[["ref", "snp", "pos2start"]] if mode in ["ref_allele", "alt_allele"] else None
             regions = regions[["Chromosome", "Start", "End"]]
+            
         elif isinstance(regions, pr.PyRanges):
+
+            snp_info = regions.df[["ref", "snp", "pos2start"]] if mode in ["ref_allele", "alt_allele"] else None    
             regions = regions.df[["Chromosome", "Start", "End"]]
+            
         elif isinstance(regions, str):
             regions = parse_region_names([regions], as_df=True)[
                 ["Chromosome", "Start", "End"]
-            ]
+            ] 
         else:
             regions = parse_region_names(regions, as_df=True)[
                 ["Chromosome", "Start", "End"]
             ]
+       
         global_coords = get_global_coords(
             chrom_offsets=self.offsets, region_bed_df=regions
         )
@@ -513,8 +520,52 @@ class GenomeOneHotZarr(GenomePositionZarr):
         assert (
             region_lengths == region_lengths[0]
         ).all(), "All regions must have the same length."
+        
+        # Get the basic one-hot encoding
+        region_one_hot = self.get_regions_data(regions)  # shape (bs, seq_len, 4)
 
-        region_one_hot = self.get_regions_data(regions)
+        # Apply SNP mutations if needed
+        if mode in ["ref_allele", "alt_allele"]:
+            nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+            
+            # Create a deep copy of the one-hot encoding to modify
+            modified_one_hot = region_one_hot.copy()
+            
+            # Process each sample in the batch with its specific SNP info
+            for batch_idx in range(len(snp_info)):
+
+                # Get the SNP info for this specific batch item
+                sample_row = snp_info.iloc[batch_idx]
+                ref, alt_allele, relative_pos = sample_row
+                
+                # Convert position to integer if needed
+                relative_pos = int(relative_pos)
+                
+                if mode == "ref_allele":
+                    # Validate reference nucleotide
+                    if ref not in nucleotide_map:
+                        raise ValueError(f"Unknown nucleotide '{ref}' in SNP data for batch item {batch_idx}")
+                        
+                    # For reference allele, ensure the correct base is set
+                    # Clear the position for this batch item
+                    modified_one_hot[batch_idx, relative_pos, :] = 0
+                    # Set the reference nucleotide
+                    modified_one_hot[batch_idx, relative_pos, nucleotide_map[ref]] = 1
+                        
+                else:  # alt_allele
+                    # Validate alternate nucleotide
+                    if alt_allele not in nucleotide_map:
+                        raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
+                        
+                    # For alt allele, set the alternate base
+                    # Clear the position for this batch item
+                    modified_one_hot[batch_idx, relative_pos, :] = 0
+                    # Set the alternate nucleotide
+                    modified_one_hot[batch_idx, relative_pos, nucleotide_map[alt_allele]] = 1
+            
+            return modified_one_hot
+
+        # Return reference sequence (original one-hot encoding)
         return region_one_hot
 
 

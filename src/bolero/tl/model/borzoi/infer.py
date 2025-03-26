@@ -350,6 +350,7 @@ class BorzoiInferencer:
     def _load_model(self, path):
         """Load model for inference."""
         model = torch.load(path, weights_only=False).cuda()
+        # model = torch.load(path, weights_only=False, map_location=torch.device('cpu'))
         model = model.eval()
         return model
 
@@ -370,17 +371,21 @@ class BorzoiInferencer:
         elif isinstance(emb, np.ndarray):
             emb = torch.from_numpy(emb)
         emb = emb.cuda().unsqueeze(0)
+        # emb = emb.cpu().unsqueeze(0)
 
         emb_model = self.model.collapse_lora(emb)
         emb_model = emb_model.eval().cuda()
+        # emb_model = emb_model.eval().cpu()
         return emb_model
 
-    def _get_dna_one_hot(self, bed) -> torch.Tensor:
-        dna = self.genome.get_regions_one_hot(bed)
+    def _get_dna_one_hot(self, bed, mode=None) -> torch.Tensor:
+        dna = self.genome.get_regions_one_hot(bed, mode=mode)
         dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
+        # dna = torch.from_numpy(dna).cpu().swapaxes(1, 2)
         dna = dna.half()
         dna.requires_grad = True
         return dna
+
 
     def _single_attribute(self, model, bed):
         """Run attribution for a single embedding."""
@@ -419,10 +424,41 @@ class BorzoiInferencer:
         all_data = torch.cat(all_data, dim=0)
         return all_data
 
+    def _snp_predict(self, model, bed):
+        #1. batch ref batch alt
+        #2. Concatenate
+        #3. create dictionary of concats
+        all_data = {'ref': [], 'alt': []}
+        for i in range(0, bed.shape[0], self.batch_size):
+            batch_bed = bed.iloc[i : i + self.batch_size]
+            batch_ref = self._get_dna_one_hot(batch_bed, mode="ref_allele")
+            batch_alt = self._get_dna_one_hot(batch_bed, mode="alt_allele")
+
+            outputs_ref = self._forward_pass(model, batch_ref)
+            outputs_alt = self._forward_pass(model, batch_alt)
+            
+            # outputs = _clip_at_center(outputs, self.peak_bins)
+            all_data['ref'].append(outputs_ref.cpu())
+            all_data['alt'].append(outputs_alt.cpu())
+        all_data['ref'] = torch.cat(all_data['ref'], dim=0)
+        all_data['alt'] = torch.cat(all_data['alt'], dim=0)
+
+        return all_data
+
     @torch.no_grad()
     def _forward_pass(self, model, data):
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+
+        # Determine device from data
+        device = data.device
+        
+        if device.type == "cuda":
+            # Use mixed precision for CUDA
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                outputs = model(data)
+        else:
+            # Regular precision for CPU
             outputs = model(data)
+        
         return outputs
 
     def _marginalize(
@@ -615,6 +651,53 @@ class BorzoiInferencer:
 
         ds = BorzoiInferenceDataset(ds, self.genome)
         return ds
+
+    def infer_snp(
+        self, embedding: pd.DataFrame, bed: str, mode="attr", progress_bar=True
+    ) -> xr.Dataset:
+        """Inference of variant effect for given embedding and bed."""
+
+        bed = pd.read_csv(bed, header=0, sep="\t")
+        
+        # Standardize columns
+        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+        bed.columns = _columns
+        final_data = []
+        for _, single_emb in tqdm(embedding.iterrows(), disable=not progress_bar):
+            emb_model = self._collapse_model(single_emb)
+            data = self._snp_predict(emb_model, bed)
+            final_data.append(data)
+
+            del emb_model
+            torch.cuda.empty_cache()
+
+        # concat along the sample dim, resulting (sample, bs, c, seq_len)
+        final_data = torch.stack(final_data, dim=0).numpy()
+        # final_data = final_data.numpy()
+        return final_data
+        # # prepare xarray
+        # region_index = pd.Index(bed["Original_Name"].values)
+        # bed = bed.set_index("Original_Name")
+        # bed["Name"] = bed.index
+        # bed.index.name = "region"
+
+        # da = xr.DataArray(
+        #     final_data,
+        #     dims=["sample", "region", "channel", "pos"],
+        #     coords={
+        #         "sample": embedding.index,
+        #         "region": region_index,
+        #     },
+        # )
+        # bed = _clip_bed_region_at_center(bed, self.attr_length)
+        # for col, v in bed.items():
+        #     if col == "Chromosome":
+        #         v = v.astype(str)
+        #     da.coords[col] = ("region", v.values)
+        # ds = da.to_dataset(name=mode)
+
+        # ds = BorzoiInferenceDataset(ds, self.genome)
+        # return ds        
 
     def infer_offline(self, embedding, bed, output_dir, emb_chunk=10, mode="attr"):
         """Inference for given embedding and bed, save to output_dir."""
