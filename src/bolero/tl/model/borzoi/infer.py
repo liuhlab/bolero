@@ -455,17 +455,9 @@ class BorzoiInferencer:
     @torch.no_grad()
     def _forward_pass(self, model, data):
 
-        # Determine device from data
-        device = data.device
-        
-        if device.type == "cuda":
-            # Use mixed precision for CUDA
-            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                outputs = model(data)
-        else:
-            # Regular precision for CPU
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             outputs = model(data)
-        
+                    
         return outputs
 
     def _marginalize(
