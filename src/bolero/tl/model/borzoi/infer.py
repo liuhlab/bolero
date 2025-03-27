@@ -457,7 +457,7 @@ class BorzoiInferencer:
 
         with torch.amp.autocast("cuda", dtype=torch.bfloat16):
             outputs = model(data)
-                    
+
         return outputs
 
     def _marginalize(
@@ -652,18 +652,20 @@ class BorzoiInferencer:
         return ds
 
     def infer_snp(
-        self, embedding: pd.DataFrame, bed: str, mode="attr", progress_bar=True
+        self, embedding: pd.DataFrame, bed_paths: list[str], mode="attr", progress_bar=True
     ) -> xr.Dataset:
         """Inference of variant effect for given embedding and bed."""
 
-        bed = pd.read_csv(bed, header=0, sep="\t")
-        
-        # Standardize columns
-        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
-        bed.columns = _columns
         
         final_data = []
-        for _, single_emb in tqdm(embedding.iterrows(), disable=not progress_bar):
+        for (_, single_emb), bed_path in tqdm(zip(embedding.iterrows(), bed_paths), disable=not progress_bar):
+            
+            bed = pd.read_csv(bed_path, header=0, sep="\t")
+            
+            # Standardize columns
+            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+            bed.columns = _columns
+
             emb_model = self._collapse_model(single_emb)
             data = self._snp_predict(emb_model, bed)
             final_data.append(data)
