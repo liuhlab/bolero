@@ -470,7 +470,7 @@ class GenomeOneHotZarr(GenomePositionZarr):
         region_one_hot = self.get_region_data(chrom, start, end)
         return region_one_hot
 
-    def get_regions_one_hot(self, regions, mode=None):
+    def get_regions_one_hot(self, regions, snp_mode=False):
         """
         Get the one-hot encoded representation of the given regions.
 
@@ -494,12 +494,12 @@ class GenomeOneHotZarr(GenomePositionZarr):
         # get global coords
         if isinstance(regions, pd.DataFrame):
             
-            snp_info = regions[["ref", "snp", "pos2start"]] if mode in ["ref_allele", "alt_allele"] else None
+            snp_info = regions[["ref", "snp", "pos2start"]] if snp_mode else None
             regions = regions[["Chromosome", "Start", "End"]]
             
         elif isinstance(regions, pr.PyRanges):
 
-            snp_info = regions.df[["ref", "snp", "pos2start"]] if mode in ["ref_allele", "alt_allele"] else None    
+            snp_info = regions.df[["ref", "snp", "pos2start"]] if snp_mode else None    
             regions = regions.df[["Chromosome", "Start", "End"]]
             
         elif isinstance(regions, str):
@@ -523,12 +523,12 @@ class GenomeOneHotZarr(GenomePositionZarr):
         
         # Get the basic one-hot encoding
         region_one_hot = self.get_regions_data(regions)  # shape (bs, seq_len, 4)
-
+        
         # Apply SNP mutations if needed
-        if mode in ["ref_allele", "alt_allele"]:
-            nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+        if snp_mode:
+            nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3} #TODO TLG: Double-check this mapping is correct
             
-            # Create a deep copy of the one-hot encoding to modify
+            # Create a copy of the one-hot encoding to modify
             modified_one_hot = region_one_hot.copy()
             
             # Process each sample in the batch with its specific SNP info
@@ -540,30 +540,18 @@ class GenomeOneHotZarr(GenomePositionZarr):
                 
                 # Convert position to integer if needed
                 relative_pos = int(relative_pos)
-                
-                if mode == "ref_allele":
-                    # Validate reference nucleotide
-                    if ref not in nucleotide_map:
-                        raise ValueError(f"Unknown nucleotide '{ref}' in SNP data for batch item {batch_idx}")
-                        
-                    # For reference allele, ensure the correct base is set
-                    # Clear the position for this batch item
-                    modified_one_hot[batch_idx, relative_pos, :] = 0
-                    # Set the reference nucleotide
-                    modified_one_hot[batch_idx, relative_pos, nucleotide_map[ref]] = 1
-                        
-                else:  # alt_allele
-                    # Validate alternate nucleotide
-                    if alt_allele not in nucleotide_map:
-                        raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
-                        
-                    # For alt allele, set the alternate base
-                    # Clear the position for this batch item
-                    modified_one_hot[batch_idx, relative_pos, :] = 0
-                    # Set the alternate nucleotide
-                    modified_one_hot[batch_idx, relative_pos, nucleotide_map[alt_allele]] = 1
+
+                # Validate alternate nucleotide
+                if alt_allele not in nucleotide_map:
+                    raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
+                    
+                # For alt allele, set the alternate base
+                # Clear the position for this batch item
+                modified_one_hot[batch_idx, relative_pos, :] = 0
+                # Set the alternate nucleotide
+                modified_one_hot[batch_idx, relative_pos, nucleotide_map[alt_allele]] = 1
             
-            return modified_one_hot
+            return {'ref': region_one_hot, 'alt': modified_one_hot}
 
         # Return reference sequence (original one-hot encoding)
         return region_one_hot

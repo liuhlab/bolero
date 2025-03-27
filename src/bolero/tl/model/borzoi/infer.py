@@ -378,12 +378,19 @@ class BorzoiInferencer:
         # emb_model = emb_model.eval().cpu()
         return emb_model
 
-    def _get_dna_one_hot(self, bed, mode=None) -> torch.Tensor:
-        dna = self.genome.get_regions_one_hot(bed, mode=mode)
-        dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
-        # dna = torch.from_numpy(dna).cpu().swapaxes(1, 2)
-        dna = dna.half()
-        dna.requires_grad = True
+    def _get_dna_one_hot(self, bed, snp_mode=False) -> torch.Tensor:
+        dna = self.genome.get_regions_one_hot(bed, snp_mode=snp_mode)
+        #returned ref and alt allele one-hots
+        if isinstance(dna, dict):
+            for k, v in dna.items():
+                dna[k] = torch.from_numpy(v).cuda().swapaxes(1, 2)
+                dna[k] = dna[k].half()
+                dna[k].requires_grad = True
+        else:
+            dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
+            # dna = torch.from_numpy(dna).cpu().swapaxes(1, 2)
+            dna = dna.half()
+            dna.requires_grad = True
         return dna
 
 
@@ -424,22 +431,22 @@ class BorzoiInferencer:
         all_data = torch.cat(all_data, dim=0)
         return all_data
 
-    def _snp_predict(self, model, bed):
+    def _snp_predict(self, model, bed, modality='atac'):
         #1. batch ref batch alt
         #2. Concatenate
         #3. create dictionary of concats
         all_data = {'ref': [], 'alt': []}
         for i in range(0, bed.shape[0], self.batch_size):
             batch_bed = bed.iloc[i : i + self.batch_size]
-            batch_ref = self._get_dna_one_hot(batch_bed, mode="ref_allele")
-            batch_alt = self._get_dna_one_hot(batch_bed, mode="alt_allele")
 
-            outputs_ref = self._forward_pass(model, batch_ref)
-            outputs_alt = self._forward_pass(model, batch_alt)
+            batch = self._get_dna_one_hot(batch_bed, snp_mode=True)
+            outputs_ref = self._forward_pass(model, batch['ref'])
+            outputs_alt = self._forward_pass(model, batch['alt'])
             
+            # import pdb; breakpoint()
             # outputs = _clip_at_center(outputs, self.peak_bins)
-            all_data['ref'].append(outputs_ref.cpu())
-            all_data['alt'].append(outputs_alt.cpu())
+            all_data['ref'].append(outputs_ref[modality].cpu())
+            all_data['alt'].append(outputs_alt[modality].cpu())
         all_data['ref'] = torch.cat(all_data['ref'], dim=0)
         all_data['alt'] = torch.cat(all_data['alt'], dim=0)
 
@@ -662,6 +669,7 @@ class BorzoiInferencer:
         # Standardize columns
         _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
         bed.columns = _columns
+        
         final_data = []
         for _, single_emb in tqdm(embedding.iterrows(), disable=not progress_bar):
             emb_model = self._collapse_model(single_emb)
@@ -672,34 +680,47 @@ class BorzoiInferencer:
             torch.cuda.empty_cache()
 
         # concat along the sample dim, resulting (sample, bs, c, seq_len)
-        final_data = torch.stack(final_data, dim=0).numpy()
+        # final_data = torch.stack(final_data, dim=0).numpy()
         # final_data = final_data.numpy()
-        return final_data
-        # # prepare xarray
-        # region_index = pd.Index(bed["Original_Name"].values)
-        # bed = bed.set_index("Original_Name")
-        # bed["Name"] = bed.index
-        # bed.index.name = "region"
+        # return final_data
+        # import pdb;breakpoint()
+        # Stack ref and alt predictions separately.
+        ref_data = torch.stack([data['ref'] for data in final_data], dim=0).cpu().numpy()  # shape: (sample, region, channel, pos)
+        alt_data = torch.stack([data['alt'] for data in final_data], dim=0).cpu().numpy()  # shape: (sample, region, channel, pos)
+        
+        # Create a region index from the BED file (using its row order).
+        region_index = np.arange(len(bed))
+        
+        # Build an xarray Dataset with separate DataArrays for ref and alt predictions.
+        ds = xr.Dataset(
+            {
+                "ref_prediction": (["sample", "region", "channel", "pos"], ref_data),
+                "alt_prediction": (["sample", "region", "channel", "pos"], alt_data)
+            },
+            coords={
+                "sample": embedding.index,
+                "region": region_index
+            },
+            attrs={
+                "description": "Variant effect predictions with region information from BED file"
+            }
+        )
+        
+        # Attach region metadata from the BED file as coordinates.
+        # For each column in the BED file, add a 1D coordinate with dimension "region".
+        for col_name in bed.columns:
+            col_values = bed[col_name].values
+            if col_name == "Chromosome":
+                col_values = col_values.astype(str)
+            ds.coords[col_name] = (("region",), col_values)
+        
+        # Optionally, you can also add an "allele" coordinate if you prefer to combine ref and alt 
+        # in a single DataArray (here they are stored separately).
+        ds = BorzoiInferenceDataset(ds, self.genome)
+        return ds
 
-        # da = xr.DataArray(
-        #     final_data,
-        #     dims=["sample", "region", "channel", "pos"],
-        #     coords={
-        #         "sample": embedding.index,
-        #         "region": region_index,
-        #     },
-        # )
-        # bed = _clip_bed_region_at_center(bed, self.attr_length)
-        # for col, v in bed.items():
-        #     if col == "Chromosome":
-        #         v = v.astype(str)
-        #     da.coords[col] = ("region", v.values)
-        # ds = da.to_dataset(name=mode)
 
-        # ds = BorzoiInferenceDataset(ds, self.genome)
-        # return ds        
-
-    def infer_offline(self, embedding, bed, output_dir, emb_chunk=10, mode="attr"):
+    def infer_offline(self, embedding, bed, output_dir, emb_chunk=10, mode="attr", use_snp=False):
         """Inference for given embedding and bed, save to output_dir."""
         output_dir = pathlib.Path(output_dir) / mode
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -715,7 +736,10 @@ class BorzoiInferencer:
                 continue
 
             # attribute chunk
-            ds = self.infer(emb_chunk_df, bed, mode=mode, progress_bar=False)
+            if use_snp:
+                ds = self.infer_snp(emb_chunk_df, bed, mode=mode, progress_bar=False)
+            else:
+                ds = self.infer(emb_chunk_df, bed, mode=mode, progress_bar=False)
             ds = ds.dataset
 
             # save chunk
