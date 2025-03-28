@@ -1045,16 +1045,18 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         return all_data
     
     def infer_snp(
-        self, embedding: pd.DataFrame, bed_paths: list[str], progress_bar=True
+        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True
     ) -> xr.Dataset:
         """Inference of variant effect for given embedding and bed files.
         
         Parameters
         ----------
-        embedding : pd.DataFrame
-            Embedding dataframe.
-        bed_paths : list of str
-            List of paths to bed files with variant information.
+        celltype : str
+            The cell type identifier (e.g., 'ASC')
+        embedding : np.array
+            Embedding array for the cell type
+        bed_path : str
+            Path to the bed file with variant information
         progress_bar : bool, optional
             Show progress bar. Default is True.
             
@@ -1066,20 +1068,21 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         final_data = []
         all_beds = []
         
-        for (_, single_emb), bed_path in tqdm(zip(embedding.iterrows(), bed_paths), disable=not progress_bar):
-            bed = pd.read_csv(bed_path, header=0, sep="\t")
-            
-            # Standardize columns
-            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
-            bed.columns = _columns
-            all_beds.append(bed)
-            
-            emb_model = self._collapse_model(single_emb)
-            data = self._snp_predict(emb_model, bed)
-            final_data.append(data)
-
-            del emb_model
-            torch.cuda.empty_cache()
+        # Read and process the BED file
+        bed = pd.read_csv(bed_path, header=0, sep="\t")
+        
+        # Standardize columns
+        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+        bed.columns = _columns
+        all_beds.append(bed)
+        
+        # Process the embedding
+        emb_model = self._collapse_model(embedding)
+        data = self._snp_predict(emb_model, bed)
+        final_data.append(data)
+        
+        del emb_model
+        torch.cuda.empty_cache()
 
         # Combine all beds for metadata
         combined_bed = pd.concat(all_beds, ignore_index=True)
@@ -1098,11 +1101,11 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 "alt_prediction": (["sample", "region", "channel", "pos"], alt_data)
             },
             coords={
-                "sample": embedding.index,
+                "sample": [celltype],  # List with single cell type
                 "region": region_index
             },
             attrs={
-                "description": "Variant effect predictions"
+                "description": f"Variant effect predictions for {celltype}"
             }
         )
         
@@ -1117,57 +1120,94 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
         
         return BorzoiInferenceDataset(ds, self.genome)
-    
+        
     def infer_snp_offline(
         self, 
-        embedding, 
-        bed_paths, 
-        output_dir, 
-        emb_chunk=10, 
+        embedding_bed_dict,
+        output_dir,
+        experiment_name,
         progress_bar=True
     ):
-        """Inference for SNP variants, saving results to output_dir.
+        """Inference for SNP variants, saving results to output_dir for each cell type.
         
         Parameters
         ----------
-        embedding : pd.DataFrame
-            Embedding dataframe.
-        bed_paths : list of str
-            List of paths to bed files with variant information.
+        embedding_bed_dict : dict
+            Dictionary where:
+            - Keys are cell types (e.g., 'ASC')
+            - Values are dictionaries with:
+                - 'path': path to the bed file with variant information
+                - 'embedding': embedding dataframe for that cell type
         output_dir : str
             Path to output directory.
-        emb_chunk : int, optional
-            Embedding chunk size. Default is 10.
+        experiment_name : str
+            Name of the experiment for the subfolder.
         progress_bar : bool, optional
             Show progress bar. Default is True.
         """
-        output_dir = pathlib.Path(output_dir) / "snp"
+        # Create main output directory with experiment name
+        output_dir = pathlib.Path(output_dir) / experiment_name
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a success flag for the entire process
         success_flag = output_dir / ".success"
         if success_flag.exists():
-            print(f"Output directory {output_dir} already success. Skipping.")
+            print(f"Output directory {output_dir} already has success flag. Skipping.")
             return
-
-        for emb_chunk_i in range(0, len(embedding), emb_chunk):
-            emb_chunk_df = embedding.iloc[emb_chunk_i : emb_chunk_i + emb_chunk]
-            bed_chunk = bed_paths[emb_chunk_i : emb_chunk_i + emb_chunk]
-
-            chunk_out_path = output_dir / f"emb_{emb_chunk_i}.zarr"
-            if chunk_out_path.exists():
+        
+        # Process each cell type
+        for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
+                                        desc="Processing cell types"):
+            
+            # Create cell type specific directory
+            cell_type_dir = output_dir / cell_type
+            cell_type_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if this cell type has already been processed
+            cell_type_success = cell_type_dir / ".success"
+            if cell_type_success.exists():
+                print(f"Cell type {cell_type} already processed. Skipping.")
                 continue
-
-            # Infer SNP effects for chunk
-            ds = self.infer_snp(emb_chunk_df, bed_chunk, progress_bar=progress_bar)
-            ds = ds.dataset
-
-            # Save chunk
-            temp_out_path = pathlib.Path(f"{chunk_out_path}.temp")
-
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=xr.SerializationWarning)
-                ds = ds.chunk(ds.sizes)
-                ds.to_zarr(temp_out_path, mode="w")
-            temp_out_path.rename(chunk_out_path)
-
+            
+            # Create a temporary dict with just this cell type for infer_snp
+            single_cell_dict = {cell_type: data_dict}
+            embedding = data_dict['embedding']
+            bed_path = data_dict['path']
+            try:
+                # Infer SNP effects for this cell type
+                ds = self.infer_snp(cell_type, embedding, bed_path, progress_bar=progress_bar)
+                
+                # Get the xarray dataset
+                ds = ds.dataset
+                
+                # Output path for this cell type
+                zarr_path = cell_type_dir / f"{cell_type}.zarr"
+                temp_out_path = pathlib.Path(f"{zarr_path}.temp")
+                
+                # Save dataset to zarr format
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=xr.SerializationWarning)
+                    # Chunk the dataset for efficient storage and access
+                    ds = ds.chunk(ds.sizes)
+                    ds.to_zarr(temp_out_path, mode="w")
+                
+                # Rename the temp file to final path
+                temp_out_path.rename(zarr_path)
+                
+                # Mark this cell type as successfully processed
+                cell_type_success.touch()
+                
+                print(f"Successfully processed cell type: {cell_type}")
+                
+            except Exception as e:
+                print(f"Error processing cell type {cell_type}: {str(e)}")
+                # Continue with other cell types even if one fails
+                continue
+            
+            # Clear memory
+            torch.cuda.empty_cache()
+        
+        # Mark the entire process as complete
         success_flag.touch()
+        print(f"Completed processing all cell types for experiment: {experiment_name}")
         return
