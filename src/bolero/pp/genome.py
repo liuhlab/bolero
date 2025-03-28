@@ -1033,7 +1033,7 @@ class Genome:
         seq = one_hot_decoding(one_hot)
         return seq
 
-    def get_regions_one_hot(self, regions, snp_mode=False):
+    def get_regions_one_hot(self, regions):
         """
         Get the one-hot encoding for the given regions.
 
@@ -1053,7 +1053,7 @@ class Genome:
             raise ValueError(
                 "Genome one-hot encoding is not created, please run genome.get_genome_one_hot first."
             )
-        return self.genome_one_hot.get_regions_one_hot(regions, snp_mode=snp_mode)
+        return self.genome_one_hot.get_regions_one_hot(regions)
 
     def get_global_coords(self, region_bed, chrom_offsets=None):
         """

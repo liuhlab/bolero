@@ -350,7 +350,6 @@ class BorzoiInferencer:
     def _load_model(self, path):
         """Load model for inference."""
         model = torch.load(path, weights_only=False).cuda()
-        # model = torch.load(path, weights_only=False, map_location=torch.device('cpu'))
         model = model.eval()
         return model
 
@@ -371,26 +370,16 @@ class BorzoiInferencer:
         elif isinstance(emb, np.ndarray):
             emb = torch.from_numpy(emb)
         emb = emb.cuda().unsqueeze(0)
-        # emb = emb.cpu().unsqueeze(0)
 
         emb_model = self.model.collapse_lora(emb)
         emb_model = emb_model.eval().cuda()
-        # emb_model = emb_model.eval().cpu()
         return emb_model
 
-    def _get_dna_one_hot(self, bed, snp_mode=False) -> torch.Tensor:
-        dna = self.genome.get_regions_one_hot(bed, snp_mode=snp_mode)
-        #returned ref and alt allele one-hots
-        if isinstance(dna, dict):
-            for k, v in dna.items():
-                dna[k] = torch.from_numpy(v).cuda().swapaxes(1, 2)
-                dna[k] = dna[k].half()
-                dna[k].requires_grad = True
-        else:
-            dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
-            # dna = torch.from_numpy(dna).cpu().swapaxes(1, 2)
-            dna = dna.half()
-            dna.requires_grad = True
+    def _get_dna_one_hot(self, bed) -> torch.Tensor:
+        dna = self.genome.get_regions_one_hot(bed)
+        dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
+        dna = dna.half()
+        dna.requires_grad = True
         return dna
 
 
@@ -429,27 +418,6 @@ class BorzoiInferencer:
             outputs = _clip_at_center(outputs, self.peak_bins)
             all_data.append(outputs.cpu())
         all_data = torch.cat(all_data, dim=0)
-        return all_data
-
-    def _snp_predict(self, model, bed, modality='atac'):
-        #1. batch ref batch alt
-        #2. Concatenate
-        #3. create dictionary of concats
-        all_data = {'ref': [], 'alt': []}
-        for i in range(0, bed.shape[0], self.batch_size):
-            batch_bed = bed.iloc[i : i + self.batch_size]
-
-            batch = self._get_dna_one_hot(batch_bed, snp_mode=True)
-            outputs_ref = self._forward_pass(model, batch['ref'])
-            outputs_alt = self._forward_pass(model, batch['alt'])
-            
-            # import pdb; breakpoint()
-            # outputs = _clip_at_center(outputs, self.peak_bins)
-            all_data['ref'].append(outputs_ref[modality].cpu())
-            all_data['alt'].append(outputs_alt[modality].cpu())
-        all_data['ref'] = torch.cat(all_data['ref'], dim=0)
-        all_data['alt'] = torch.cat(all_data['alt'], dim=0)
-
         return all_data
 
     @torch.no_grad()
@@ -651,68 +619,6 @@ class BorzoiInferencer:
         ds = BorzoiInferenceDataset(ds, self.genome)
         return ds
 
-    def infer_snp(
-        self, embedding: pd.DataFrame, bed_paths: list[str], mode="attr", progress_bar=True
-    ) -> xr.Dataset:
-        """Inference of variant effect for given embedding and bed."""
-
-        
-        final_data = []
-        for (_, single_emb), bed_path in tqdm(zip(embedding.iterrows(), bed_paths), disable=not progress_bar):
-            
-            bed = pd.read_csv(bed_path, header=0, sep="\t")
-            
-            # Standardize columns
-            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
-            bed.columns = _columns
-
-            emb_model = self._collapse_model(single_emb)
-            data = self._snp_predict(emb_model, bed)
-            final_data.append(data)
-
-            del emb_model
-            torch.cuda.empty_cache()
-
-        # concat along the sample dim, resulting (sample, bs, c, seq_len)
-        # final_data = torch.stack(final_data, dim=0).numpy()
-        # final_data = final_data.numpy()
-        # return final_data
-        # import pdb;breakpoint()
-        # Stack ref and alt predictions separately.
-        ref_data = torch.stack([data['ref'] for data in final_data], dim=0).cpu().numpy()  # shape: (sample, region, channel, pos)
-        alt_data = torch.stack([data['alt'] for data in final_data], dim=0).cpu().numpy()  # shape: (sample, region, channel, pos)
-        
-        # Create a region index from the BED file (using its row order).
-        region_index = np.arange(len(bed))
-        
-        # Build an xarray Dataset with separate DataArrays for ref and alt predictions.
-        ds = xr.Dataset(
-            {
-                "ref_prediction": (["sample", "region", "channel", "pos"], ref_data),
-                "alt_prediction": (["sample", "region", "channel", "pos"], alt_data)
-            },
-            coords={
-                "sample": embedding.index,
-                "region": region_index
-            },
-            attrs={
-                "description": "Variant effect predictions with region information from BED file"
-            }
-        )
-        
-        # Attach region metadata from the BED file as coordinates.
-        # For each column in the BED file, add a 1D coordinate with dimension "region".
-        for col_name in bed.columns:
-            col_values = bed[col_name].values
-            if col_name == "Chromosome":
-                col_values = col_values.astype(str)
-            ds.coords[col_name] = (("region",), col_values)
-        
-        # Optionally, you can also add an "allele" coordinate if you prefer to combine ref and alt 
-        # in a single DataArray (here they are stored separately).
-        ds = BorzoiInferenceDataset(ds, self.genome)
-        return ds
-
 
     def infer_offline(self, embedding, bed, output_dir, emb_chunk=10, mode="attr", use_snp=False):
         """Inference for given embedding and bed, save to output_dir."""
@@ -730,10 +636,7 @@ class BorzoiInferencer:
                 continue
 
             # attribute chunk
-            if use_snp:
-                ds = self.infer_snp(emb_chunk_df, bed, mode=mode, progress_bar=False)
-            else:
-                ds = self.infer(emb_chunk_df, bed, mode=mode, progress_bar=False)
+            ds = self.infer(emb_chunk_df, bed, mode=mode, progress_bar=False)
             ds = ds.dataset
 
             # save chunk
@@ -997,3 +900,274 @@ class BorzoiInferenceDataset:
 
         selected_motifs_df = pd.DataFrame(selected_motifs)
         return selected_motifs_df
+
+
+
+
+
+class BorzoiSNPInferencer(BorzoiInferencer):
+    def __init__(
+        self,
+        genome,
+        checkpoint_path,
+        peak_length=512,
+        attr_length=1024,
+        batch_size=8,
+    ):
+        super().__init__(
+            genome=genome,
+            checkpoint_path=checkpoint_path,
+            peak_length=peak_length,
+            attr_length=attr_length,
+            batch_size=batch_size,
+        )
+
+    def _load_model(self, path):
+        
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        model = torch.load(path, weights_only=False, map_location=torch.device(device))
+        model = model.eval()
+        return model
+
+
+    #TODO: use tangermeme package for snp 
+    #1. take dna tensor as input
+    #2. mutation info as input 
+    
+    #do mutation after fetching genome
+    #IN FUTURE
+    #bedfile, mutations vcf format --> dna one hot output
+    #mutation overlap, then do tangermeme substitution 
+    #vcf file parser exist
+    def _get_snp_dna_one_hot(self, bed):
+
+        """Get reference and alternate allele one-hot encodings for SNPs.
+        
+        Parameters
+        ----------
+        bed : pd.DataFrame
+            Bed file with variant information.
+        snp_mode : bool, optional
+            Whether to return both reference and alternate alleles. Default is False.
+            
+        Returns
+        -------
+        torch.Tensor or dict of torch.Tensor
+            One-hot encoded DNA sequences.
+        """
+        
+        # Get reference allele sequences
+        ref_dna = self.genome.get_regions_one_hot(bed)
+
+        snp_info = bed[["ref", "snp", "pos2start"]]
+        
+        nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3} #TODO TLG: Double-check this mapping is correct
+        
+        # Create a copy of the one-hot encoding to modify
+        alt_dna = ref_dna.copy()
+        
+        assert len(snp_info) == ref_dna.shape[0], f'Regions != Batch size: {len(snp_info)}, {ref_dna.shape[0]}'
+
+        # Process each sample in the batch with its specific SNP info
+        for batch_idx in range(len(snp_info)):
+
+            # Get the SNP info for this specific batch item
+            sample_row = snp_info.iloc[batch_idx]
+            ref, alt_allele, relative_pos = sample_row
+            
+            # Convert position to integer if needed
+            relative_pos = int(relative_pos)
+
+            # Validate alternate nucleotide
+            if alt_allele not in nucleotide_map:
+                raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
+                
+            # For alt allele, set the alternate base
+            # Clear the position for this batch item
+            alt_dna[batch_idx, relative_pos, :] = 0
+            # Set the alternate nucleotide
+            alt_dna[batch_idx, relative_pos, nucleotide_map[alt_allele]] = 1
+
+
+        def transform_tensor(dna):
+            """
+            dna is of shape (bs, seqlen, 4)
+            outputs dna of shape (bs, 4, seqlen) with correct precision etc. 
+            """
+            if torch.cuda.is_available():
+                dna = torch.from_numpy(dna).cuda().swapaxes(1, 2)
+            
+            else:
+                dna =  torch.from_numpy(dna).cpu().swapaxes(1, 2)
+            dna = dna.half()
+            dna.requires_grad = True
+            return dna
+        
+        ref_dna = transform_tensor(ref_dna)
+        alt_dna = transform_tensor(alt_dna)
+
+        
+        return {'ref': ref_dna, 'alt': alt_dna}
+
+    def _snp_predict(self, model, bed, modality='atac'):
+        """Run prediction for SNP variants.
+        
+        Parameters
+        ----------
+        model : torch.nn.Module
+            Collapsed model for prediction.
+        bed : pd.DataFrame
+            Bed file with variant information.
+        modality : str, optional
+            Modality to extract from model output. Default is 'atac'.
+            
+        Returns
+        -------
+        dict
+            Dictionary with reference and alternate predictions.
+        """
+        all_data = {'ref': [], 'alt': []}
+        for i in range(0, bed.shape[0], self.batch_size):
+            batch_bed = bed.iloc[i : i + self.batch_size]
+            
+            batch = self._get_snp_dna_one_hot(batch_bed)
+            outputs_ref = self._forward_pass(model, batch['ref'])
+            outputs_alt = self._forward_pass(model, batch['alt'])
+
+            
+            all_data['ref'].append(outputs_ref[modality].cpu())
+            all_data['alt'].append(outputs_alt[modality].cpu())
+            
+        all_data['ref'] = torch.cat(all_data['ref'], dim=0)
+        all_data['alt'] = torch.cat(all_data['alt'], dim=0)
+
+        return all_data
+    
+    def infer_snp(
+        self, embedding: pd.DataFrame, bed_paths: list[str], progress_bar=True
+    ) -> xr.Dataset:
+        """Inference of variant effect for given embedding and bed files.
+        
+        Parameters
+        ----------
+        embedding : pd.DataFrame
+            Embedding dataframe.
+        bed_paths : list of str
+            List of paths to bed files with variant information.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+            
+        Returns
+        -------
+        BorzoiInferenceDataset
+            Dataset with SNP effect predictions.
+        """
+        final_data = []
+        all_beds = []
+        
+        for (_, single_emb), bed_path in tqdm(zip(embedding.iterrows(), bed_paths), disable=not progress_bar):
+            bed = pd.read_csv(bed_path, header=0, sep="\t")
+            
+            # Standardize columns
+            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+            bed.columns = _columns
+            all_beds.append(bed)
+            
+            emb_model = self._collapse_model(single_emb)
+            data = self._snp_predict(emb_model, bed)
+            final_data.append(data)
+
+            del emb_model
+            torch.cuda.empty_cache()
+
+        # Combine all beds for metadata
+        combined_bed = pd.concat(all_beds, ignore_index=True)
+        
+        # Stack ref and alt predictions separately
+        ref_data = torch.stack([data['ref'] for data in final_data], dim=0).cpu().numpy()
+        alt_data = torch.stack([data['alt'] for data in final_data], dim=0).cpu().numpy()
+        
+        # Create a region index from the BED file
+        region_index = np.arange(len(combined_bed))
+        
+        # Build an xarray Dataset
+        ds = xr.Dataset(
+            {
+                "ref_prediction": (["sample", "region", "channel", "pos"], ref_data),
+                "alt_prediction": (["sample", "region", "channel", "pos"], alt_data)
+            },
+            coords={
+                "sample": embedding.index,
+                "region": region_index
+            },
+            attrs={
+                "description": "Variant effect predictions"
+            }
+        )
+        
+        # Attach region metadata
+        for col_name in combined_bed.columns:
+            col_values = combined_bed[col_name].values
+            if col_name == "Chromosome":
+                col_values = col_values.astype(str)
+            ds.coords[col_name] = (("region",), col_values)
+        
+        # Calculate effect scores (alternate - reference)
+        ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
+        
+        return BorzoiInferenceDataset(ds, self.genome)
+    
+    def infer_snp_offline(
+        self, 
+        embedding, 
+        bed_paths, 
+        output_dir, 
+        emb_chunk=10, 
+        progress_bar=True
+    ):
+        """Inference for SNP variants, saving results to output_dir.
+        
+        Parameters
+        ----------
+        embedding : pd.DataFrame
+            Embedding dataframe.
+        bed_paths : list of str
+            List of paths to bed files with variant information.
+        output_dir : str
+            Path to output directory.
+        emb_chunk : int, optional
+            Embedding chunk size. Default is 10.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+        """
+        output_dir = pathlib.Path(output_dir) / "snp"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        success_flag = output_dir / ".success"
+        if success_flag.exists():
+            print(f"Output directory {output_dir} already success. Skipping.")
+            return
+
+        for emb_chunk_i in range(0, len(embedding), emb_chunk):
+            emb_chunk_df = embedding.iloc[emb_chunk_i : emb_chunk_i + emb_chunk]
+            bed_chunk = bed_paths[emb_chunk_i : emb_chunk_i + emb_chunk]
+
+            chunk_out_path = output_dir / f"emb_{emb_chunk_i}.zarr"
+            if chunk_out_path.exists():
+                continue
+
+            # Infer SNP effects for chunk
+            ds = self.infer_snp(emb_chunk_df, bed_chunk, progress_bar=progress_bar)
+            ds = ds.dataset
+
+            # Save chunk
+            temp_out_path = pathlib.Path(f"{chunk_out_path}.temp")
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=xr.SerializationWarning)
+                ds = ds.chunk(ds.sizes)
+                ds.to_zarr(temp_out_path, mode="w")
+            temp_out_path.rename(chunk_out_path)
+
+        success_flag.touch()
+        return
