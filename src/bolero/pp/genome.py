@@ -217,7 +217,7 @@ def _is_macos():
 class Genome:
     """Class for utilities related to a genome."""
 
-    def __init__(self, genome, save_dir=None):
+    def __init__(self, genome, save_dir=None, user_gtf_path=None):
         if isinstance(genome, self.__class__):
             return genome
 
@@ -259,6 +259,7 @@ class Genome:
         # protein sequence
         self._uniprot_seq_records = None
         self._uniprot_idmap = None
+        self.user_gtf_path = user_gtf_path
         return
 
     def __repr__(self):
@@ -274,7 +275,7 @@ class Genome:
     def gtf_db(self):
         """Return the ref id of gtf db object in ray's object store."""
         if self._gtf_db is None:
-            self._gtf_db = load_gtf(self.name)
+            self._gtf_db = load_gtf(self.name, gtf_path=self.user_gtf_path)
         return self._gtf_db
 
     @property

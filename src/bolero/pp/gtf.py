@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from gffutils import Feature, FeatureDB, FeatureNotFoundError
+from gffutils import Feature, FeatureDB, FeatureNotFoundError, create_db
 
 
 def universal_mapping(input, mapping: dict):
@@ -67,9 +67,12 @@ class GTFDB(FeatureDB):
         self.feature_types = list(self.featuretypes())
         self.chroms = list(self.seqids())
 
-        basic_info_dict = self._prepare_basic_ids()
-        for k, v in basic_info_dict.items():
-            setattr(self, k, v)
+        try:
+            basic_info_dict = self._prepare_basic_ids()
+            for k, v in basic_info_dict.items():
+                setattr(self, k, v)
+        except KeyError:
+            print("Failed to load basic info.")
 
         # place holder
         self._gene_bed = None
@@ -82,11 +85,16 @@ class GTFDB(FeatureDB):
             return basic_info_dict
 
         # gene
-        gene_id_to_name = {}
-        for gene in self.features_of_type("gene"):
-            gene_id_to_name[gene.id] = gene["gene_name"][0]
-            if len(gene["gene_name"]) > 1:
-                print(gene["gene_name"])
+        try:
+            gene_id_to_name = {}
+            for gene in self.features_of_type("gene"):
+                gene_id_to_name[gene.id] = gene["gene_name"][0]
+                if len(gene["gene_name"]) > 1:
+                    print(gene["gene_name"])
+        except KeyError:
+            # disable gene id name convertion
+            gene_id_to_name = {g.id: g.id for g in self.features_of_type("gene")}
+
         gene_name_to_id = {v: k for k, v in gene_id_to_name.items()}
         gene_ids = list(gene_id_to_name.keys())
         gene_names = list(set(gene_id_to_name.values()))
@@ -438,11 +446,24 @@ HG38_GTFDB_PATH = (
 )
 
 
-def load_gtf(genome: str = "mm10"):
+def load_gtf(genome: str = "mm10", gtf_path: str = None):
     """Load GTFDB for genome."""
-    if genome == "mm10":
-        return GTFDB(MM10_GTFDB_PATH)
-    elif genome == "hg38":
-        return GTFDB(HG38_GTFDB_PATH)
+    if gtf_path is None:
+        if genome == "mm10":
+            return GTFDB(MM10_GTFDB_PATH)
+        elif genome == "hg38":
+            return GTFDB(HG38_GTFDB_PATH)
+        else:
+            raise ValueError(
+                f"Please provide gtf_path for custom genome. Unsupported genome: {genome}"
+            )
     else:
-        raise ValueError(f"Unsupported genome: {genome}")
+        if str(gtf_path).endswith(".db"):
+            gtfdb_path = gtf_path
+        else:
+            # try to create GTFDB
+            gtfdb_path = pathlib.Path(gtf_path).with_suffix(".gffutils.db")
+            if not gtfdb_path.exists():
+                print(f"Create GTFDB for {gtf_path}")
+                create_db(str(gtf_path), dbfn=str(gtfdb_path))
+        return GTFDB(gtfdb_path)
