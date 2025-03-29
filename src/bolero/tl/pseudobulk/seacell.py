@@ -38,7 +38,13 @@ def calc_meta_cells(adata, meta_fold, obsm, n_waypoint_eigs=10):
     )
     model.construct_kernel_matrix()
     model.initialize_archetypes()
-    model.fit(min_iter=10, max_iter=50)
+    try:
+        model.fit(min_iter=10, max_iter=80)
+    except RuntimeWarning:
+        # seacell raise error when not converge
+        # This seems to happen some times when the total population is very small
+        print("SEACell not converge, using the last fit")
+        pass
     assign = model.get_hard_assignments()
     return model, assign
 
@@ -82,6 +88,7 @@ def run_meta_cells(
     else:
         total_assign = []
         for group, sub_df in adata.obs.groupby(groupby, observed=True):
+            print(f"Run meta cell for {group}")
             ct_adata = adata[sub_df.index].copy()
             _, assign = calc_meta_cells(ct_adata, meta_fold, obsm)
             assign = group + "+" + assign["SEACell"]
