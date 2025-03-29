@@ -3,6 +3,7 @@ import pathlib
 from collections import OrderedDict
 from typing import Union
 
+import joblib
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -727,4 +728,40 @@ class SnapAnnDataDataset:
         names = pd.Index(self.adata.obs_names)
         if self.use_barcodes_idx is not None:
             names = names[names.isin(self.use_barcodes.index)].copy()
+        return names
+
+
+class ChromSparseDataset:
+    def __init__(self, name, dataset_dir):
+        self.name = name
+        self.dataset_dir = pathlib.Path(dataset_dir)
+
+    def _get_remote_csc_mat(self, chrom):
+        csc_mat = joblib.load(self.dataset_dir / f"insertion_{chrom}.csc.joblib")
+        return ray.put(csc_mat)
+
+    def get_regions_data(self, regions_df):
+        """Get list of dicts for each region's sparse matrix"""
+        total_dicts = []
+        for chrom, chrom_df in regions_df.groupby("Chromosome", observed=True):
+            remote_smat = self._get_remote_csc_mat(chrom)
+
+            for _, (chrom, start, end, *_) in chrom_df.iterrows():
+                task = select_smat_region.remote(
+                    smat=remote_smat,
+                    prefix=self.name,
+                    chrom=chrom,
+                    start=start,
+                    end=end,
+                    gstart=None,
+                    gend=None,
+                )
+                total_dicts.append(task)
+        total_dicts = ray.get(total_dicts)
+        return total_dicts
+
+    def get_row_names(self):
+        """Get row names of the sparse matrix."""
+        names = joblib.load(self.dataset_dir / "pseudobulk_order.list.joblib")
+        names = pd.Index(names)
         return names

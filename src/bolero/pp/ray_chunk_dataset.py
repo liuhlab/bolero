@@ -6,6 +6,7 @@ import ray
 
 from bolero.pp.genome import Genome
 from bolero.pp.genome_chunk_dataset import (
+    ChromSparseDataset,
     GenomeALLCDataset,
     GenomeBigWigDataset,
     SingleCellCutsiteDataset,
@@ -160,6 +161,34 @@ class GenomeChunkDatasetGenerator:
             },
             "remote_kwargs": {
                 "memory": 15 * 1024**3,
+                "resources": {"bolero_dataset_gen": 10},
+            },
+        }
+        return
+
+    def add_chrom_sparse(self, prefix, dataset_dir):
+        """
+        Add chromatin sparse matrix. Chromatin sparse matrix will be aggregated based on the prefix.
+
+        Parameters
+        ----------
+        prefix : str
+            The dataset name.
+        dataset_dir : str
+            The path to the chromatin sparse matrix dataset_dir.
+
+        """
+        assert _path_exists(dataset_dir)
+        if prefix in self.uniform_dataset_dict:
+            raise ValueError(f"Dataset with name {prefix} already exists.")
+        self.uniform_dataset_dict[prefix] = {
+            "ds_class": ChromSparseDataset,
+            "ds_kwargs": {
+                "name": prefix,
+                "dataset_dir": dataset_dir,
+            },
+            "remote_kwargs": {
+                "memory": 10 * 1024**3,
                 "resources": {"bolero_dataset_gen": 10},
             },
         }
