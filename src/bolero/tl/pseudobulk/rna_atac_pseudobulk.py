@@ -61,11 +61,24 @@ class RNAVQPseudobulker:
         cov_key = "cov_scale"
 
         vq_records = self._load_vq_records(vq_records, downsample_vq)
+
+        record_keys = list(vq_records.values())[0].keys()
+
+        if emb_key not in record_keys:
+            if "embedding" in record_keys:
+                emb_key = "embedding"
+                use_vq_emb = True
+            else:
+                raise ValueError(
+                    f"VQ records must contain {emb_key} key. Found {record_keys}."
+                )
+
         vq_keys = list(vq_records.keys())
         # process VQ records
         self.predefined_pseudobulks = {}
         self.pseudobulk_ids = pd.Index(vq_keys)
         self.n_pids = self.pseudobulk_ids.size
+        self.sampling_weights = {}
 
         self.prefix_order = None
         self.pseudobulk_vq_data_type = None
@@ -73,6 +86,7 @@ class RNAVQPseudobulker:
             data = vq_records[vq]
             emb_data = data[emb_key]
             cov_value = data[cov_key]
+            self.sampling_weights[vq] = data.get("sample_weight", 1)
             rows = data["cluster_ids"]
             if isinstance(rows, dict):
                 parquet_prefix_to_rows = rows
@@ -102,10 +116,10 @@ class RNAVQPseudobulker:
                 idx,
             ]
 
-        # create a random pool of pseudobulks
-        self.random_pid = self.local_rng.choice(
-            self.pseudobulk_ids, self.n_pids, replace=False
+        self.sampling_weights = (
+            pd.Series(self.sampling_weights).reindex(self.pseudobulk_ids).values
         )
+        self.sampling_weights = self.sampling_weights / self.sampling_weights.sum()
         return
 
     def _load_vq_records(self, vq_records, downsample_vq):
@@ -126,14 +140,13 @@ class RNAVQPseudobulker:
 
     def take(self, n):
         """Take n pseudobulks from the random pool."""
-        while self.random_pid.size < n:
-            _random_pid = self.local_rng.choice(
-                self.pseudobulk_ids, self.n_pids, replace=False
+        if n > self.n_pids:
+            raise ValueError(
+                f"Cannot take {n} pseudobulks, only {self.n_pids} available."
             )
-            self.random_pid = np.concatenate([self.random_pid, _random_pid])
-        use_pids = self.random_pid[:n]
-        self.random_pid = self.random_pid[n:].copy()
-
+        use_pids = self.local_rng.choice(
+            self.pseudobulk_ids, n, replace=False, p=self.sampling_weights
+        )
         pseudobulks = [self.predefined_pseudobulks[pid] for pid in use_pids]
 
         # each item in pseudobulks is

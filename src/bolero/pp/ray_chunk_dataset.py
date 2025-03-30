@@ -2,6 +2,8 @@ import pathlib
 from typing import Union
 
 import joblib
+import pandas as pd
+import pyarrow.parquet as pq
 import ray
 
 from bolero.pp.genome import Genome
@@ -61,7 +63,7 @@ class GenomeChunkDatasetGenerator:
             # prefix: {ds_class, ds_kwargs, remote_kwargs}
         }
 
-    def add_zarr(self, prefix, path, barcode_whitelist=None):
+    def add_zarr(self, prefix, path, barcode_whitelist=None, **ds_kwargs):
         """
         Add Zarr datasets.
 
@@ -80,6 +82,7 @@ class GenomeChunkDatasetGenerator:
                 "name": prefix,
                 "zarr_path": path,
                 "barcode_whitelist": barcode_whitelist,
+                **ds_kwargs,
             },
             "remote_kwargs": {
                 "memory": 15 * 1024**3,
@@ -88,7 +91,7 @@ class GenomeChunkDatasetGenerator:
         }
         return
 
-    def add_bigwig(self, prefix, name, path, sparse=True, compress_level=5):
+    def add_bigwig(self, prefix, name, path, sparse=True, compress_level=5, **kwargs):
         """
         Add BigWig files. BigWig will be aggregated based on the prefix.
 
@@ -128,6 +131,7 @@ class GenomeChunkDatasetGenerator:
                     "prefix": prefix,
                     "sparse": sparse,
                     "compress_level": compress_level,
+                    **kwargs,
                 },
                 "remote_kwargs": {
                     "memory": 1 * 1024**3,
@@ -136,7 +140,7 @@ class GenomeChunkDatasetGenerator:
             }
         return
 
-    def add_snap_adata(self, prefix, path, barcode_whitelist=None):
+    def add_snap_adata(self, prefix, path, barcode_whitelist=None, **ds_kwargs):
         """
         Add SnapATAC AnnData dataset that contains insersion sites as a sparse matrix.
 
@@ -158,6 +162,7 @@ class GenomeChunkDatasetGenerator:
                 "name": prefix,
                 "path": path,
                 "barcode_whitelist": barcode_whitelist,
+                **ds_kwargs,
             },
             "remote_kwargs": {
                 "memory": 15 * 1024**3,
@@ -166,7 +171,7 @@ class GenomeChunkDatasetGenerator:
         }
         return
 
-    def add_chrom_sparse(self, prefix, dataset_dir):
+    def add_chrom_sparse(self, prefix, dataset_dir, **ds_kwargs):
         """
         Add chromatin sparse matrix. Chromatin sparse matrix will be aggregated based on the prefix.
 
@@ -186,6 +191,7 @@ class GenomeChunkDatasetGenerator:
             "ds_kwargs": {
                 "name": prefix,
                 "dataset_dir": dataset_dir,
+                **ds_kwargs,
             },
             "remote_kwargs": {
                 "memory": 10 * 1024**3,
@@ -194,7 +200,7 @@ class GenomeChunkDatasetGenerator:
         }
         return
 
-    def add_allc(self, prefix, name, path, sparse=True, compress_level=5):
+    def add_allc(self, prefix, name, path, sparse=True, compress_level=5, **ds_kwargs):
         """
         Add ALLC files. ALLC will be aggregated based on the prefix.
 
@@ -240,6 +246,7 @@ class GenomeChunkDatasetGenerator:
                     "prefix": prefix,
                     "sparse": sparse,
                     "compress_level": compress_level,
+                    **ds_kwargs,
                 },
                 "remote_kwargs": {
                     "memory": 1 * 1024**3,
@@ -349,6 +356,18 @@ class GenomeChunkDatasetGenerator:
             pathlib.Path(f"{self.output_dir}/{prefix}.row_names.joblib").unlink()
         return
 
+    def _collect_parquet_regions(self):
+        total_region_info = []
+        dataset_dir = pathlib.Path(self.output_dir).absolute().resolve()
+        for parq_file in dataset_dir.glob("*/*.parquet"):
+            data = pq.read_table(parq_file, columns=["region"]).to_pydict()
+            df = pd.DataFrame({"region": data["region"]})
+            df["parquet_file"] = str(parq_file).split(str(dataset_dir))[-1].lstrip("/")
+            df["row_id_in_parquet"] = range(df.shape[0])
+            total_region_info.append(df)
+        total_region_info = pd.concat(total_region_info).reset_index(drop=True)
+        total_region_info.to_feather(dataset_dir / "parquet_row_regions.feather")
+
     def generate(self) -> None:
         """
         Generate the ray dataset.
@@ -389,4 +408,6 @@ class GenomeChunkDatasetGenerator:
             pathlib.Path(f"{chrom_dir}/success.flag").unlink()
         for prefix in self.uniform_dataset_dict.keys():
             pathlib.Path(f"{output_dir}/{prefix}.success.flag").unlink()
+
+        self._collect_parquet_regions()
         return
