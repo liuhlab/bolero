@@ -10,7 +10,7 @@ import pyBigWig
 import pysam
 import ray
 from bolero_process.atac.sc.zarr_io import CutSitesZarr
-from scipy.sparse import csc_matrix, csr_matrix, vstack
+from scipy.sparse import csc_matrix, csr_matrix, identity, kron, vstack
 
 from bolero.utils import get_global_coords
 
@@ -129,6 +129,29 @@ def array_to_compressed_bytes_dict(
     return data_dict
 
 
+def reduce_last_dim_by_sum(arr: np.ndarray, n: int) -> np.ndarray:
+    """
+    Reduce the last dimension of an array by bin sum, n is bin size.
+    """
+    *prefix, n_pos = arr.shape
+    assert n_pos % n == 0, "The last dimension must be divisible by n"
+    new_shape = (*prefix, n_pos // n, n)
+    return arr.reshape(new_shape).sum(axis=-1)
+
+
+def reduce_csc_matrix_by_sum(mat: csc_matrix, n: int) -> csc_matrix:
+    """
+    Reduce csc_matrix from shape (row, col)
+    into shape (row, col // n) by sum n elements along col.
+    """
+    _, n_pos = mat.shape
+    assert n_pos % n == 0, "n_pos must be divisible by n"
+    # Create a (n_pos, n_pos // n) sparse matrix that sums every n columns
+    col_group_mat = kron(identity(n_pos // n, format="csc"), np.ones((n, 1)))
+    # Multiply: shape (n_batch, n_pos) @ (n_pos, n_pos // n) = (n_batch, n_pos // n)
+    return mat @ col_group_mat
+
+
 @ray.remote
 def select_smat_region(
     smat: csc_matrix,
@@ -138,17 +161,23 @@ def select_smat_region(
     end: int,
     gstart: int,
     gend: int,
+    resolution: int = 1,
 ) -> csr_matrix:
     """
     Select a region sparse matrix from genome sparse matrix.
     """
     if gstart is not None and gend is not None:
-        region_csr_mat = smat[:, gstart:gend].tocsr()
+        region_csc_mat = smat[:, gstart:gend]
     else:
-        region_csr_mat = smat[:, start:end].tocsr()
+        region_csc_mat = smat[:, start:end]
+
+    if resolution > 1:
+        # reduce the region csc matrix by sum
+        # shape (n_batch, n_pos) -> (n_batch, n_pos // resolution)
+        region_csc_mat = reduce_csc_matrix_by_sum(region_csc_mat.tocsc(), resolution)
 
     data_dict = csr_matrix_to_compressed_bytes_dict(
-        prefix=prefix, matrix=region_csr_mat, level=5
+        prefix=prefix, matrix=region_csc_mat.tocsr(), level=5
     )
     data_dict["region"] = f"{chrom}:{start}-{end}"
     return data_dict
@@ -171,6 +200,7 @@ class SingleCellCutsiteDataset:
         name: str,
         zarr_path: str,
         barcode_whitelist: pd.Index = None,
+        resolution: int = 1,
     ):
         super().__init__()
         self.dataset = CutSitesZarr(zarr_path)
@@ -182,6 +212,7 @@ class SingleCellCutsiteDataset:
         else:
             self.use_barcode_idx = None
         self.remote_csc_mat = self._put_csc_mat()
+        self.resolution = resolution
         return
 
     def _put_csc_mat(self):
@@ -236,6 +267,7 @@ class SingleCellCutsiteDataset:
                 end=end,
                 gstart=gstart,
                 gend=gend,
+                resolution=self.resolution,
             )
             total_dicts.append(task)
         total_dicts = ray.get(total_dicts)
@@ -256,13 +288,15 @@ class SingleCellCutsiteDataset:
 
 
 @ray.remote
-def _bw_values_worker(bw_path, regions):
+def _bw_values_worker(bw_path, regions, resolution=1):
     regions_data = []
     try:
         with pyBigWig.open(str(bw_path)) as bw:
             for _, (chrom, start, end, *_) in regions.iterrows():
                 _data = bw.values(chrom, start, end, numpy=True)
                 _data = np.nan_to_num(_data).astype("float32")
+                if resolution > 1:
+                    _data = reduce_last_dim_by_sum(_data, resolution)
                 regions_data.append(csr_matrix(_data))
     except RuntimeError as e:
         print(f'Error when reading BigWig file "{bw_path}"')
@@ -271,12 +305,14 @@ def _bw_values_worker(bw_path, regions):
 
 
 @ray.remote
-def _remote_bw_values(bw_path, regions, fetch_chunks=5000) -> list[csr_matrix]:
+def _remote_bw_values(
+    bw_path, regions, fetch_chunks=5000, resolution=1
+) -> list[csr_matrix]:
     regions["chunk_id"] = np.arange(len(regions)) // fetch_chunks
 
     chunk_col = []
     for _, chunk_df in regions.groupby("chunk_id"):
-        chunk_col.append(_bw_values_worker.remote(bw_path, chunk_df))
+        chunk_col.append(_bw_values_worker.remote(bw_path, chunk_df, resolution))
 
     regions_data = []
     for chunk_data in ray.get(chunk_col):
@@ -293,6 +329,7 @@ class GenomeBigWigDataset:
         prefix="bigwig",
         sparse=True,
         compress_level=5,
+        resolution=1,
         **kwargs,
     ):
         """
@@ -313,6 +350,7 @@ class GenomeBigWigDataset:
         self._add_bigwig(*args, **kwargs)
 
         self._opened_bigwigs = {}
+        self.resolution = resolution
 
     def __repr__(self):
         repr_str = f"GenomeBigWigDataset ({len(self.bigwig_path_dict)} bigwig)\n"
@@ -394,7 +432,7 @@ class GenomeBigWigDataset:
         tasks = []
         for name in names:
             path = self.bigwig_path_dict[name]
-            this_task = _remote_bw_values.remote(path, regions_df)
+            this_task = _remote_bw_values.remote(path, regions_df, self.resolution)
             tasks.append(this_task)
 
         for i, task in enumerate(tasks):
@@ -472,13 +510,18 @@ def query_allc_region(
 
 
 @ray.remote
-def _allc_values_worker(allc_path: str, regions: pd.DataFrame) -> list[csr_matrix]:
+def _allc_values_worker(
+    allc_path: str, regions: pd.DataFrame, resolution: int = 1
+) -> list[csr_matrix]:
     mc_data = []
     cov_data = []
     with pysam.TabixFile(allc_path) as allc:
         for _, (chrom, start, end, *_) in regions.iterrows():
             # query allc file for each region, get two numpy arrays for this region
             mc_region_data, cov_region_data = query_allc_region(allc, chrom, start, end)
+            if resolution > 1:
+                mc_region_data = reduce_last_dim_by_sum(mc_region_data, resolution)
+                cov_region_data = reduce_last_dim_by_sum(cov_region_data, resolution)
             mc_data.append(csr_matrix(mc_region_data))
             cov_data.append(csr_matrix(cov_region_data))
 
@@ -486,12 +529,14 @@ def _allc_values_worker(allc_path: str, regions: pd.DataFrame) -> list[csr_matri
 
 
 @ray.remote
-def _remote_allc_values(allc_path, regions, fetch_chunks=5000) -> list[csr_matrix]:
+def _remote_allc_values(
+    allc_path, regions, fetch_chunks=5000, resolution=1
+) -> list[csr_matrix]:
     regions["chunk_id"] = np.arange(len(regions)) // fetch_chunks
 
     chunk_col = []
     for _, chunk_df in regions.groupby("chunk_id"):
-        chunk_col.append(_allc_values_worker.remote(allc_path, chunk_df))
+        chunk_col.append(_allc_values_worker.remote(allc_path, chunk_df, resolution))
 
     # In single ALLC file,
     # list of mc csr_matrix for each region, the shape of csr_matrix is (1, region_length)
@@ -511,6 +556,7 @@ class GenomeALLCDataset:
         prefix: str = "allc",
         sparse: bool = True,
         compress_level: int = 5,
+        resolution: int = 1,
         **kwargs: str,
     ) -> None:
         """
@@ -538,6 +584,7 @@ class GenomeALLCDataset:
         self._add_allc(*args, **kwargs)
 
         self._opened_allcs = {}
+        self.resolution = resolution
 
     def __repr__(self) -> str:
         """
@@ -585,7 +632,7 @@ class GenomeALLCDataset:
         tasks = []
         for name in names:
             path = self.allc_path_dict[name]
-            this_task = _remote_allc_values.remote(path, regions_df)
+            this_task = _remote_allc_values.remote(path, regions_df, self.resolution)
             tasks.append(this_task)
 
         for i, task in enumerate(tasks):
@@ -675,7 +722,7 @@ class GenomeALLCDataset:
 
 
 class SnapAnnDataDataset:
-    def __init__(self, name, path, barcode_whitelist=None):
+    def __init__(self, name, path, barcode_whitelist=None, resolution=1):
         import snapatac2 as snap
 
         self.name = name
@@ -689,6 +736,8 @@ class SnapAnnDataDataset:
                 self.use_barcodes.index.isin(barcode_whitelist)
             ]
         self.use_barcodes_idx = self.use_barcodes.values
+        self.resolution = resolution
+        return
 
     def _get_remote_csc_mat(self, chrom):
         adata = self.adata
@@ -718,6 +767,7 @@ class SnapAnnDataDataset:
                     end=end,
                     gstart=None,
                     gend=None,
+                    resolution=self.resolution,
                 )
                 total_dicts.append(task)
         total_dicts = ray.get(total_dicts)
@@ -732,8 +782,9 @@ class SnapAnnDataDataset:
 
 
 class ChromSparseDataset:
-    def __init__(self, name, dataset_dir):
+    def __init__(self, name, dataset_dir, resolution=1):
         self.name = name
+        self.resolution = resolution
         self.dataset_dir = pathlib.Path(dataset_dir)
 
     def _get_remote_csc_mat(self, chrom):
@@ -755,6 +806,7 @@ class ChromSparseDataset:
                     end=end,
                     gstart=None,
                     gend=None,
+                    resolution=self.resolution,
                 )
                 total_dicts.append(task)
         total_dicts = ray.get(total_dicts)
