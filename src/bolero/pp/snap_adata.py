@@ -1,13 +1,12 @@
 import pathlib
 import tempfile
-from collections import defaultdict
 
 import joblib
 import numpy as np
 import pandas as pd
 import ray
 import snapatac2 as snap
-from scipy.sparse import csr_matrix, load_npz, save_npz, vstack
+from scipy.sparse import coo_matrix, vstack
 
 from bolero import Genome
 
@@ -27,22 +26,50 @@ def _dump_grouped_csr(
         if bool_row_sel.sum() == 0:
             continue
         cell_row_to_bulk_row[bool_row_sel] = bulk_row_id
+    merge_plan = {
+        cell_row: bulk_row
+        for cell_row, bulk_row in enumerate(cell_row_to_bulk_row)
+        if bulk_row != -1
+    }
 
-    data = adata.obsm[key].tocsr()
-    group_mat = {}
-    for bulk_row in range(len(pseudobulk_order)):
-        cell_rows = np.where(cell_row_to_bulk_row == bulk_row)[0]
-        if cell_rows.size > 0:
-            group_mat[bulk_row] = data[cell_rows]
-
+    merger = CSRRowMerge(
+        merge_plan,
+        n_input=adata_bcs.size,
+        n_output=len(pseudobulk_order),
+        dtype="float32",
+    )
+    group_mat = merger(adata.obsm[key].tocsr())
     joblib.dump(group_mat, output_path)
     return
 
 
-@ray.remote
-def _csr_row_sum(csr_list, save_path):
-    data = csr_matrix(vstack(csr_list).sum(axis=0), dtype="uint32")
-    save_npz(save_path, data, compressed=True)
+class CSRRowMerge:
+    def __init__(self, merge_plan: dict, n_input=None, n_output=None, dtype="float32"):
+        """
+        merge_plan: dict mapping each input row index to an output row index.
+        """
+        self.merge_plan = merge_plan
+
+        n_input = max(merge_plan.keys()) + 1 if n_input is None else n_input
+        n_output = max(merge_plan.values()) + 1 if n_output is None else n_output
+        self.n_input, self.n_output = n_input, n_output
+
+        # P is the auxiliary matrix to merge input rows into output rows
+        rows = []
+        cols = []
+        for row, col in self.merge_plan.items():
+            rows.append(col)
+            cols.append(row)
+        rows = np.array(rows)
+        cols = np.array(cols)
+        data = np.ones_like(rows, dtype=dtype)
+        self.P = coo_matrix((data, (rows, cols)), shape=(n_output, n_input)).tocsr()
+        self.dtype = dtype
+
+    def __call__(self, A):
+        """Apply the merge plan to the input matrix A."""
+        assert A.shape[0] == self.n_input
+        return self.P.dot(A.tocsr()).astype(self.dtype)
 
 
 class AdataPseudobulkMerger:
@@ -94,7 +121,7 @@ class AdataPseudobulkMerger:
         self.groupping = {
             (sample, group): df["bc"].tolist()
             for (sample, group), df in self.pseudobulk_meta.groupby(
-                ["sample", "groups"]
+                ["sample", "groups"], observed=True
             )
         }
         self.adata_path_dict = adata_path_dict
@@ -143,32 +170,21 @@ class AdataPseudobulkMerger:
         # merge samples for each chrom and each group
         print(f"dump {chrom_key} groups merge")
         to_del = []
-        chrom_col = defaultdict(list)
+        group_datas = []
+        merge_plan = {}
+        row_cum = 0
         for sample in self.adata_path_dict.keys():
             output_path = temp_dir / f"{sample}_{chrom_key}"
             to_del.append(output_path)
             sample_data = joblib.load(output_path)
-            for k, v in sample_data.items():
-                chrom_col[k].append(v)
-        chrom_size = next(iter(chrom_col.values()))[0].shape[1]
-
-        fs = []
-        for k, v in chrom_col.items():
-            output_path = temp_dir / f"group_{k}_{chrom_key}"
-            f = _csr_row_sum.remote(v, output_path)
-            fs.append(f)
-        _ = ray.get(fs)
-
-        print("merging done, now loading group data")
-        group_datas = []
-        for gid in range(len(self.pseudobulk_order)):
-            group_path = temp_dir / f"group_{gid}_{chrom_key}.npz"
-            to_del.append(group_path)
-            try:
-                group_datas.append(load_npz(group_path).tocsr())
-            except FileNotFoundError:
-                group_datas.append(csr_matrix((1, chrom_size), dtype="uint32"))
-        group_datas = vstack(group_datas)
+            group_datas.append(sample_data)
+            for row in range(sample_data.shape[0]):
+                merge_plan[row + row_cum] = row
+            row_cum += sample_data.shape[0]
+        merger = CSRRowMerge(
+            merge_plan, n_input=row_cum, n_output=len(self.pseudobulk_order)
+        )
+        group_datas = merger(vstack(group_datas))
 
         group_datas.data = np.clip(group_datas.data, 0, np.iinfo("uint16").max)
         group_datas = group_datas.astype("uint16")
@@ -178,8 +194,8 @@ class AdataPseudobulkMerger:
 
         temp_path = self.output_dir / f"{chrom_key}.{self.sparse_format}.temp.joblib"
         final_path = self.output_dir / f"{chrom_key}.{self.sparse_format}.joblib"
-        joblib.dump(group_datas, self.output_dir / temp_path)
-        final_path.rename(temp_path)
+        joblib.dump(group_datas, temp_path)
+        temp_path.rename(final_path)
 
         for path in to_del:
             if pathlib.Path(path).exists():
