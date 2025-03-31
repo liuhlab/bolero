@@ -54,7 +54,9 @@ class CompressedBytesToTensor:
         return
 
     def _bytes_to_array(self, data_dict):
-        bytes_keys = [k for k, v in data_dict.items() if isinstance(v, bytes)]
+        bytes_keys = [
+            k for k, v in data_dict.items() if isinstance(v, (bytes, bytearray))
+        ]
         for key in bytes_keys:
             prefix, name_and_dtype = key.split(":")
             name, dtype = name_and_dtype.split("+")

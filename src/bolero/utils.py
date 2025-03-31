@@ -1,5 +1,6 @@
 import itertools
 import math
+import os
 import pathlib
 import shutil
 import subprocess
@@ -13,6 +14,8 @@ from pyarrow import ArrowInvalid
 from pyarrow.fs import FileSystem, LocalFileSystem
 
 import bolero
+
+BOLERO_DATA_DIR = os.environ.get("BOLERO_DATA_DIR", None)
 
 
 def get_fs_and_path(path: Union[str, pathlib.Path]) -> Tuple[FileSystem, str]:
@@ -209,8 +212,12 @@ def get_default_save_dir(save_dir):
                 save_dir = _default
                 break
         if save_dir is None:
-            save_dir = get_package_dir()
-    save_dir = pathlib.Path(save_dir).absolute()
+            if BOLERO_DATA_DIR is not None:
+                save_dir = pathlib.Path(BOLERO_DATA_DIR)
+            else:
+                save_dir = get_package_dir()
+
+    save_dir = pathlib.Path(save_dir).absolute().resolve()
     return save_dir
 
 

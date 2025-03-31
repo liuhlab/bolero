@@ -128,7 +128,7 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
 
         suffix_list = self.suffix
         cycling = len(suffix_list)
-        print("before pseudobulk", data_dict["pseudobulk"].shape)
+        # print("before pseudobulk", data_dict["pseudobulk"].shape)
         # merge rows (cell or sample) to bulk and also get embedding data
         this_bulk_dict = {}
         for idx, (
@@ -484,20 +484,26 @@ class BorzoiDataset(RayGenomeChunkDataset):
         return
 
     def _get_folds_dir(self, folds):
-        if folds is None:
-            fold_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("fold*")]
-        else:
-            if isinstance(folds, str):
-                folds = [folds]
-            fold_dirs = [f"{self.dataset_path}/fold{fold}" for fold in folds]
+        fold_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("fold*")]
 
-            # make sure all fold_dir exists
-            fold_dirs = [
-                fold_dir for fold_dir in fold_dirs if pathlib.Path(fold_dir).exists()
-            ]
-            assert (
-                len(fold_dirs) > 0
-            ), f"None of the fold {folds} exists in {self.dataset_path}"
+        if len(fold_dirs) == 0:
+            # borzoi dataset is not organized by fold, try chromosome
+            fold_dirs = [str(p) for p in pathlib.Path(self.dataset_path).glob("chr*")]
+        else:
+            if folds is not None:
+                if isinstance(folds, str):
+                    folds = [folds]
+                fold_dirs = [f"{self.dataset_path}/fold{fold}" for fold in folds]
+
+                # make sure all fold_dir exists
+                fold_dirs = [
+                    fold_dir
+                    for fold_dir in fold_dirs
+                    if pathlib.Path(fold_dir).exists()
+                ]
+                assert (
+                    len(fold_dirs) > 0
+                ), f"None of the fold {folds} exists in {self.dataset_path}"
         return fold_dirs
 
     def _read_parquet(self, folds):
