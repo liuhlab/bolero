@@ -1454,10 +1454,10 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Create a success flag for the entire process
-        success_flag = output_dir / ".success"
-        if success_flag.exists():
-            print(f"Output directory {output_dir} already has success flag. Skipping.")
-            return
+        # success_flag = output_dir / ".success"
+        # if success_flag.exists():
+        #     print(f"Output directory {output_dir} already has success flag. Skipping.")
+        #     return
 
         # Process each cell type
         for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
@@ -1468,10 +1468,10 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             cell_type_dir.mkdir(parents=True, exist_ok=True)
             
             # Check if this cell type has already been processed
-            cell_type_success = cell_type_dir / ".success"
-            if cell_type_success.exists():
-                print(f"Cell type {cell_type} already processed. Skipping.")
-                continue
+            # cell_type_success = cell_type_dir / ".success"
+            # if cell_type_success.exists():
+            #     print(f"Cell type {cell_type} already processed. Skipping.")
+            #     continue
             
             embedding = data_dict['embedding']
             bed_path = data_dict['path']
@@ -1497,7 +1497,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 temp_out_path.rename(zarr_path)
                 
                 # Mark this cell type as successfully processed
-                cell_type_success.touch()
+                # cell_type_success.touch()
                 
                 print(f"Successfully processed peak effects for cell type: {cell_type}")
                 
@@ -1510,6 +1510,246 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             torch.cuda.empty_cache()
         
         # Mark the entire process as complete
-        success_flag.touch()
+        # success_flag.touch()
         print(f"Completed processing peak effects for all cell types in experiment: {experiment_name}")
+        return
+
+
+    def infer_peak_effect_offline_chunked(
+        self, 
+        embedding_bed_dict,
+        output_dir,
+        experiment_name,
+        progress_bar=True,
+        checkpoint_batches=5,  # Save progress after processing this many batches
+        resume=True  # Whether to resume from existing progress
+    ):
+        """Inference for peak effects with simple checkpointing aligned with batch processing.
+        
+        Parameters
+        ----------
+        embedding_bed_dict : dict
+            Dictionary where:
+            - Keys are cell types (e.g., 'ASC')
+            - Values are dictionaries with:
+                - 'path': path to the bed file with variant information
+                - 'embedding': embedding dataframe for that cell type
+        output_dir : str
+            Path to output directory.
+        experiment_name : str
+            Name of the experiment for the subfolder.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+        checkpoint_batches : int, optional
+            Save progress after processing this many batches. Default is 5.
+        resume : bool, optional
+            Whether to resume from existing progress. Default is True.
+        """
+        import json
+        
+        # Create main output directory with experiment name
+        output_dir = pathlib.Path(output_dir) / f"{experiment_name}_peak_effects"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a success flag for the entire process
+        success_flag = output_dir / ".success"
+        if success_flag.exists() and resume:
+            print(f"Output directory {output_dir} already has success flag. Skipping.")
+            return
+
+        # Process each cell type
+        for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
+                                        desc="Processing cell types for peak effects"):
+            
+            # Create cell type specific directory
+            cell_type_dir = output_dir / cell_type
+            cell_type_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if this cell type has already been processed
+            cell_type_success = cell_type_dir / ".success"
+            if cell_type_success.exists() and resume:
+                print(f"Cell type {cell_type} already processed. Skipping.")
+                continue
+            
+            # Path for progress tracking and dataset
+            progress_file = cell_type_dir / f"{cell_type}_progress.json"
+            zarr_path = cell_type_dir / f"{cell_type}_peak_effects.zarr"
+            
+            embedding = data_dict['embedding']
+            bed_path = data_dict['path']
+            
+            # Load bed file
+            bed = pd.read_csv(bed_path, header=0, sep="\t")
+            
+            # Standardize columns
+            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+            bed.columns = _columns
+            
+            # Initialize or load progress tracking
+            processed_rows = 0
+            if progress_file.exists() and resume and zarr_path.exists():
+                try:
+                    with open(progress_file, 'r') as f:
+                        progress_data = json.load(f)
+                        processed_rows = progress_data.get("processed_rows", 0)
+                    print(f"Resuming from checkpoint: {processed_rows} rows processed out of {len(bed)}")
+                except Exception as e:
+                    print(f"Failed to load progress file: {str(e)}. Starting fresh.")
+                    processed_rows = 0
+            
+            # Skip if all rows are processed
+            if processed_rows >= len(bed):
+                print(f"All rows already processed for {cell_type}.")
+                cell_type_success.touch()
+                continue
+            
+            try:
+                # Process the embedding
+                emb_model = self._collapse_model(embedding)
+                
+                # Initialize all_results dictionary to store accumulated results
+                all_results = {
+                    "peak_effect_mean": [],
+                    "region_indices": [],
+                    "metadata": {}
+                }
+                
+                # Check if we need to load existing results to append to
+                if processed_rows > 0 and zarr_path.exists():
+                    try:
+                        print(f"Loading existing dataset for {cell_type}...")
+                        existing_ds = xr.open_zarr(zarr_path)
+                        
+                        # Extract existing data
+                        all_results["peak_effect_mean"] = [existing_ds.peak_effect_mean.values]
+                        all_results["region_indices"] = list(existing_ds.region.values)
+                        
+                        # Extract metadata
+                        for col_name in _columns:
+                            if col_name in existing_ds.coords:
+                                all_results["metadata"][col_name] = list(existing_ds.coords[col_name].values)
+                        
+                        print(f"Loaded {len(all_results['region_indices'])} existing rows.")
+                    except Exception as e:
+                        print(f"Error loading existing dataset: {str(e)}. Starting fresh.")
+                        processed_rows = 0
+                        all_results = {
+                            "peak_effect_mean": [],
+                            "region_indices": [],
+                            "metadata": {col: [] for col in _columns}
+                        }
+                
+                # Process remaining rows in batches, respecting self.batch_size
+                batches_since_checkpoint = 0
+                total_batches = (len(bed) - processed_rows + self.batch_size - 1) // self.batch_size
+                
+                for i in tqdm(range(0, total_batches), 
+                            desc=f"Processing {cell_type} in batches", 
+                            disable=not progress_bar):
+                    
+                    # Calculate batch indices
+                    start_idx = processed_rows + i * self.batch_size
+                    end_idx = min(start_idx + self.batch_size, len(bed))
+                    
+                    # Skip if we've processed past this batch
+                    if start_idx >= len(bed):
+                        continue
+                        
+                    # Process this batch
+                    batch_bed = bed.iloc[start_idx:end_idx]
+                    batch_effects = self._peak_predict(emb_model, batch_bed)
+                    batch_effects_np = batch_effects.numpy()
+                    
+                    # Append results
+                    all_results["peak_effect_mean"].append(batch_effects_np)
+                    all_results["region_indices"].extend(range(start_idx, end_idx))
+                    
+                    # Store metadata
+                    for col_name in _columns:
+                        if col_name not in all_results["metadata"]:
+                            all_results["metadata"][col_name] = []
+                        col_values = batch_bed[col_name].values
+                        if col_name == "Chromosome":
+                            col_values = col_values.astype(str)
+                        all_results["metadata"][col_name].extend(col_values)
+                    
+                    # Update processed rows
+                    processed_rows = end_idx
+                    
+                    # Update progress file after each batch
+                    with open(progress_file, 'w') as f:
+                        json.dump({"processed_rows": processed_rows, "total_rows": len(bed)}, f)
+                    
+                    # Increment batch counter
+                    batches_since_checkpoint += 1
+                    
+                    # Save checkpoint after specified number of batches or at the end
+                    if batches_since_checkpoint >= checkpoint_batches or end_idx == len(bed):
+                        # Concatenate all collected results
+                        combined_effects = np.concatenate(all_results["peak_effect_mean"], axis=0)
+                        
+                        # Create dataset
+                        ds = xr.Dataset(
+                            {
+                                "peak_effect_mean": (["region", "channel"], combined_effects),
+                            },
+                            coords={
+                                "sample": [cell_type],
+                                "region": all_results["region_indices"]
+                            }
+                        )
+                        
+                        # Add metadata
+                        for col_name, values in all_results["metadata"].items():
+                            ds.coords[col_name] = (("region",), values)
+                        
+                        # Save dataset
+                        temp_zarr_path = pathlib.Path(f"{zarr_path}.temp")
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore", category=xr.SerializationWarning)
+                            ds = ds.chunk(ds.sizes)
+                            ds.to_zarr(temp_zarr_path, mode="w")
+                        
+                        # Rename to final path if successful
+                        if temp_zarr_path.exists():
+                            if zarr_path.exists():
+                                import shutil
+                                shutil.rmtree(zarr_path)
+                            temp_zarr_path.rename(zarr_path)
+                            print(f"Saved checkpoint at {processed_rows}/{len(bed)} rows for {cell_type}")
+                        
+                        # Reset batch counter
+                        batches_since_checkpoint = 0
+                
+                # Clean up model
+                del emb_model
+                torch.cuda.empty_cache()
+                
+                # Mark as successful if all rows processed
+                if processed_rows >= len(bed):
+                    cell_type_success.touch()
+                    print(f"Successfully processed all peak effects for cell type: {cell_type}")
+                
+            except Exception as e:
+                print(f"Error processing peak effects for cell type {cell_type}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        # Check if all cell types have been processed
+        all_complete = True
+        for cell_type in embedding_bed_dict.keys():
+            cell_type_dir = output_dir / cell_type
+            cell_type_success = cell_type_dir / ".success"
+            if not cell_type_success.exists():
+                all_complete = False
+                break
+        
+        # Mark the entire process as complete if all cell types are done
+        if all_complete:
+            success_flag.touch()
+            print(f"Completed processing peak effects for all cell types in experiment: {experiment_name}")
+        else:
+            print(f"Not all cell types were completed successfully. Re-run to continue processing.")
+        
         return
