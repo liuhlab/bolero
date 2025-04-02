@@ -958,11 +958,12 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         """
         
         # Get reference allele sequences
+        
         ref_dna = self.genome.get_regions_one_hot(bed)
 
         snp_info = bed[["ref", "snp", "pos2start"]]
         
-        nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3} #TODO TLG: Double-check this mapping is correct
+        nucleotide_map = {'A': 0, 'C': 1, 'G': 2, 'T': 3} 
         
         # Create a copy of the one-hot encoding to modify
         alt_dna = ref_dna.copy()
@@ -1028,7 +1029,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             Dictionary with reference and alternate predictions.
         """
         all_data = {'ref': [], 'alt': []}
-        for i in range(0, bed.shape[0], self.batch_size):
+        for i in tqdm(range(0, bed.shape[0], self.batch_size)):
             batch_bed = bed.iloc[i : i + self.batch_size]
             
             batch = self._get_snp_dna_one_hot(batch_bed)
@@ -1038,6 +1039,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             
             all_data['ref'].append(outputs_ref[modality].cpu())
             all_data['alt'].append(outputs_alt[modality].cpu())
+
+            # row_indices = batch_bed.index.values
+            # all_data['region_ids'].extend(row_indices)
             
         all_data['ref'] = torch.cat(all_data['ref'], dim=0)
         all_data['alt'] = torch.cat(all_data['alt'], dim=0)
@@ -1159,7 +1163,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         if success_flag.exists():
             print(f"Output directory {output_dir} already has success flag. Skipping.")
             return
-        
+
         # Process each cell type
         for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
                                         desc="Processing cell types"):
@@ -1174,8 +1178,6 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 print(f"Cell type {cell_type} already processed. Skipping.")
                 continue
             
-            # Create a temporary dict with just this cell type for infer_snp
-            single_cell_dict = {cell_type: data_dict}
             embedding = data_dict['embedding']
             bed_path = data_dict['path']
             try:
@@ -1259,7 +1261,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         # Then convert to 32bp resolution, accounting for the 512bp padding
         # 512bp is added to the actual region start position
         peak_start_indices = np.maximum(0, relative_peak_starts)
-        peak_end_indices = np.minimum(16351, relative_peak_ends)
+        peak_end_indices = np.minimum(16350, relative_peak_ends)
         
         num_samples = xr_ds.dims["sample"]
         num_regions = xr_ds.dims["region"]
@@ -1269,6 +1271,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         # Using numpy array first as it's easier to fill
         peak_values = np.zeros((num_samples, num_regions, num_channels, peak_length))
         
+        
         # Extract peak effects for each region
         for region_idx in range(num_regions):
             start_idx = peak_start_indices[region_idx]
@@ -1276,8 +1279,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
 
             # Get effect values from dataset (using numpy for speed)
             region_effect = xr_ds.effect.isel(region=region_idx).values
+
             # Extract just the peak region
-            peak_effect = region_effect[:, :, start_idx:start_idx+peak_length]
+            peak_effect = region_effect[:, :, start_idx:end_idx+1]
             
             peak_values[:, region_idx, :, :] = peak_effect
 
@@ -1293,3 +1297,219 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             return BorzoiInferenceDataset(xr_ds, genome)
         else:
             return xr_ds
+
+
+    def _peak_predict(self, model, bed, modality='atac'):
+        """Run prediction for peak regions only.
+        
+        Parameters
+        ----------
+        model : torch.nn.Module
+            Collapsed model for prediction.
+        bed : pd.DataFrame
+            Bed file with variant information.
+        modality : str, optional
+            Modality to extract from model output. Default is 'atac'.
+            
+        Returns
+        -------
+        torch.Tensor
+            Tensor containing only the peak effect values (alt - ref).
+        """
+        peak_effects = []
+        
+        for i in tqdm(range(0, bed.shape[0], self.batch_size)):
+            batch_bed = bed.iloc[i : i + self.batch_size]
+            
+            # Get reference and alternate sequences
+            batch = self._get_snp_dna_one_hot(batch_bed)
+            
+            # Get predictions
+            outputs_ref = self._forward_pass(model, batch['ref'])
+            outputs_alt = self._forward_pass(model, batch['alt'])
+            
+            # Calculate effect (alt - ref)
+            effect = outputs_alt[modality] - outputs_ref[modality]
+            
+            # Extract only the peak regions for each batch item
+            batch_peak_effects = []
+            for j in range(len(batch_bed)):
+                row = batch_bed.iloc[j]
+                # Calculate relative peak positions
+                # Convert from bp to 32bp bins and account for the 512bp padding
+                relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                relative_peak_end = min(effect.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                
+                # Extract peak region effects
+                peak_effect = torch.mean(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                batch_peak_effects.append(peak_effect)
+            
+            # Stack batch results
+            if batch_peak_effects:
+                peak_effects.append(torch.stack(batch_peak_effects, dim=0).cpu())
+        
+        # Combine all batch results
+        if peak_effects:
+            return torch.cat(peak_effects, dim=0)
+        else:
+            return None
+
+    def infer_peak_effect(
+        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True
+    ) -> xr.Dataset:
+        """Inference of variant effect specifically for peak regions.
+        
+        Parameters
+        ----------
+        celltype : str
+            The cell type identifier (e.g., 'ASC')
+        embedding : np.array
+            Embedding array for the cell type
+        bed_path : str
+            Path to the bed file with variant information
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+            
+        Returns
+        -------
+        BorzoiInferenceDataset
+            Dataset with peak effect predictions.
+        """
+        # Read and process the BED file
+        bed = pd.read_csv(bed_path, header=0, sep="\t")
+        
+        # Standardize columns
+        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+        bed.columns = _columns
+        
+        # Process the embedding
+        emb_model = self._collapse_model(embedding)
+        
+        # Get peak effects directly
+        peak_effects = self._peak_predict(emb_model, bed)
+        
+        # Clean up
+        del emb_model
+        torch.cuda.empty_cache()
+        
+        # Create a region index from the BED file
+        region_index = np.arange(len(bed))
+        
+        # Move peak effects to numpy for xarray compatibility
+        peak_effects_np = peak_effects.numpy()
+        
+        # Get dimensions
+        n_regions, n_peaks = peak_effects_np.shape
+        
+        # Build an xarray Dataset
+        ds = xr.Dataset(
+            {
+                "peak_effect": (["region", "peak"], peak_effects_np),
+            },
+            coords={
+                "sample": [celltype],  # List with single cell type
+                "region": region_index
+            },
+            attrs={
+                "description": f"Peak effect predictions for {celltype}"
+            }
+        )
+        
+        # Attach region metadata
+        for col_name in bed.columns:
+            col_values = bed[col_name].values
+            if col_name == "Chromosome":
+                col_values = col_values.astype(str)
+            ds.coords[col_name] = (("region",), col_values)
+        
+        
+        return BorzoiInferenceDataset(ds, self.genome)
+
+    def infer_peak_effect_offline(
+        self, 
+        embedding_bed_dict,
+        output_dir,
+        experiment_name,
+        progress_bar=True
+    ):
+        """Inference for peak effects, saving results to output_dir for each cell type.
+        
+        Parameters
+        ----------
+        embedding_bed_dict : dict
+            Dictionary where:
+            - Keys are cell types (e.g., 'ASC')
+            - Values are dictionaries with:
+                - 'path': path to the bed file with variant information
+                - 'embedding': embedding dataframe for that cell type
+        output_dir : str
+            Path to output directory.
+        experiment_name : str
+            Name of the experiment for the subfolder.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+        """
+        # Create main output directory with experiment name
+        output_dir = pathlib.Path(output_dir) / f"{experiment_name}_peak_effects"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a success flag for the entire process
+        success_flag = output_dir / ".success"
+        if success_flag.exists():
+            print(f"Output directory {output_dir} already has success flag. Skipping.")
+            return
+
+        # Process each cell type
+        for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
+                                        desc="Processing cell types for peak effects"):
+            
+            # Create cell type specific directory
+            cell_type_dir = output_dir / cell_type
+            cell_type_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if this cell type has already been processed
+            cell_type_success = cell_type_dir / ".success"
+            if cell_type_success.exists():
+                print(f"Cell type {cell_type} already processed. Skipping.")
+                continue
+            
+            embedding = data_dict['embedding']
+            bed_path = data_dict['path']
+            try:
+                # Infer peak effects for this cell type
+                ds = self.infer_peak_effect(cell_type, embedding, bed_path, progress_bar=progress_bar)
+                
+                # Get the xarray dataset
+                ds = ds.dataset
+                
+                # Output path for this cell type
+                zarr_path = cell_type_dir / f"{cell_type}_peak_effects.zarr"
+                temp_out_path = pathlib.Path(f"{zarr_path}.temp")
+                
+                # Save dataset to zarr format
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=xr.SerializationWarning)
+                    # Chunk the dataset for efficient storage and access
+                    ds = ds.chunk(ds.sizes)
+                    ds.to_zarr(temp_out_path, mode="w")
+                
+                # Rename the temp file to final path
+                temp_out_path.rename(zarr_path)
+                
+                # Mark this cell type as successfully processed
+                cell_type_success.touch()
+                
+                print(f"Successfully processed peak effects for cell type: {cell_type}")
+                
+            except Exception as e:
+                print(f"Error processing peak effects for cell type {cell_type}: {str(e)}")
+                # Continue with other cell types even if one fails
+                continue
+            
+            # Clear memory
+            torch.cuda.empty_cache()
+        
+        # Mark the entire process as complete
+        success_flag.touch()
+        print(f"Completed processing peak effects for all cell types in experiment: {experiment_name}")
+        return
