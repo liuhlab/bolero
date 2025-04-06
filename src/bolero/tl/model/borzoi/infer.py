@@ -986,9 +986,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 
             # For alt allele, set the alternate base
             # Clear the position for this batch item
-            alt_dna[batch_idx, relative_pos, :] = 0
+            alt_dna[batch_idx, relative_pos-1, :] = 0
             # Set the alternate nucleotide
-            alt_dna[batch_idx, relative_pos, nucleotide_map[alt_allele]] = 1
+            alt_dna[batch_idx, relative_pos-1, nucleotide_map[alt_allele]] = 1
 
 
         def transform_tensor(dna):
@@ -1753,3 +1753,371 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             print(f"Not all cell types were completed successfully. Re-run to continue processing.")
         
         return
+
+
+    def _snp_predict_with_peak_effect(self, model, bed, modality='atac', output_dir=None, celltype=None, checkpoint_interval=10000):
+        """Run prediction for SNP variants, calculating and saving peak effects and beta values.
+        
+        Parameters
+        ----------
+        model : torch.nn.Module
+            Collapsed model for prediction.
+        bed : pd.DataFrame
+            Bed file with variant information.
+        modality : str, optional
+            Modality to extract from model output. Default is 'atac'.
+        output_dir : str or pathlib.Path, optional
+            Directory to save checkpoints. If None, checkpoints are not saved.
+        celltype : str, optional
+            Cell type identifier for checkpoint filenames.
+        checkpoint_interval : int, optional
+            Number of regions to process before saving a checkpoint. Default is 10000.
+            
+        Returns
+        -------
+        dict
+            Dictionary with 'peak_values' and 'beta' arrays, both in the same order.
+        """
+        import pickle
+        import pathlib
+        
+        # Initialize our simple result structure
+        result = {
+            'peak_values': [],
+            'beta': [],
+            'dist_to_peak': [],
+            'peak_size': []
+        }
+        
+        # For checkpointing
+        regions_processed = 0
+        checkpoint_count = 0
+        
+        # Prepare checkpoint directory if provided
+        if output_dir is not None:
+            output_dir = pathlib.Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create a checkpoint-specific directory
+            checkpoint_dir = output_dir / "checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create or load progress tracker
+            progress_file = checkpoint_dir / f"{celltype or 'unknown'}_progress.txt"
+            if progress_file.exists():
+                with open(progress_file, 'r') as f:
+                    regions_processed = int(f.read().strip())
+                    print(f"Resuming from {regions_processed} processed regions")
+        
+        # Skip already processed regions
+        if regions_processed > 0:
+            print(f"Skipping first {regions_processed} regions (already processed)")
+        
+        for i in tqdm(range(0, bed.shape[0], self.batch_size)):
+            # Skip if we've already processed these regions
+            if i < regions_processed:
+                continue
+                
+            batch_bed = bed.iloc[i : i + self.batch_size]
+            
+            # Get reference and alternate sequences
+            batch = self._get_snp_dna_one_hot(batch_bed)
+            
+            # Get predictions
+            outputs_ref = self._forward_pass(model, batch['ref'])
+            outputs_alt = self._forward_pass(model, batch['alt'])
+            
+            # Calculate effect (alt - ref) immediately
+            batch_effect = outputs_alt[modality] - outputs_ref[modality]
+            
+            # Process each sample in the batch
+            for j in range(len(batch_bed)):
+                row = batch_bed.iloc[j]
+                
+                # Calculate relative peak positions within the sequence
+                # Convert from bp to 32bp bins and account for the 512bp padding
+                relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                relative_peak_end = min(batch_effect.shape[-1] - 1, (row["peak-end"] - row["Start"] + 512) // 32)
+                
+                # Extract peak region effects and calculate the mean
+                # This preserves all channels but averages across the peak positions
+                peak_effect = torch.mean(batch_effect[j, :, relative_peak_start:relative_peak_end+1], dim=-1)
+                
+                # Store peak effect and corresponding beta value
+                result['peak_values'].append(peak_effect.cpu().detach().numpy())
+                result['beta'].append(row['beta'])
+                result['peak_size'].append(row["peak-end"] - row["peak-start"])
+                midpoint = np.abs((row["peak-end"] - row["peak-start"]) // 2 + row["peak-start"])
+                result['dist_to_peak'].append(np.abs(midpoint - (row['pos2start']+row["Start"])))
+                
+                # Increment regions processed counter
+                regions_processed += 1
+            
+            # Save checkpoint if interval reached
+            if output_dir is not None and regions_processed // checkpoint_interval > checkpoint_count:
+                checkpoint_count = regions_processed // checkpoint_interval
+                
+                # Create checkpoint filename
+                checkpoint_file = checkpoint_dir / f"{celltype or 'unknown'}_checkpoint_{regions_processed}.pkl"
+                
+                # Convert current results to numpy arrays for saving
+                temp_result = {
+                    'peak_values': np.array(result['peak_values']),
+                    'beta': np.array(result['beta']),
+                    'peak_size': np.array(result['peak_size']),
+                    'dist_to_peak': np.array(result['dist_to_peak']),
+                    'regions_processed': regions_processed,
+                    'celltype': celltype
+                }
+                
+                # Save checkpoint
+                with open(checkpoint_file, 'wb') as f:
+                    pickle.dump(temp_result, f)
+                
+                # Update progress file
+                with open(progress_file, 'w') as f:
+                    f.write(str(regions_processed))
+                    
+                print(f"Checkpoint saved at {regions_processed} regions")
+                
+                # Clear memory for tensors that have been saved
+                torch.cuda.empty_cache()
+        
+        # Convert lists to numpy arrays for easier handling
+        result['peak_values'] = np.array(result['peak_values'])
+        result['beta'] = np.array(result['beta'])
+        result['dist_to_peak'] = np.array(result['dist_to_peak'])
+        result['peak_size'] = np.array(result['peak_size'])
+        
+        # Save final result if checkpointing was enabled
+        if output_dir is not None:
+            final_file = output_dir / f"{celltype or 'unknown'}_final_result.pkl"
+            
+            # Add metadata to result
+            result['regions_processed'] = regions_processed
+            result['celltype'] = celltype
+            
+            # Save final result
+            with open(final_file, 'wb') as f:
+                pickle.dump(result, f)
+            
+            print(f"Final results saved to {final_file}")
+        
+        return result
+
+
+    def infer_snp_simple(
+        self, celltype: str, embedding: np.array, bed_path: str, output_dir=None, progress_bar=True, checkpoint_interval=10000
+    ) -> dict:
+        """Simplified inference of variant effect that returns a dictionary with peak values and beta values.
+        
+        Parameters
+        ----------
+        celltype : str
+            The cell type identifier (e.g., 'ASC')
+        embedding : np.array
+            Embedding array for the cell type
+        bed_path : str
+            Path to the bed file with variant information
+        output_dir : str or pathlib.Path, optional
+            Directory to save checkpoints. If None, checkpoints are not saved.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+        checkpoint_interval : int, optional
+            Number of regions to process before saving a checkpoint. Default is 10000.
+            
+        Returns
+        -------
+        dict
+            Dictionary containing 'peak_values' and 'beta' arrays in corresponding order.
+        """
+        # Read and process the BED file
+        bed = pd.read_csv(bed_path, header=0, sep="\t")
+        
+        # Standardize columns
+        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+        bed.columns = _columns
+        
+        # Process the embedding
+        emb_model = self._collapse_model(embedding)
+        
+        # Use the optimized SNP predict function that calculates peak effects during the forward pass
+        # and returns a simple dictionary structure
+        result = self._snp_predict_with_peak_effect(
+            emb_model, 
+            bed, 
+            output_dir=output_dir,
+            celltype=celltype,
+            checkpoint_interval=checkpoint_interval
+        )
+        
+        # Clean up
+        del emb_model
+        torch.cuda.empty_cache()
+        
+        # Add the celltype to the result for reference if not already added
+        if 'celltype' not in result:
+            result['celltype'] = celltype
+        
+        return result
+
+    def infer_snp_simple_offline(
+        self, 
+        embedding_bed_dict,
+        output_dir,
+        experiment_name,
+        progress_bar=True,
+        checkpoint_interval=10000,
+        resume=True
+    ):
+        """Simplified offline inference for SNP variants, saving peak effects and beta values.
+        
+        Parameters
+        ----------
+        embedding_bed_dict : dict
+            Dictionary where:
+            - Keys are cell types (e.g., 'ASC')
+            - Values are dictionaries with:
+                - 'path': path to the bed file with variant information
+                - 'embedding': embedding dataframe for that cell type
+        output_dir : str
+            Path to output directory.
+        experiment_name : str
+            Name of the experiment for the subfolder.
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+        checkpoint_interval : int, optional
+            Number of regions to process before saving a checkpoint. Default is 10000.
+        resume : bool, optional
+            Whether to resume from checkpoints if available. Default is True.
+        """
+        import pathlib
+        
+        # Create main output directory with experiment name
+        output_dir = pathlib.Path(output_dir) / experiment_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Process each cell type
+        for cell_type, data_dict in tqdm(embedding_bed_dict.items(), disable=not progress_bar, 
+                                        desc="Processing cell types"):
+            
+            # Create cell type specific directory
+            cell_type_dir = output_dir / cell_type
+            cell_type_dir.mkdir(parents=True, exist_ok=True)
+            
+            # File to save results
+            result_file = cell_type_dir / f"{cell_type}_results.pkl"
+            
+            # Check if already processed
+            if result_file.exists() and resume:
+                print(f"Cell type {cell_type} already processed. Skipping.")
+                continue
+            
+            # Check if there are checkpoints to resume from
+            checkpoint_dir = cell_type_dir / "checkpoints"
+            if not resume and checkpoint_dir.exists():
+                import shutil
+                print(f"Removing existing checkpoints for {cell_type} since resume=False")
+                shutil.rmtree(checkpoint_dir)
+            
+            embedding = data_dict['embedding']
+            bed_path = data_dict['path']
+            
+            try:
+                # Infer SNP effects with checkpointing
+                result = self.infer_snp_simple(
+                    cell_type, 
+                    embedding, 
+                    bed_path, 
+                    output_dir=cell_type_dir,
+                    progress_bar=progress_bar,
+                    checkpoint_interval=checkpoint_interval
+                )
+                
+                # The results are already saved by _snp_predict_with_peak_effect,
+                # but we'll save them explicitly with our standard naming for consistency
+                import pickle
+                if not result_file.exists():
+                    with open(result_file, 'wb') as f:
+                        pickle.dump(result, f)
+                    print(f"Results saved to {result_file}")
+                
+                print(f"Successfully processed cell type: {cell_type}")
+                
+            except Exception as e:
+                print(f"Error processing cell type {cell_type}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # Continue with other cell types even if one fails
+                continue
+            
+            # Clear memory
+            torch.cuda.empty_cache()
+        
+        print(f"Completed processing all cell types for experiment: {experiment_name}")
+
+    def merge_checkpoints(self, checkpoint_dir, output_file=None):
+        """Merge multiple checkpoint files into a single result file.
+        
+        Parameters
+        ----------
+        checkpoint_dir : str or pathlib.Path
+            Directory containing checkpoint files.
+        output_file : str or pathlib.Path, optional
+            Path to save the merged result. If None, will use the directory name.
+        
+        Returns
+        -------
+        dict
+            Merged dictionary with peak values and beta values.
+        """
+        import pathlib
+        import pickle
+        import glob
+        
+        checkpoint_dir = pathlib.Path(checkpoint_dir)
+        
+        # Find all checkpoint files
+        checkpoint_files = sorted(glob.glob(str(checkpoint_dir / "checkpoints" / "*_checkpoint_*.pkl")))
+        
+        if not checkpoint_files:
+            raise ValueError(f"No checkpoint files found in {checkpoint_dir / 'checkpoints'}")
+        
+        # Initialize merged result
+        merged_result = {
+            'peak_values': [],
+            'beta': []
+        }
+        
+        # Load and merge checkpoints
+        celltype = None
+        
+        for checkpoint_file in tqdm(checkpoint_files, desc="Merging checkpoints"):
+            with open(checkpoint_file, 'rb') as f:
+                checkpoint = pickle.load(f)
+            
+            merged_result['peak_values'].extend(checkpoint['peak_values'])
+            merged_result['beta'].extend(checkpoint['beta'])
+            
+            # Get celltype from first checkpoint
+            if celltype is None and 'celltype' in checkpoint:
+                celltype = checkpoint['celltype']
+        
+        # Convert to numpy arrays
+        merged_result['peak_values'] = np.array(merged_result['peak_values'])
+        merged_result['beta'] = np.array(merged_result['beta'])
+        
+        # Add celltype if available
+        if celltype:
+            merged_result['celltype'] = celltype
+        
+        # Save merged result if output file is specified
+        if output_file is None:
+            output_file = checkpoint_dir / f"{celltype or checkpoint_dir.name}_merged_results.pkl"
+        
+        with open(output_file, 'wb') as f:
+            pickle.dump(merged_result, f)
+        
+        print(f"Merged {len(checkpoint_files)} checkpoints into {output_file}")
+        
+        return merged_result
