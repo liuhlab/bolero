@@ -1153,6 +1153,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             peak_effects_np = data.numpy()
             # Get dimensions
             n_regions, n_peaks = peak_effects_np.shape
+
+            # Create a region index from the BED file
+            region_index = np.arange(len(bed))
             
             # Build an xarray Dataset
             ds = xr.Dataset(
