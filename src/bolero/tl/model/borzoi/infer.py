@@ -1106,6 +1106,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         BorzoiInferenceDataset
             Dataset with SNP effect predictions.
         """
+        final_data = []
 
         # Read and process the BED file
         bed = pd.read_csv(bed_path, header=0, sep="\t")
@@ -1117,14 +1118,15 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         # Process the embedding
         emb_model = self._collapse_model(embedding)
         data = self._snp_predict(emb_model, bed, mode=mode)
+        final_data.append(data)
         
         del emb_model
         torch.cuda.empty_cache()
         
         if mode == 'snp':
             # Stack ref and alt predictions separately
-            ref_data = torch.stack([data['ref'] for data in data], dim=0).cpu().numpy()
-            alt_data = torch.stack([data['alt'] for data in data], dim=0).cpu().numpy()
+            ref_data = torch.stack([data['ref'] for data in final_data], dim=0).cpu().numpy()
+            alt_data = torch.stack([data['alt'] for data in final_data], dim=0).cpu().numpy()
             
             # Create a region index from the BED file
             region_index = np.arange(len(bed))
@@ -1143,9 +1145,6 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                     "description": f"Variant effect predictions for {celltype}"
                 }
             )
-            # Calculate effect scores (alternate - reference)
-            ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
-            ds = self.calculate_peak_effect(ds)
 
             assert ref_data.shape[1] == len(bed), "Mismatch between prediction regions and bed file rows"
 
@@ -1177,6 +1176,11 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             if col_name == "Chromosome":
                 col_values = col_values.astype(str)
             ds.coords[col_name] = (("region",), col_values)
+
+        if mode == 'snp':
+            # Calculate effect scores (alternate - reference)
+            ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
+            ds = self.calculate_peak_effect(ds)
 
         return BorzoiInferenceDataset(ds, self.genome)
         
@@ -1239,7 +1243,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 ds = ds.dataset
                 
                 # Output path for this cell type
-                zarr_path = cell_type_dir / f"{cell_type}.zarr"
+                zarr_path = cell_type_dir / f"{cell_type}_{mode}.zarr"
                 temp_out_path = pathlib.Path(f"{zarr_path}.temp")
                 
                 # Save dataset to zarr format
