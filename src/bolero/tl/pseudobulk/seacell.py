@@ -9,7 +9,7 @@ except ImportError as e:
     ) from e
 
 
-def calc_meta_cells(adata, meta_fold, obsm, n_waypoint_eigs=10):
+def calc_meta_cells(adata, meta_fold, obsm, min_seacells=10, n_waypoint_eigs=10):
     """
     Meta cell calculation using SEACells.
 
@@ -24,8 +24,9 @@ def calc_meta_cells(adata, meta_fold, obsm, n_waypoint_eigs=10):
     n_waypoint_eigs : int
         The number of waypoint eigenvectors to use.
     """
+    n_waypoint_eigs = min(min_seacells, n_waypoint_eigs)
     n_cells = adata.shape[0]
-    n_meta_cells = max(n_cells // meta_fold, 10)
+    n_meta_cells = max(n_cells // meta_fold, min_seacells)
     print(f"Group {n_cells} cells to {n_meta_cells} meta cells")
     model = SEACells.core.SEACells(
         adata,
@@ -54,6 +55,8 @@ def run_meta_cells(
     obsm,
     groupby=None,
     max_fragments=3000000,
+    group_size_cutoff=200,
+    min_seacells_per_group=5,
     n_fragment_key="n_fragments",
     meta_fold=75,
 ):
@@ -72,6 +75,12 @@ def run_meta_cells(
         The key in adata.obsm to use for the kernel matrix.
     max_fragments : int
         The maximum number of fragments allowed for each meta cell.
+    group_size_cutoff : int, optional
+        If specified, groups with fewer cells than this cutoff will be skipped.
+        If None, all groups will be processed regardless of size.
+    min_seacells_per_group : int
+        The minimum number of SEACells to use for each group. If the group has fewer cells, it will use that number.
+        This prevents errors when a group is too small to form a meta cell.
     n_fragment_key : str
         The key in adata.obs to use for the number of fragments.
     meta_fold : int
@@ -82,15 +91,33 @@ def run_meta_cells(
     pd.Series
         A series containing the meta cell assignments for each cell.
     """
+    if group_size_cutoff is None:
+        group_size_cutoff = 1
+
     if groupby is None:
         _, assign = calc_meta_cells(adata, meta_fold, obsm)
         total_assign = assign["SEACell"]
     else:
         total_assign = []
         for group, sub_df in adata.obs.groupby(groupby, observed=True):
-            print(f"Run meta cell for {group}")
+            n_cells = sub_df.shape[0]
+            if sub_df.shape[0] < group_size_cutoff:
+                print(
+                    f"Skipping group '{group}' with {n_cells} cells: "
+                    f"not enough cells to form meta cells (need at least 2)."
+                )
+                # If the group has fewer cells than needed for meta cells, use the group name as the assignment
+                assign = pd.Series([group] * n_cells, index=sub_df.index)
+                total_assign.append(assign)
+                continue
             ct_adata = adata[sub_df.index].copy()
-            _, assign = calc_meta_cells(ct_adata, meta_fold, obsm)
+            print(f"Run meta cell for {group} with adata shape {ct_adata.shape}")
+            _, assign = calc_meta_cells(
+                ct_adata,
+                meta_fold=meta_fold,
+                obsm=obsm,
+                min_seacells=min_seacells_per_group,
+            )
             assign = group + "+" + assign["SEACell"]
             total_assign.append(assign)
         total_assign = pd.concat(total_assign)

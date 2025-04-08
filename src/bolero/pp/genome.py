@@ -1034,6 +1034,10 @@ class Genome:
         seq = one_hot_decoding(one_hot)
         return seq
 
+    def fetch_seq(self, *args, **kwargs):
+        """Alias of get_region_sequence"""
+        return self.get_region_sequence(*args, **kwargs)
+
     def get_regions_one_hot(self, regions):
         """
         Get the one-hot encoding for the given regions.
