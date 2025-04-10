@@ -1011,7 +1011,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         
         return {'ref': ref_dna, 'alt': alt_dna}
 
-    def _snp_predict(self, model, bed, modality='atac', mode='peak'):
+    def _snp_predict(self, model, bed, modality='atac', mode='peak', effect_mode='mean'):
         """Run prediction for SNP variants.
         
         Parameters
@@ -1055,7 +1055,17 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                     relative_peak_end = min(effect.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
                     
                     # Extract peak region effects
-                    peak_effect = torch.mean(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                    if effect_mode == 'mean':
+                        peak_effect = torch.mean(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                    elif effect_mode == 'sum':
+                        peak_effect = torch.sum(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                    elif effect_mode == 'log2foldchange':
+                        ref_pred = torch.sum(outputs_ref[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                        alt_pred = torch.sum(outputs_alt[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                        peak_effect = torch.log2(alt_pred / ref_pred)
+                    else:
+                        raise ValueError(f"Unknown effect mode {effect_mode}")
+                    # Append to batch results
                     batch_peak_effects.append(peak_effect)
 
                 # Stack batch results
@@ -1165,10 +1175,10 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 col_values = col_values.astype(str)
             ds.coords[col_name] = (("region",), col_values)
 
-        if mode == 'snp':
-            # Calculate effect scores (alternate - reference)
-            ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
-            ds = self.calculate_peak_effect(ds)
+        # if mode == 'snp':
+        #     # Calculate effect scores (alternate - reference)
+        #     ds["effect"] = ds["alt_prediction"] - ds["ref_prediction"]
+        #     ds = self.calculate_peak_effect(ds)
 
         return BorzoiInferenceDataset(ds, self.genome)
         
@@ -1844,7 +1854,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         return
 
 
-    def _snp_predict_with_peak_effect(self, model, bed, modality='atac', output_dir=None, celltype=None, checkpoint_interval=10000):
+    def _snp_predict_with_peak_effect(self, model, bed, modality='atac', output_dir=None, celltype=None, checkpoint_interval=10000, effect_mode='mean'):
         """Run prediction for SNP variants, calculating and saving peak effects and beta values.
         
         Parameters
@@ -1928,9 +1938,18 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                 relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
                 relative_peak_end = min(batch_effect.shape[-1] - 1, (row["peak-end"] - row["Start"] + 512) // 32)
                 
-                # Extract peak region effects and calculate the mean
+                # Extract peak region effects 
                 # This preserves all channels but averages across the peak positions
-                peak_effect = torch.mean(batch_effect[j, :, relative_peak_start:relative_peak_end+1], dim=-1)
+                if effect_mode == 'mean':
+                    peak_effect = torch.mean(batch_effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                elif effect_mode == 'sum':
+                    peak_effect = torch.sum(batch_effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                elif effect_mode == 'log2foldchange':
+                    ref_pred = torch.sum(outputs_ref[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                    alt_pred = torch.sum(outputs_alt[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                    peak_effect = torch.log2(alt_pred / ref_pred)
+                else:
+                    raise ValueError(f"Unknown effect mode {effect_mode}")
                 
                 # Store peak effect and corresponding beta value
                 result['peak_values'].append(peak_effect.cpu().detach().numpy())
