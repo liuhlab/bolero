@@ -1,3 +1,5 @@
+from itertools import product
+
 import pandas as pd
 from scipy.cluster.hierarchy import linkage, to_tree
 
@@ -198,3 +200,41 @@ def prepare_multi_level_categorical_groups(
         cell_to_group = pd.concat(cell_to_group).astype("category")
         to_return = cell_to_group, group_to_cats
     return to_return
+
+
+def get_cell_to_group(
+    cell_metadata: pd.DataFrame,
+    groupby_cols: list,
+    group_to_categories: dict[list],
+):
+    """
+    Create cell to group mapping based on group categories and cell metadata.
+
+    Parameters
+    ----------
+    cell_metadata : pd.DataFrame
+        DataFrame containing cell metadata with categorical variables.
+    groupby_cols : list
+        List of categorical variable names to group by.
+    group_to_categories : dict[list]
+        Group to category combination created by the prepare_multi_level_categorical_groups function.
+        The keys are group names and the values are lists of categories.
+
+    Returns
+    -------
+    cell_to_group : pd.Series
+        Series mapping each cell to its corresponding group name.
+    """
+    group_to_cells = {
+        k: v.index for k, v in cell_metadata.groupby(groupby_cols, observed=True)
+    }
+
+    cell_to_group = []
+    for group, cats in group_to_categories.items():
+        for cond in product(*cats):
+            cells = group_to_cells.get(cond, None)
+            if cells is not None:
+                gs = pd.Series(group, cells)
+                cell_to_group.append(gs)
+    cell_to_group = pd.concat(cell_to_group)
+    return cell_to_group
