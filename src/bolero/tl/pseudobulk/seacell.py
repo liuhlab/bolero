@@ -57,8 +57,10 @@ def run_meta_cells(
     max_fragments=3000000,
     group_size_cutoff=200,
     min_seacells_per_group=5,
+    large_group_split_threshold=30000,
     n_fragment_key="n_fragments",
     meta_fold=75,
+    random_state=0,
 ):
     """
     Run meta cell calculation on the given AnnData object.
@@ -81,6 +83,8 @@ def run_meta_cells(
     min_seacells_per_group : int
         The minimum number of SEACells to use for each group. If the group has fewer cells, it will use that number.
         This prevents errors when a group is too small to form a meta cell.
+    large_group_split_threshold : int
+        If the group size is larger than this threshold, it will be randomly split into smaller groups.
     n_fragment_key : str
         The key in adata.obs to use for the number of fragments.
     meta_fold : int
@@ -110,16 +114,42 @@ def run_meta_cells(
                 assign = pd.Series([group] * n_cells, index=sub_df.index)
                 total_assign.append(assign)
                 continue
-            ct_adata = adata[sub_df.index].copy()
-            print(f"Run meta cell for {group} with adata shape {ct_adata.shape}")
-            _, assign = calc_meta_cells(
-                ct_adata,
-                meta_fold=meta_fold,
-                obsm=obsm,
-                min_seacells=min_seacells_per_group,
-            )
-            assign = group + "+" + assign["SEACell"]
-            total_assign.append(assign)
+
+            if n_cells > large_group_split_threshold:
+                # Randomly split the group into smaller groups
+                n_split = int(np.ceil(n_cells / large_group_split_threshold))
+                chunk_size = n_cells // n_split + 1
+                print(f"Splitting group '{group}' into {n_split} smaller groups.")
+
+                sub_df = sub_df.sample(frac=1, replace=False, random_state=random_state)
+                for idx, chunk_start in enumerate(range(0, n_cells, chunk_size)):
+                    chunk_sub_df = sub_df.iloc[
+                        chunk_start : min(chunk_start + chunk_size, n_cells)
+                    ]
+                    ct_adata = adata[chunk_sub_df.index].copy()
+                    _group = f"{group}.{idx}"
+                    print(
+                        f"Run meta cell for {_group} with adata shape {ct_adata.shape}"
+                    )
+                    _, assign = calc_meta_cells(
+                        ct_adata,
+                        meta_fold=meta_fold,
+                        obsm=obsm,
+                        min_seacells=min_seacells_per_group,
+                    )
+                    assign = _group + "+" + assign["SEACell"]
+                    total_assign.append(assign)
+            else:
+                ct_adata = adata[sub_df.index].copy()
+                print(f"Run meta cell for {group} with adata shape {ct_adata.shape}")
+                _, assign = calc_meta_cells(
+                    ct_adata,
+                    meta_fold=meta_fold,
+                    obsm=obsm,
+                    min_seacells=min_seacells_per_group,
+                )
+                assign = group + "+" + assign["SEACell"]
+                total_assign.append(assign)
         total_assign = pd.concat(total_assign)
 
     if max_fragments is None:
