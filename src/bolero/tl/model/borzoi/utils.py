@@ -64,7 +64,8 @@ class BorzoiRegions:
         """Return borzoi regions."""
         if self._borzoi_regions is None:
             self._borzoi_regions = pr.read_bed(
-                str(BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed"), as_df=True
+                str(BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed.gz"),
+                as_df=True,
             )
             self._borzoi_regions.columns = ["Chromosome", "Start", "End", "Fold"]
             self._borzoi_regions["Fold"] = (
