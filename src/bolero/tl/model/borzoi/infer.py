@@ -1028,6 +1028,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         dict
             Dictionary with reference and alternate predictions.
         """
+        print(f"Running {mode} prediction for {modality}, with effect mode {effect_mode}...")
         all_data = {'ref': [], 'alt': []}
         peak_effects = []
         for i in tqdm(range(0, bed.shape[0], self.batch_size)):
@@ -1084,7 +1085,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         
     
     def infer_snp(
-        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True, mode='peak'
+        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True, mode='peak', effect_mode='log2foldchange'
     ) -> xr.Dataset:
         """Inference of variant effect for given embedding and bed files.
         
@@ -1115,7 +1116,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         
         # Process the embedding
         emb_model = self._collapse_model(embedding)
-        data = self._snp_predict(emb_model, bed, mode=mode)
+        data = self._snp_predict(emb_model, bed, mode=mode, effect_mode=effect_mode)
         final_data.append(data)
         
         del emb_model
