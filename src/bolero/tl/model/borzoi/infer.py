@@ -1186,6 +1186,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         experiment_name,
         progress_bar=True,
         mode='peak',
+        effect_mode = 'log2foldchange'
     ):
         """Inference for SNP variants, saving results to output_dir for each cell type.
         
@@ -1232,7 +1233,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             bed_path = data_dict['path']
             try:
                 # Infer SNP effects for this cell type
-                ds = self.infer_snp(cell_type, embedding, bed_path, progress_bar=progress_bar, mode=mode)
+                ds = self.infer_snp(cell_type, embedding, bed_path, progress_bar=progress_bar, mode=mode, effect_mode=effect_mode)
                 
                 # Get the xarray dataset
                 ds = ds.dataset
@@ -1671,7 +1672,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
 
 
     def infer_snp_simple(
-        self, celltype: str, embedding: np.array, bed_path: str, output_dir=None, progress_bar=True, checkpoint_interval=10000
+        self, celltype: str, embedding: np.array, bed_path: str, output_dir=None, progress_bar=True, checkpoint_interval=10000, effect_mode = 'log2foldchange'
     ) -> dict:
         """Simplified inference of variant effect that returns a dictionary with peak values and beta values.
         
@@ -1712,7 +1713,8 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             bed, 
             output_dir=output_dir,
             celltype=celltype,
-            checkpoint_interval=checkpoint_interval
+            checkpoint_interval=checkpoint_interval,
+            effect_mode=effect_mode
         )
         
         # Clean up
@@ -1732,7 +1734,8 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         experiment_name,
         progress_bar=True,
         checkpoint_interval=10000,
-        resume=True
+        resume=True,
+        effect_mode = 'log2foldchange'
     ):
         """Simplified offline inference for SNP variants, saving peak effects and beta values.
         
@@ -1795,7 +1798,8 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                     bed_path, 
                     output_dir=cell_type_dir,
                     progress_bar=progress_bar,
-                    checkpoint_interval=checkpoint_interval
+                    checkpoint_interval=checkpoint_interval,
+                    effect_mode = effect_mode
                 )
                 
                 # The results are already saved by _snp_predict_with_peak_effect,
