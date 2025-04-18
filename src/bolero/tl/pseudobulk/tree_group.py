@@ -179,6 +179,8 @@ def prepare_multi_level_categorical_groups(
                 cell_meta.loc[use_cells].copy(),
                 embedding.loc[use_cells].copy(),
                 group_cols=remain_group_cols,
+                min_cell_count=min_cell_count,
+                dendrogram_method=dendrogram_method,
                 _is_top=False,
             )
     else:

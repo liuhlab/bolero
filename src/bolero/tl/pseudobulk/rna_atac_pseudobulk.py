@@ -25,6 +25,7 @@ class RNAVQPseudobulker:
         "downsample_vq": None,
         "prefix_name": "pseudobulk",
         "add_cov_to_emb": False,
+        "barcode_order": None,
     }
 
     @classmethod
@@ -42,6 +43,7 @@ class RNAVQPseudobulker:
         downsample_vq: int = None,
         prefix_name: str = "pseudobulk",
         add_cov_to_emb: bool = False,
+        barcode_order: Union[str, list] = None,
         seed=42,
     ):
         """
@@ -63,6 +65,22 @@ class RNAVQPseudobulker:
         vq_records = self._load_vq_records(vq_records, downsample_vq)
 
         record_keys = list(vq_records.values())[0].keys()
+
+        self.barcode_order = barcode_order
+        if barcode_order is not None:
+            self.barcode_order = {
+                k: {c: i for i, c in enumerate(vl)} for k, vl in barcode_order.items()
+            }
+        # check if the vq records cluster_ids need to be converted to int
+        vq_example = vq_records[list(vq_records.keys())[0]]
+        cells_example = list(vq_example["cluster_ids"].values())[0]
+        if isinstance(cells_example[0], str):
+            need_int_convert = True
+            assert (
+                self.barcode_order is not None
+            ), "barcode_order must be provided when cluster_ids are str."
+        else:
+            need_int_convert = False
 
         if emb_key not in record_keys:
             if "embedding" in record_keys:
@@ -109,6 +127,14 @@ class RNAVQPseudobulker:
                         [emb_data, np.array(cov_value_list)]
                     ).astype("float32")
             self.vq_emb_dims = emb_data.size - len(self.prefix_order)
+
+            if need_int_convert:
+                # convert str barcode to int row index
+                parquet_prefix_to_rows = {
+                    k: sorted([self.barcode_order[k][c] for c in v])
+                    for k, v in parquet_prefix_to_rows.items()
+                }
+
             self.predefined_pseudobulks[vq] = [
                 parquet_prefix_to_rows,
                 emb_data,
