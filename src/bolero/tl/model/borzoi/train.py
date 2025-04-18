@@ -135,6 +135,18 @@ class TrainerBorzoiDatasetMixin:
         dataset = self.dataset_class.create_from_config(self.config)
         return dataset
 
+    @staticmethod
+    def _step_sample_regions(bed, offset=None):
+        sample_fold = 7
+        if offset is None:
+            offset = np.random.randint(sample_fold)
+        bed = (
+            bed.sort_values(["Chromosome", "Start"])
+            .iloc[offset::sample_fold]
+            .sample(frac=1, replace=False)
+        )
+        return bed
+
     def get_train_dataloader(self, batches: int):
         """Get the training dataloader.
 
@@ -149,19 +161,10 @@ class TrainerBorzoiDatasetMixin:
             The training dataloader.
         """
         self.dataset.train()
-
-        sample_fold = 7
-        offset = np.random.randint(sample_fold)
-        bed = self.train_regions
-        bed = (
-            bed.sort_values(["Chromosome", "Start"])
-            .iloc[offset::sample_fold]
-            .sample(frac=1, replace=False)
-        )
-
+        _bed = self._step_sample_regions(self.train_regions)
         dataloader = self.dataset.get_dataloader(
             folds=self.train_folds,
-            region_bed=bed,
+            region_bed=_bed,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
@@ -184,9 +187,11 @@ class TrainerBorzoiDatasetMixin:
         batch_size_fold = self.config.get("validation_batch_fold", 3)
         batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
+
+        _bed = self._step_sample_regions(self.valid_regions, offset=0)
         dataloader = self.dataset.get_dataloader(
             folds=self.valid_folds,
-            region_bed=self.valid_regions,
+            region_bed=_bed,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
@@ -210,9 +215,11 @@ class TrainerBorzoiDatasetMixin:
         batch_size_fold = self.config.get("validation_batch_fold", 3)
         batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
+
+        _bed = self._step_sample_regions(self.valid_regions, offset=0)
         dataloader = self.dataset.get_dataloader(
             folds=self.test_folds,
-            region_bed=self.test_regions,
+            region_bed=_bed,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
