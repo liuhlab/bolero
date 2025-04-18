@@ -149,9 +149,19 @@ class TrainerBorzoiDatasetMixin:
             The training dataloader.
         """
         self.dataset.train()
+
+        sample_fold = 7
+        offset = np.random.randint(sample_fold)
+        bed = self.train_regions
+        bed = (
+            bed.sort_values(["Chromosome", "Start"])
+            .iloc[offset::sample_fold]
+            .sample(frac=1, replace=False)
+        )
+
         dataloader = self.dataset.get_dataloader(
             folds=self.train_folds,
-            region_bed=self.train_regions,
+            region_bed=bed,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
