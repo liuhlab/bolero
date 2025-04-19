@@ -158,7 +158,7 @@ def parse_region_name(name):
     return c, s, e
 
 
-def get_package_dir():
+def get_package_dir() -> pathlib.Path:
     """
     Get the directory path of the bolero package.
 

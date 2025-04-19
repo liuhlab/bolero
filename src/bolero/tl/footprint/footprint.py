@@ -12,14 +12,21 @@ from bolero.tl.footprint.segment import get_masks, get_peaks_df_pval_fp
 from .utils import rz_conv, zscore2pval, zscore2pval_torch
 
 try:
-    # TODO: scprinter is not publicly available currently, remove this try-except block when it is available
     import scprinter as scp
     from scprinter.seq.minimum_footprint import dispModel as _dispModel
 except ImportError:
-    pass
+    print(
+        "scprinter is not installed. Please install it to use this module: "
+        "https://github.com/buenrostrolab/scPrinter/tree/main"
+    )
+
 
 from bolero.tl.footprint.tfbs import FootPrintScoreModel
-from bolero.utils import try_gpu
+from bolero.utils import get_package_dir, try_gpu
+
+DISPERSION_MODEL_PATH = (
+    get_package_dir() / "pkg_data/scprinter/dispersion_model_py_v2.h5"
+)
 
 
 def smooth_footprint(pval_log: np.ndarray, smooth_radius: int = 5) -> np.ndarray:
@@ -119,8 +126,7 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
         self.forward = super().footprint
 
         if dispmodels is None:
-            model_path = scp.datasets.pretrained_dispersion_model
-            dispmodels = scp.utils.loadDispModel(model_path)
+            dispmodels = scp.utils.loadDispModel(DISPERSION_MODEL_PATH)
             dispmodels = deepcopy(dispmodels)
         super().__init__(dispmodels=dispmodels)
         FootPrintScoreModel.__init__(self, modes=modes, device=device)

@@ -560,12 +560,12 @@ class scPrinterDatasetBase(scPrinterDataset):
     )
 
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
         self.sample_rows = kwargs.pop("sample_rows", 1000)
         print(
             f"Getting pseudobulk with random {self.sample_rows} rows in {self.prefix} data_key."
         )
-
-        super().__init__(*args, **kwargs)
         self.name_to_pseudobulker = {self.prefix: None}
         return
 

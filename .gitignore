@@ -37,7 +37,10 @@ tests/check.ipynb
 rune/*
 **/wandb/
 **/*.json
+# exclude all pt
 **/*.pt
+# but include ones in src/bolero/pkg_data
+!src/bolero/pkg_data/**/*.pt
 **/*.joblib
 **/*.ckpt
 
