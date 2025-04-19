@@ -2,6 +2,7 @@ import pathlib
 from copy import deepcopy
 from typing import Optional, Union
 
+import h5py
 import numpy as np
 import pyBigWig
 import torch
@@ -12,7 +13,6 @@ from bolero.tl.footprint.segment import get_masks, get_peaks_df_pval_fp
 from .utils import rz_conv, zscore2pval, zscore2pval_torch
 
 try:
-    import scprinter as scp
     from scprinter.seq.minimum_footprint import dispModel as _dispModel
 except ImportError:
     print(
@@ -27,6 +27,28 @@ from bolero.utils import get_package_dir, try_gpu
 DISPERSION_MODEL_PATH = (
     get_package_dir() / "pkg_data/scprinter/dispersion_model_py_v2.h5"
 )
+
+
+def _load_entire_hdf5(dct):
+    if isinstance(dct, h5py.Dataset):
+        return dct[()]
+    ret = {}
+    for k, v in dct.items():
+        ret[k] = _load_entire_hdf5(v)
+    return ret
+
+
+def _loadDispModel(h5Path):
+    with h5py.File(h5Path, "r") as a:
+        dispmodels = _load_entire_hdf5(a)
+        for model in dispmodels:
+            if model == "version":
+                continue
+            dispmodels[model]["modelWeights"] = [
+                torch.from_numpy(dispmodels[model]["modelWeights"][key]).float()
+                for key in ["ELT1", "ELT2", "ELT3", "ELT4"]
+            ]
+    return dispmodels
 
 
 def smooth_footprint(pval_log: np.ndarray, smooth_radius: int = 5) -> np.ndarray:
@@ -126,7 +148,7 @@ class FootPrintModel(_dispModel, FootPrintScoreModel):
         self.forward = super().footprint
 
         if dispmodels is None:
-            dispmodels = scp.utils.loadDispModel(DISPERSION_MODEL_PATH)
+            dispmodels = _loadDispModel(DISPERSION_MODEL_PATH)
             dispmodels = deepcopy(dispmodels)
         super().__init__(dispmodels=dispmodels)
         FootPrintScoreModel.__init__(self, modes=modes, device=device)
