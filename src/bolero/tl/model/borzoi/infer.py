@@ -1028,6 +1028,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         dict
             Dictionary with reference and alternate predictions.
         """
+        print(f"Running {mode} prediction for {modality}, with effect mode {effect_mode}...")
         all_data = {'ref': [], 'alt': []}
         peak_effects = []
         
