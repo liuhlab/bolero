@@ -1042,8 +1042,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
 
             
             if baseline:
-                # Baseline code remains unchanged
-                effect = outputs_alt - outputs_ref
+                                
                 # Extract only the peak regions for each batch item
                 batch_peak_effects = []
                 for j in range(len(batch_bed)):
@@ -1051,25 +1050,15 @@ class BorzoiSNPInferencer(BorzoiInferencer):
                     # Calculate relative peak positions
                     # Convert from bp to 32bp bins and account for the 512bp padding
                     relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
-                    relative_peak_end = min(effect.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                    relative_peak_end = min(outputs_ref.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
                     
-                    # Extract peak region effects
-                    if effect_mode == 'mean':
-                        peak_effect = torch.mean(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
-                    elif effect_mode == 'sum':
-                        peak_effect = torch.sum(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
-                    elif effect_mode == 'log2foldchange':
-                        ref_pred = torch.sum(outputs_ref[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
-                        alt_pred = torch.sum(outputs_alt[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
-                        peak_effect = torch.log2(alt_pred / ref_pred)
-                    else:
-                        raise ValueError(f"Unknown effect mode {effect_mode}")
-                    # Append to batch results
-                    batch_peak_effects.append(peak_effect)
-
-                # Stack batch results
-                if batch_peak_effects:
-                    peak_effects.append(torch.stack(batch_peak_effects, dim=0).cpu())                    
+                    # Store the tensors as they are, without trying to stack them yet
+                    ref_tensor = torch.sum(outputs_ref[j, :, relative_peak_start:relative_peak_end+1], axis=-1).cpu()
+                    alt_tensor = torch.sum(outputs_alt[j, :, relative_peak_start:relative_peak_end+1],axis=-1).cpu()
+                    
+                    all_data['ref'].append(ref_tensor)
+                    all_data['alt'].append(alt_tensor)
+                                   
             
             else:
                 if mode == 'snp':
@@ -1169,7 +1158,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         torch.cuda.empty_cache()
         
         if mode == 'snp':
-            # import pdb; breakpoint()
+
             # Handle variable length peaks
             ref_data = data['ref']  # List of tensors with variable lengths
             alt_data = data['alt']  # List of tensors with variable lengths
