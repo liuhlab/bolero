@@ -1176,33 +1176,21 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             
             # Create a region index from the BED file
             region_index = np.arange(len(bed))
-            
-            # Create a ragged array dataset
+        
+            # Build an xarray Dataset
             ds = xr.Dataset(
+                {
+                    "ref_effect": (["region", "effect"], np.array(ref_data)),
+                    "alt_effect": (["region", "effect"], np.array(alt_data)),
+                },
+                coords={
+                    "sample": [celltype],  # List with single cell type
+                    "region": region_index
+                },
                 attrs={
-                    "description": f"Variant effect predictions for {celltype}"
+                    "description": f"Peak effect predictions for {celltype}"
                 }
             )
-            
-            # Add coordinates
-            ds.coords['sample'] = [celltype]
-            ds.coords['region'] = region_index
-            
-            # Create data variables for each region separately
-            for i, (ref, alt) in enumerate(zip(ref_data, alt_data)):
-                ref_np = ref.numpy()
-                alt_np = alt.numpy()
-                
-                # Create a separate data variable for each region
-                ds[f'ref_prediction_region_{i}'] = xr.DataArray(
-                    ref_np,
-                    dims=['channel'],
-                )
-                
-                ds[f'alt_prediction_region_{i}'] = xr.DataArray(
-                    alt_np,
-                    dims=['channel'],
-                )
         
         elif mode == 'peak':
             peak_effects_np = data.numpy()
