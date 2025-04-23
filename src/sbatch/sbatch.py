@@ -310,7 +310,7 @@ class PreemptibleManager:
                     # reaches max jobs
                     break
 
-            time.sleep(600)
+            time.sleep(1200)
 
             print("Checking running jobs...")
             my_jobs = SlurmManager.get_running_jobs(running_only=False, mine_only=True)
@@ -331,25 +331,25 @@ class PreemptibleManager:
                 if str(job.job_id) not in submitted_jobs:
                     # maybe some other job manager is running, do not touch it
                     continue
-                if "requeued" in job.info_dict["state_description"].lower():
-                    # job is preeempted and waiting in the same node
-                    # we can cancel the job and resubmit, so it actually gets to wait in another node
-                    slurm_id = job.job_id
-                    cancel_job(slurm_id)
-                    time.sleep(5)
-                    # resubmit job
-                    idx = submitted_jobs.pop(str(slurm_id))
-                    command = self.command_dict[idx]
+                # if "requeued" in job.info_dict["state_description"].lower():
+                #     # job is preeempted and waiting in the same node
+                #     # we can cancel the job and resubmit, so it actually gets to wait in another node
+                #     slurm_id = job.job_id
+                #     cancel_job(slurm_id)
+                #     time.sleep(5)
+                #     # resubmit job
+                #     idx = submitted_jobs.pop(str(slurm_id))
+                #     command = self.command_dict[idx]
 
-                    job_name = f"{self.job_name}_{cum_job}"
-                    cum_job += 1
-                    manager = SlurmManager(
-                        job_name=job_name, command=command, **self.job_config
-                    )
-                    new_slurm_id = manager.submit(
-                        block=True, rerun=True
-                    )  # wait for the job to be submitted
-                    submitted_jobs[str(new_slurm_id)] = idx
-                    print(
-                        f"Job {slurm_id} is preempted and resubmitted as {new_slurm_id}."
-                    )
+                #     job_name = f"{self.job_name}_{cum_job}"
+                #     cum_job += 1
+                #     manager = SlurmManager(
+                #         job_name=job_name, command=command, **self.job_config
+                #     )
+                #     new_slurm_id = manager.submit(
+                #         block=True, rerun=True
+                #     )  # wait for the job to be submitted
+                #     submitted_jobs[str(new_slurm_id)] = idx
+                #     print(
+                #         f"Job {slurm_id} is preempted and resubmitted as {new_slurm_id}."
+                #     )

@@ -2,6 +2,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from typing import Any, Iterable, Union
 
+import h5py
 import numpy as np
 
 from bolero.tl.dataset.ray_dataset import (
@@ -12,6 +13,7 @@ from bolero.tl.dataset.transforms import CropLastAxisWithJitter, FetchRegionOneH
 from bolero.tl.footprint import FootPrintModel
 from bolero.tl.model.borzoi.dataset import BorzoiDataset
 from bolero.tl.model.borzoi.utils import BorzoiRegions
+from bolero.utils import understand_regions
 
 DNA_NAME = "dna_one_hot"
 
@@ -123,6 +125,33 @@ class BatchFootPrint(FootPrintModel):
         return data
 
 
+class FetchTn5Bias:
+    def __init__(self, bias_h5_file, bias_key="tn5_bias"):
+        self.bias_h5_file = bias_h5_file
+        self.handle = h5py.File(self.bias_h5_file, "r")
+        self.bias_key = bias_key
+
+    def __call__(self, data_dict: dict[str, bytes]) -> dict[str, np.ndarray]:
+        """
+        Fetch the tn5 bias for the given data dictionary.
+
+        Args:
+            data_dict (dict): Input data dictionary.
+
+        Returns
+        -------
+            dict: Data dictionary with tn5 bias added.
+        """
+        region = data_dict["region"]
+        region_bed = understand_regions(region)
+        bias_data = []
+        for _, (chrom, start, end, *_) in region_bed.iterrows():
+            bias_data.append(np.array(self.handle[chrom][start:end]))
+        bias_data = np.array(bias_data)
+        data_dict[self.bias_key] = bias_data
+        return data_dict
+
+
 class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
     """Singel cell dataset for scPrinter model."""
 
@@ -143,7 +172,9 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         "reverse_complement": True,
         "shuffle_files": True,
         "read_parquet_kwargs": None,
+        "tn5_bias_h5_file": None,
         "max_regions_per_genome_chunk": 100,
+        "prefix": "pseudobulk",
     }
 
     def __init__(
@@ -164,7 +195,9 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         reverse_complement: bool = True,
         shuffle_files=True,
         read_parquet_kwargs=None,
+        tn5_bias_h5_file=None,
         max_regions_per_genome_chunk: int = 100,
+        prefix: str = "pseudobulk",
         **kwargs,
     ):
         RayGenomeChunkDataset.__init__(
@@ -194,6 +227,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.max_regions_per_genome_chunk = max_regions_per_genome_chunk
 
         self.bias_column = "tn5_bias"
+        self.tn5_bias_h5_file = tn5_bias_h5_file
         self.name_to_pseudobulker = OrderedDict()
 
         self.borzoi_regions = BorzoiRegions(self.genome)
@@ -205,7 +239,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.normalize_cov = False  # footprint needs raw counts
         self.paired_data = False
 
-        self.prefix = kwargs.pop("prefix", "pseudobulk")
+        self.prefix = prefix
         return
 
     def __repr__(self) -> str:
@@ -320,6 +354,22 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.dna_column = "dna_one_hot"
         return dataset
 
+    def _get_tn5_bias(self, dataset, concurrency, batch_size=512):
+        """
+        Add the tn5 bias to the dataset.
+        """
+        if self.tn5_bias_h5_file is None:
+            return dataset
+
+        # add tn5 bias
+        dataset = dataset.map_batches(
+            fn=FetchTn5Bias,
+            fn_constructor_kwargs={"bias_h5_file": self.tn5_bias_h5_file},
+            concurrency=concurrency,
+            batch_size=batch_size,
+        )
+        return dataset
+
     def get_processed_dataset(
         self,
         folds: list[str],
@@ -371,6 +421,13 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
             concurrency=1,
+        )
+
+        # add tn5 bias if available
+        work_ds = self._get_tn5_bias(
+            dataset=work_ds,
+            concurrency=2,
+            batch_size=512,
         )
 
         work_ds = self._get_region_cropper(work_ds)
@@ -538,10 +595,11 @@ class GenerateBaseModelPseudobulk:
         nrows = row_by_base.shape[0]
         if nrows > self.sample_rows:
             use_rows = self.rand_state.choice(nrows, self.sample_rows, replace=False)
+            _bulk_values = row_by_base[use_rows].sum(axis=0).A1  # (region_length,)
         else:
-            use_rows = nrows
+            # if less than sample_rows, just sum all rows
+            _bulk_values = row_by_base.sum(axis=0).A1
 
-        _bulk_values = row_by_base[use_rows].sum(axis=0).A1  # (region_length,)
         data_dict[f"{self.prefix}:bulk_data"] = _bulk_values
 
         # return list of dicts

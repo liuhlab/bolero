@@ -188,10 +188,9 @@ class TrainerBorzoiDatasetMixin:
         batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
 
-        _bed = self._step_sample_regions(self.valid_regions, offset=0)
         dataloader = self.dataset.get_dataloader(
             folds=self.valid_folds,
-            region_bed=_bed,
+            region_bed=self.valid_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
@@ -216,10 +215,9 @@ class TrainerBorzoiDatasetMixin:
         batch_size = int(self.dataset.batch_size * batch_size_fold)
         self.dataset.eval()
 
-        _bed = self._step_sample_regions(self.valid_regions, offset=0)
         dataloader = self.dataset.get_dataloader(
             folds=self.test_folds,
-            region_bed=_bed,
+            region_bed=self.test_regions,
             n_batches=batches,
             concurrency=self.config["dataloader_concurrency"],
             shuffle_rows=self.config.get("shuffle_rows", None),
@@ -1041,7 +1039,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     # save model every save_every_batch steps
                     if since_last_save >= save_every_batch:
                         cur_batch += since_last_save
-                        self._preemptible_save(cur_batch, save_path)
+
+                        _save_path = str(save_path)[:-2] + f"{cur_batch // 5000}.pt"
+                        self._preemptible_save(cur_batch, _save_path)
                         since_last_save = 0
                         if cur_batch >= total_batches:
                             break
@@ -1065,7 +1065,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
             if since_last_save > 0:
                 cur_batch += since_last_save
-                self._preemptible_save(cur_batch, save_path)
+                _save_path = str(save_path)[:-2] + f"{cur_batch // 5000}.pt"
+                self._preemptible_save(cur_batch, _save_path)
                 since_last_save = 0
 
             del dataloader
