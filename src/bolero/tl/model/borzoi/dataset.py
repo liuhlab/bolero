@@ -568,6 +568,10 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
     def _mask_blacklist_and_clamp(self, dataset, concurrency=(1, 2), batch_size=16):
         """Mask the blacklist regions in the dataset."""
+        if self.genome.blacklist_bed is None:
+            # genome does not have blacklist regions
+            return dataset
+
         fn = MaskBlacklistAndClamp
         bl_coords = self.genome.get_global_coords(self.genome.blacklist_bed)
         fn_constructor_kwargs = {

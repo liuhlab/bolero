@@ -84,7 +84,9 @@ def understand_regions(regions, as_df=True) -> Union[pr.PyRanges, pd.DataFrame]:
     elif isinstance(regions, Union[list, tuple, pd.Index, np.ndarray, pd.Series]):
         regions = parse_region_names(regions, as_df=True)
     else:
-        raise ValueError("bed must be a PyRanges, DataFrame, str or Path")
+        raise ValueError(
+            f"bed must be a PyRanges, DataFrame, str or Path, got {type(regions)}"
+        )
 
     if isinstance(regions, pd.DataFrame):
         if as_df:
@@ -115,8 +117,13 @@ def parse_region_names(names, as_df=True):
     """
     bed_record = []
     for name in names:
-        c, se = name.split(":")
-        s, e = map(int, se.split("-"))
+        try:
+            c, se = name.split(":")
+            s, e = map(int, se.split("-"))
+        except ValueError:
+            raise ValueError(
+                f"Invalid region name format: {name}. Expected format: 'chromosome:start-end'."
+            ) from None
         bed_record.append([c, s, e, name])
 
     bed = pd.DataFrame(bed_record, columns=["Chromosome", "Start", "End", "Name"])
@@ -436,6 +443,9 @@ def parse_global_coords(
     """
     if isinstance(global_coords, torch.Tensor):
         global_coords = global_coords.cpu().numpy()
+
+    assert global_coords.min() >= 0, "Global coordinates must be non-negative"
+    global_coords = global_coords.astype("uint32")
 
     # make a bin boarder array for pd.cut
     bins = chrom_offsets["global_start"].tolist() + [

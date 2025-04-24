@@ -63,10 +63,19 @@ class BorzoiRegions:
     def borzoi_regions(self):
         """Return borzoi regions."""
         if self._borzoi_regions is None:
-            self._borzoi_regions = pr.read_bed(
+            bed = pr.read_bed(
                 str(BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed.gz"),
                 as_df=True,
             )
+            if self.genome_name not in ["hg38", "mm10"]:
+                # for custom genome, skip first and last region of each chromosome to avoid border issue
+                bed = (
+                    bed.groupby("Chromosome", observed=True)
+                    .apply(lambda df: df.sort_values("Start").iloc[1:-1])
+                    .reset_index(drop=True)
+                )
+
+            self._borzoi_regions = bed
             self._borzoi_regions.columns = ["Chromosome", "Start", "End", "Fold"]
             self._borzoi_regions["Fold"] = (
                 self._borzoi_regions["Fold"].str[4:].astype(int)

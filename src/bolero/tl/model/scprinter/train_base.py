@@ -132,6 +132,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         model,
         dataloader,
         collect_data=False,
+        collect_fn=None,
         save_keys=None,
         **kwargs,
     ):
@@ -186,6 +187,8 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         else:
                             v = v.half().cpu().numpy()
                     new_batch[k] = v
+                if collect_fn is not None:
+                    new_batch = collect_fn(new_batch)
                 data_collector.append(new_batch)
 
         del dataloader
@@ -416,6 +419,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         example_images = self._plot_example_footprints([batch])
                         wandb.log({"train_example/example_footprints": example_images})
 
+            print(f"{batch_id+1} batches finished.")
             del dataloader
             self._cleanup_env()
 

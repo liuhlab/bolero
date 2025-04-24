@@ -135,6 +135,28 @@ class scFootprintLoRATester(scFootprintLoRATrainer):
         dataset.write_parquet(saveas, num_rows_per_file=num_rows_per_file)
         return
 
+    def _make_collect_fn(self):
+        class _RowProcess:
+            def __init__(self):
+                return
+
+            def __call__(self, row):
+                true_footprint = row["true_footprint"][:, ::10, :].astype("float16")
+                pred_footprint = row["pred_footprint"][:, ::10, :].astype("float16")
+                data = {
+                    "true_cov": row["true_coverage"],
+                    "pred_cov": row["pred_coverage"],
+                    "true_footprint": true_footprint,
+                    "pred_footprint": pred_footprint,
+                    "region": row["region"],
+                }
+                for k, v in row.items():
+                    if k.endswith("pseudobulk_ids"):
+                        data[k] = v
+                return data
+
+        return _RowProcess()
+
     @torch.inference_mode()
     def test(self, saveas=None, device="cuda", save_keys=None):
         """Test the Borzoi LoRA model."""
@@ -147,6 +169,7 @@ class scFootprintLoRATester(scFootprintLoRATrainer):
             dataloader=dataloader,
             val_batches=None,
             collect_data=True,
+            collect_fn=self._make_collect_fn(),
         )
         self._cleanup_env()
 
