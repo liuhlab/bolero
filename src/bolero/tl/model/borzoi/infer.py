@@ -967,6 +967,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         
         # Create a copy of the one-hot encoding to modify
         alt_dna = ref_dna.copy()
+        rev = np.zeros(ref_dna.shape[0], dtype=int)
         
         assert len(snp_info) == ref_dna.shape[0], f'Regions != Batch size: {len(snp_info)}, {ref_dna.shape[0]}'
 
@@ -983,12 +984,22 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             # Validate alternate nucleotide
             if alt_allele not in nucleotide_map:
                 raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
+            
+            # Check if the reference allele matches the expected value
+            if alt_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] != 1:
+                # print(f'Warning: Reference allele mismatch for batch item {batch_idx}')
+                # print(f'Expected ref: {ref}, alt: {alt_allele}')
+                # print(f'found ref: {alt_dna[batch_idx, relative_pos-1, :]}')
+                rev[batch_idx] = 1
+                alt_dna[batch_idx, relative_pos-1, :] = 0
+                alt_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] = 1
                 
-            # For alt allele, set the alternate base
-            # Clear the position for this batch item
-            alt_dna[batch_idx, relative_pos-1, :] = 0
-            # Set the alternate nucleotide
-            alt_dna[batch_idx, relative_pos-1, nucleotide_map[alt_allele]] = 1
+            # For matched ref allele, set the corresponding alternate base
+            else:
+                # Clear the position for this batch item
+                alt_dna[batch_idx, relative_pos-1, :] = 0
+                # Set the alternate nucleotide
+                alt_dna[batch_idx, relative_pos-1, nucleotide_map[alt_allele]] = 1
 
 
         def transform_tensor(dna):
@@ -1009,7 +1020,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
         alt_dna = transform_tensor(alt_dna)
 
         
-        return {'ref': ref_dna, 'alt': alt_dna}
+        return {'ref': ref_dna, 'alt': alt_dna, 'rev': rev}
 
     def _snp_predict(self, model, bed, modality='atac', mode='peak', effect_mode='mean', baseline=False):
         """Run prediction for SNP variants.
@@ -1029,17 +1040,15 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             Dictionary with reference and alternate predictions.
         """
         print(f"Running {mode} prediction for {modality}, with effect mode {effect_mode}...")
-        all_data = {'ref': [], 'alt': []}
-        peak_effects = []
-        
-        
+        all_data = {'ref': [], 'alt': [], 'peak':[], 'rev': []}
+
         for i in tqdm(range(0, bed.shape[0], self.batch_size)):
             batch_bed = bed.iloc[i : i + self.batch_size]
             
             batch = self._get_snp_dna_one_hot(batch_bed)
             outputs_ref = self._forward_pass(model, batch['ref'])
             outputs_alt = self._forward_pass(model, batch['alt'])
-
+            all_data['rev'].extend(batch['rev'])
             
             if baseline:
                                 
@@ -1109,7 +1118,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
 
                     # Stack batch results
                     if batch_peak_effects:
-                        peak_effects.append(torch.stack(batch_peak_effects, dim=0).cpu())
+                        all_data['peak'].append(torch.stack(batch_peak_effects, dim=0).cpu())
                 
                 else:
                     raise ValueError(f"Unknown mode {mode}")
@@ -1119,7 +1128,8 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             return all_data
         
         elif mode == 'peak':
-            return torch.cat(peak_effects, dim=0)
+            all_data['peak'] = torch.cat(all_data['peak'], dim=0)
+            return all_data
         
     
     def infer_snp(
@@ -1182,7 +1192,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             )
         
         elif mode == 'peak':
-            peak_effects_np = data.numpy()
+            peak_effects_np = data['peak'].numpy()
             # Get dimensions
             n_regions, n_peaks = peak_effects_np.shape
 
@@ -1209,6 +1219,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             if col_name == "Chromosome":
                 col_values = col_values.astype(str)
             ds.coords[col_name] = (("region",), col_values)
+
+        # reverse direction info
+        ds.coords['direction'] = (("region",), data['rev'])
 
         return BorzoiInferenceDataset(ds, self.genome)
         
@@ -1372,7 +1385,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             bed = pd.read_csv(bed_path, header=0, sep="\t")
             
             # Standardize columns
-            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id"]
+            _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id", "PIP"]
             bed.columns = _columns
             
             # Initialize or load progress tracking
