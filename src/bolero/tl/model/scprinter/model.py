@@ -484,32 +484,41 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
                 param.requires_grad = True
         return
 
-    def collapse(self, embedding=None, requires_grad=True):
-        """
-        Returns a clone of the model with collapsed layers.
+    # def collapse(self, embedding=None, requires_grad=True):
+    #     """
+    #     Returns a clone of the model with collapsed layers.
 
-        Parameters
-        ----------
-            cell_embedding: The cell embedding tensor.
-            region_embedding: The region embedding tensor.
-            requires_grad: Whether to require gradients.
+    #     Parameters
+    #     ----------
+    #         cell_embedding: The cell embedding tensor.
+    #         region_embedding: The region embedding tensor.
+    #         requires_grad: Whether to require gradients.
 
-        Returns
-        -------
-            scFootprintBPNet: A clone of the model with collapsed layers.
-        """
-        # process the embeddings if kv_bottleneck is used
+    #     Returns
+    #     -------
+    #         scFootprintBPNet: A clone of the model with collapsed layers.
+    #     """
+    #     # process the embeddings if kv_bottleneck is used
+    #     if self.kv_bottleneck is not None:
+    #         embedding = self.vq_ind_to_emb(embedding)
+
+    #     model_clone = deepcopy(self)
+    #     model_clone = collapse_lora_model_(model_clone, embedding=embedding)
+
+    #     if requires_grad:
+    #         for p in model_clone.parameters():
+    #             p.requires_grad = True
+    #     return model_clone
+
+    def collapse_lora(self, embedding):
+        """Collapse the LoRA model into base form given an embedding."""
         if self.kv_bottleneck is not None:
             embedding = self.vq_ind_to_emb(embedding)
-
-        model_clone = deepcopy(self)
-        model_clone = collapse_lora_model_(model_clone, embedding=embedding)
-
-        if requires_grad:
-            for p in model_clone.parameters():
-                p.requires_grad = True
-        return model_clone
-
+            
+        model = collapse_lora_model_(self, embedding)
+        model.eval()
+        return model
+    
     def model_summary(self):
         """Print model summary."""
         if self.emb_input:

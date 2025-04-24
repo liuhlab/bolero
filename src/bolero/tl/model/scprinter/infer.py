@@ -4,11 +4,14 @@ import shutil
 import time
 from collections import defaultdict
 from copy import deepcopy
+import warnings
 
+from bolero.tl.model.borzoi.infer import BorzoiInferenceDataset, BorzoiSNPInferencer
 import joblib
 import numpy as np
 import pandas as pd
 import pyranges as pr
+import xarray as xr
 import torch
 
 from bolero.pp.genome import Genome
@@ -16,6 +19,7 @@ from bolero.tl.dataset.ray_dataset import RayRegionDataset
 from bolero.tl.footprint.tfbs import FootPrintScoreModel
 from bolero.tl.model.scprinter.attribution import BatchAttribution
 from bolero.utils import try_gpu, understand_regions, validate_config
+from tqdm import tqdm
 
 
 class BatchInference:
@@ -776,3 +780,230 @@ class scPrinterPseudobulkInferencer:
     def pseudobulk_names(self):
         """Get the possible names of the pseudobulks."""
         return self.model.pseudobulk_names
+
+
+
+class scPrinterSNPInferencer(BorzoiSNPInferencer):
+    def __init__(
+        self,
+        genome,
+        checkpoint_path,
+        peak_length=512,
+        attr_length=1024,
+        batch_size=8,
+    ):
+        super().__init__(
+            genome=genome,
+            checkpoint_path=checkpoint_path,
+            peak_length=peak_length,
+            attr_length=attr_length,
+            batch_size=batch_size,
+        )
+
+        
+    def _snp_predict(self, model, bed, modality='atac', mode='peak', effect_mode='mean', baseline=False):
+        """Run prediction for SNP variants.
+        
+        Parameters
+        ----------
+        model : torch.nn.Module
+            Collapsed model for prediction.
+        bed : pd.DataFrame
+            Bed file with variant information.
+        modality : str, optional
+            Modality to extract from model output. Default is 'atac'.
+            
+        Returns
+        -------
+        dict
+            Dictionary with reference and alternate predictions.
+        """
+        print(f"Running {mode} prediction for {modality}, with effect mode {effect_mode}...")
+        all_data = {'ref': [], 'alt': [], 'peak':[], 'rev': []}
+
+        for i in tqdm(range(0, bed.shape[0], self.batch_size)):
+            batch_bed = bed.iloc[i : i + self.batch_size]
+            
+            batch = self._get_snp_dna_one_hot(batch_bed)
+            outputs_ref = self._forward_pass(model, batch['ref'])
+            outputs_alt = self._forward_pass(model, batch['alt'])
+            all_data['rev'].extend(batch['rev'])
+            
+            if baseline:
+                                
+                # Extract only the peak regions for each batch item
+                batch_peak_effects = []
+                for j in range(len(batch_bed)):
+                    row = batch_bed.iloc[j]
+                    # Calculate relative peak positions
+                    # Convert from bp to 32bp bins and account for the 512bp padding
+                    relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                    relative_peak_end = min(outputs_ref.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                    
+                    # Store the tensors as they are, without trying to stack them yet
+                    ref_tensor = torch.sum(outputs_ref[j, :, relative_peak_start:relative_peak_end+1], axis=-1).cpu()
+                    alt_tensor = torch.sum(outputs_alt[j, :, relative_peak_start:relative_peak_end+1],axis=-1).cpu()
+                    
+                    all_data['ref'].append(ref_tensor)
+                    all_data['alt'].append(alt_tensor)
+                                   
+            
+            else:
+                if mode == 'snp':
+                    # import pdb; breakpoint()
+                    # Modified code for snp mode
+                    for j in range(len(batch_bed)):
+                        row = batch_bed.iloc[j]
+                        # Calculate relative peak positions
+                        # Convert from bp to 32bp bins and account for the 512bp padding
+                        relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                        relative_peak_end = min(outputs_ref[modality].shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                        
+                        # Store the tensors as they are, without trying to stack them yet
+                        ref_tensor = torch.sum(outputs_ref[modality][j, :, relative_peak_start:relative_peak_end+1], axis=-1).cpu()
+                        alt_tensor = torch.sum(outputs_alt[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1).cpu()
+                        
+                        all_data['ref'].append(ref_tensor)
+                        all_data['alt'].append(alt_tensor)
+                        
+                        # Store the peak length
+                        # all_data['peak_lengths'].append(ref_tensor.shape[-1])
+
+                if mode == 'scprinter':
+                        effect = torch.log2(outputs_alt['pred_coverage'] / outputs_ref['pred_coverage'])
+                        all_data['peak'].append(effect.reshape(-1,1).cpu())
+                
+                elif mode == 'peak':
+                    # # Peak mode code remains unchanged
+                    effect = outputs_alt[modality] - outputs_ref[modality]
+                    # Extract only the peak regions for each batch item
+                    batch_peak_effects = []
+                    for j in range(len(batch_bed)):
+                        row = batch_bed.iloc[j]
+                        # Calculate relative peak positions
+                        # Convert from bp to 32bp bins and account for the 512bp padding
+                        relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                        relative_peak_end = min(effect.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                        
+                        # Extract peak region effects
+                        if effect_mode == 'mean':
+                            peak_effect = torch.mean(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                        elif effect_mode == 'sum':
+                            peak_effect = torch.sum(effect[j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                        elif effect_mode == 'log2foldchange':
+                            ref_pred = torch.sum(outputs_ref[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                            alt_pred = torch.sum(outputs_alt[modality][j, :, relative_peak_start:relative_peak_end+1],axis=-1)
+                            peak_effect = torch.log2(alt_pred / ref_pred)
+                        else:
+                            raise ValueError(f"Unknown effect mode {effect_mode}")
+                        # Append to batch results
+                        batch_peak_effects.append(peak_effect)
+
+                    # Stack batch results
+                    if batch_peak_effects:
+                        all_data['peak'].append(torch.stack(batch_peak_effects, dim=0).cpu())
+                
+                else:
+                    raise ValueError(f"Unknown mode {mode}")
+
+        if mode == 'snp':
+            # Return the list of tensors as is, without stacking
+            return all_data
+        
+        elif mode == 'peak' or mode == 'scprinter':
+            all_data['peak'] = torch.cat(all_data['peak'], dim=0)
+            return all_data
+        
+
+    def infer_snp(
+        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True, mode='peak', effect_mode='mean', baseline=False
+    ) -> xr.Dataset:
+        """Inference of variant effect for given embedding and bed files.
+        
+        Parameters
+        ----------
+        celltype : str
+            The cell type identifier (e.g., 'ASC')
+        embedding : np.array
+            Embedding array for the cell type
+        bed_path : str
+            Path to the bed file with variant information
+        progress_bar : bool, optional
+            Show progress bar. Default is True.
+            
+        Returns
+        -------
+        BorzoiInferenceDataset
+            Dataset with SNP effect predictions.
+        """
+        # Read and process the BED file
+        bed = pd.read_csv(bed_path, header=0, sep="\t")
+        
+        # Standardize columns
+        _columns = ["Chromosome", "Start", "End", "peak-start", "peak-end", "ref", "snp", "pos2start", "beta", "id", "PIP"]
+        bed.columns = _columns
+        
+        # Process the embedding
+        emb_model = self._collapse_model(embedding)
+        data = self._snp_predict(emb_model, bed, mode=mode, effect_mode=effect_mode, baseline=baseline)
+        
+        del emb_model
+        torch.cuda.empty_cache()
+        
+        if mode == 'snp':
+
+            # Handle variable length peaks
+            ref_data = data['ref']  # List of tensors with variable lengths
+            alt_data = data['alt']  # List of tensors with variable lengths
+            
+            # Create a region index from the BED file
+            region_index = np.arange(len(bed))
+        
+            # Build an xarray Dataset
+            ds = xr.Dataset(
+                {
+                    "ref_effect": (["region", "effect"], np.array(ref_data)),
+                    "alt_effect": (["region", "effect"], np.array(alt_data)),
+                },
+                coords={
+                    "sample": [celltype],  # List with single cell type
+                    "region": region_index
+                },
+                attrs={
+                    "description": f"Peak effect predictions for {celltype}"
+                }
+            )
+        
+        elif mode == 'peak' or mode == 'scprinter':
+            peak_effects_np = data['peak'].numpy()
+            # Get dimensions
+            n_regions, n_peaks = peak_effects_np.shape
+
+            # Create a region index from the BED file
+            region_index = np.arange(len(bed))
+            
+            # Build an xarray Dataset
+            ds = xr.Dataset(
+                {
+                    "peak_effect": (["region", "peak"], peak_effects_np),
+                },
+                coords={
+                    "sample": [celltype],  # List with single cell type
+                    "region": region_index
+                },
+                attrs={
+                    "description": f"Peak effect predictions for {celltype}"
+                }
+            )
+        
+        # Attach region metadata
+        for col_name in bed.columns:
+            col_values = bed[col_name].values
+            if col_name == "Chromosome":
+                col_values = col_values.astype(str)
+            ds.coords[col_name] = (("region",), col_values)
+
+        # reverse direction info
+        ds.coords['direction'] = (("region",), data['rev'])
+
+        return BorzoiInferenceDataset(ds, self.genome)
