@@ -161,7 +161,11 @@ class TrainerBorzoiDatasetMixin:
             The training dataloader.
         """
         self.dataset.train()
-        _bed = self._step_sample_regions(self.train_regions)
+        if getattr(self, "train_region_step_sample", False):
+            # downsample the training regions
+            _bed = self._step_sample_regions(self.train_regions)
+        else:
+            _bed = self.train_regions
         dataloader = self.dataset.get_dataloader(
             folds=self.train_folds,
             region_bed=_bed,

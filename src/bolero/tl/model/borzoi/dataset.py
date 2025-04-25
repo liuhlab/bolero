@@ -300,6 +300,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "use_regions": "borzoi",
         "gene_data_path": None,
         "tss_bed_path": None,
+        "train_region_step_sample": True,
     }
 
     def __init__(
@@ -324,6 +325,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         use_regions="borzoi",
         gene_data_path=None,
         tss_bed_path=None,
+        train_region_step_sample=True,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -355,6 +357,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.use_regions = use_regions
         self.gene_data_path = gene_data_path
         self.tss_bed_path = tss_bed_path
+        self.train_region_step_sample = train_region_step_sample
         return
 
     def get_train_valid_test(

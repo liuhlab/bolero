@@ -38,7 +38,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "use_ema": True,
         "scheduler": True,
         "lr": "REQUIRED",
-        "large_lr_scale": 1,
+        "large_lr_scale": 5,
         "optimizer": "adamw",
         "global_clipnorm": 0.2,
         "train_batches": 5000,
@@ -125,6 +125,42 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             self, optimizer, warmup_steps=warmup_steps, total_steps=total_steps
         )
         return scheduler
+
+    def _get_optimizer(self):
+        optimizer_type = self.config.get("optimizer", "adamw").lower()
+        base_lr = self.config["lr"]
+        large_lr = base_lr * self.config["large_lr_scale"]
+        weight_decay = self.config["weight_decay"]
+
+        lr_groups = [
+            {
+                "params": self.model.footprint_parameters(),
+                "lr": base_lr,
+                "weight_decay": weight_decay,
+            },
+            {
+                "params": self.model.coverage_parameters(),
+                "lr": large_lr,
+                "weight_decay": weight_decay,
+            },
+        ]
+        if optimizer_type == "adamw":
+            optimizer = torch.optim.AdamW(
+                lr_groups, lr=base_lr, weight_decay=weight_decay
+            )
+        elif optimizer_type == "adam":
+            optimizer = torch.optim.Adam(
+                lr_groups, lr=base_lr, weight_decay=weight_decay
+            )
+        elif optimizer_type == "sgd":
+            optimizer = torch.optim.SGD(
+                lr_groups, lr=base_lr, weight_decay=weight_decay
+            )
+        else:
+            raise ValueError(
+                f"Optimizer {optimizer_type} not supported, should be one of ['adamw', 'adam', 'sgd']."
+            )
+        return optimizer
 
     @torch.no_grad()
     def _model_validation_step(

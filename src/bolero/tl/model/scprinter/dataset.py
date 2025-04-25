@@ -238,6 +238,8 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         self.reduce_resolution = False
         self.normalize_cov = False  # footprint needs raw counts
         self.paired_data = False
+        # this train_region_step_sample is for Borzoi dataset, not used in scPrinter
+        self.train_region_step_sample = False
 
         self.prefix = prefix
         return
