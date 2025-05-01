@@ -977,7 +977,7 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             # Get the SNP info for this specific batch item
             sample_row = snp_info.iloc[batch_idx]
             ref, alt_allele, relative_pos = sample_row
-            
+
             # Convert position to integer if needed
             relative_pos = int(relative_pos)
 
@@ -985,21 +985,11 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             if alt_allele not in nucleotide_map:
                 raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
             
-            # Check if the reference allele matches the expected value
-            if alt_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] != 1:
-                # print(f'Warning: Reference allele mismatch for batch item {batch_idx}')
-                # print(f'Expected ref: {ref}, alt: {alt_allele}')
-                # print(f'found ref: {alt_dna[batch_idx, relative_pos-1, :]}')
-                rev[batch_idx] = 1
-                alt_dna[batch_idx, relative_pos-1, :] = 0
-                alt_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] = 1
-                
-            # For matched ref allele, set the corresponding alternate base
-            else:
-                # Clear the position for this batch item
-                alt_dna[batch_idx, relative_pos-1, :] = 0
-                # Set the alternate nucleotide
-                alt_dna[batch_idx, relative_pos-1, nucleotide_map[alt_allele]] = 1
+            ref_dna[batch_idx, relative_pos-1, :] = 0
+            alt_dna[batch_idx, relative_pos-1, :] = 0
+            
+            ref_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] = 1
+            alt_dna[batch_idx, relative_pos-1, nucleotide_map[alt_allele]] = 1
 
 
         def transform_tensor(dna):
@@ -1044,30 +1034,30 @@ class BorzoiSNPInferencer(BorzoiInferencer):
 
         for i in tqdm(range(0, bed.shape[0], self.batch_size)):
             batch_bed = bed.iloc[i : i + self.batch_size]
-            
             batch = self._get_snp_dna_one_hot(batch_bed)
             outputs_ref = self._forward_pass(model, batch['ref'])
             outputs_alt = self._forward_pass(model, batch['alt'])
             all_data['rev'].extend(batch['rev'])
             
             if non_dual:
-                                
-                # Extract only the peak regions for each batch item
-                batch_peak_effects = []
-                for j in range(len(batch_bed)):
-                    row = batch_bed.iloc[j]
-                    # Calculate relative peak positions
-                    # Convert from bp to 32bp bins and account for the 512bp padding
-                    relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
-                    relative_peak_end = min(outputs_ref.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
-                    
-                    # Store the tensors as they are, without trying to stack them yet
-                    ref_tensor = torch.sum(outputs_ref[j, :, relative_peak_start:relative_peak_end+1], axis=-1).cpu()
-                    alt_tensor = torch.sum(outputs_alt[j, :, relative_peak_start:relative_peak_end+1],axis=-1).cpu()
-                    
-                    all_data['ref'].append(ref_tensor)
-                    all_data['alt'].append(alt_tensor)
-                                   
+
+                if mode == 'snp':
+                    # Extract only the peak regions for each batch item
+                    batch_peak_effects = []
+                    for j in range(len(batch_bed)):
+                        row = batch_bed.iloc[j]
+                        # Calculate relative peak positions
+                        # Convert from bp to 32bp bins and account for the 512bp padding
+                        relative_peak_start = max(0, (row["peak-start"] - row["Start"] + 512) // 32)
+                        relative_peak_end = min(outputs_ref.shape[-1] - 2, (row["peak-end"] - row["Start"] + 512) // 32)
+                        
+                        # Store the tensors as they are, without trying to stack them yet
+                        ref_tensor = torch.sum(outputs_ref[j, :, relative_peak_start:relative_peak_end+1], axis=-1).cpu()
+                        alt_tensor = torch.sum(outputs_alt[j, :, relative_peak_start:relative_peak_end+1],axis=-1).cpu()
+                        
+                        all_data['ref'].append(ref_tensor)
+                        all_data['alt'].append(alt_tensor)
+                                    
             
             else:
                 if mode == 'snp':
