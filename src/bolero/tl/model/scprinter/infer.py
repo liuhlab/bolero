@@ -801,7 +801,7 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
         )
 
         
-    def _snp_predict(self, model, bed, modality='atac', mode='peak', effect_mode='mean', baseline=False):
+    def _snp_predict(self, model, bed, modality='atac', mode='peak', effect_mode='mean', non_dual=False):
         """Run prediction for SNP variants.
         
         Parameters
@@ -829,7 +829,7 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
             outputs_alt = self._forward_pass(model, batch['alt'])
             all_data['rev'].extend(batch['rev'])
             
-            if baseline:
+            if non_dual:
                                 
                 # Extract only the peak regions for each batch item
                 batch_peak_effects = []
@@ -916,7 +916,7 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
         
 
     def infer_snp(
-        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True, mode='peak', effect_mode='mean', baseline=False
+        self, celltype: str, embedding: np.array, bed_path: str, progress_bar=True, mode='peak', effect_mode='mean', non_dual=False
     ) -> xr.Dataset:
         """Inference of variant effect for given embedding and bed files.
         
@@ -945,7 +945,7 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
         
         # Process the embedding
         emb_model = self._collapse_model(embedding)
-        data = self._snp_predict(emb_model, bed, mode=mode, effect_mode=effect_mode, baseline=baseline)
+        data = self._snp_predict(emb_model, bed, mode=mode, effect_mode=effect_mode, non_dual=non_dual)
         
         del emb_model
         torch.cuda.empty_cache()
