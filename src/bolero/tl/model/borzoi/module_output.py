@@ -1,7 +1,11 @@
 import torch
 import torch.nn as nn
 from einops import einsum, rearrange
-from torchscale.component.dilated_attention import DilatedAttention
+
+try:
+    from torchscale.component.dilated_attention import DilatedAttention
+except ImportError:
+    pass
 
 from bolero.tl.generic.module_embedding import KVBottleNeckMixin
 
