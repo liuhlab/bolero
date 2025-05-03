@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange, repeat
 
-Layers_t = Sequence[dict[str, Any]]
-Layers_separate_input_t = dict[str, Layers_t]
+from ._utils import Layers_separate_input_t, Layers_t
 
 
 class MLPBlock(nn.Module):
@@ -42,6 +41,7 @@ class MLPBlock(nn.Module):
 
         dims_full = [input_dim] + list(dims)
         self.layers = nn.Sequential()
+        self.output_dim = dims[-1]
 
         match act_type:
             case "silu":
@@ -112,6 +112,9 @@ class TokenAttentionPooling(nn.Module):
         L = S + 1
 
         if mask is not None:
+            if mask.ndim == 4:
+                mask = mask[:, 0, :, :]  # (B, S, S)
+
             m = torch.zeros((B, L, L), dtype=torch.bool, device=device)
             # paylode mask (B, S, S)
             m[:, 1:, 1:] = mask
@@ -189,7 +192,10 @@ def _get_layers(layers: Layers_t) -> list[nn.Module]:
     modules = []
     total_output_dim = 0
     for layer in layers:
-        layer = dict(layer)
+        try:
+            layer = dict(layer)
+        except ValueError as e:
+            raise ValueError(f"Layer {layer} is not a dict.") from e
         layer_type = layer.pop("layer_type", "identity")
 
         if layer_type == "mlp":
@@ -208,7 +214,6 @@ def _get_layers(layers: Layers_t) -> list[nn.Module]:
 
     modules = SequentialWithArgs(*modules)
     modules.output_dim = total_output_dim
-    print("total_output_dim", total_output_dim)
     return modules
 
 
@@ -227,6 +232,8 @@ def _get_masks(mask_value, conditions):
 class ConditionEncoder(nn.Module):
     """
     Encoder for conditions represented as sets of perturbations.
+    See usage example in test code below.
+    Also see cellflow.networks._set_encoders.ConditionEncoder
     """
 
     def __init__(
@@ -287,7 +294,6 @@ class ConditionEncoder(nn.Module):
             total_before_pool_dim = sum(
                 layer.output_dim for layer in self.before_pool_modules.values()
             )
-            print("total_before_pool_dim", total_before_pool_dim)
             _kwargs = {
                 "input_dim": total_before_pool_dim,
                 **self.pooling_kwargs,
@@ -300,6 +306,11 @@ class ConditionEncoder(nn.Module):
 
         # modules after pooling
         self.after_pool_modules_mean = _get_layers(self.layers_after_pool)
+        assert self.output_dim == self.after_pool_modules_mean.output_dim, (
+            f"self.output_dim ({self.output_dim}) "
+            f"dose not match after_pool_modules.output_dim "
+            f"({self.after_pool_modules_mean.output_dim})"
+        )
 
         if self.condition_mode == "stochastic":
             self.after_pool_modules_var = _get_layers(self.layers_after_pool)
@@ -307,11 +318,22 @@ class ConditionEncoder(nn.Module):
 
     def forward(self, conditions: dict[str, torch.Tensor]) -> torch.Tensor:
         """
-        cond_data: {
-            'drug': (B, 1, D1),
-            'dose': (B, 1, D2),
-            ...
-        }
+        Given a dictionary of conditions, apply the encoder.
+
+        Parameters
+        ----------
+        conditions: dict
+            example data structure:
+            {
+                'drug': (B, S, D1),
+                'dose': (B, S, D2),
+                ...
+            }
+
+        Returns
+        -------
+        conditions_mean: (B, output_dim)
+        conditions_logvar: (B, output_dim)
         """
         mask, attention_mask = _get_masks(self.mask_value, conditions)
 
@@ -330,7 +352,6 @@ class ConditionEncoder(nn.Module):
                 else:
                     processed_inputs_pooling.append(conditions_i)
 
-                print(pert_cov, conditions_i.shape)
             conditions_pooling_arr = torch.concatenate(processed_inputs_pooling, dim=-1)
             conditions_not_pooled = (
                 torch.concatenate(processed_inputs_other, dim=-1)
@@ -378,3 +399,125 @@ class ConditionEncoder(nn.Module):
         else:
             conditions_logvar = torch.zeros_like(conditions_mean)
         return conditions_mean, conditions_logvar
+
+
+if __name__ == "__main__":
+    # Simple test
+    # test_condition_encoder_torch.py
+
+    # import pytest
+    import numpy as np
+    import torch
+
+    # Replace this with the actual import path to your PyTorch implementation
+
+    # --- build the same “cond” dictionary, but as NumPy first ---
+    cond_np = {
+        "pert1": np.ones((1, 3, 3), dtype=np.float32),
+        "pert2": np.ones((1, 3, 10), dtype=np.float32),
+        "pert3": np.ones((1, 3, 5), dtype=np.float32),
+    }
+    # zero out the last slot in each
+    for k in list(cond_np):
+        cond_np[k][0, 2, :] = 0.0
+    # add the “skip_pool” covariate
+    cond_np["pert4_skip_pool"] = np.ones((1, 3, 5), dtype=np.float32)
+
+    # convert to torch tensors once
+    cond_torch = {k: torch.from_numpy(v) for k, v in cond_np.items()}
+
+    # exactly the same layer‐descriptions as in your JAX test
+    layers_before_pool_all = [
+        {
+            "pert1": (
+                {"layer_type": "mlp", "dims": (32, 32), "input_dim": 3},
+                # {"layer_type": "self_attention", "num_heads": 4, "qkv_dim": 32},
+            ),
+            "pert2": ({"layer_type": "mlp", "dims": (32, 32), "input_dim": 10},),
+            "pert3": ({"input_dim": 5},),
+            "pert4_skip_pool": ({"input_dim": 5},),
+        },
+        (),
+    ]
+
+    layers_after_pool_all = [
+        ({"layer_type": "mlp", "dims": (32, 32, 5), "input_dim": 74},),
+        (),
+    ]
+
+    # class TestConditionEncoderTorch:
+    # @pytest.mark.parametrize("pooling", ["mean", "attention_token"])
+    # @pytest.mark.parametrize("covariates_not_pooled", [[], ["pert4_skip_pool"]])
+    # @pytest.mark.parametrize("layers_before_pool", layers_before_pool)
+    # @pytest.mark.parametrize("layers_after_pool", layers_after_pool)
+    # @pytest.mark.parametrize("condition_mode", ["deterministic", "stochastic"])
+    # @pytest.mark.parametrize("regularization", [0.0, 0.1])
+    def test_forward_shapes_and_consistency(
+        pooling,
+        covariates_not_pooled,
+        layers_before_pool,
+        layers_after_pool,
+        condition_mode,
+        regularization,
+    ):
+        # instantiate and run in eval() so dropout (if any) is disabled
+        model = ConditionEncoder(
+            output_dim=5,
+            condition_mode=condition_mode,
+            regularization=regularization,
+            pooling=pooling,
+            covariates_not_pooled=covariates_not_pooled,
+            layers_before_pool=layers_before_pool,
+            layers_after_pool=layers_after_pool,
+            output_dropout=0.1,
+        )
+        model.eval()
+
+        # forward pass
+        out1, logvar1 = model(cond_torch)
+
+        # basic shape checks
+        assert isinstance(out1, torch.Tensor)
+        assert isinstance(logvar1, torch.Tensor)
+        assert out1.shape == (1, 5), out1.shape
+        assert logvar1.shape == (1, 5)
+
+        # running it again (in eval mode) should give the same result
+        out2, logvar2 = model(cond_torch)
+        assert torch.allclose(out1, out2, atol=1e-6)
+        assert torch.allclose(logvar1, logvar2, atol=1e-6)
+
+        # no NaNs
+        assert not torch.isnan(out1).any()
+        assert not torch.isnan(logvar1).any()
+        return model
+
+    pooling = "attention_token"
+    covariates_not_pooled = []
+    condition_mode = "stochastic"
+    regularization = 0.1
+    layers_before_pool = layers_before_pool_all[0]
+    layers_after_pool = layers_after_pool_all[0]
+    model = test_forward_shapes_and_consistency(
+        pooling,
+        covariates_not_pooled,
+        layers_before_pool,
+        layers_after_pool,
+        condition_mode,
+        regularization,
+    )
+
+    pooling = "mean"
+    covariates_not_pooled = []
+    condition_mode = "deterministic"
+    regularization = 0.1
+    layers_before_pool = layers_before_pool_all[0]
+    layers_after_pool = layers_after_pool_all[0]
+    model = test_forward_shapes_and_consistency(
+        pooling,
+        covariates_not_pooled,
+        layers_before_pool,
+        layers_after_pool,
+        condition_mode,
+        regularization,
+    )
