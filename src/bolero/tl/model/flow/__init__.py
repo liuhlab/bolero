@@ -1,5 +1,4 @@
 # TODO
-# - OT solver
 # - data manager
-# - model
+# - cellflow model
 # - training

@@ -221,9 +221,7 @@ class ConditionalVelocityField(nn.Module):
         cond_embedding = self.layer_cond_output_dropout(cond_embedding)
 
         t_encoded = cyclical_time_encoder(t, n_freqs=self.time_freqs)
-        print(t_encoded.shape, "after cyclical_time_encoder")
         t_encoded = self.time_encoder(t_encoded)
-        print(t_encoded.shape, "after time_encoder")
         t_encoded = self.layer_norm_time(t_encoded)
 
         x_encoded = self.x_encoder(x_t)
