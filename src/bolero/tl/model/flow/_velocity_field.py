@@ -55,7 +55,7 @@ class ConditionalVelocityField(nn.Module):
         time_encoder_dropout: float = 0.0,
         hidden_dims: Sequence[int] = (1024, 1024, 1024),
         hidden_dropout: float = 0.0,
-        conditioning: Literal["concatenation", "film", "resnet"] = "concatenation",
+        conditioning: Literal["concatenation"] = "concatenation",
         conditioning_kwargs: dict[str, Any] = None,
         decoder_dims: Sequence[int] = (1024, 1024, 1024),
         decoder_dropout: float = 0.0,

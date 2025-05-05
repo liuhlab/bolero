@@ -61,8 +61,11 @@ class TrainSampler:
         else:
             self.generator = generator
 
-    def sample(self) -> dict[str, torch.Tensor]:
+    def sample(self, generator=None) -> dict[str, torch.Tensor]:
         """Sample one batch"""
+        if generator is None:
+            generator = self.generator
+
         # — pick a random source distribution
         src_dist = torch.randint(
             self.n_source_dists, (), generator=self.generator

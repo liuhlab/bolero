@@ -5,6 +5,7 @@ from torch import nn
 from torchcfm.conditional_flow_matching import (
     ConditionalFlowMatcher,
     ExactOptimalTransportConditionalFlowMatcher,
+    SchrodingerBridgeConditionalFlowMatcher,
 )
 from torchdiffeq import odeint
 
@@ -59,7 +60,7 @@ class OTFlowMatching:
     def __init__(
         self,
         vf: ConditionalVelocityField,
-        matcher_class: ConditionalFlowMatcher = ExactOptimalTransportConditionalFlowMatcher,
+        matcher_class: str = "otcfm",
         matcher_kwargs: dict[str, Any] = None,
         ode_solver_kwargs: dict[str, Any] = None,
         device: torch.device = None,
@@ -69,6 +70,17 @@ class OTFlowMatching:
         self.condition_encoder_mode = self.vf.condition_mode
         self.condition_encoder_regularization = self.vf.regularization
 
+        if matcher_class == "otcfm":
+            matcher_class = ExactOptimalTransportConditionalFlowMatcher
+        elif matcher_class == "cfm":
+            matcher_class = ConditionalFlowMatcher
+        elif matcher_class == "sbcfm":
+            matcher_class = SchrodingerBridgeConditionalFlowMatcher
+        else:
+            raise ValueError(
+                f"Unknown matcher class {matcher_class}. "
+                "Use 'otcfm', 'cfm', or 'sbcfm'."
+            )
         _matcher_kwargs = {
             "sigma": 0.0,
         }
@@ -88,6 +100,7 @@ class OTFlowMatching:
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
+        self.vf.to(device)
 
     def _calc_encoder_loss(
         self,
