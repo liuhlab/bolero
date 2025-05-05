@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any, Iterable
 
 import anndata
@@ -164,17 +165,13 @@ class DataManager:
         )
         cell_data = self._get_cell_data(adata)
         train_data = TrainingData(
-            cell_data=torch.from_numpy(cell_data),
-            split_covariates_mask=torch.from_numpy(cond_data.split_covariates_mask),
+            cell_data=cell_data,
+            split_covariates_mask=cond_data.split_covariates_mask,
             split_idx_to_covariates=cond_data.split_idx_to_covariates,
-            perturbation_covariates_mask=torch.from_numpy(
-                cond_data.perturbation_covariates_mask
-            ),
+            perturbation_covariates_mask=cond_data.perturbation_covariates_mask,
             perturbation_idx_to_covariates=cond_data.perturbation_idx_to_covariates,
             perturbation_idx_to_id=cond_data.perturbation_idx_to_id,
-            condition_data={
-                k: torch.from_numpy(v) for k, v in cond_data.condition_data.items()
-            },
+            condition_data=cond_data.condition_data,
             control_to_perturbation=cond_data.control_to_perturbation,
             max_combination_length=cond_data.max_combination_length,
             null_value=self._null_value,
@@ -210,17 +207,13 @@ class DataManager:
         )
         cell_data = self._get_cell_data(adata)
         valid_data = ValidationData(
-            cell_data=torch.from_numpy(cell_data),
-            split_covariates_mask=torch.from_numpy(cond_data.split_covariates_mask),
+            cell_data=cell_data,
+            split_covariates_mask=cond_data.split_covariates_mask,
             split_idx_to_covariates=cond_data.split_idx_to_covariates,
-            perturbation_covariates_mask=torch.from_numpy(
-                cond_data.perturbation_covariates_mask
-            ),
+            perturbation_covariates_mask=cond_data.perturbation_covariates_mask,
             perturbation_idx_to_covariates=cond_data.perturbation_idx_to_covariates,
             perturbation_idx_to_id=cond_data.perturbation_idx_to_id,
-            condition_data={
-                k: torch.from_numpy(v) for k, v in cond_data.condition_data.items()
-            },
+            condition_data=cond_data.condition_data,
             control_to_perturbation=cond_data.control_to_perturbation,
             max_combination_length=cond_data.max_combination_length,
             null_value=self._null_value,
@@ -285,7 +278,7 @@ class DataManager:
         )
 
         pred_data = PredictionData(
-            cell_data=torch.from_numpy(cell_data),
+            cell_data=cell_data,
             split_covariates_mask=split_covariates_mask,
             split_idx_to_covariates=split_idx_to_covariates,
             condition_data=cond_data.condition_data,
@@ -360,8 +353,11 @@ class DataManager:
         if adata is None and covariate_data is None:
             raise ValueError("Either `adata` or `covariate_data` must be provided.")
         covariate_data = covariate_data if covariate_data is not None else adata.obs  # type: ignore[union-attr]
+
         if rep_dict is None:
             rep_dict = adata.uns if adata is not None else {}
+        rep_dict = deepcopy(rep_dict)
+
         # check if all perturbation/split covariates and control cells are present in the input
         self._verify_covariate_data(
             covariate_data,
@@ -386,8 +382,8 @@ class DataManager:
 
         # get indices of cells belonging to each unique condition
         _perturb_covar_df, _covariate_data = (
-            perturb_covar_df[self._perturb_covar_keys],
-            covariate_data[self._perturb_covar_keys],
+            perturb_covar_df[self._perturb_covar_keys].copy(),
+            covariate_data[self._perturb_covar_keys].copy(),
         )
         _perturb_covar_df["row_id"] = range(len(perturb_covar_df))
         _covariate_data["cell_index"] = _covariate_data.index
@@ -491,7 +487,7 @@ class DataManager:
         # convert outputs to jax arrays
         if self.is_conditional:
             for pert_cov, emb in condition_data.items():
-                condition_data[pert_cov] = emb
+                condition_data[pert_cov] = emb.copy()
         split_covariates_mask = (
             torch.from_numpy(split_covariates_mask)
             if split_covariates_mask is not None
@@ -938,7 +934,7 @@ class DataManager:
             if primary_group in self._covariate_reps:
                 rep_key = self._covariate_reps[primary_group]
                 try:
-                    prim_arr = rep_dict[rep_key][cov_name]
+                    prim_arr = rep_dict[rep_key][cov_name].copy()
                 except KeyError as err:
                     raise ValueError(
                         f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']` or `rep_dict`."
@@ -971,9 +967,9 @@ class DataManager:
                         raise ValueError(
                             f"Representation for '{cov_name}' not found in `adata.uns['{rep_key}']`."
                         )
-                    linked_arr = rep_dict[rep_key][cov_name]
+                    linked_arr = rep_dict[rep_key][cov_name].copy()
                 else:
-                    linked_arr = condition_data[linked_cov]
+                    linked_arr = condition_data[linked_cov].copy()
 
                 linked_arr = self._check_shape(linked_arr)
                 perturb_covar_emb[linked_group].append(linked_arr)
@@ -996,9 +992,9 @@ class DataManager:
                     raise ValueError(
                         f"Representation for '{value}' not found in `adata.uns['{sample_cov}']`."
                     )
-                cov_arr = rep_dict[rep_key][value]
+                cov_arr = rep_dict[rep_key][value].copy()
             else:
-                cov_arr = value
+                cov_arr = value.copy()
 
             cov_arr = self._check_shape(cov_arr)
             sample_covar_emb[sample_cov] = np.tile(

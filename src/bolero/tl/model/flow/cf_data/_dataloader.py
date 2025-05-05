@@ -1,15 +1,12 @@
 import abc
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy as np
+import torch
 
 from ._data import PredictionData, TrainingData, ValidationData
 
 __all__ = ["TrainSampler", "ValidationSampler", "PredictionSampler"]
-
-from typing import Dict, Optional
-
-import torch
 
 
 class TrainSampler:
@@ -64,8 +61,8 @@ class TrainSampler:
         else:
             self.generator = generator
 
-    def sample(self) -> Dict[str, Any]:
-        """Sample one batch, exactly as in your JAX `_sample`."""
+    def sample(self) -> dict[str, torch.Tensor]:
+        """Sample one batch"""
         # — pick a random source distribution
         src_dist = torch.randint(
             self.n_source_dists, (), generator=self.generator
@@ -92,7 +89,7 @@ class TrainSampler:
         )
         tgt_batch = self.cell_data[tgt_idcs]
 
-        out: Dict[str, Any] = {
+        out: dict[str, Any] = {
             "src_cell_data": src_batch,
             "tgt_cell_data": tgt_batch,
         }
@@ -101,6 +98,10 @@ class TrainSampler:
         if self.get_embeddings is not None:
             out["condition"] = self.get_embeddings(tgt_dist)
 
+        out = {
+            k: v if isinstance(v, torch.Tensor) else torch.from_numpy(v)
+            for k, v in out.items()
+        }
         return out
 
     @property
