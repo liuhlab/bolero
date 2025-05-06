@@ -29,7 +29,6 @@ class TestVelocityField:
         layers_after_pool = ({"layer_type": "mlp", "dims": (32, 32, 12), "input_dim": 3},)
         vf = ConditionalVelocityField(
             output_dim=5,
-            emb_input_dim=5,
             max_combination_length=2,
             condition_mode=condition_mode,
             condition_embedding_dim=12,

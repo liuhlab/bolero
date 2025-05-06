@@ -64,6 +64,7 @@ class OTFlowMatching:
         matcher_kwargs: dict[str, Any] = None,
         ode_solver_kwargs: dict[str, Any] = None,
         device: torch.device = None,
+        seed: Optional[int] = None,
     ):
         self._is_trained: bool = False
         self.vf = vf
@@ -101,6 +102,10 @@ class OTFlowMatching:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         self.vf.to(device)
+
+        if seed is None:
+            seed = torch.seed()
+        self.generator = torch.Generator(device).manual_seed(seed)
 
     def _calc_encoder_loss(
         self,
@@ -156,14 +161,11 @@ class OTFlowMatching:
     def step_fn(
         self,
         batch: dict[str, torch.Tensor],
-        rng: torch.Generator,
     ) -> float:
         """Single step function of the solver.
 
         Parameters
         ----------
-        rng
-            Random number generator.
         batch
             Data batch with keys ``x0``, ``x1``, and
             optionally ``condition``.
@@ -172,14 +174,14 @@ class OTFlowMatching:
         -------
         Loss value.
         """
-        x_0, x_1 = batch["x0"], batch["x1"]
+        x_0, x_1 = batch["src_cell_data"], batch["tgt_cell_data"]
         condition = batch.get("condition")
 
         n = x_0.shape[0]
         encoder_noise = torch.randn(
             n,
             self.vf.condition_embedding_dim,
-            generator=rng,
+            generator=self.generator,
             device=self.device,  # e.g. "cpu" or "cuda"
         )
         # TODO: test whether it's better to sample the same noise for all samples or different ones
@@ -223,7 +225,6 @@ class OTFlowMatching:
         condition: dict[str, torch.Tensor],
         t_range: tuple[float, float] = (0.0, 1.0),
         t_steps: int = 512,
-        rng: Optional[torch.Generator] = None,
         return_traj: bool = False,
         **kwargs: Any,
     ) -> torch.Tensor:
@@ -236,8 +237,6 @@ class OTFlowMatching:
             Input data of shape [batch_size, ...].
         condition : dict
             Dictionary of condition tensors.
-        rng : Optional[torch.Generator]
-            Random number generator, used for stochastic encoder.
         kwargs : Any
             Extra args for torchdiffeq.odeint
 
@@ -250,15 +249,14 @@ class OTFlowMatching:
         batch_size = x_0.shape[0]
 
         # Prepare encoder noise
-        use_mean = (rng is None) or (self.condition_encoder_mode == "deterministic")
-        if use_mean:
+        if self.condition_encoder_mode == "deterministic":
             encoder_noise = torch.zeros(
                 (batch_size, self.vf.condition_embedding_dim), device=device
             )
         else:
             encoder_noise = torch.randn(
                 (batch_size, self.vf.condition_embedding_dim),
-                generator=rng,
+                generator=self.generator,
                 device=device,
             )
 

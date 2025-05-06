@@ -6,10 +6,10 @@ from typing import Any, Literal
 import anndata as ad
 import joblib
 import pandas as pd
-from _utils import Layers_separate_input_t, Layers_t, write_predictions
 from numpy.typing import ArrayLike
 
 from ._otfm import OTFlowMatching
+from ._utils import Layers_separate_input_t, Layers_t, write_predictions
 from ._velocity_field import ConditionalVelocityField
 from .cf_data._data import ConditionData, TrainingData, ValidationData
 from .cf_data._dataloader import PredictionSampler, TrainSampler, ValidationSampler
@@ -34,9 +34,9 @@ class CellFlow:
             Solver to use for training. Either ``'otfm'`` or ``'genot'``.
     """
 
-    def __init__(self, adata: ad.AnnData, solver: Literal["otfm", "genot"] = "otfm"):
+    def __init__(self, adata: ad.AnnData):
         self._adata = adata
-        assert solver == "otfm", "Only 'otfm' is supported for now."
+
         self._dataloader: TrainSampler | None = None
         self._trainer: CellFlowTrainer | None = None
         self._validation_data: dict[str, ValidationData] = {}
@@ -215,7 +215,6 @@ class CellFlow:
 
     def prepare_model(
         self,
-        emb_input_dim: int,
         encode_conditions: bool = True,
         condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
         regularization: float = 0.0,
@@ -419,7 +418,6 @@ class CellFlow:
 
         self.vf = ConditionalVelocityField(
             output_dim=self._data_dim,
-            emb_input_dim=emb_input_dim,
             max_combination_length=self.train_data.max_combination_length,
             condition_mode=condition_mode,
             regularization=regularization,
@@ -461,6 +459,9 @@ class CellFlow:
         self,
         num_iterations: int,
         batch_size: int = 1024,
+        lr: float = 1e-4,
+        accumulate_grad: int = 20,
+        use_amp: bool = True,
         valid_freq: int = 1000,
         callbacks: Sequence[BaseCallback] = [],
         monitor_metrics: Sequence[str] = [],
@@ -512,6 +513,9 @@ class CellFlow:
         self._solver = self.trainer.train(
             dataloader=self._dataloader,
             num_iterations=num_iterations,
+            lr=lr,
+            accumulate_grad=accumulate_grad,
+            use_amp=use_amp,
             valid_freq=valid_freq,
             valid_loaders=validation_loaders,
             monitor_metrics=monitor_metrics,

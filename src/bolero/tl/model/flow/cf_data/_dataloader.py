@@ -9,6 +9,24 @@ from ._data import PredictionData, TrainingData, ValidationData
 __all__ = ["TrainSampler", "ValidationSampler", "PredictionSampler"]
 
 
+def _batch_to_tensor(
+    batch: dict[str, Any], device: str | torch.device
+) -> dict[str, torch.Tensor]:
+    """Convert a batch of data to a tensor."""
+    for k, v in batch.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v.to(device)
+        elif isinstance(v, np.ndarray):
+            batch[k] = torch.as_tensor(v).to(device)
+        elif isinstance(v, list):
+            batch[k] = [torch.as_tensor(el).to(device) for el in v]
+        elif isinstance(v, dict):
+            batch[k] = _batch_to_tensor(v, device)
+        else:
+            batch[k] = v
+    return batch
+
+
 class TrainSampler:
     """Data sampler for :class:`~cellflow.data.TrainingData`.
 
@@ -24,8 +42,14 @@ class TrainSampler:
         self,
         data: TrainingData,
         batch_size: int = 1024,
-        generator: Optional[torch.Generator] = None,
+        device: Optional[torch.device] = None,
+        seed: Optional[int] = None,
     ):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = torch.device(device)
+        self.device = torch.device(device)
+
         self._data = data
         # indices of all cells
         self._data_idcs = torch.arange(data.cell_data.shape[0], dtype=torch.long)
@@ -44,7 +68,7 @@ class TrainSampler:
         # function to grab the per‑target embedding (matches your JAX get_embeddings)
         if data.condition_data is not None:
             self.get_embeddings = lambda idx: {
-                name: torch.as_tensor(arr[idx]).unsqueeze(0)
+                name: torch.as_tensor(arr[idx]).to(torch.float32).unsqueeze(0)
                 for name, arr in data.condition_data.items()
             }
         else:
@@ -53,19 +77,16 @@ class TrainSampler:
         # masks and raw cell data
         self.split_covariates_mask = data.split_covariates_mask
         self.perturbation_covariates_mask = data.perturbation_covariates_mask
-        self.cell_data = data.cell_data
+        self.cell_data: torch.Tensor = data.cell_data
 
         # RNG for reproducibility
-        if generator is None:
-            self.generator = torch.Generator().manual_seed(torch.seed())
-        else:
-            self.generator = generator
+        if seed is None:
+            seed = torch.seed()
+        # before sampling data is at CPU memory
+        self.generator = torch.Generator("cpu").manual_seed(seed)
 
-    def sample(self, generator=None) -> dict[str, torch.Tensor]:
+    def sample(self) -> dict[str, torch.Tensor]:
         """Sample one batch"""
-        if generator is None:
-            generator = self.generator
-
         # — pick a random source distribution
         src_dist = torch.randint(
             self.n_source_dists, (), generator=self.generator
@@ -101,10 +122,7 @@ class TrainSampler:
         if self.get_embeddings is not None:
             out["condition"] = self.get_embeddings(tgt_dist)
 
-        out = {
-            k: v if isinstance(v, torch.Tensor) else torch.from_numpy(v)
-            for k, v in out.items()
-        }
+        out = _batch_to_tensor(out, self.device)
         return out
 
     @property
@@ -114,6 +132,13 @@ class TrainSampler:
 
 
 class BaseValidSampler(abc.ABC):
+    @property
+    def device(self) -> torch.device:
+        """The device to use for the data."""
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
+
     @abc.abstractmethod
     def sample(*args, **kwargs):
         pass
@@ -134,7 +159,10 @@ class BaseValidSampler(abc.ABC):
         return d
 
     def _get_condition_data(self, cond_idx: int) -> torch.Tensor:
-        return {k: v[[cond_idx], ...] for k, v in self._data.condition_data.items()}  # type: ignore[attr-defined]
+        return {
+            k: torch.from_numpy(v[[cond_idx], ...]).to(torch.float32)
+            for k, v in self._data.condition_data.items()
+        }  # type: ignore[attr-defined]
 
 
 class ValidationSampler(BaseValidSampler):
@@ -165,7 +193,9 @@ class ValidationSampler(BaseValidSampler):
         if self._data.condition_data is None:
             raise NotImplementedError("Validation data must have condition data.")
 
-    def sample(self, mode: Literal["on_log_iteration", "on_train_end"]) -> Any:
+    def sample(
+        self, mode: Literal["on_log_iteration", "on_train_end"], device=None
+    ) -> Any:
         """Sample data for validation.
 
         Parameters
@@ -177,6 +207,9 @@ class ValidationSampler(BaseValidSampler):
         -------
         Dictionary with source, condition, and target data from the validation data.
         """
+        if device is None:
+            device = self.device
+
         size = (
             self.n_conditions_on_log_iteration
             if mode == "on_log_iteration"
@@ -208,7 +241,9 @@ class ValidationSampler(BaseValidSampler):
             cond_dict[k] = conditions[i]
             true_dict[k] = target_cells[i]
 
-        return {"source": cell_rep_dict, "condition": cond_dict, "target": true_dict}
+        data = {"source": cell_rep_dict, "condition": cond_dict, "target": true_dict}
+        data = _batch_to_tensor(data, device)
+        return data
 
     @property
     def data(self) -> ValidationData:
@@ -256,10 +291,12 @@ class PredictionSampler(BaseValidSampler):
             cell_rep_dict[k] = source_cells[i]
             cond_dict[k] = conditions[i]
 
-        return {
+        data = {
             "source": cell_rep_dict,
             "condition": cond_dict,
         }
+        data = _batch_to_tensor(data, self.device)
+        return data
 
     @property
     def data(self) -> PredictionData:

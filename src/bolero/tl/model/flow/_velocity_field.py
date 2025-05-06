@@ -33,7 +33,6 @@ class ConditionalVelocityField(nn.Module):
     def __init__(
         self,
         output_dim: int,
-        emb_input_dim: int,
         max_combination_length: int,
         condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
         regularization: float = 1.0,
@@ -66,7 +65,7 @@ class ConditionalVelocityField(nn.Module):
         super().__init__()
 
         self.output_dim = output_dim
-        self.emb_input_dim = emb_input_dim
+        self.emb_input_dim = output_dim
         self.max_combination_length = max_combination_length
         self.condition_mode = condition_mode
         self.regularization = regularization
@@ -237,7 +236,7 @@ class ConditionalVelocityField(nn.Module):
             cond_embedding = cond_embedding.repeat(x_t.shape[0], 1)
 
         if self.conditioning == "concatenation":
-            print(t_encoded.shape, x_encoded.shape, cond_embedding.shape)
+            # print(t_encoded.shape, x_encoded.shape, cond_embedding.shape)
             out = torch.concatenate((t_encoded, x_encoded, cond_embedding), dim=-1)
         elif self.conditioning == "film":
             out = self.film_block(

@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
+import wandb
 from numpy.typing import ArrayLike
 from tqdm import tqdm
 
@@ -10,6 +11,22 @@ from bolero.tl.model.flow._otfm import OTFlowMatching
 from bolero.tl.model.flow.cf_data import TrainSampler, ValidationSampler
 
 from ._callbacks import BaseCallback, CallbackRunner
+
+
+def _init_wandb(cfg):
+    return wandb.init(
+        project=cfg["wandb_project"], name=cfg["name"], config=cfg, reinit=True
+    )
+
+
+def _log_wandb(output, step, wandb_run, index=None):
+    metrics_to_log = ["loss"]
+    log_dict = {k: output[k].item() for k in metrics_to_log if k in output}
+
+    if index is not None:
+        log_dict = {f"{k}_{index}": v for k, v in log_dict.items()}
+
+    wandb_run.log(log_dict, step=step)
 
 
 class CellFlowTrainer:
@@ -32,14 +49,23 @@ class CellFlowTrainer:
     def __init__(
         self,
         solver: OTFlowMatching,
+        lr: float = 1e-4,
+        accumulate_grad: int = 20,
+        use_amp: bool = True,
     ):
         if not isinstance(solver, OTFlowMatching):
             raise NotImplementedError(
                 f"Solver must be an instance of OTFlowMatching or GENOT, got {type(solver)}"
             )
-
         self.solver = solver
         self.training_logs: dict[str, Any] = {}
+        self.device = solver.device
+
+        self._optimizer = None
+        self._scaler = None
+        self.lr = lr
+        self.accumulate_grad = accumulate_grad
+        self.use_amp = use_amp
 
     def _validation_step(
         self,
@@ -63,6 +89,36 @@ class CellFlowTrainer:
             valid_true_data[val_key] = true_tgt
 
         return valid_true_data, valid_pred_data
+
+    def _prepare_train(self) -> None:
+        """Prepare the training process."""
+        self._optimizer = torch.optim.Adam(
+            self.solver.vf.parameters(),
+            lr=self.lr,
+            betas=(0.9, 0.999),
+        )
+
+        self._scaler = torch.amp.GradScaler(self.device, enabled=self.use_amp)
+        wandb_run = _init_wandb({})
+        return wandb_run
+
+    def get_autocast(self):
+        """Get autocast context."""
+        use_amp = getattr(self, "use_amp", True)
+        try:
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.bfloat16,
+                enabled=use_amp,
+            )
+        except RuntimeError:
+            # some GPU, such as T4 does not support bfloat16
+            auto_cast_context = torch.autocast(
+                device_type=str(self.device).split(":")[0],
+                dtype=torch.float16,
+                enabled=use_amp,
+            )
+        return auto_cast_context
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
         """Update training logs."""
@@ -101,8 +157,9 @@ class CellFlowTrainer:
         -------
             The trained model.
         """
+        wandb_run = self._prepare_train()
+
         self.training_logs = {"loss": []}
-        generator = torch.Generator().manual_seed(torch.seed())
 
         # Initiate callbacks
         valid_loaders = valid_loaders or {}
@@ -113,35 +170,54 @@ class CellFlowTrainer:
 
         pbar = tqdm(range(num_iterations))
         for it in pbar:
-            batch = dataloader.sample(generator=generator)
-            loss = self.solver.step_fn(batch, generator=generator)
-            self.training_logs["loss"].append(float(loss))
+            batch = dataloader.sample()
+            with self.get_autocast():
+                loss = self.solver.step_fn(batch)
+                self.training_logs["loss"].append(float(loss))
+                loss = loss / self.accumulate_grad
+                if np.isnan(loss.item()):
+                    raise ValueError(
+                        "Loss is NaN. Check your data and model parameters."
+                    )
+            self._scaler.scale(loss).backward()
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
-                # Get predictions from validation data
-                valid_true_data, valid_pred_data = self._validation_step(
-                    valid_loaders, mode="on_log_iteration"
-                )
+                with torch.inference_mode():
+                    # Get predictions from validation data
+                    valid_true_data, valid_pred_data = self._validation_step(
+                        valid_loaders, mode="on_log_iteration"
+                    )
 
-                # Run callbacks
-                metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)  # type: ignore[arg-type]
-                self._update_logs(metrics)
+                    # Run callbacks
+                    metrics = crun.on_log_iteration(valid_true_data, valid_pred_data)  # type: ignore[arg-type]
+                    self._update_logs(metrics)
 
-                # Update progress bar
-                mean_loss = np.mean(self.training_logs["loss"][-valid_freq:])
-                postfix_dict = {
-                    metric: round(self.training_logs[metric][-1], 3)
-                    for metric in monitor_metrics
-                }
-                postfix_dict["loss"] = round(mean_loss, 3)
-                pbar.set_postfix(postfix_dict)
+                    # Update progress bar
+                    mean_loss = np.mean(self.training_logs["loss"][-valid_freq:])
+                    postfix_dict = {
+                        metric: round(self.training_logs[metric][-1], 3)
+                        for metric in monitor_metrics
+                    }
+                    postfix_dict["loss"] = round(mean_loss, 3)
+                    pbar.set_postfix(postfix_dict)
+
+            if (it + 1) % self.accumulate_grad == 0:
+                # clip gradients
+                torch.nn.utils.clip_grad_norm_(self.solver.vf.parameters(), 1.0)
+                self._scaler.step(self._optimizer)
+                self._scaler.update()
+                self._optimizer.zero_grad()
+
+                _log_wandb({"loss": loss.detach().cpu()}, it, wandb_run)
 
         if num_iterations > 0:
-            valid_true_data, valid_pred_data = self._validation_step(
-                valid_loaders, mode="on_train_end"
-            )
-            metrics = crun.on_train_end(valid_true_data, valid_pred_data)
-            self._update_logs(metrics)
+            with torch.inference_mode():
+                # Get predictions from validation data
+                valid_true_data, valid_pred_data = self._validation_step(
+                    valid_loaders, mode="on_train_end"
+                )
+                metrics = crun.on_train_end(valid_true_data, valid_pred_data)
+                self._update_logs(metrics)
 
         self.solver.is_trained = True
         return self.solver

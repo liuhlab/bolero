@@ -62,17 +62,27 @@ class BaseDataMixin:
             "perturbation_covariates_mask",
             "condition_data",
         ]
+        dtype = torch.float32
+
         for attr in attr_list:
             data = getattr(self, attr, None)
             if isinstance(data, np.ndarray):
-                data = torch.from_numpy(data)
+                data = torch.from_numpy(data).to(dtype=dtype)
             elif isinstance(data, dict):
                 data = {
-                    key: torch.from_numpy(val) if isinstance(val, np.ndarray) else val
+                    key: (
+                        torch.from_numpy(val).to(dtype=dtype)
+                        if isinstance(val, np.ndarray)
+                        else val
+                    )
                     for key, val in data.items()
                 }
             else:
-                pass
+                data = (
+                    data.to(dtype=torch.float32)
+                    if isinstance(data, torch.Tensor)
+                    else data
+                )
             if data is not None:
                 setattr(self, attr, data)
         return
