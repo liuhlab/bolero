@@ -218,6 +218,7 @@ class ConditionalVelocityField(nn.Module):
                     cond_logvar / 2.0
                 )
         cond_embedding = self.layer_cond_output_dropout(cond_embedding)
+        cond_embedding = self.layer_norm_condition(cond_embedding)
 
         t_encoded = cyclical_time_encoder(t, n_freqs=self.time_freqs)
         t_encoded = self.time_encoder(t_encoded)
@@ -225,8 +226,6 @@ class ConditionalVelocityField(nn.Module):
 
         x_encoded = self.x_encoder(x_t)
         x_encoded = self.layer_norm_x(x_encoded)
-
-        cond_embedding = self.layer_norm_condition(cond_embedding)
 
         if squeeze:
             cond_embedding = cond_embedding.squeeze()  # , 0)
@@ -238,14 +237,6 @@ class ConditionalVelocityField(nn.Module):
         if self.conditioning == "concatenation":
             # print(t_encoded.shape, x_encoded.shape, cond_embedding.shape)
             out = torch.concatenate((t_encoded, x_encoded, cond_embedding), dim=-1)
-        elif self.conditioning == "film":
-            out = self.film_block(
-                x_encoded, torch.concatenate((t_encoded, cond_embedding), dim=-1)
-            )
-        elif self.conditioning == "resnet":
-            out = self.resnet_block(
-                x_encoded, torch.concatenate((t_encoded, cond_embedding), dim=-1)
-            )
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}.")
 

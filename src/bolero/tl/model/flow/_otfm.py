@@ -113,19 +113,24 @@ class OTFlowMatching:
         logvar_cond: torch.Tensor,
     ) -> torch.Tensor:
         """Regularization term for the condition encoder."""
-        condition_mean_regularization = 0.5 * torch.mean(mean_cond**2)
-        condition_var_regularization = -0.5 * torch.mean(
-            1 + logvar_cond - torch.exp(logvar_cond)
-        )
-        if self.condition_encoder_mode == "stochastic":
-            encoder_loss = condition_mean_regularization + condition_var_regularization
-        elif (self.condition_encoder_mode == "deterministic") and (
-            self.condition_encoder_regularization > 0
-        ):
-            encoder_loss = condition_mean_regularization
+        if self.condition_encoder_mode == "deterministic":
+            if self.condition_encoder_regularization > 0:
+                loss = 0.5 * torch.mean(mean_cond**2)
+            else:
+                loss = 0.0
+        elif self.condition_encoder_mode == "stochastic":
+            if self.condition_encoder_regularization > 0:
+                mean_reg = 0.5 * torch.mean(mean_cond**2)
+                var_reg = -0.5 * torch.mean(1 + logvar_cond - torch.exp(logvar_cond))
+                loss = mean_reg + var_reg
+            else:
+                loss = 0.0
         else:
-            encoder_loss = 0.0
-        return encoder_loss
+            raise ValueError(
+                f"Unknown condition encoder mode {self.condition_encoder_mode}. "
+                "Use 'deterministic' or 'stochastic'."
+            )
+        return loss
 
     def loss_fn(
         self,

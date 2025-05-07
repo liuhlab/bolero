@@ -453,13 +453,11 @@ class CellFlow:
             device=None,
         )
 
-        self._trainer = CellFlowTrainer(solver=self.solver)  # type: ignore[arg-type]
-
     def train(
         self,
         num_iterations: int,
         batch_size: int = 1024,
-        lr: float = 1e-4,
+        lr: float = 5e-5,
         accumulate_grad: int = 20,
         use_amp: bool = True,
         valid_freq: int = 1000,
@@ -500,7 +498,7 @@ class CellFlow:
         if self.train_data is None:
             raise ValueError("Data not initialized. Please call `prepare_data` first.")
 
-        if self.trainer is None:
+        if self._solver is None:
             raise ValueError(
                 "Model not initialized. Please call `prepare_model` first."
             )
@@ -510,12 +508,16 @@ class CellFlow:
             k: ValidationSampler(v) for k, v in self.validation_data.items()
         }
 
-        self._solver = self.trainer.train(
-            dataloader=self._dataloader,
-            num_iterations=num_iterations,
+        self._trainer = CellFlowTrainer(
+            solver=self.solver,
             lr=lr,
             accumulate_grad=accumulate_grad,
             use_amp=use_amp,
+        )  # type: ignore[arg-type]
+
+        self._solver = self.trainer.train(
+            dataloader=self._dataloader,
+            num_iterations=num_iterations,
             valid_freq=valid_freq,
             valid_loaders=validation_loaders,
             monitor_metrics=monitor_metrics,

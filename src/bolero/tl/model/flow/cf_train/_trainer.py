@@ -15,12 +15,12 @@ from ._callbacks import BaseCallback, CallbackRunner
 
 def _init_wandb(cfg):
     return wandb.init(
-        project=cfg["wandb_project"], name=cfg["name"], config=cfg, reinit=True
+        project="250506-cellflow", name="dev_test", config=cfg, reinit=True
     )
 
 
 def _log_wandb(output, step, wandb_run, index=None):
-    metrics_to_log = ["loss"]
+    metrics_to_log = ["loss", "grad_norm"]
     log_dict = {k: output[k].item() for k in metrics_to_log if k in output}
 
     if index is not None:
@@ -51,7 +51,6 @@ class CellFlowTrainer:
         solver: OTFlowMatching,
         lr: float = 1e-4,
         accumulate_grad: int = 20,
-        use_amp: bool = True,
     ):
         if not isinstance(solver, OTFlowMatching):
             raise NotImplementedError(
@@ -62,10 +61,8 @@ class CellFlowTrainer:
         self.device = solver.device
 
         self._optimizer = None
-        self._scaler = None
         self.lr = lr
         self.accumulate_grad = accumulate_grad
-        self.use_amp = use_amp
 
     def _validation_step(
         self,
@@ -98,27 +95,8 @@ class CellFlowTrainer:
             betas=(0.9, 0.999),
         )
 
-        self._scaler = torch.amp.GradScaler(self.device, enabled=self.use_amp)
         wandb_run = _init_wandb({})
         return wandb_run
-
-    def get_autocast(self):
-        """Get autocast context."""
-        use_amp = getattr(self, "use_amp", True)
-        try:
-            auto_cast_context = torch.autocast(
-                device_type=str(self.device).split(":")[0],
-                dtype=torch.bfloat16,
-                enabled=use_amp,
-            )
-        except RuntimeError:
-            # some GPU, such as T4 does not support bfloat16
-            auto_cast_context = torch.autocast(
-                device_type=str(self.device).split(":")[0],
-                dtype=torch.float16,
-                enabled=use_amp,
-            )
-        return auto_cast_context
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
         """Update training logs."""
@@ -171,15 +149,11 @@ class CellFlowTrainer:
         pbar = tqdm(range(num_iterations))
         for it in pbar:
             batch = dataloader.sample()
-            with self.get_autocast():
-                loss = self.solver.step_fn(batch)
-                self.training_logs["loss"].append(float(loss))
-                loss = loss / self.accumulate_grad
-                if np.isnan(loss.item()):
-                    raise ValueError(
-                        "Loss is NaN. Check your data and model parameters."
-                    )
-            self._scaler.scale(loss).backward()
+            loss = self.solver.step_fn(batch)
+            self.training_logs["loss"].append(float(loss))
+            if np.isnan(loss.item()):
+                raise ValueError("Loss is NaN. Check your data and model parameters.")
+            loss.backward()
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
                 with torch.inference_mode():
@@ -203,12 +177,17 @@ class CellFlowTrainer:
 
             if (it + 1) % self.accumulate_grad == 0:
                 # clip gradients
-                torch.nn.utils.clip_grad_norm_(self.solver.vf.parameters(), 1.0)
-                self._scaler.step(self._optimizer)
-                self._scaler.update()
+                total_norm = torch.nn.utils.clip_grad_norm_(
+                    self.solver.vf.parameters(), 1.0
+                )
+                self._optimizer.step()
                 self._optimizer.zero_grad()
 
-                _log_wandb({"loss": loss.detach().cpu()}, it, wandb_run)
+                _log_wandb(
+                    {"loss": loss.detach().cpu(), "grad_norm": total_norm},
+                    it,
+                    wandb_run,
+                )
 
         if num_iterations > 0:
             with torch.inference_mode():

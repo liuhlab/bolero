@@ -43,7 +43,6 @@ class TrainSampler:
         data: TrainingData,
         batch_size: int = 1024,
         device: Optional[torch.device] = None,
-        seed: Optional[int] = None,
     ):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -79,38 +78,26 @@ class TrainSampler:
         self.perturbation_covariates_mask = data.perturbation_covariates_mask
         self.cell_data: torch.Tensor = data.cell_data
 
-        # RNG for reproducibility
-        if seed is None:
-            seed = torch.seed()
-        # before sampling data is at CPU memory
-        self.generator = torch.Generator("cpu").manual_seed(seed)
-
     def sample(self) -> dict[str, torch.Tensor]:
         """Sample one batch"""
         # — pick a random source distribution
-        src_dist = torch.randint(
-            self.n_source_dists, (), generator=self.generator
-        ).item()
+        src_dist = torch.randint(self.n_source_dists, ()).item()
 
         # — sample batch_size source cells from that dist
         src_mask = (self.split_covariates_mask == src_dist).float()
         src_p = src_mask / src_mask.sum()
-        src_idcs = torch.multinomial(
-            src_p, self.batch_size, replacement=True, generator=self.generator
-        )
+        src_idcs = torch.multinomial(src_p, self.batch_size, replacement=True)
         src_batch = self.cell_data[src_idcs]
 
         # — pick one target dist conditioned on source_dist
         candidates = self.conditional_samplings[src_dist]
-        choice = torch.randint(candidates.size(0), (), generator=self.generator).item()
+        choice = torch.randint(candidates.size(0), ()).item()
         tgt_dist = candidates[choice].item()
 
         # — sample batch_size target cells
         tgt_mask = (self.perturbation_covariates_mask == tgt_dist).float()
         tgt_p = tgt_mask / tgt_mask.sum()
-        tgt_idcs = torch.multinomial(
-            tgt_p, self.batch_size, replacement=True, generator=self.generator
-        )
+        tgt_idcs = torch.multinomial(tgt_p, self.batch_size, replacement=True)
         tgt_batch = self.cell_data[tgt_idcs]
 
         out: dict[str, Any] = {
