@@ -1,11 +1,11 @@
-import os
-import types
+import inspect
 from collections.abc import Sequence
 from typing import Any, Literal
 
 import anndata as ad
 import joblib
 import pandas as pd
+import torch
 from numpy.typing import ArrayLike
 
 from ._otfm import OTFlowMatching
@@ -43,6 +43,8 @@ class CellFlow:
         self._solver: OTFlowMatching | None = None
         self._condition_dim: int | None = None
         self._vf: ConditionalVelocityField | None = None
+
+        self._config_log = {}
 
     def prepare_data(
         self,
@@ -156,6 +158,11 @@ class CellFlow:
                     split_covariates=split_covariates,
                 )
         """
+        frame = inspect.currentframe()
+        args, _, _, values = inspect.getargvalues(frame)
+        value_dict = {name: values[name] for name in args if name != "self"}
+        self._config_log["data"] = value_dict
+
         self._dm = DataManager(
             self.adata,
             sample_rep=sample_rep,
@@ -204,7 +211,8 @@ class CellFlow:
         """
         if self.train_data is None:
             raise ValueError(
-                "Dataloader not initialized. Training data needs to be set up before preparing validation data. Please call prepare_data first."
+                "Dataloader not initialized. Training data needs to be set up before preparing validation data. "
+                "Please call prepare_data first."
             )
         val_data = self._dm.get_validation_data(
             adata,
@@ -219,7 +227,7 @@ class CellFlow:
         condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
         regularization: float = 0.0,
         pooling: Literal["mean", "attention_token"] = "attention_token",
-        pooling_kwargs: dict[str, Any] = types.MappingProxyType({}),
+        pooling_kwargs: dict[str, Any] = None,
         layers_before_pool: Layers_separate_input_t | Layers_t = None,
         layers_after_pool: Layers_t = None,
         condition_embedding_dim: int = 256,
@@ -408,6 +416,11 @@ class CellFlow:
                     "Stochastic condition embeddings require `regularization`>0."
                 )
 
+        frame = inspect.currentframe()
+        args, _, _, values = inspect.getargvalues(frame)
+        value_dict = {name: values[name] for name in args if name != "self"}
+        self._config_log["model"] = value_dict
+
         condition_encoder_kwargs = condition_encoder_kwargs or {}
 
         covariates_not_pooled = (
@@ -453,16 +466,27 @@ class CellFlow:
             device=None,
         )
 
+    def get_train_dataloader(self, batch_size=1024) -> TrainSampler:
+        """Get the training dataloader.
+
+        Returns
+        -------
+        :class:`~cellflow.data.TrainSampler` object.
+        """
+        dl = TrainSampler(data=self.train_data, batch_size=batch_size)
+        return dl
+
     def train(
         self,
         num_iterations: int,
         batch_size: int = 1024,
         lr: float = 5e-5,
         accumulate_grad: int = 20,
-        use_amp: bool = True,
         valid_freq: int = 1000,
         callbacks: Sequence[BaseCallback] = [],
         monitor_metrics: Sequence[str] = [],
+        wandb_project=None,
+        wandb_run=None,
     ) -> None:
         """Train the model.
 
@@ -512,7 +536,6 @@ class CellFlow:
             solver=self.solver,
             lr=lr,
             accumulate_grad=accumulate_grad,
-            use_amp=use_amp,
         )  # type: ignore[arg-type]
 
         self._solver = self.trainer.train(
@@ -522,6 +545,9 @@ class CellFlow:
             valid_loaders=validation_loaders,
             monitor_metrics=monitor_metrics,
             callbacks=callbacks,
+            wandb_project=wandb_project,
+            wandb_run=wandb_run,
+            cfg=self._config_log,
         )
 
     def predict(
@@ -693,12 +719,7 @@ class CellFlow:
             df_var.index.set_names(list(self._dm.perturb_covar_keys), inplace=True)
         return df_mean, df_var
 
-    def save(
-        self,
-        dir_path: str,
-        file_prefix: str | None = None,
-        overwrite: bool = False,
-    ) -> None:
+    def save(self, dir_path: str) -> None:
         """
         Save the model.
 
@@ -708,42 +729,27 @@ class CellFlow:
         ----------
             dir_path
                 Path to a directory, defaults to current directory
-            file_prefix
-                Prefix to prepend to the file name.
-            overwrite
-                Overwrite existing data or not.
 
         Returns
         -------
             :obj:`None`
         """
-        file_name = (
-            f"{file_prefix}_{self.__class__.__name__}.pkl"
-            if file_prefix is not None
-            else f"{self.__class__.__name__}.pkl"
-        )
-        file_dir = (
-            os.path.join(dir_path, file_name) if dir_path is not None else file_name
-        )
+        config_path = f"{dir_path}/config.joblib"
+        joblib.dump(self._config_log, config_path)
 
-        if not overwrite and os.path.exists(file_dir):
-            raise RuntimeError(
-                f"Unable to save to an existing file `{file_dir}` use `overwrite=True` to overwrite it."
-            )
-        with open(file_dir, "wb") as f:
-            joblib.dump(self, f)
+        state_dict = self.vf.state_dict()
+        state_dict_path = f"{dir_path}/vf_state_dict.joblib"
+        torch.save(state_dict, state_dict_path)
+        return
 
     @classmethod
-    def load(
-        cls,
-        filename: str,
-    ) -> "CellFlow":
+    def load(self, adata, dir_path: str) -> "CellFlow":
         """
         Load a :class:`~cellflow.model.CellFlow` model from a saved instance.
 
         Parameters
         ----------
-            filename
+            dir_path
                 Path to the saved file.
 
         Returns
@@ -751,20 +757,19 @@ class CellFlow:
         Loaded instance of the model.
         """
         # Check if filename is a directory
-        file_name = (
-            os.path.join(filename, f"{cls.__name__}.pkl")
-            if os.path.isdir(filename)
-            else filename
-        )
+        config = joblib.load(f"{dir_path}/config.joblib")
+        state = torch.load(f"{dir_path}/vf_state_dict.joblib", weights_only=False)
 
-        with open(file_name, "rb") as f:
-            model = joblib.load(f)
+        cf = CellFlow(adata)
+        # prepare data from config
+        cf.prepare_data(**config["data"])
+        # prepare model from config
+        cf.prepare_model(**config["model"])
 
-        if type(model) is not cls:
-            raise TypeError(
-                f"Expected the model to be type of `{cls}`, found `{type(model)}`."
-            )
-        return model
+        # load the model state dict
+        cf.vf.load_state_dict(state)
+        cf._solver.is_trained = True
+        return cf
 
     @property
     def adata(self) -> ad.AnnData:

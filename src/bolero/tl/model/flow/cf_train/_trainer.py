@@ -13,13 +13,16 @@ from bolero.tl.model.flow.cf_data import TrainSampler, ValidationSampler
 from ._callbacks import BaseCallback, CallbackRunner
 
 
-def _init_wandb(cfg):
-    return wandb.init(
-        project="250506-cellflow", name="dev_test", config=cfg, reinit=True
-    )
+def _init_wandb(wandb_project, wandb_run, cfg):
+    if wandb_project is None:
+        return None
+    return wandb.init(project=wandb_project, name=wandb_run, config=cfg, reinit=True)
 
 
 def _log_wandb(output, step, wandb_run, index=None):
+    if wandb_run is None:
+        return
+
     metrics_to_log = ["loss", "grad_norm"]
     log_dict = {k: output[k].item() for k in metrics_to_log if k in output}
 
@@ -87,7 +90,7 @@ class CellFlowTrainer:
 
         return valid_true_data, valid_pred_data
 
-    def _prepare_train(self) -> None:
+    def _prepare_train(self, wandb_project, wandb_run, cfg) -> None:
         """Prepare the training process."""
         self._optimizer = torch.optim.Adam(
             self.solver.vf.parameters(),
@@ -95,7 +98,7 @@ class CellFlowTrainer:
             betas=(0.9, 0.999),
         )
 
-        wandb_run = _init_wandb({})
+        wandb_run = _init_wandb(wandb_project, wandb_run, cfg)
         return wandb_run
 
     def _update_logs(self, logs: dict[str, Any]) -> None:
@@ -111,8 +114,11 @@ class CellFlowTrainer:
         num_iterations: int,
         valid_freq: int,
         valid_loaders: dict[str, ValidationSampler] | None = None,
-        monitor_metrics: Sequence[str] = [],
-        callbacks: Sequence[BaseCallback] = [],
+        monitor_metrics: Sequence[str] = (),
+        callbacks: Sequence[BaseCallback] = (),
+        wandb_project: str = None,
+        wandb_run: str = None,
+        cfg: dict[str, Any] = None,
     ) -> OTFlowMatching:
         """Trains the model.
 
@@ -135,7 +141,8 @@ class CellFlowTrainer:
         -------
             The trained model.
         """
-        wandb_run = self._prepare_train()
+        cfg = cfg or {}
+        wandb_run = self._prepare_train(wandb_project, wandb_run, cfg)
 
         self.training_logs = {"loss": []}
 

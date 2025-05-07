@@ -64,19 +64,18 @@ class TrainSampler:
             for i in range(self.n_source_dists)
         ]
 
-        # function to grab the per‑target embedding (matches your JAX get_embeddings)
-        if data.condition_data is not None:
-            self.get_embeddings = lambda idx: {
-                name: torch.as_tensor(arr[idx]).to(torch.float32).unsqueeze(0)
-                for name, arr in data.condition_data.items()
-            }
-        else:
-            self.get_embeddings = None
-
         # masks and raw cell data
         self.split_covariates_mask = data.split_covariates_mask
         self.perturbation_covariates_mask = data.perturbation_covariates_mask
         self.cell_data: torch.Tensor = data.cell_data
+
+    def _get_embeddings(self, idx: int) -> dict[str, torch.Tensor]:
+        data = self._data
+        emb_dict = {
+            name: torch.as_tensor(arr[idx]).to(torch.float32).unsqueeze(0)
+            for name, arr in data.condition_data.items()
+        }
+        return emb_dict
 
     def sample(self) -> dict[str, torch.Tensor]:
         """Sample one batch"""
@@ -106,8 +105,8 @@ class TrainSampler:
         }
 
         # — attach condition if present
-        if self.get_embeddings is not None:
-            out["condition"] = self.get_embeddings(tgt_dist)
+        if self._data.condition_data is not None:
+            out["condition"] = self._get_embeddings(tgt_dist)
 
         out = _batch_to_tensor(out, self.device)
         return out

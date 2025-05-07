@@ -2,14 +2,14 @@ from typing import Any, Optional
 
 import torch
 from torch import nn
-from torchcfm.conditional_flow_matching import (
+from torchdiffeq import odeint
+
+from ._velocity_field import ConditionalVelocityField
+from .matcher import (
     ConditionalFlowMatcher,
     ExactOptimalTransportConditionalFlowMatcher,
     SchrodingerBridgeConditionalFlowMatcher,
 )
-from torchdiffeq import odeint
-
-from ._velocity_field import ConditionalVelocityField
 
 
 class _VelocityFieldWrapperForODE(nn.Module):
@@ -134,25 +134,16 @@ class OTFlowMatching:
 
     def loss_fn(
         self,
-        x_0: torch.Tensor,
-        x_1: torch.Tensor,
-        conditions: dict[str, torch.Tensor],
+        t: torch.Tensor,
+        x_t: torch.Tensor,
+        u_t: torch.Tensor,
+        cond: dict[str, torch.Tensor],
         encoder_noise: torch.Tensor = None,
-        t: torch.Tensor = None,
     ) -> torch.Tensor:
-        # The flow matcher class from torchcfm implements the algorithm to
-        # sample locations and conditional flows from a random or given time
-        # Optimal Transport (OT) is implemented inside the flow matcher class
-        with torch.no_grad():
-            t, x_t, u_t = self.flow_matcher.sample_location_and_conditional_flow(
-                x0=x_0, x1=x_1, t=t
-            )
-            t = t.unsqueeze(-1)  # [batch_size, 1]
-
         v_t, mean_cond, logvar_cond = self.vf(
             t=t,
             x_t=x_t,
-            cond=conditions,
+            cond=cond,
             encoder_noise=encoder_noise,
         )
 
@@ -179,6 +170,29 @@ class OTFlowMatching:
         -------
         Loss value.
         """
+        # batch.keys() = {"src_cell_data", "tgt_cell_data", "condition"}
+        batch = self.step_prepare(batch)
+
+        # batch.keys() = {"t", "x_t", "u_t", "condition", "encoder_noise"}
+        loss = self.loss_fn(**batch)
+        return loss
+
+    def step_prepare(
+        self,
+        batch: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Prepare the step function of the solver.
+
+        Parameters
+        ----------
+        batch
+            Data batch with keys ``x0``, ``x1``, and
+            optionally ``condition``.
+
+        Returns
+        -------
+        Loss value.
+        """
         x_0, x_1 = batch["src_cell_data"], batch["tgt_cell_data"]
         condition = batch.get("condition")
 
@@ -189,16 +203,26 @@ class OTFlowMatching:
             generator=self.generator,
             device=self.device,  # e.g. "cpu" or "cuda"
         )
-        # TODO: test whether it's better to sample the same noise for all samples or different ones
 
-        loss = self.loss_fn(
-            x_0=x_0,
-            x_1=x_1,
-            conditions=condition,
-            encoder_noise=encoder_noise,
-            t=None,
-        )
-        return loss
+        # The flow matcher class from torchcfm implements the algorithm to
+        # sample locations and conditional flows from a random or given time
+        # Optimal Transport (OT) is implemented inside the flow matcher class
+        with torch.no_grad():
+            t, x_t, u_t = self.flow_matcher.sample_location_and_conditional_flow(
+                x0=x_0,
+                x1=x_1,
+                t=None,  # let flow matcher sample t
+            )
+            t = t.unsqueeze(-1)  # [batch_size, 1]
+
+        batch = {
+            "t": t,
+            "x_t": x_t,
+            "u_t": u_t,
+            "cond": condition,
+            "encoder_noise": encoder_noise,
+        }
+        return batch
 
     @torch.no_grad()
     def get_condition_embedding(
