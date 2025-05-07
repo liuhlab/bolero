@@ -872,6 +872,8 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
                 if mode == 'scprinter':
                         effect = torch.log2(outputs_alt['pred_coverage'] / outputs_ref['pred_coverage'])
                         all_data['peak'].append(effect.reshape(-1,1).cpu())
+                        all_data['ref'].append(outputs_ref['pred_coverage'].reshape(-1,1).cpu())
+                        all_data['alt'].append(outputs_alt['pred_coverage'].reshape(-1,1).cpu())
                 
                 elif mode == 'peak':
                     # # Peak mode code remains unchanged
@@ -912,6 +914,8 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
         
         elif mode == 'peak' or mode == 'scprinter':
             all_data['peak'] = torch.cat(all_data['peak'], dim=0)
+            all_data['ref'] = torch.cat(all_data['ref'], dim=0)
+            all_data['alt'] = torch.cat(all_data['alt'], dim=0)
             return all_data
         
 
@@ -975,9 +979,9 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
             )
         
         elif mode == 'peak' or mode == 'scprinter':
-            peak_effects_np = data['peak'].numpy()
-            # Get dimensions
-            n_regions, n_peaks = peak_effects_np.shape
+            peak_effects = data['peak']
+            ref_data = data['ref']  # List of tensors with variable lengths
+            alt_data = data['alt']  # List of tensors with variable lengths
 
             # Create a region index from the BED file
             region_index = np.arange(len(bed))
@@ -985,7 +989,9 @@ class scPrinterSNPInferencer(BorzoiSNPInferencer):
             # Build an xarray Dataset
             ds = xr.Dataset(
                 {
-                    "peak_effect": (["region", "peak"], peak_effects_np),
+                    "peak_effect": (["region", "peak"], np.array(peak_effects)),
+                    "ref_effect": (["region", "peak"], np.array(ref_data)),
+                    "alt_effect": (["region", "peak"], np.array(alt_data)),
                 },
                 coords={
                     "sample": [celltype],  # List with single cell type
