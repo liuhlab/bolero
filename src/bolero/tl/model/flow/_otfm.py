@@ -91,8 +91,8 @@ class OTFlowMatching:
 
         _ode_solver_kwargs = {
             "method": "dopri5",
-            "rtol": 1e-5,
-            "atol": 1e-5,
+            "rtol": 1e-4,
+            "atol": 1e-4,
         }
         if ode_solver_kwargs is not None:
             _ode_solver_kwargs.update(ode_solver_kwargs)
@@ -253,7 +253,6 @@ class OTFlowMatching:
         x_0: torch.Tensor,
         condition: dict[str, torch.Tensor],
         t_range: tuple[float, float] = (0.0, 1.0),
-        t_steps: int = 512,
         return_traj: bool = False,
         **kwargs: Any,
     ) -> torch.Tensor:
@@ -291,8 +290,9 @@ class OTFlowMatching:
 
         # Define ODE function
         vf_wrapper = _VelocityFieldWrapperForODE(self.vf, condition, encoder_noise)
+        vf_wrapper = torch.compile(vf_wrapper)
 
-        t_span = torch.linspace(*t_range, t_steps, device=device)
+        t_span = torch.tensor([t_range[0], t_range[-1]], device=device)
         x_pred_traj = odeint(
             func=vf_wrapper,
             y0=x_0,

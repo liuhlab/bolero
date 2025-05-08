@@ -7,6 +7,7 @@ import joblib
 import pandas as pd
 import torch
 from numpy.typing import ArrayLike
+from tqdm import tqdm
 
 from ._otfm import OTFlowMatching
 from ._utils import Layers_separate_input_t, Layers_t, write_predictions
@@ -619,10 +620,18 @@ class CellFlow:
         )
         pred_loader = PredictionSampler(pred_data)
         batch = pred_loader.sample()
+        # batch is a dict of {
+        #     "source": {"cond1": tensor},
+        #     "condition": {"cond1": dict[str, tensor]}
+        # }
         src = batch["source"]
         condition = batch.get("condition", None)
 
-        out = self.solver.predict(src, condition, **kwargs)
+        out = {}
+        for k, src_tensor in tqdm(src.items(), total=len(src)):
+            cond = condition[k] if condition is not None else None
+            out[k] = self.solver.predict(src_tensor, cond, **kwargs)
+
         if key_added_prefix is None:
             return out
         if len(pred_data.control_to_perturbation) > 1:

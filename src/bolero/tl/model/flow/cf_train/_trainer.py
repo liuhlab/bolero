@@ -156,10 +156,12 @@ class CellFlowTrainer:
         pbar = tqdm(range(num_iterations))
         for it in pbar:
             batch = dataloader.sample()
-            loss = self.solver.step_fn(batch)
-            self.training_logs["loss"].append(float(loss))
-            if np.isnan(loss.item()):
+            loss_raw = self.solver.step_fn(batch)
+            self.training_logs["loss"].append(float(loss_raw))
+            if np.isnan(loss_raw.item()):
                 raise ValueError("Loss is NaN. Check your data and model parameters.")
+
+            loss = loss_raw / self.accumulate_grad
             loss.backward()
 
             if ((it - 1) % valid_freq == 0) and (it > 1):
@@ -185,13 +187,13 @@ class CellFlowTrainer:
             if (it + 1) % self.accumulate_grad == 0:
                 # clip gradients
                 total_norm = torch.nn.utils.clip_grad_norm_(
-                    self.solver.vf.parameters(), 1.0
+                    self.solver.vf.parameters(), 10.0
                 )
                 self._optimizer.step()
                 self._optimizer.zero_grad()
 
                 _log_wandb(
-                    {"loss": loss.detach().cpu(), "grad_norm": total_norm},
+                    {"loss": loss_raw.detach().cpu(), "grad_norm": total_norm},
                     it,
                     wandb_run,
                 )

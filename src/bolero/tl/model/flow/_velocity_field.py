@@ -25,6 +25,8 @@ def cyclical_time_encoder(t: torch.Tensor, n_freqs: int = 128) -> torch.Tensor:
         Tensor of shape [n, 2 * n_freqs]
     """
     freq = 2 * math.pi * torch.arange(n_freqs, dtype=t.dtype, device=t.device)
+    if t.ndim == 1:
+        t = t.unsqueeze(1)
     t = t * freq  # [n, 1] * [n_freqs] -> broadcast to [n, n_freqs]
     return torch.cat([torch.cos(t), torch.sin(t)], dim=-1)
 
@@ -198,6 +200,24 @@ class ConditionalVelocityField(nn.Module):
                 )
         else:
             raise ValueError(f"Unknown conditioning mode: {self.conditioning}")
+
+        # perform jax style initialization
+        self._jax_style_params_init()
+
+    def _jax_style_params_init(self):
+        print("Performing JAX style initialization.")
+
+        def lecun_normal_(tensor):
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(tensor)
+            std = math.sqrt(1.0 / fan_in)
+            return nn.init.normal_(tensor, mean=0.0, std=std)
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                lecun_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        return
 
     def forward(
         self,

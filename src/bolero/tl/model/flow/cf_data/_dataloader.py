@@ -72,8 +72,8 @@ class TrainSampler:
     def _get_embeddings(self, idx: int) -> dict[str, torch.Tensor]:
         data = self._data
         emb_dict = {
-            name: torch.as_tensor(arr[idx]).to(torch.float32).unsqueeze(0)
-            for name, arr in data.condition_data.items()
+            name: torch.as_tensor(arr_list[idx]).to(torch.float32).unsqueeze(0)
+            for name, arr_list in data.condition_data.items()
         }
         return emb_dict
 
@@ -146,8 +146,8 @@ class BaseValidSampler(abc.ABC):
 
     def _get_condition_data(self, cond_idx: int) -> torch.Tensor:
         return {
-            k: torch.from_numpy(v[[cond_idx], ...]).to(torch.float32)
-            for k, v in self._data.condition_data.items()
+            k: torch.as_tensor(arr_list[cond_idx]).to(torch.float32).unsqueeze(0)
+            for k, arr_list in self._data.condition_data.items()
         }  # type: ignore[attr-defined]
 
 
