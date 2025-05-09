@@ -85,7 +85,13 @@ class CellFlowTrainer:
             src = batch["source"]
             condition = batch.get("condition", None)
             true_tgt = batch["target"]
-            valid_pred_data[val_key] = self.solver.predict(src, condition)
+
+            pred_tgt = {}
+            for _k, _src_tensor in src.items():
+                cond = condition[_k] if condition is not None else None
+                pred_tgt[_k] = self.solver.predict(_src_tensor, cond)
+
+            valid_pred_data[val_key] = pred_tgt
             valid_true_data[val_key] = true_tgt
 
         return valid_true_data, valid_pred_data

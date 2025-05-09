@@ -241,6 +241,8 @@ class OTFlowMatching:
         -------
         Mean and log-variance of encoded conditions.
         """
+        condition = {k: v.to(self.device) for k, v in condition.items()}
+
         cond_mean, cond_logvar = self.vf.get_condition_embedding(condition)
 
         if return_as_numpy:

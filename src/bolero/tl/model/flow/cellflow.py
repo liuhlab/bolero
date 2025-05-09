@@ -463,7 +463,7 @@ class CellFlow:
             vf=self.vf,
             matcher_class=matcher_class,
             matcher_kwargs=matcher_kwargs,
-            ode_solver_kwargs={},
+            ode_solver_kwargs=ode_solver_kwargs or {},
             device=None,
         )
 
@@ -558,6 +558,7 @@ class CellFlow:
         sample_rep: str | None = None,
         condition_id_key: str | None = None,
         key_added_prefix: str | None = None,
+        progress_bar: bool = True,
         **kwargs: Any,
     ) -> dict[str, ArrayLike] | None:
         """Predict perturbation responses.
@@ -628,7 +629,12 @@ class CellFlow:
         condition = batch.get("condition", None)
 
         out = {}
-        for k, src_tensor in tqdm(src.items(), total=len(src)):
+        if progress_bar:
+            iterable = tqdm(src.items(), total=len(src))
+        else:
+            iterable = src.items()
+
+        for k, src_tensor in iterable:
             cond = condition[k] if condition is not None else None
             out[k] = self.solver.predict(src_tensor, cond, **kwargs)
 
@@ -703,7 +709,11 @@ class CellFlow:
         condition_embeddings_var: dict[str, ArrayLike] = {}
         n_conditions = len(next(iter(cond_data.condition_data.values())))
         for i in range(n_conditions):
-            condition = {k: v[[i], :] for k, v in cond_data.condition_data.items()}
+            condition = {
+                k: torch.as_tensor(arr_list[i]).to(torch.float32).unsqueeze(0)
+                for k, arr_list in cond_data.condition_data.items()
+            }
+
             if condition_id_key:
                 c_key = cond_data.perturbation_idx_to_id[i]
             else:

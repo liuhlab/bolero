@@ -150,7 +150,6 @@ class Metrics(ComputationCallback):
         metrics: list[Literal["r_squared", "mmd", "e_distance"]],
     ):
         self.metrics = metrics
-        self.metric_aggregation = ["mean"]
         for metric in metrics:
             # TODO: support custom callables as metrics
             if metric not in metric_to_func:
@@ -177,17 +176,18 @@ class Metrics(ComputationCallback):
             Predicted data in nested dictionary format with same keys as ``valid_data``
         """
         metrics = {}
-        for metric in self.metrics:
-            for k in validation_data.keys():
-                func = metric_to_func[metric]
-                out = func(validation_data[k], predicted_data[k])
-                for agg_fn in self.metric_aggregation:
-                    metrics[f"{k}_{metric}_{agg_fn}"] = out.mean(axis=0)
+        for metric_name in self.metrics:
+            for k, valid_dict in validation_data.items():
+                func = metric_to_func[metric_name]
 
-        metrics = {
-            k: v.item() if isinstance(v, torch.Tensor) else v
-            for k, v in metrics.items()
-        }
+                out = {}
+                for kk, vv in valid_dict.items():
+                    metric = func(vv, predicted_data[k][kk])
+                    if isinstance(metric, torch.Tensor):
+                        metric = metric.detach().cpu().numpy()
+                    out[kk] = np.mean(metric)
+
+                metrics[f"{k}_{metric_name}_mean"] = np.mean(list(out.values()))
         return metrics  # type: ignore[return-value]
 
     def on_train_end(

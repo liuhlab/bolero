@@ -112,4 +112,5 @@ def compute_scalar_mmd(
     if gammas is None:
         gammas = [2, 1, 0.5, 0.1, 0.01, 0.005]
     mmds = [maximum_mean_discrepancy(x, y, gamma=gamma) for gamma in gammas]  # type: ignore[union-attr]
-    return np.nanmean(np.array(mmds))
+    mmds = np.array([d.detach().cpu().numpy() for d in mmds])
+    return np.nanmean(mmds)

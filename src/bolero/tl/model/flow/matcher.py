@@ -5,6 +5,7 @@
 #         +++
 # License: MIT License
 
+from functools import partial
 from typing import Union
 
 import jax
@@ -38,7 +39,6 @@ def sample_joint(tmat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return src_ixs, tgt_ixs
 
 
-@jax.jit
 def match_linear(
     source: jax.Array,
     target: jax.Array,
@@ -71,7 +71,7 @@ def match_linear(
     return out.matrix
 
 
-def match_linear_torch(source, target, **kwargs):
+def match_linear_torch(source, target, jit_match_linear):
     """
     Compute OT matrix using OTT on CUDA, starting from torch.Tensor inputs.
     """
@@ -79,7 +79,7 @@ def match_linear_torch(source, target, **kwargs):
     source_jax = jax.dlpack.from_dlpack(source)
     target_jax = jax.dlpack.from_dlpack(target)
 
-    mat = match_linear(source_jax, target_jax, **kwargs)
+    mat = jit_match_linear(source_jax, target_jax)
 
     # to torch
     mat = torch.from_dlpack(jax.dlpack.to_dlpack(mat))
@@ -296,7 +296,14 @@ class ExactOptimalTransportConditionalFlowMatcher(ConditionalFlowMatcher):
     It overrides the sample_location_and_conditional_flow.
     """
 
-    def __init__(self, sigma: Union[float, int] = 0.0):
+    def _prepare_jit_match_func(self, ot_kwargs):
+        jit_match_linear = jax.jit(partial(match_linear, **ot_kwargs))
+        match_linear_func = partial(
+            match_linear_torch, jit_match_linear=jit_match_linear
+        )
+        return match_linear_func
+
+    def __init__(self, sigma: Union[float, int] = 0.0, **ot_kwargs):
         r"""Initialize the ConditionalFlowMatcher class. It requires the hyper-parameter $\sigma$.
 
         Parameters
@@ -305,7 +312,7 @@ class ExactOptimalTransportConditionalFlowMatcher(ConditionalFlowMatcher):
         ot_sampler: exact OT method to draw couplings (x0, x1) (see Eq.(17) [1]).
         """
         super().__init__(sigma)
-        self.ot_sampler = match_linear_torch
+        self.ot_sampler = self._prepare_jit_match_func(ot_kwargs)
 
     def sample_location_and_conditional_flow(self, x0, x1, t=None, return_noise=False):
         r"""
