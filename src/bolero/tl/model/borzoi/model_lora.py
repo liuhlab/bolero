@@ -44,6 +44,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "final_output_dropout": 0.01,
             "conditional_b": True,
             "lora_norm": "layer",
+            "emb_attn_pool": False,
             # Key-Value Bottleneck
             "kv_bottleneck": None,
             "num_memories": 256,
@@ -76,6 +77,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         final_output_dropout=0.01,
         conditional_b=True,
         lora_norm="layer",
+        emb_attn_pool=False,
         # kv bottleneck
         kv_bottleneck=None,
         num_memories=256,
@@ -236,6 +238,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             lora_scale=lora_scale,
             preset=lora_preset,
             embedding_dropout=embedding_dropout,
+            emb_attn_pool=emb_attn_pool,
         )
         self.hidden_dim = hidden_dim
         self.hidden_layers = hidden_layers
@@ -420,6 +423,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         lora_dropout=0.01,
         embedding_dropout=0,
         lora_scale=1,
+        emb_attn_pool=False,
         preset="all_conditional",
     ):
         """Make LoRA configuration for the Borzoi model."""
@@ -431,6 +435,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "lora_dropout": lora_dropout,
             "lora_scale": lora_scale,
             "embedding_dropout": embedding_dropout,
+            "emb_attn_pool": emb_attn_pool,
         }
 
         # in case some benchmark models are not using LoRA

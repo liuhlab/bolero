@@ -32,6 +32,7 @@ class TrainedRNALoraModel:
         "model": "REQUIRED",
         "vq_records": "REQUIRED",
         "use_vq_emb": False,
+        "emb_key": "embedding",
     }
 
     def __init__(
@@ -39,13 +40,14 @@ class TrainedRNALoraModel:
         model: Union[str, pathlib.Path, torch.nn.Module],
         vq_records,
         use_vq_emb=True,
+        emb_key="embedding",
     ) -> None:
         if isinstance(model, (str, pathlib.Path)):
             model = torch.load(model, map_location="cpu", weights_only=False).eval()
         print(type(model), "model loaded")
         self.model: torch.nn.Module = model
         self.pseudobulker: RNAVQPseudobulker = RNAVQPseudobulker.create_from_config(
-            vq_records=vq_records, use_vq_emb=use_vq_emb
+            vq_records=vq_records, use_vq_emb=use_vq_emb, emb_key=emb_key
         )
 
     @torch.no_grad()

@@ -65,6 +65,7 @@ class ConditionalLoRALayer:
         norm_type: str = "batch",
         batchnorm_momentum: float = 0.1,
         embedding_dropout: float = 0.0,
+        emb_attn_pooling: bool = False,
     ):
         self.base_class = nn.Module
         # Optional dropout
@@ -105,6 +106,7 @@ class ConditionalLoRALayer:
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             dropout=embedding_dropout,
+            attn_pooling=emb_attn_pooling,
         )
         if conditional_b:
             self.lora_B_module = EmbeddingMLP(
@@ -124,6 +126,7 @@ class ConditionalLoRALayer:
                 norm_type=norm_type,
                 batchnorm_momentum=batchnorm_momentum,
                 dropout=embedding_dropout,
+                attn_pooling=emb_attn_pooling,
             )
         else:
             self.lora_B_module = UnconditionalParameters(shape=(out_features, self.r))
@@ -187,6 +190,7 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         embedding_dropout=0.0,
         use_dora=False,
         reset_lora_in_init=True,
+        emb_attn_pooling=False,
         **kwargs,
     ):
         self.base_class = nn.Linear
@@ -213,6 +217,7 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
+            emb_attn_pooling=emb_attn_pooling,
         )
 
         # Freezing the pre-trained weight matrix
@@ -324,6 +329,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         embedding_dropout=0.0,
         use_dora=False,
         reset_lora_in_init=True,
+        emb_attn_pooling=False,
         **kwargs,
     ):
         if issubclass(conv_class, nn.Conv1d):
@@ -385,6 +391,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
+            emb_attn_pooling=emb_attn_pooling,
         )
 
         # Freezing the pre-trained weight matrix

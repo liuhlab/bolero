@@ -988,6 +988,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "use_vq_emb": "REQUIRED",
             "prefix": "pseudobulk",
             "downsample_vq": None,
+            "emb_key": "embedding",
         }
     )
 
@@ -1021,6 +1022,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "use_vq_emb": self.config["use_vq_emb"],
             "prefix_name": self.config["prefix"],
             "downsample_vq": self.config["downsample_vq"],
+            "emb_key": self.config["emb_key"],
         }
 
         use_vq_emb = self.config["use_vq_emb"]

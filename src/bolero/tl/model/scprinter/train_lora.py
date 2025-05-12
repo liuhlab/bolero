@@ -25,6 +25,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "use_vq_emb": False,
             "prefix": "pseudobulk",
             "downsample_vq": None,
+            "emb_key": "embedding",
         }
     )
 
@@ -50,6 +51,7 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "downsample_vq": self.config["downsample_vq"],
             "prefix_name": self.config["prefix"],
             "add_cov_to_emb": False,
+            "emb_key": self.config["emb_key"],
         }
         dataset.add_pseudobulker(
             name=self.config["prefix"],

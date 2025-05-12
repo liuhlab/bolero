@@ -289,6 +289,7 @@ def make_lora_config(
     hidden_dim,
     hidden_layers,
     lora_dropout,
+    emb_attn_pooling=False,
     mc_channels=0,
 ):
     """Make LoRA configuration for the Borzoi model."""
@@ -299,6 +300,7 @@ def make_lora_config(
         "output_layer_groups": 1,
         "convert_conv": True,
         "lora_dropout": lora_dropout,
+        "emb_attn_pooling": emb_attn_pooling,
     }
     lora_config = {
         "dna_cnn_model": {
@@ -345,6 +347,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "num_memory_codebooks": 2,
             "additional_embs": 1,
             "emb_input": False,
+            "emb_attn_pooling": False,
         }
     )
 
@@ -375,6 +378,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         num_memory_codebooks: int = 2,
         additional_embs: int = 1,
         emb_input: bool = True,
+        emb_attn_pooling: bool = False,
         **base_kwargs,
     ):
         # ===============
@@ -435,6 +439,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             lora_hidden_dim=lora_hidden_dim,
             n_lora_layers=n_lora_layers,
             lora_dropout=lora_dropout,
+            emb_attn_pooling=emb_attn_pooling,
         )
         return
 
@@ -444,6 +449,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         lora_hidden_dim,
         n_lora_layers,
         lora_dropout,
+        emb_attn_pooling=False,
     ):
         """Convert the model to LoRA."""
         mc_channels = self.mc_head.out_channels if self.mc_head is not None else 0
@@ -453,6 +459,7 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             hidden_dim=lora_hidden_dim,
             hidden_layers=n_lora_layers,
             lora_dropout=lora_dropout,
+            emb_attn_pooling=emb_attn_pooling,
             mc_channels=mc_channels,
         )
 

@@ -13,6 +13,51 @@ from bolero.tl.generic.module import GroupedLinear, Residual
 from .module_lora import set_submodule_by_name
 
 
+class AttentionPooling(nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+        self.scorer = nn.Linear(dim, 1, bias=True)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """
+        init with zeros so the beginning the attention weights are uniform
+        (1/N, 1/N, …, 1/N), which means the attention pooling is equivalent to mean pooling
+        """
+        nn.init.zeros_(self.scorer.weight)
+        nn.init.zeros_(self.scorer.bias)
+
+    @staticmethod
+    def _make_all_zero_mask(x: torch.Tensor) -> torch.Tensor:
+        """
+        mask (B, N) False where all D features are zero
+        """
+        # A token is valid if any of its features is non-zero
+        return torch.any(x != 0, dim=-1)
+
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """
+        x: (B, N, D), return (B, D)
+        """
+        if x.shape[1] == 1:
+            # if the input is a single token, return it
+            return x.squeeze(1)
+
+        # x: (B, N, D)
+        logits = self.scorer(x).squeeze(-1)  # → (B, N)
+
+        if mask is None:
+            mask = self._make_all_zero_mask(x)
+        logits = logits.masked_fill(~mask, -float("inf"))
+
+        weights = F.softmax(logits, dim=-1)  # → (B, N)
+        weights = weights.unsqueeze(-1)  # → (B, N, 1)
+        pooled = (weights * x).sum(dim=1)  # → (B, D)
+        return pooled
+
+
 class ArchLinear(nn.Linear):
     def __init__(self, linear_module: nn.Linear, arch_features: int, bias: bool = True):
         super().__init__(
@@ -340,6 +385,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         dropout=0.0,
         residual=False,
         rescale_factor=1,
+        attn_pooling=False,
     ) -> None:
         """
         Initialize the EmbeddingMLP module.
@@ -419,6 +465,11 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         )
 
         self.arch_features = 0
+
+        if attn_pooling:
+            self.attn_pooling = AttentionPooling(self.input_features)
+        else:
+            self.attn_pooling = None
         return
 
     def _generate_linear_module(self, in_features, out_features):
@@ -481,7 +532,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
                 If the input tensor is 2D, it is assumed to be (bs, emb_dim).
                 If the input tensor is 3D, it is assumed to be (bs, seq_len, emb_dim).
             emb_weights (torch.Tensor): The embedding weights tensor.
-                Only applicable for 3D input tensor, where the final weights will be weighted sum across the sequence length dimension.
+                Only applicable for 3D input tensor AND self.attn_pooling is None, where the final weights will be weighted sum across the sequence length dimension.
                 it is assumed to be (bs, seq_len).
                 If None, the output will be the mean across the sequence length dimension.
 
@@ -492,25 +543,22 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         if self.kv_bottleneck is not None:
             embedding = self.vq_ind_to_emb(embedding)
 
-        ndim = embedding.ndim
-        bs = embedding.shape[0]
-        if ndim == 3:
-            # expect input shape (bs, seq_len, emb_dim)
-            embedding = rearrange(embedding, "bs l d -> (bs l) d")
+        if embedding.ndim == 3:
+            # expect input embedding shape (bs, l, d)
+            if self.attn_pooling is not None:
+                embedding = self.attn_pooling(embedding)  # (bs, l, d) -> (bs, d)
+            else:
+                if emb_weights is None:
+                    embedding = embedding.mean(dim=1)
+                else:
+                    emb_weights = F.softmax(emb_weights, dim=1)
+                    embedding = einsum(embedding, emb_weights, "bs l d, bs l -> bs d")
         embedding = embedding * self.rescale_factor
 
         if self.arch_features > 0:
             x = self.forward_mlp_with_arch(embedding)
         else:
             x = self.mlp(embedding)
-
-        if ndim == 3:
-            x = rearrange(x, "(bs l) d -> bs l d", bs=bs)
-            if emb_weights is None:
-                x = x.mean(dim=1)
-            else:
-                emb_weights = F.softmax(emb_weights, dim=1)
-                x = einsum(x, emb_weights, "bs l d, bs l -> bs d")
 
         a, b = self.output_shape
         x = rearrange(x, "bs (a b) -> bs a b", a=a, b=b)

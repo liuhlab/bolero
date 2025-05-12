@@ -26,6 +26,7 @@ class RNAVQPseudobulker:
         "prefix_name": "pseudobulk",
         "add_cov_to_emb": False,
         "barcode_order": None,
+        "emb_key": "embedding",
     }
 
     @classmethod
@@ -44,6 +45,7 @@ class RNAVQPseudobulker:
         prefix_name: str = "pseudobulk",
         add_cov_to_emb: bool = False,
         barcode_order: Union[str, list] = None,
+        emb_key="embedding",
         seed=42,
     ):
         """
@@ -59,7 +61,8 @@ class RNAVQPseudobulker:
         """
         self.local_rng = np.random.default_rng(seed=seed)
         self.use_vq_emb = use_vq_emb
-        emb_key = "vq_emb" if use_vq_emb else "vq_ind"
+        if emb_key is None:
+            emb_key = "vq_emb" if use_vq_emb else "vq_ind"
         cov_key = "cov_scale"
 
         vq_records = self._load_vq_records(vq_records, downsample_vq)
@@ -83,13 +86,9 @@ class RNAVQPseudobulker:
             need_int_convert = False
 
         if emb_key not in record_keys:
-            if "embedding" in record_keys:
-                emb_key = "embedding"
-                use_vq_emb = True
-            else:
-                raise ValueError(
-                    f"VQ records must contain {emb_key} key. Found {record_keys}."
-                )
+            raise ValueError(
+                f"VQ records must contain {emb_key} key. Found {record_keys}."
+            )
 
         vq_keys = list(vq_records.keys())
         # process VQ records

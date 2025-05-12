@@ -186,6 +186,7 @@ class CREFormerTrainerMixin(
         "save_state_every_n_epoch": None,
         "vq_records": "REQUIRED",
         "downsample_vq": None,
+        "emb_key": "embedding",
     }
 
     def _get_dataset(self):
@@ -197,6 +198,7 @@ class CREFormerTrainerMixin(
             "use_vq_emb": False,
             "prefix_name": "pseudobulk",
             "downsample_vq": self.config["downsample_vq"],
+            "emb_key": self.config["emb_key"],
         }
 
         self.prefix = "pseudobulk"

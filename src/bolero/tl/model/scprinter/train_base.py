@@ -402,7 +402,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             dataloader = self.get_train_dataloader(batches=self.train_batches)
 
             # start train epochs
-            print_steps = max(5, self.train_batches // 50)
+            print_steps = max(5, self.train_batches // 500)
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
@@ -441,19 +441,23 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     for key in self.model.output_keys:
                         loss_logger[key].update(batch[f"loss_{key}"])
 
-                    if (batch_id + 1) % print_steps == 0:
+                    if ((batch_id + 1) % print_steps == 0) or (
+                        (batch_id + 1) % example_step == 0
+                    ):
                         log_dict = {
                             f"train/loss_{key}": batch[f"loss_{key}"]
                             for key in self.model.output_keys
                         }
                         log_dict["train/total_grad_norm"] = total_norm
                         log_dict["train/learning_rate"] = self.cur_lr
-                        wandb.log(log_dict)
 
-                    if (batch_id + 1) % example_step == 0:
-                        # plot example footprints
-                        example_images = self._plot_example_footprints([batch])
-                        wandb.log({"train_example/example_footprints": example_images})
+                        if (batch_id + 1) % example_step == 0:
+                            # plot example footprints
+                            example_images = self._plot_example_footprints([batch])
+                            log_dict["train_example/example_footprints"] = (
+                                example_images
+                            )
+                        wandb.log(log_dict)
 
             print(f"{batch_id+1} batches finished.")
             del dataloader
