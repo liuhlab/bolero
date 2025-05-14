@@ -107,6 +107,7 @@ def prepare_multi_level_categorical_groups(
     cell_meta,
     embedding,
     group_cols,
+    hard_group_cols=None,
     min_cell_count=500,
     dendrogram_method="ward",
     _is_top=True,
@@ -144,6 +145,10 @@ def prepare_multi_level_categorical_groups(
     group_to_cells : dict
         Dictionary mapping group names to lists of cell indices.
     """
+    if isinstance(hard_group_cols, str):
+        hard_group_cols = [hard_group_cols]
+    hard_group_cols = hard_group_cols or []
+
     if _is_top:
         print(f"Cell metadata has {cell_meta.shape[0]} cells")
         print(f"Cell embedding has {embedding.shape[0]} cells")
@@ -159,12 +164,19 @@ def prepare_multi_level_categorical_groups(
     cell_counts = cell_meta.value_counts(level).reindex(group_emb.index)
 
     if group_emb.shape[0] > 1:
-        groups = _tree_based_cat_split(
-            embedding=group_emb,
-            cell_counts=cell_counts,
-            min_cell_count=min_cell_count,
-            method=dendrogram_method,
-        )
+        if level in hard_group_cols:
+            # hard group, each category is a group
+            groups: list[list[str]] = [[g] for g in group_emb.index]
+        else:
+            # soft group, use tree based splitting
+            # smaller groups are merged based on the dendrogram
+            # until the minimum cell count is reached
+            groups: list[list[str]] = _tree_based_cat_split(
+                embedding=group_emb,
+                cell_counts=cell_counts,
+                min_cell_count=min_cell_count,
+                method=dendrogram_method,
+            )
     else:
         # only one group, no need to merge
         groups = [group_emb.index.tolist()]

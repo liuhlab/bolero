@@ -45,11 +45,11 @@ class AttentionPooling(nn.Module):
             # if the input is a single token, return it
             return x.squeeze(1)
 
-        # x: (B, N, D)
-        logits = self.scorer(x).squeeze(-1)  # → (B, N)
-
         if mask is None:
             mask = self._make_all_zero_mask(x)
+
+        # x: (B, N, D)
+        logits = self.scorer(x).squeeze(-1)  # → (B, N)
         logits = logits.masked_fill(~mask, -float("inf"))
 
         weights = F.softmax(logits, dim=-1)  # → (B, N)
@@ -519,11 +519,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
                 x = layer(x)
         return x
 
-    def forward(
-        self,
-        embedding: torch.Tensor,
-        emb_weights: torch.Tensor = None,
-    ) -> torch.Tensor:
+    def forward(self, embedding: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the EmbeddingMLP module.
 
@@ -531,10 +527,6 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             embedding (torch.Tensor): The input embedding tensor.
                 If the input tensor is 2D, it is assumed to be (bs, emb_dim).
                 If the input tensor is 3D, it is assumed to be (bs, seq_len, emb_dim).
-            emb_weights (torch.Tensor): The embedding weights tensor.
-                Only applicable for 3D input tensor AND self.attn_pooling is None, where the final weights will be weighted sum across the sequence length dimension.
-                it is assumed to be (bs, seq_len).
-                If None, the output will be the mean across the sequence length dimension.
 
         Returns
         -------
@@ -548,11 +540,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             if self.attn_pooling is not None:
                 embedding = self.attn_pooling(embedding)  # (bs, l, d) -> (bs, d)
             else:
-                if emb_weights is None:
-                    embedding = embedding.mean(dim=1)
-                else:
-                    emb_weights = F.softmax(emb_weights, dim=1)
-                    embedding = einsum(embedding, emb_weights, "bs l d, bs l -> bs d")
+                embedding = embedding.mean(dim=1)
         embedding = embedding * self.rescale_factor
 
         if self.arch_features > 0:

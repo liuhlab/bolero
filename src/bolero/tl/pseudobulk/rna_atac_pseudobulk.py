@@ -125,7 +125,7 @@ class RNAVQPseudobulker:
                     emb_data = np.concatenate(
                         [emb_data, np.array(cov_value_list)]
                     ).astype("float32")
-            self.vq_emb_dims = emb_data.size - len(self.prefix_order)
+            self.emb_dims = emb_data.shape[-1] - len(self.prefix_order)
 
             if need_int_convert:
                 # convert str barcode to int row index

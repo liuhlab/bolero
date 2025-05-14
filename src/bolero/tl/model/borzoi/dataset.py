@@ -85,7 +85,6 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
         return_rows=False,
         inplace=False,
         bypass_keys=None,
-        paired_data=False,
         normalize_cov=None,
         reduce_resolution=None,
         **name_to_pseudobulker,
@@ -97,17 +96,6 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
             bypass_keys=bypass_keys,
             **name_to_pseudobulker,
         )
-        self.paired_data = paired_data
-        if self.paired_data:
-            # Similar to the Performer paper
-            # Data from different pseudobulks will be loaded in pairs
-            # Saved into separate keys with suffixes
-            # During training, each key will be learned separately,
-            # and their difference will be used as the diff loss
-            self.suffix = ["_A", "_B"]
-        else:
-            # Normal data loading
-            self.suffix = [""]
 
         self.normalize_cov = normalize_cov
         self.reduce_resolution = reduce_resolution
@@ -126,20 +114,17 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
         assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
         output_prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
 
-        suffix_list = self.suffix
-        cycling = len(suffix_list)
         # print("before pseudobulk", data_dict["pseudobulk"].shape)
         # merge rows (cell or sample) to bulk and also get embedding data
-        this_bulk_dict = {}
-        for idx, (
+        for (
             prefix_to_rows,
             row_embedding,
             cov_logfc,
             pseudobulk_id,
-        ) in enumerate(pseudobulker.take(self.n_pseudobulks * cycling)):
-            suffix = suffix_list[idx % cycling]
-            this_bulk_dict[f"{output_prefix}:embedding_data{suffix}"] = row_embedding
-            this_bulk_dict[f"{output_prefix}:pseudobulk_ids{suffix}"] = pseudobulk_id
+        ) in pseudobulker.take(self.n_pseudobulks):
+            this_bulk_dict = {}
+            this_bulk_dict[f"{output_prefix}:embedding_data"] = row_embedding
+            this_bulk_dict[f"{output_prefix}:pseudobulk_ids"] = pseudobulk_id
 
             combined_bulk_data = []
             for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
@@ -164,18 +149,14 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
                     _bulk_values = self._reduce_resolution(_bulk_values)
 
                 combined_bulk_data.append(_bulk_values)
-            this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = np.vstack(
-                combined_bulk_data
-            )
+            this_bulk_dict[f"{output_prefix}:bulk_data"] = np.vstack(combined_bulk_data)
 
             # copy shared information to the bulk dict
             for key in self.bypass_keys:
                 if key in data_dict:
                     this_bulk_dict[key] = deepcopy(data_dict[key])
 
-            if idx % cycling == cycling - 1:
-                list_of_dicts.append(this_bulk_dict)
-                this_bulk_dict = {}
+            list_of_dicts.append(this_bulk_dict)
         return list_of_dicts
 
 
@@ -207,7 +188,7 @@ class GenerateBorzoiPseudobulkProfiler:
         # merge rows (cell or sample) to bulk and also get embedding data
         prefix_data_dict = defaultdict(list)
         for prefix_to_rows, row_embedding, _ in pseudobulker.take(self.n_pseudobulks):
-            cov_logfc = row_embedding[pseudobulker.vq_emb_dims :]
+            cov_logfc = row_embedding[pseudobulker.emb_dims :]
             for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
                 prefix_rows = prefix_to_rows[prefix]
                 # row_by_base is a csr_matrix of shape (n_rows, region_length)
@@ -626,7 +607,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         fn = GenerateBorzoiPseudobulk
         fn_constructor_kwargs = {
             "n_pseudobulks": self.n_pseudobulks,
-            "paired_data": self.paired_data,
             "normalize_cov": self.normalize_cov,
             "reduce_resolution": (
                 self.pos_resolution if self.reduce_resolution else None
