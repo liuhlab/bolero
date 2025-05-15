@@ -14,11 +14,13 @@ class SqueueJob:
     def __init__(self, info_dict: dict):
         self.info_dict = info_dict
         self.job_id = info_dict["job_id"]
-        try:
-            self.nodes = info_dict["job_resources"]["nodes"]
-        except KeyError:
-            # job pending and has no nodes info
+
+        job_resources = info_dict["job_resources"]
+        if job_resources is None:
             self.nodes = ""
+        else:
+            self.nodes = job_resources.get("nodes", "")
+
         self.user_name = info_dict["user_name"]
         self.job_state = info_dict["job_state"]
 
@@ -200,13 +202,14 @@ class SlurmManager:
             try:
                 time.sleep(np.random.randint(1, 5))
                 process = subprocess.run(
-                    ["sbatch", self._script_path],
+                    ["sbatch", str(self._script_path)],
                     capture_output=True,
                     text=True,
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
                 print(f"Failed to submit job: {e}")
+                print(e.stdout)
                 print(e.stderr)
                 raise e
 
