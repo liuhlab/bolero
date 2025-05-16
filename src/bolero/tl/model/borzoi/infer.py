@@ -984,6 +984,9 @@ class BorzoiSNPInferencer(BorzoiInferencer):
             # Validate alternate nucleotide
             if alt_allele not in nucleotide_map:
                 raise ValueError(f"Unknown nucleotide '{alt_allele}' in SNP data for batch item {batch_idx}")
+            # Validate reference nucleotide
+            if ref_dna[batch_idx, relative_pos-1, nucleotide_map[ref]] != 1:
+                rev[batch_idx] = 1
             
             ref_dna[batch_idx, relative_pos-1, :] = 0
             alt_dna[batch_idx, relative_pos-1, :] = 0
