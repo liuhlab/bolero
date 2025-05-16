@@ -15,7 +15,6 @@ from bolero.tl.model.borzoi.metrics import (
 )
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAwithArches
 from bolero.tl.model.borzoi.module_output import DualOutputHead
-from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import MovingMetric
 
@@ -1017,28 +1016,33 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         dataset = super()._get_dataset()
 
         # setup pseudobulker params for sc dataset
-        pseudobulker_params = {
-            "vq_records": self.config["vq_records"],
-            "use_vq_emb": self.config["use_vq_emb"],
-            "prefix_name": self.config["prefix"],
-            "downsample_vq": self.config["downsample_vq"],
-            "emb_key": self.config["emb_key"],
-        }
-
-        use_vq_emb = self.config["use_vq_emb"]
-        kv_bottleneck = self.config["kv_bottleneck"]
-        if use_vq_emb:
-            assert (
-                not kv_bottleneck
-            ), "Cannot set both kv_bottleneck and use_vq_emb to True."
-        elif kv_bottleneck:
-            assert (
-                not use_vq_emb
-            ), "Cannot set both kv_bottleneck and use_vq_emb to True."
+        if dataset.paired_data:
+            pseudobulker_params = {
+                "pseudobulk_and_ot_info": self.config["vq_records"],
+                "emb_key": self.config["emb_key"],
+                "downsample_pseudobulk": self.config["downsample_vq"],
+            }
+        else:
+            pseudobulker_params = {
+                "vq_records": self.config["vq_records"],
+                "use_vq_emb": self.config["use_vq_emb"],
+                "prefix_name": self.config["prefix"],
+                "downsample_vq": self.config["downsample_vq"],
+                "emb_key": self.config["emb_key"],
+            }
+            use_vq_emb = self.config["use_vq_emb"]
+            kv_bottleneck = self.config["kv_bottleneck"]
+            if use_vq_emb:
+                assert (
+                    not kv_bottleneck
+                ), "Cannot set both kv_bottleneck and use_vq_emb to True."
+            elif kv_bottleneck:
+                assert (
+                    not use_vq_emb
+                ), "Cannot set both kv_bottleneck and use_vq_emb to True."
 
         dataset.add_pseudobulker(
             name=self.prefix,
-            cls=RNAVQPseudobulker,
             pseudobulker_kwargs=pseudobulker_params,
         )
         return dataset

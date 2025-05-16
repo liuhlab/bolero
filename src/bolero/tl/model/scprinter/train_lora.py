@@ -55,7 +55,6 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         }
         dataset.add_pseudobulker(
             name=self.config["prefix"],
-            cls=self.pseudobulk_class,
             pseudobulker_kwargs=pseudobulker_params,
         )
         return dataset

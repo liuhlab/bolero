@@ -23,6 +23,46 @@ from .module_output import (
 )
 
 
+def add_input_channels(conv: nn.Conv1d, additional_channels: int) -> nn.Conv1d:
+    """
+    Return a new Conv1d with additional input channels.
+    The new channels' weights are initialized to zero.
+
+    Parameters
+    ----------
+        conv (nn.Conv1d): Original Conv1d layer.
+        additional_channels (int): Number of additional input channels to add.
+
+    Returns
+    -------
+        nn.Conv1d: New Conv1d layer with expanded input channels.
+    """
+    # Create new Conv1d with expanded input channels
+    new_conv = nn.Conv1d(
+        in_channels=conv.in_channels + additional_channels,
+        out_channels=conv.out_channels,
+        kernel_size=conv.kernel_size,
+        stride=conv.stride,
+        padding=conv.padding,
+        dilation=conv.dilation,
+        groups=conv.groups,
+        bias=conv.bias is not None,
+        padding_mode=conv.padding_mode,
+        device=conv.weight.device,
+        dtype=conv.weight.dtype,
+    )
+
+    # Zero out the new weights (already initialized, but for clarity)
+    nn.init.zeros_(new_conv.weight)
+    if new_conv.bias is not None:
+        new_conv.bias.data = conv.bias.data.clone()
+
+    # Copy over the original weights into the correct slice
+    new_conv.weight.data[:, : conv.in_channels, :] = conv.weight.data.clone()
+
+    return new_conv
+
+
 class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
     default_config = Borzoi.default_config.copy()
     default_config.update(
@@ -44,7 +84,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "final_output_dropout": 0.01,
             "conditional_b": True,
             "lora_norm": "layer",
-            "emb_attn_pool": False,
+            "emb_attn_pooling": False,
             # Key-Value Bottleneck
             "kv_bottleneck": None,
             "num_memories": 256,
@@ -77,7 +117,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         final_output_dropout=0.01,
         conditional_b=True,
         lora_norm="layer",
-        emb_attn_pool=False,
+        emb_attn_pooling=False,
         # kv bottleneck
         kv_bottleneck=None,
         num_memories=256,
@@ -238,7 +278,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             lora_scale=lora_scale,
             preset=lora_preset,
             embedding_dropout=embedding_dropout,
-            emb_attn_pool=emb_attn_pool,
+            emb_attn_pooling=emb_attn_pooling,
         )
         self.hidden_dim = hidden_dim
         self.hidden_layers = hidden_layers
@@ -343,6 +383,18 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # activation: softplus
         return
 
+    def setup_flow_model(
+        self,
+        out_channels,
+    ):
+        """Setup a flow model"""
+        # 1. put out_channels also in the DNA conv layer, model takes dna_and_At as input
+        # dna_and_At shape: (bs, 4 + out_channels, 524288)
+        new_dna_conv = add_input_channels(self.conv_dna.conv_layer, out_channels)
+        self.conv_dna.conv_layer = new_dna_conv
+
+        # 2.
+
     def _setup_channel_loss_weights(
         self, channel_loss_weight, learnable_channel_loss_weight
     ):
@@ -423,7 +475,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         lora_dropout=0.01,
         embedding_dropout=0,
         lora_scale=1,
-        emb_attn_pool=False,
+        emb_attn_pooling=False,
         preset="all_conditional",
     ):
         """Make LoRA configuration for the Borzoi model."""
@@ -435,7 +487,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "lora_dropout": lora_dropout,
             "lora_scale": lora_scale,
             "embedding_dropout": embedding_dropout,
-            "emb_attn_pool": emb_attn_pool,
+            "emb_attn_pooling": emb_attn_pooling,
         }
 
         # in case some benchmark models are not using LoRA

@@ -11,9 +11,15 @@ from typing import Union
 import jax
 import jax.numpy as jnp
 import torch
-from ott.geometry import costs, pointcloud
-from ott.problems.linear import linear_problem
-from ott.solvers.linear import sinkhorn
+
+try:
+    from ott.geometry import costs, pointcloud
+    from ott.problems.linear import linear_problem
+    from ott.solvers.linear import sinkhorn
+
+    ott_available = True
+except ImportError:
+    ott_available = False
 
 ScaleCost_t = float | str
 
@@ -39,36 +45,40 @@ def sample_joint(tmat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return src_ixs, tgt_ixs
 
 
-def match_linear(
-    source: jax.Array,
-    target: jax.Array,
-    cost_fn: costs.CostFn | None = costs.SqEuclidean(),
-    epsilon: float | None = 1.0,
-    scale_cost: ScaleCost_t = "mean",
-    tau_a: float = 1.0,
-    tau_b: float = 1.0,
-    threshold: float | None = None,
-    **kwargs,
-) -> jnp.ndarray:
-    """
-    Compute OT matrix using OTT on CUDA, starting from torch.Tensor inputs.
+if ott_available:
 
-    Both source_batch and target_batch must be torch.Tensor on CUDA device.
-    """
-    if threshold is None:
-        threshold = 1e-3 if (tau_a == 1.0 and tau_b == 1.0) else 1e-2
+    def match_linear(
+        source: jax.Array,
+        target: jax.Array,
+        cost_fn: costs.CostFn | None = costs.SqEuclidean(),
+        epsilon: float | None = 1.0,
+        scale_cost: ScaleCost_t = "mean",
+        tau_a: float = 1.0,
+        tau_b: float = 1.0,
+        threshold: float | None = None,
+        **kwargs,
+    ) -> jnp.ndarray:
+        """
+        Compute OT matrix using OTT on CUDA, starting from torch.Tensor inputs.
 
-    geom = pointcloud.PointCloud(
-        source,
-        target,
-        cost_fn=cost_fn,
-        epsilon=epsilon,
-        scale_cost=scale_cost,
-    )
-    problem = linear_problem.LinearProblem(geom, tau_a=tau_a, tau_b=tau_b)
-    solver = sinkhorn.Sinkhorn(threshold=threshold, **kwargs)
-    out = solver(problem)
-    return out.matrix
+        Both source_batch and target_batch must be torch.Tensor on CUDA device.
+        """
+        if threshold is None:
+            threshold = 1e-3 if (tau_a == 1.0 and tau_b == 1.0) else 1e-2
+
+        geom = pointcloud.PointCloud(
+            source,
+            target,
+            cost_fn=cost_fn,
+            epsilon=epsilon,
+            scale_cost=scale_cost,
+        )
+        problem = linear_problem.LinearProblem(geom, tau_a=tau_a, tau_b=tau_b)
+        solver = sinkhorn.Sinkhorn(threshold=threshold, **kwargs)
+        out = solver(problem)
+        return out.matrix
+else:
+    match_linear = None
 
 
 def match_linear_torch(source, target, jit_match_linear):
@@ -311,6 +321,11 @@ class ExactOptimalTransportConditionalFlowMatcher(ConditionalFlowMatcher):
         sigma : Union[float, int]
         ot_sampler: exact OT method to draw couplings (x0, x1) (see Eq.(17) [1]).
         """
+        if not ott_available:
+            raise ImportError(
+                "OT library not available. Please install the 'ott' package."
+            )
+
         super().__init__(sigma)
         self.ot_sampler = self._prepare_jit_match_func(ot_kwargs)
 
@@ -419,6 +434,11 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
             We note that as batchsize --> infinity the correct choice is the
             sinkhorn method theoretically.
         """
+        if not ott_available:
+            raise ImportError(
+                "OT library not available. Please install the 'ott' package."
+            )
+
         if sigma <= 0:
             raise ValueError(f"Sigma must be strictly positive, got {sigma}.")
         elif sigma < 1e-3:
@@ -426,6 +446,7 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
 
         super().__init__(sigma)
         self.ot_method = ot_method
+        raise NotImplementedError
         # self.ot_sampler = OTPlanSampler(method=ot_method, reg=2 * self.sigma**2)
 
     def compute_sigma_t(self, t):

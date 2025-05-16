@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 from sklearn.preprocessing import OneHotEncoder
 
+from bolero.tl.model.flow.matcher import ConditionalFlowMatcher
 from bolero.utils import validate_config
 
 # pseudobulk_records schema:
@@ -139,12 +140,10 @@ class PredefinedCondEncoder:
 
 class PairedPseudobulker:
     default_config = {
-        "pseudobulk_records": "REQUIRED",
-        "ot_transition": "REQUIRED",
+        "pseudobulk_and_ot_info": "REQUIRED",
         "emb_key": "embedding",
         "downsample_pseudobulk": None,
         "barcode_order": None,
-        "prefix_name": "pseudobulk",
     }
 
     @classmethod
@@ -170,8 +169,11 @@ class PairedPseudobulker:
         ----------
         pseudobulk_records (dict[str, dict]):
             The prefix name (in ray dataset) to VQ records file path mapping.
-        use_vq_emb (bool): Whether to use VQ embeddings.
-        downsample_vq (int): Number of VQs to downsample to.
+        emb_key (str): The key to use for the embedding.
+        downsample_pseudobulk (int): The number of pseudobulks to downsample to.
+        barcode_order (dict): The order of barcodes for each prefix.
+        flow_match_sigma (float): The sigma for the flow matcher.
+        seed (int): The random seed for sampling.
         """
         self.local_rng: np.random.Generator = np.random.default_rng(seed=seed)
         self.cov_key = "cov_scale"
@@ -369,12 +371,14 @@ class GeneratePairedPseudobulk:
         bypass_keys=None,
         normalize_cov=None,
         reduce_resolution=None,
+        flow_matcher_sigma=0.0,
         **name_to_pseudobulker,
     ):
         self.name_to_pseudobulker = name_to_pseudobulker
         self.n_pseudobulks = n_pseudobulks
         self.return_rows = return_rows
         self.inplace = inplace
+        self.flow_matcher = ConditionalFlowMatcher(sigma=flow_matcher_sigma)
 
         self.bypass_keys = ["region"]
         if bypass_keys is not None:
@@ -394,6 +398,17 @@ class GeneratePairedPseudobulk:
         # from (1, seq_len) to (1, seq_len // resolution) by summing
         data = data.reshape(1, -1, resolution).sum(axis=-1)
         return data
+
+    def _sample_location_and_conditional_flow(self, data_dict, output_prefix):
+        x0 = data_dict[f"{output_prefix}:bulk_data_0"]
+        x1 = data_dict[f"{output_prefix}:bulk_data_1"]
+        t, xt, ut = self.flow_matcher.sample_location_and_conditional_flow(
+            x0=torch.from_numpy(x0), x1=torch.from_numpy(x1), t=None, return_noise=False
+        )
+        data_dict["__t__"] = t.numpy()
+        data_dict["__xt__"] = xt.numpy()
+        data_dict["__ut__"] = ut.numpy()
+        return data_dict
 
     def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
         """Generate pseudobulks for each output prefix."""
@@ -454,6 +469,11 @@ class GeneratePairedPseudobulk:
                 for key in self.bypass_keys:
                     if key in data_dict:
                         this_bulk_dict[key] = deepcopy(data_dict[key])
+
+            # 5. add flow match sampling
+            this_bulk_dict = self._sample_location_and_conditional_flow(
+                this_bulk_dict, output_prefix
+            )
 
             list_of_dicts.append(this_bulk_dict)
         return list_of_dicts

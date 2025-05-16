@@ -16,6 +16,11 @@ from bolero.tl.dataset.transforms import (
     ReverseComplement,
     ReverseComplmentMinusStrand,
 )
+from bolero.tl.pseudobulk.paired_pseudobulk import (
+    GeneratePairedPseudobulk,
+    PairedPseudobulker,
+)
+from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 from .utils import BorzoiRegions
 
@@ -448,7 +453,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         dataset = dataset.map_batches(_rc, batch_size=batch_size)
         return dataset
 
-    def add_pseudobulker(self, name: str, cls, pseudobulker_kwargs: dict):
+    def add_pseudobulker(self, name: str, pseudobulker_kwargs: dict):
         """
         Add a pseudobulker to the dataset.
 
@@ -463,7 +468,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         """
         if "barcode_order" not in pseudobulker_kwargs:
             pseudobulker_kwargs["barcode_order"] = self.barcode_order
-        generator = cls.create_from_config(**pseudobulker_kwargs)
+
+        if self.paired_data:
+            pseudobulker_cls = PairedPseudobulker
+        else:
+            pseudobulker_cls = RNAVQPseudobulker
+        generator = pseudobulker_cls.create_from_config(**pseudobulker_kwargs)
         self.name_to_pseudobulker[name] = generator
         return
 
@@ -540,7 +550,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def data_keys(self):
         """Return the data keys in batch dict."""
         if self.paired_data:
-            suffixes = ["_A", "_B"]
+            suffixes = ["_0", "_1"]
         else:
             suffixes = [""]
         data_keys = [
@@ -548,6 +558,11 @@ class BorzoiDataset(RayGenomeChunkDataset):
             for name in self.name_to_pseudobulker.keys()
             for suffix in suffixes
         ]
+
+        if self.paired_data:
+            # the flow matcher result is also in the shape of region data
+            data_keys.extend(["__xt__", "__ut__"])
+
         return data_keys
 
     def _mask_blacklist_and_clamp(self, dataset, concurrency=(1, 2), batch_size=16):
@@ -604,7 +619,10 @@ class BorzoiDataset(RayGenomeChunkDataset):
         concurrency=1,
         **kwargs,
     ):
-        fn = GenerateBorzoiPseudobulk
+        if self.paired_data:
+            fn = GeneratePairedPseudobulk
+        else:
+            fn = GenerateBorzoiPseudobulk
         fn_constructor_kwargs = {
             "n_pseudobulks": self.n_pseudobulks,
             "normalize_cov": self.normalize_cov,

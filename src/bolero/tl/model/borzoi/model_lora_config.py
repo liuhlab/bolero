@@ -126,6 +126,7 @@ def make_all_conditional_lora_config(
     lora_scale=1,
     embedding_dropout=0,
     except_output_head=False,
+    emb_attn_pooling=False,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
@@ -138,6 +139,7 @@ def make_all_conditional_lora_config(
         "lora_scale": lora_scale,
         "convert_conv": True,
         "convert_linear": True,
+        "emb_attn_pooling": True,
     }
     lora_config = {
         "conv_dna": {

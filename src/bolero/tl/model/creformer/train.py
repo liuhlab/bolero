@@ -14,7 +14,6 @@ from bolero.tl.model.borzoi.train import BorzoiTrainerMixin
 from bolero.tl.model.borzoi.utils import MovingMetric
 from bolero.tl.model.creformer.dataset import CREFormerDataset
 from bolero.tl.model.creformer.model_lora import CREFormerLoRA
-from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
 
 class TrainerCREFormerDatasetMixin:
@@ -204,7 +203,6 @@ class CREFormerTrainerMixin(
         self.prefix = "pseudobulk"
         dataset.add_pseudobulker(
             name="pseudobulk",
-            cls=RNAVQPseudobulker,
             pseudobulker_kwargs=pseudobulker_params,
         )
         return dataset
