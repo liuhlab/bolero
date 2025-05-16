@@ -402,8 +402,12 @@ class GeneratePairedPseudobulk:
     def _sample_location_and_conditional_flow(self, data_dict, output_prefix):
         x0 = data_dict[f"{output_prefix}:bulk_data_0"]
         x1 = data_dict[f"{output_prefix}:bulk_data_1"]
+
+        x0 = torch.from_numpy(x0)
+        x1 = torch.from_numpy(x1)
+
         t, xt, ut = self.flow_matcher.sample_location_and_conditional_flow(
-            x0=torch.from_numpy(x0), x1=torch.from_numpy(x1), t=None, return_noise=False
+            x0=x0, x1=x1, t=None, return_noise=False
         )
         data_dict["__t__"] = t.numpy()
         data_dict["__xt__"] = xt.numpy()

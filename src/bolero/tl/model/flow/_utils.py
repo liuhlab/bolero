@@ -1,3 +1,4 @@
+import math
 from typing import Any, Sequence
 
 import anndata
@@ -27,3 +28,25 @@ def write_predictions(
             raise ValueError(
                 f"Predictions for '{pred_key}' have an invalid shape: {pred_value.shape}"
             )
+
+
+def cyclical_time_encoder(t: torch.Tensor, n_freqs: int = 128) -> torch.Tensor:
+    """
+    Encode time t into a cyclical representation using cosine and sine functions.
+
+    Torch implementation of the JAX function here:
+    https://github.com/ott-jax/ott/blob/67d5131d7b2d46964acc3f6e39def43ec7248db1/src/ott/neural/networks/layers/time_encoder.py#L19
+
+    Args:
+        t: Tensor of shape [n, 1]
+        n_freqs: Number of frequency components
+
+    Returns
+    -------
+        Tensor of shape [n, 2 * n_freqs]
+    """
+    freq = 2 * math.pi * torch.arange(n_freqs, dtype=t.dtype, device=t.device)
+    if t.ndim == 1:
+        t = t.unsqueeze(1)
+    t = t * freq  # [n, 1] * [n_freqs] -> broadcast to [n, n_freqs]
+    return torch.cat([torch.cos(t), torch.sin(t)], dim=-1)

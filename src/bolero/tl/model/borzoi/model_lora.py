@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 import torch
 from torch import nn
 
@@ -9,7 +7,6 @@ from bolero.tl.generic.module_lora_cond import (
     convert_to_conditional_lora_model,
 )
 
-from .metrics import mse_diff_loss
 from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module_output import (
@@ -21,46 +18,6 @@ from .module_output import (
     RNAOutputHead,
     ScoobyOutputHead,
 )
-
-
-def add_input_channels(conv: nn.Conv1d, additional_channels: int) -> nn.Conv1d:
-    """
-    Return a new Conv1d with additional input channels.
-    The new channels' weights are initialized to zero.
-
-    Parameters
-    ----------
-        conv (nn.Conv1d): Original Conv1d layer.
-        additional_channels (int): Number of additional input channels to add.
-
-    Returns
-    -------
-        nn.Conv1d: New Conv1d layer with expanded input channels.
-    """
-    # Create new Conv1d with expanded input channels
-    new_conv = nn.Conv1d(
-        in_channels=conv.in_channels + additional_channels,
-        out_channels=conv.out_channels,
-        kernel_size=conv.kernel_size,
-        stride=conv.stride,
-        padding=conv.padding,
-        dilation=conv.dilation,
-        groups=conv.groups,
-        bias=conv.bias is not None,
-        padding_mode=conv.padding_mode,
-        device=conv.weight.device,
-        dtype=conv.weight.dtype,
-    )
-
-    # Zero out the new weights (already initialized, but for clarity)
-    nn.init.zeros_(new_conv.weight)
-    if new_conv.bias is not None:
-        new_conv.bias.data = conv.bias.data.clone()
-
-    # Copy over the original weights into the correct slice
-    new_conv.weight.data[:, : conv.in_channels, :] = conv.weight.data.clone()
-
-    return new_conv
 
 
 class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
@@ -95,6 +52,10 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "emb_input_dims": None,
             "output_head_type": "count",
             "output_head_kwargs": None,
+            # conditional flow matching parameters
+            "flow_model": False,
+            "cond_emb_dim": None,
+            "cond_flow_kwargs": None,
         }
     )
 
@@ -129,6 +90,10 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # output_head
         output_head_type="count",
         output_head_kwargs=None,
+        # conditional flow matching parameters
+        flow_model=False,
+        cond_emb_dim=None,
+        cond_flow_kwargs=None,
         # base model
         **base_model_kwargs,
     ):
@@ -164,6 +129,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
         self.out_channels = out_channels
+        self.flow_model = flow_model
 
         # update base model pretrained weights
         print("Loading base model weights from:", base_checkpoint_path)
@@ -268,6 +234,22 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         else:
             raise ValueError(f"output_head_type: {output_head_type} is invalid")
 
+        # setup flow model
+        if flow_model:
+            assert cond_emb_dim is not None, "cond_emb_dim is required for flow model"
+            cond_flow_kwargs = cond_flow_kwargs or {}
+
+            self.signal_encoder, self.cond_flow_module = self.setup_flow_model(
+                out_channels=out_channels,
+                cell_emb_dim=emb_input_features,
+                cond_emb_dim=cond_emb_dim,
+                **cond_flow_kwargs,
+            )
+            emb_input_features = self.cond_flow_module.output_dim
+        else:
+            self.signal_encoder = None
+            self.cond_flow_module = None
+
         # convert model to LoRA
         self.lora_config = self.make_lora_config(
             emb_input_features=emb_input_features,
@@ -327,6 +309,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
     def setup_output_head(self, out_channels, activation="softplus"):
         """Setup a single output head"""
+        if self.flow_model:
+            activation = None
         self.final_output_head = OutputHead(
             in_channels=1920,
             out_channels=out_channels,
@@ -386,14 +370,39 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
     def setup_flow_model(
         self,
         out_channels,
+        cell_emb_dim,
+        cond_emb_dim,
+        **cond_flow_kwargs,
     ):
-        """Setup a flow model"""
+        """
+        Setup special modules for a flow model
+        """
         # 1. put out_channels also in the DNA conv layer, model takes dna_and_At as input
-        # dna_and_At shape: (bs, 4 + out_channels, 524288)
-        new_dna_conv = add_input_channels(self.conv_dna.conv_layer, out_channels)
-        self.conv_dna.conv_layer = new_dna_conv
+        signal_encoder = nn.Sequential(
+            nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv1d(128, 512, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv1d(512, 1280, kernel_size=3, padding=1),
+        )
+        # zero init last layer so that it doesn't affect the model initially
+        signal_encoder[-1].weight.data.zero_()
+        signal_encoder[-1].bias.data.zero_()
 
-        # 2.
+        from bolero.tl.generic.module_embedding import CondFlowModule
+
+        # 2. cond_flow_module combines cell, time, and condition emb
+        # LoRA embedding module will then take emb as input
+        cond_flow_module = CondFlowModule(
+            cell_emb_dim=cell_emb_dim,
+            cond_emb_dim=cond_emb_dim,
+            **cond_flow_kwargs,
+        )
+        # For example:
+        # emb = self.cond_flow_module(
+        #     cell_emb, time, cond_emb
+        # )
+        return signal_encoder, cond_flow_module
 
     def _setup_channel_loss_weights(
         self, channel_loss_weight, learnable_channel_loss_weight
@@ -547,6 +556,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 print("Set all lora_alpha to", self.lora_alpha)
 
             for module_name in module_names:
+                if "cond_flow_module" in module_name:
+                    # don't convert the cond flow module
+                    continue
                 self._convert_single_module(module_name, config)
 
         # also make sure kv_bottleneck is trainable
@@ -587,6 +599,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 "x": torch.ones(1, 4, 524288),
                 "embedding": emb_example,
             }
+            if self.signal_encoder is not None:
+                input_data["signal"] = torch.ones(1, self.out_channels, 16384).float()
 
         print("Input shape:")
         for k, v in input_data.items():
@@ -602,8 +616,19 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         )
         return summary_str
 
-    def forward(self, x, embedding=None, crop=True, return_dna_embedding=False):
+    def forward(
+        self, x, embedding=None, crop=True, return_dna_embedding=False, **kwargs
+    ):
         """Borzoi forward pass to get final output."""
+        if self.signal_encoder is not None:
+            return self.forward_flow_model(
+                x=x,
+                signal=kwargs.get("signal"),
+                embedding=embedding,
+                crop=crop,
+                return_dna_embedding=return_dna_embedding,
+            )
+
         if not getattr(self, "collapsed", False):
             assert embedding is not None, "embedding is required for LoRA model"
         else:
@@ -616,6 +641,52 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         if return_dna_embedding:
             return output, x
 
+        return output
+
+    def forward_flow_model(
+        self, x, signal, embedding, crop=True, return_dna_embedding=False
+    ):
+        """Forward pass for the flow model."""
+        if torch.is_autocast_enabled():
+            if x.dtype != torch.float16:
+                x = x.half()
+            if signal.dtype != torch.float16:
+                signal = signal.half()
+        else:
+            if x.dtype != torch.float32:
+                x = x.float()
+            if signal.dtype != torch.float32:
+                signal = signal.float()
+
+        x = self.conv_dna(x, embedding)
+
+        x_unet0 = self.res_tower(x, embedding)
+
+        # inject signal into the DNA embedding at resolution 32
+        sig_emb = self.signal_encoder(signal)
+        x_unet0 += sig_emb
+
+        x_unet1 = self.unet1(x_unet0, embedding)
+        x = self._max_pool(x_unet1)
+        x_unet0 = self.horizontal_conv0(x_unet0, embedding)
+        x_unet1 = self.horizontal_conv1(x_unet1, embedding)
+        x = self.transformer(x.permute(0, 2, 1), embedding)
+        x = x.permute(0, 2, 1)
+        x = self.upsampling_unet1(x, embedding)
+        x += x_unet1
+        x = self.separable1(x, embedding)
+        x = self.upsampling_unet0(x, embedding)
+        x += x_unet0
+        x = self.separable0(x, embedding)
+        x = self.final_joined_convs(x, embedding)
+
+        if crop:
+            x = self.crop(x)
+
+        output = self.final_output_head(x, embedding=embedding)
+
+        if return_dna_embedding:
+            return output, x
         return output
 
     def weighted_loss_per_channel(self, loss_tensor):
@@ -662,58 +733,24 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         return loss, loss_breakdown, y_true
 
-    def paired_loss(
-        self, y_pred_a, y_pred_b, y_true_a, y_true_b, reduce=True, position_weights=None
-    ):
+    def flow_model_loss(self, v_t, u_t, reduce=True):
         """
-        Compute the paired loss for the Borzoi model.
+        Compute the flow model loss.
 
         Parameters
         ----------
-        y_pred_a : torch.Tensor
-            Predicted values for sample A, shape (batch_size, out_channels, seq_len).
-        y_true_a : torch.Tensor
-            True values for sample A, shape (batch_size, out_channels, seq_len).
-        y_pred_b : torch.Tensor
-            Predicted values for sample B, shape (batch_size, out_channels, seq_len).
-        y_true_b : torch.Tensor
-            True values for sample B, shape (batch_size, out_channels, seq_len).
+        v_t : torch.Tensor
+            Predicted velocity values, shape (batch_size, out_channels, seq_len).
+        u_t : torch.Tensor
+            True velocity values, shape (batch_size, out_channels, seq_len).
         """
-        loss_a, loss_breakdown_a, y_true_a = super().loss(
-            y_pred_a,
-            y_true_a,
-            reduce=False,
-            position_weights=position_weights,
-        )
-        loss_b, loss_breakdown_b, y_true_b = super().loss(
-            y_pred_b,
-            y_true_b,
-            reduce=False,
-            position_weights=position_weights,
-        )
+        # compute the flow model loss
+        u_t = self.crop(u_t)
 
-        # compute log fold change difference loss
-        diff_loss = mse_diff_loss(
-            y_pred_a=y_pred_a,
-            y_pred_b=y_pred_b,
-            y_true_a=y_true_a,
-            y_true_b=y_true_b,
-        )  # (bs, out_channels)
-
-        # compute final weighted loss per channel
-        final_loss = 0.5 * (loss_a + loss_b) + 0.5 * diff_loss
-        final_loss = self.weighted_loss_per_channel(final_loss)
-
-        loss_breakdown = defaultdict(float)
-        for d in [loss_breakdown_a, loss_breakdown_b]:
-            for k, v in d.items():
-                loss_breakdown[k] += v
-        loss_breakdown = {k: v / 2 for k, v in loss_breakdown.items()}
-        loss_breakdown["diff_loss"] = diff_loss
-
+        loss = nn.functional.mse_loss(v_t, u_t, reduction="none")
         if reduce:
-            final_loss = final_loss.mean()
-        return final_loss, loss_breakdown, y_true_a, y_true_b
+            loss = loss.mean()
+        return loss, u_t
 
     def gene_count_loss(self, y_pred, y_true, reduce=True):
         """Compute the gene count loss."""

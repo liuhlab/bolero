@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from vector_quantize_pytorch import VectorQuantize
 
 from bolero.tl.generic.module import GroupedLinear, Residual
+from bolero.tl.model.flow._utils import cyclical_time_encoder
 
 from .module_lora import set_submodule_by_name
 
@@ -595,3 +596,186 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         for param in self.parameters():
             param.requires_grad = False
         return
+
+
+class _TimeEncoder(nn.Module):
+    """
+    TimeEncoder is a module that encodes the time information into a vector.
+    """
+
+    def __init__(
+        self, time_freqs: int, time_encoder_dims: list[int], time_encoder_dropout: float
+    ):
+        super().__init__()
+        self.time_freqs = time_freqs
+        self.encoder_dims = time_encoder_dims
+        self.encoder_dropout = time_encoder_dropout
+
+        layers = []
+        _dims = [self.time_freqs * 2] + self.encoder_dims
+        for i in range(len(_dims) - 1):
+            layers.append(nn.Linear(_dims[i], _dims[i + 1]))
+            layers.append(nn.SiLU())
+            if self.encoder_dropout > 0:
+                layers.append(nn.Dropout(self.encoder_dropout))
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (bs, 1)
+
+        return: (bs, d_out)
+        """
+        x = cyclical_time_encoder(x, self.time_freqs)
+        return self.layers(x)
+
+
+class _SimpleEncoder(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        encoder_dims: list[int],
+        encoder_dropout: float,
+        attn_pooling: bool = False,
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.encoder_dims = encoder_dims
+        self.encoder_dropout = encoder_dropout
+
+        layers = []
+        _dims = [self.input_dim] + self.encoder_dims
+        for i in range(len(_dims) - 1):
+            layers.append(nn.Linear(_dims[i], _dims[i + 1]))
+            layers.append(nn.SiLU())
+            if self.encoder_dropout > 0:
+                layers.append(nn.Dropout(self.encoder_dropout))
+        self.layers = nn.Sequential(*layers)
+        if attn_pooling:
+            self.attn_pooling = AttentionPooling(_dims[-1])
+        else:
+            self.attn_pooling = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (bs, ..., d_in) or (bs, ..., d_in)
+
+        return: (bs, ..., d_out)
+        """
+        if x.ndim == 3:
+            attn_mask = self.attn_pooling._make_all_zero_mask(x)
+        x = self.layers(x)
+
+        if x.ndim == 3 and self.attn_pooling is not None:
+            # expect input embedding shape (bs, l, d)
+            x = self.attn_pooling(x, attn_mask)
+        return x
+
+
+class CondFlowModule(nn.Module):
+    """
+    CondFlowModule is a module that process condtional input
+    and combine them into single embedding for flow model.
+    """
+
+    def __init__(
+        self,
+        cell_emb_dim: int,
+        cond_emb_dim: int | dict[int],
+        cell_encoder_dims: list[int] = (256, 256),
+        cell_encoder_dropout: float = 0.1,
+        cell_attn_pooling: bool = True,
+        time_freqs: int = 128,
+        time_encoder_dims: list[int] = (128, 128),
+        time_encoder_dropout: float = 0.1,
+        cond_encoder_dims: list[int] = (128, 128),
+        cond_encoder_dropout: float = 0.1,
+        cond_attn_pooling: bool = True,
+    ):
+        super().__init__()
+        # cell embedding encoder
+        self.cell_encoder = _SimpleEncoder(
+            input_dim=cell_emb_dim,
+            encoder_dims=cell_encoder_dims,
+            encoder_dropout=cell_encoder_dropout,
+            attn_pooling=cell_attn_pooling,
+        )
+
+        # time encoder
+        self.time_encoder = _TimeEncoder(
+            time_freqs=time_freqs,
+            time_encoder_dims=time_encoder_dims,
+            time_encoder_dropout=time_encoder_dropout,
+        )
+
+        # condition encoder
+        # TODO: this condition encoder only consider the most simple case,
+        # need to change to cellflow's condition encoder for more complex case
+        if isinstance(cond_emb_dim, int):
+            self.cond_encoder = _SimpleEncoder(
+                input_dim=cond_emb_dim,
+                encoder_dims=cond_encoder_dims,
+                encoder_dropout=cond_encoder_dropout,
+                attn_pooling=cond_attn_pooling,
+            )
+        elif isinstance(cond_emb_dim, dict):
+            self.cond_encoder = nn.ModuleDict()
+            for k, v in cond_emb_dim.items():
+                self.cond_encoder[k] = _SimpleEncoder(
+                    input_dim=v,
+                    encoder_dims=cond_encoder_dims[k],
+                    encoder_dropout=cond_encoder_dropout[k],
+                    attn_pooling=cond_attn_pooling,
+                )
+        else:
+            raise ValueError(
+                f"cond_emb_dim must be int or dict, but got {type(cond_emb_dim)}"
+            )
+        self.output_dim = (
+            cell_encoder_dims[-1] + time_encoder_dims[-1] + cond_encoder_dims[-1]
+        )
+        return
+
+    def forward(
+        self,
+        cell_emb: torch.Tensor,
+        time: torch.Tensor,
+        cond_emb: torch.Tensor | dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        """
+        cell_emb: (bs, d_e) or (bs, n, h_e)
+        time_emb: (bs, 1) or (bs, h_t)
+        cond_emb: (bs, d_c) or (bs, n, d_c)
+
+        return: (bs, h_e + h_t + h_c)
+        """
+        # encode cell embedding
+        cell_emb = self.cell_encoder(cell_emb)
+        if cell_emb.ndim == 3:
+            # if not attn_pooling in encoder,
+            # here just perform mean pooling on the cell embedding
+            cell_emb = cell_emb.mean(dim=1)
+
+        # encode time embedding
+        time_emb = self.time_encoder(time)
+
+        # encode condition embedding
+        if isinstance(self.cond_encoder, dict):
+            assert isinstance(
+                cond_emb, dict
+            ), f"cond_emb must be dict, but got {type(cond_emb)}"
+            cond_emb = [
+                encoder[cond_emb[k]] for k, encoder in self.cond_encoder.items()
+            ]
+            cond_emb = torch.cat(cond_emb, dim=-1)
+        else:
+            cond_emb = self.cond_encoder(cond_emb)
+
+        if cond_emb.ndim == 3:
+            # if not attn_pooling in encoder,
+            # here just perform mean pooling on the condition embedding
+            cond_emb = cond_emb.mean(dim=1)
+
+        # combine all embeddings
+        emb = torch.cat([cell_emb, time_emb, cond_emb], dim=-1)
+        return emb

@@ -365,8 +365,11 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             batch["true_data"] = y_true
             batch["pred_data"] = y_pred
             if pseudobulker is not None:
-                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                try:
+                    id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                    batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                except KeyError:
+                    batch["sample_id"] = None
             else:
                 batch["sample_id"] = batch.get("cell_type_id", None)
             # region to region name
@@ -842,13 +845,18 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
                         if self.prefix in self.dataset.name_to_pseudobulker:
                             # this part is for mouse pseudobulk dataset
-                            pseudobulker = self.dataset.name_to_pseudobulker[
-                                self.prefix
-                            ]
-                            id_array = (
-                                batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                            )
-                            batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+                            try:
+                                id_array = (
+                                    batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                                )
+                                pseudobulker = self.dataset.name_to_pseudobulker[
+                                    self.prefix
+                                ]
+                                batch["sample_id"] = pseudobulker.pseudobulk_ids[
+                                    id_array
+                                ]
+                            except KeyError:
+                                batch["sample_id"] = None
                         else:
                             batch["sample_id"] = batch.get("cell_type_id", None)
                         log_dict = {}
@@ -1116,62 +1124,39 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         y_pred = y_pred.detach()
         return y_true, y_pred, loss, loss_breakdown
 
-    def _model_forward_pass_paired(self, model: BorzoiLoRA, batch: dict):
-        suffix_list = ["_A", "_B"]
-        y_true_list = []
-        y_pred_list = []
-        embedding_list = []
-        pseudobulk_id_list = []
-        for suffix in suffix_list:
-            dna_key = "dna_one_hot"
-            data_key = f"{self.prefix}:bulk_data{suffix}"
-            embedding_key = f"{self.prefix}:embedding_data{suffix}"
-            pseudobulk_ids_key = f"{self.prefix}:pseudobulk_ids{suffix}"
+    def _model_forward_pass_flow(self, model: BorzoiLoRA, batch: dict):
+        # 1. sequence input
+        dna_one_hot = batch["dna_one_hot"]  # (bs, seq_len, 4)
+        a0 = batch[f"{self.prefix}:bulk_data_0"]  # (bs, seq_len, model.out_channels)
+        signal = torch.log1p(a0)
 
-            # ==========
-            # Get batch data
-            # ==========
-            X = batch[dna_key]
-            embedding = batch.pop(embedding_key)
-            y_true = batch.pop(data_key)
+        # 2. conditional input
+        cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
+        time = batch["__t__"]
+        cond_emb = batch[f"{self.prefix}:condition_emb_1"]
 
-            # ==========
-            # Forward and Loss
-            # ==========
-            y_pred = model(X, embedding=embedding)
-
-            y_true_list.append(y_true)
-            y_pred_list.append(y_pred)
-            embedding_list.append(embedding)
-            pseudobulk_id_list.append(batch.pop(pseudobulk_ids_key))
-
-        batch.pop(dna_key)
-        position_weights = batch.get("position_weights", None)
-        loss, loss_breakdown, *y_true_list = model.paired_loss(
-            *y_pred_list, *y_true_list, position_weights=position_weights
+        # 3. aggregate all conditional input
+        cond_ensemble = model.cond_flow_module(
+            cell_emb=cell_emb_0,
+            time=time,
+            cond_emb=cond_emb,
         )
 
-        with torch.no_grad():
-            _y_pred_list = []
-            for y_pred in y_pred_list:
-                y_pred = y_pred.detach()
-                _y_pred_list.append(y_pred)
+        # 4. predict velocity
+        vt = model(dna_one_hot, embedding=cond_ensemble, signal=signal)
+        batch["__vt__"] = vt
 
-        # concatenate A and B on the batch dimension
-        y_true = torch.cat(y_true_list, dim=0)
-        y_pred = torch.cat(_y_pred_list, dim=0)
-        batch[f"{self.prefix}:embedding_data"] = torch.cat(embedding_list, dim=0)
-        batch[f"{self.prefix}:pseudobulk_ids"] = torch.cat(pseudobulk_id_list, dim=0)
-        batch["region"] = torch.cat(
-            [batch["region"], batch["region"]], dim=0
-        )  # duplicate region
-        return y_true, y_pred, loss, loss_breakdown
+        # 5. loss on velocity
+        ut = batch["__ut__"]
+        loss, ut = model.flow_model_loss(v_t=vt, u_t=ut)
+        loss_breakdown = {}
+        return ut, vt, loss, loss_breakdown
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
         batch = self.dataset.maybe_preprocess_batch(batch)
 
         if self.dataset.paired_data:
-            return self._model_forward_pass_paired(model, batch)
+            return self._model_forward_pass_flow(model, batch)
         elif self.dataset.use_pseudobulk_profile:
             return self._model_forward_pass_profile(model, batch)
         else:
