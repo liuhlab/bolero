@@ -52,18 +52,24 @@ class _RegionExtractor:
         self,
         cluster_data: dict[str, str | csc_matrix],
         specs: list[tuple[str, int, int]],
+        resolutions: dict[str, int],
     ) -> list[dict[str, str | csc_matrix]]:
         """
         cluster_data: { key: sparse_matrix or array, ... }
-        specs: List of (region_name, rel_start, rel_end)
+        specs: List of (region_name, rel_start, region_size)
+        resolutions: { key: resolution, ... }
         """
         out = []
-        for region_name, rel_start, rel_end in specs:
+        for region_name, rel_start, region_size in specs:
             rd = {}
             for key, value in cluster_data.items():
                 if isspmatrix(value):
                     # slice and copy
-                    rd[key] = value[:, rel_start:rel_end].copy()
+                    resolution = resolutions[key]
+                    rel_start_bin = round(rel_start / resolution)
+                    bins = round(region_size / resolution)
+                    rel_end_bin = rel_start_bin + bins
+                    rd[key] = value[:, rel_start_bin:rel_end_bin].copy()
             rd["region"] = region_name
             out.append(rd)
         return out
@@ -74,7 +80,13 @@ class GenomeParquetDB:
     A DuckDB-based interface for querying genomic regions from a Parquet dataset.
     """
 
-    def __init__(self, dataset_dir: str, parallel: int = 1, merge_plan=None):
+    def __init__(
+        self,
+        dataset_dir: str,
+        parallel: int = 1,
+        merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
+        resolution: int | dict[int] = None,
+    ):
         """
         dataset_dir: path to the dataset directory containing the Parquet files and the region lookup table.
         """
@@ -88,14 +100,23 @@ class GenomeParquetDB:
         self.row_names: dict[str, pd.Index] = joblib.load(
             self.dataset_dir / "row_names.joblib"
         )
-        self.original_merge_plan: dict[str, list[str]] | None = merge_plan
+        self.prefix_names = list(self.row_names.keys())
+
+        self.original_merge_plan = merge_plan
         merge_plan, pseudobulk_ids = self._register_merge_plan(merge_plan)
+
+        # merge_plan is a dict of {prefix: {row_idx: [pseudobulk_row_idices]}}
         self.merge_plan: dict[str, dict[int, int]] | None = merge_plan
         self.pseudobulk_ids: pd.Index = pseudobulk_ids
 
+        # create ray actor pools
         self.parallel = parallel
         self._actor_pool = self._create_row_actor_pool()
         self._extractor_pool = self._create_extractor_pool()
+
+        # register resolution
+        # if not provided, will infer from the dataset
+        self.prefix_resolution: dict[str, int] = self._register_resolution(resolution)
 
     def _register_region_lookup(self):
         """
@@ -118,7 +139,7 @@ class GenomeParquetDB:
         return region_lookup
 
     def _register_merge_plan(
-        self, merge_plan: dict[str, list[str]] | None
+        self, merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None
     ) -> tuple[dict[str, dict[int, int]] | None, pd.Index]:
         """
         Register the merge plan from {pseudobulk_id: [row_names]} to {row_id: pseudobulk_row_id}
@@ -130,13 +151,25 @@ class GenomeParquetDB:
         if merge_plan is None:
             return None, pd.Index([])
 
-        row_name_mapping = self.row_names
+        if isinstance(merge_plan, dict):
+            # in case of pid_record contains other information
+            # only take the cluster_ids key which contains the row names
+            new_merge_plan = {}
+            for pid, pid_record in merge_plan.items():
+                if "cluster_ids" in pid_record:
+                    new_merge_plan[pid] = pid_record["cluster_ids"]
+                else:
+                    new_merge_plan[pid] = pid_record
+            merge_plan = new_merge_plan
 
         all_merge_plan = {}
         pseudobulk_ids = list(merge_plan.keys())
-        for prefix, cell_row_names in row_name_mapping.items():
+        for prefix, cell_row_names in self.row_names.items():
             prefix_plan = defaultdict(list)
             for pseudobulk_id, pseudobulk_row_names in merge_plan.items():
+                if isinstance(pseudobulk_row_names, dict):
+                    # each prefix has its own pseudobulk row names
+                    pseudobulk_row_names = pseudobulk_row_names[prefix]
                 pseudobulk_idx = pseudobulk_ids.index(pseudobulk_id)
                 cell_row_indices = sorted(
                     cell_row_names.get_indexer(pseudobulk_row_names)
@@ -146,6 +179,37 @@ class GenomeParquetDB:
             all_merge_plan[prefix] = prefix_plan
         pseudobulk_ids = pd.Index(pseudobulk_ids)
         return all_merge_plan, pseudobulk_ids
+
+    def _register_resolution(
+        self, resolution: int | dict[int] | None
+    ) -> dict[str, int]:
+        """
+        Register the resolution for each prefix in the dataset.
+        The resolution is used to convert the genomic coordinates to the correct resolution.
+        """
+        if resolution is None:
+            # infer resolution from the dataset
+            test_regions = self.region_lookup["Name"][:1].tolist()
+            start, end = map(int, test_regions[0].split(":")[1].split("-"))
+            parquet_region_size = end - start
+            sample_data = list(self.query_parquet_regions(test_regions))[0]
+            resolution = {
+                k: int(parquet_region_size / v.shape[1])
+                for k, v in sample_data.items()
+                if hasattr(v, "shape")
+            }
+
+        if isinstance(resolution, int):
+            resolution = {prefix: resolution for prefix in self.prefix_names}
+        elif isinstance(resolution, dict):
+            for prefix in self.prefix_names:
+                assert (
+                    prefix in resolution
+                ), f"resolution for {prefix} not found in resolution dict"
+        else:
+            raise ValueError("resolution must be int or dict[int]")
+
+        return resolution
 
     def _create_row_actor_pool(self) -> ray.util.ActorPool:
         """
@@ -289,8 +353,9 @@ class GenomeParquetDB:
                         continue
                     v = v.tocsc()
                     cut_left = cur_end - start
-                    if cut_left > 0:
-                        v = v[:, cut_left:]
+                    cut_left_bin = cut_left // self.prefix_resolution[k]
+                    if cut_left_bin > 0:
+                        v = v[:, cut_left_bin:]
                     if k not in cdata:
                         cdata[k] = [v]
                     else:
@@ -320,7 +385,7 @@ class GenomeParquetDB:
         )
         jdf = joined.df
         jdf["rel_start"] = jdf["Start"] - jdf["Start_b"]  # _b is the cluster
-        jdf["rel_end"] = jdf["End"] - jdf["Start_b"]
+        jdf["region_size"] = jdf["End"] - jdf["Start"]
         specs_per_cluster: dict[str, list[tuple[str, int, int]]] = (
             jdf.groupby("Name_b")
             .apply(
@@ -328,7 +393,7 @@ class GenomeParquetDB:
                     zip(
                         g["Name"].tolist(),  # region_name
                         g["rel_start"].astype(int),  # rel_start
-                        g["rel_end"].astype(int),  # rel_end
+                        g["region_size"].astype(int),  # region_size
                     )
                 )
             )
@@ -343,14 +408,17 @@ class GenomeParquetDB:
             chunk_size = 100
             for i in range(0, len(specs), chunk_size):
                 task_inputs.append(
-                    (cluster_data_refs[cluster], specs[i : i + chunk_size])
+                    (
+                        cluster_data_refs[cluster],
+                        specs[i : i + chunk_size],
+                        self.prefix_resolution,
+                    )
                 )
-
-        # Step D: launch all extraction tasks in parallel
+        # launch all extraction tasks in parallel
         region_data_dicts = []
-        tasks = self._extractor_pool.map_unordered(
+        tasks = self._extractor_pool.map(
             lambda a, x: a.extract.remote(*x), task_inputs
-        )
+        )  # result should be ordered as the input
         for result in tasks:
             region_data_dicts.extend(result)
         return region_data_dicts

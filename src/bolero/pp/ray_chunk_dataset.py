@@ -399,7 +399,14 @@ class GenomeChunkDatasetGenerator:
             "window_size": self.window_size,
             "step_size": self.step_size,
             "num_rows_per_file": self.num_rows_per_file,
+            "prefix_metadata": {},
         }
+        for prefix, meta in self.uniform_dataset_dict.items():
+            config_dict["prefix_metadata"][prefix] = {
+                "ds_class": meta["ds_class"].__name__,
+                "ds_kwargs": meta["ds_kwargs"],
+                "remote_kwargs": meta["remote_kwargs"],
+            }
         joblib.dump(config_dict, success_flag_path)
 
         # cleanup
