@@ -693,6 +693,11 @@ class CondFlowModule(nn.Module):
         cond_attn_pooling: bool = True,
     ):
         super().__init__()
+
+        cell_encoder_dims = list(cell_encoder_dims)
+        time_encoder_dims = list(time_encoder_dims)
+        cond_encoder_dims = list(cond_encoder_dims)
+
         # cell embedding encoder
         self.cell_encoder = _SimpleEncoder(
             input_dim=cell_emb_dim,

@@ -49,17 +49,25 @@ class CSRRowMerge:
         merge_plan: dict mapping each input row index to an output row index.
         """
         self.merge_plan = merge_plan
-
         n_input = max(merge_plan.keys()) + 1 if n_input is None else n_input
         n_output = max(merge_plan.values()) + 1 if n_output is None else n_output
         self.n_input, self.n_output = n_input, n_output
+
+        # check if multimap
+        multimap = isinstance(list(merge_plan.values())[0], list)
 
         # P is the auxiliary matrix to merge input rows into output rows
         rows = []
         cols = []
         for row, col in self.merge_plan.items():
-            rows.append(col)
-            cols.append(row)
+            if multimap:
+                # if multimap, one cell (row) can be assigned to multiple groups (col)
+                for _col in col:
+                    rows.append(_col)
+                    cols.append(row)
+            else:
+                rows.append(col)
+                cols.append(row)
         rows = np.array(rows)
         cols = np.array(cols)
         data = np.ones_like(rows, dtype=dtype)

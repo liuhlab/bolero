@@ -280,7 +280,9 @@ class PairedPseudobulker:
             related_pseudobulks = [
                 pid for pid in related_pseudobulks if pid not in skip_pids
             ]
-        related_sample_weights = self.sampling_weights.reindex(related_pseudobulks)
+        related_sample_weights = self.sampling_weights.reindex(
+            related_pseudobulks
+        ).dropna()
         related_sample_weights /= related_sample_weights.sum()
         pid_choice = self.local_rng.choice(
             related_pseudobulks, 1, replace=False, p=related_sample_weights.values
