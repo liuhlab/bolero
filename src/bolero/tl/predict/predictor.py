@@ -4,23 +4,15 @@ from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 
+from .utils import get_device
+
 _model_cls = Borzoi | BorzoiLoRA | seq2PRINT | seq2PRINTLoRA
-
-
-def _get_device():
-    """
-    Get the device to be used for PyTorch operations.
-    """
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    else:
-        return torch.device("cpu")
 
 
 class GenericPredictor:
     def __init__(self, config, model_class):
         self.config = config
-        self.device = _get_device()
+        self.device = get_device()
 
         self.model_class: _model_cls = model_class
         self._model = None

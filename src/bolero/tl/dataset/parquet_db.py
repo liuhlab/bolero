@@ -5,6 +5,7 @@ from typing import Generator
 
 import duckdb
 import joblib
+import numpy as np
 import pandas as pd
 import pyranges as pr
 import ray
@@ -17,7 +18,7 @@ from bolero.utils import understand_regions
 
 @ray.remote
 class ParallelRowProcessor:
-    def __init__(self, row_merge_plan, n_input, n_output):
+    def __init__(self, row_merge_plan, n_input, n_output, tocsc=False):
         self.byte_to_csr = CompressedBytesToTensor()
         self.row_merge_plan = row_merge_plan
         if row_merge_plan is None:
@@ -31,6 +32,7 @@ class ParallelRowProcessor:
                 )
                 for prefix, prefix_merge_plan in row_merge_plan.items()
             }
+        self.tocsc = tocsc
 
     def convert(self, data_dict):
         """Convert the data_dict to a pseudobulk matrix."""
@@ -41,7 +43,11 @@ class ParallelRowProcessor:
         _dict = {}
         for key, value in data_dict.items():
             if key in self.row_to_pseudobulk:
+                # from (n_meta_cell, n_bin) to (n_pseudobulk, n_bin)
                 value = self.row_to_pseudobulk[key](value)
+            if self.tocsc and hasattr(value, "tocsc"):
+                value = value.tocsc()
+
             _dict[key] = value
         return _dict
 
@@ -85,6 +91,7 @@ class GenomeParquetDB:
         dataset_dir: str,
         parallel: int = 1,
         merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
+        pseudobulk_ids: list[str] = None,
         resolution: int | dict[int] = None,
     ):
         """
@@ -103,7 +110,9 @@ class GenomeParquetDB:
         self.prefix_names = list(self.row_names.keys())
 
         self.original_merge_plan = merge_plan
-        merge_plan, pseudobulk_ids = self._register_merge_plan(merge_plan)
+        merge_plan, pseudobulk_ids = self._register_merge_plan(
+            merge_plan, pseudobulk_ids
+        )
 
         # merge_plan is a dict of {prefix: {row_idx: [pseudobulk_row_idices]}}
         self.merge_plan: dict[str, dict[int, int]] | None = merge_plan
@@ -139,7 +148,9 @@ class GenomeParquetDB:
         return region_lookup
 
     def _register_merge_plan(
-        self, merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None
+        self,
+        merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None,
+        pseudobulk_ids: list[str] | None = None,
     ) -> tuple[dict[str, dict[int, int]] | None, pd.Index]:
         """
         Register the merge plan from {pseudobulk_id: [row_names]} to {row_id: pseudobulk_row_id}
@@ -163,7 +174,9 @@ class GenomeParquetDB:
             merge_plan = new_merge_plan
 
         all_merge_plan = {}
-        pseudobulk_ids = list(merge_plan.keys())
+        pseudobulk_ids = (
+            list(merge_plan.keys()) if pseudobulk_ids is None else pseudobulk_ids
+        )
         for prefix, cell_row_names in self.row_names.items():
             prefix_plan = defaultdict(list)
             for pseudobulk_id, pseudobulk_row_names in merge_plan.items():
@@ -225,7 +238,10 @@ class GenomeParquetDB:
 
         actors = [
             ParallelRowProcessor.remote(
-                row_merge_plan=self.merge_plan, n_input=n_input, n_output=n_output
+                row_merge_plan=self.merge_plan,
+                n_input=n_input,
+                n_output=n_output,
+                tocsc=True,
             )  # type: ignore[arg-type]
             for _ in range(self.parallel)
         ]
@@ -242,7 +258,7 @@ class GenomeParquetDB:
         return actor_pool
 
     def query_parquet_regions(
-        self, regions: list[str], return_ordered=True, tocsc=False
+        self, regions: list[str], return_ordered=True
     ) -> Generator:
         """
         Given a list of regions, find which Parquet file(s) contain any of those regions,
@@ -258,7 +274,6 @@ class GenomeParquetDB:
             for more general region query, use "query_regions" method.
         return_ordered: If True, the results are returned in the order of the input regions.
                         If False, the results are returned in an unordered fashion.
-        tocsc: If True, the data will be converted to a sparse matrix in CSC format.
         """
         # Build a comma-separated list of quoted region strings for SQL
         regions = list(set(regions))  # Deduplicate regions
@@ -303,10 +318,6 @@ class GenomeParquetDB:
                     _data = actor_pool.get_next()
                 else:
                     _data = actor_pool.get_next_unordered()
-                if tocsc:
-                    _data = {
-                        k: v.tocsc() if isspmatrix(v) else v for k, v in _data.items()
-                    }
                 yield _data
                 actor_pool.submit(lambda a, x: a.convert.remote(x), row_dict)
 
@@ -315,8 +326,6 @@ class GenomeParquetDB:
                 _data = actor_pool.get_next()
             else:
                 _data = actor_pool.get_next_unordered()
-            if tocsc:
-                _data = {k: v.tocsc() if isspmatrix(v) else v for k, v in _data.items()}
             yield _data
             runing_task -= 1
         return
@@ -351,7 +360,6 @@ class GenomeParquetDB:
                 for k, v in region_data.items():
                     if k == "region":
                         continue
-                    v = v.tocsc()
                     cut_left = cur_end - start
                     cut_left_bin = cut_left // self.prefix_resolution[k]
                     if cut_left_bin > 0:
@@ -377,7 +385,7 @@ class GenomeParquetDB:
         regions_to_get: pr.PyRanges,
         cluster_data: dict[str, str | csc_matrix],
         cluster_bed: pr.PyRanges,
-    ) -> list[dict[str, str | csc_matrix]]:
+    ) -> Generator:
         # Build a map: cluster_name -> list of (region_name, rel_start, rel_end)
         joined = regions_to_get.join(
             cluster_bed,
@@ -405,7 +413,8 @@ class GenomeParquetDB:
         }
         task_inputs = []
         for cluster, specs in specs_per_cluster.items():
-            chunk_size = 100
+            # each task handles extracting chunk_size regions
+            chunk_size = 200
             for i in range(0, len(specs), chunk_size):
                 task_inputs.append(
                     (
@@ -415,27 +424,13 @@ class GenomeParquetDB:
                     )
                 )
         # launch all extraction tasks in parallel
-        region_data_dicts = []
         tasks = self._extractor_pool.map(
             lambda a, x: a.extract.remote(*x), task_inputs
         )  # result should be ordered as the input
         for result in tasks:
-            region_data_dicts.extend(result)
-        return region_data_dicts
+            yield from result
 
-    def query_regions(
-        self,
-        regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index,
-    ):
-        """
-        Load data from the Parquet dataset for any regions.
-
-        Returns
-        -------
-        region_data_dicts: List of dictionaries, each containing the data for a region.
-            The keys of the dictionaries are the same as the columns in the Parquet dataset.
-            The values are either sparse matrices or arrays, depending on the data type.
-        """
+    def _query_regions_iter(self, regions):
         regions_to_get: pr.PyRanges = pr.PyRanges(understand_regions(regions)).sort()
 
         # Load relevant parquet regions and merge them into non-overlapping clusters
@@ -446,7 +441,62 @@ class GenomeParquetDB:
             parquet_regions_to_get
         )
 
-        region_data_dicts = self._extract_region_from_cluster(
+        data_iter = self._extract_region_from_cluster(
             regions_to_get, cluster_data, cluster_bed
         )
-        return region_data_dicts
+        yield from data_iter
+
+    def query_regions(
+        self,
+        regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index,
+    ) -> list[dict] | Generator:
+        """
+        Load data from the Parquet dataset for any regions.
+
+        Returns
+        -------
+        region_data_dicts: List of dictionaries, each containing the data for a region.
+            The keys of the dictionaries are the same as the columns in the Parquet dataset.
+            The values are either sparse matrices or arrays, depending on the data type.
+        """
+        return list(self._query_regions_iter(regions))
+
+    def iter_batches(
+        self,
+        regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index | None = None,
+        batch_size: int | None = 32,
+    ):
+        """
+        Iterate over batches of region data from the Parquet dataset.
+
+        Parameters
+        ----------
+        regions: Regions to query.
+        batch_size: Number of regions to include in each batch.
+        """
+        data_iter = self._query_regions_iter(regions)
+
+        # yield every batch_size regions at a time
+        batch_data = defaultdict(list)
+        counter = 0
+        for region_data in data_iter:
+            for k, v in region_data.items():
+                if isspmatrix(v):
+                    v = v.toarray()
+                batch_data[k].append(v)
+            counter += 1
+            if counter % batch_size == 0:
+                batch_data = {
+                    k: np.stack(v) if isinstance(v[0], np.ndarray) else np.array(v)
+                    for k, v in batch_data.items()
+                }
+                yield batch_data
+                batch_data = defaultdict(list)
+
+        # last batch
+        if counter % batch_size != 0:
+            batch_data = {
+                k: np.stack(v) if isinstance(v[0], np.ndarray) else np.array(v)
+                for k, v in batch_data.items()
+            }
+            yield batch_data

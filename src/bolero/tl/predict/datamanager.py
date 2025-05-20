@@ -1,46 +1,286 @@
+import queue
+import threading
+from collections import OrderedDict, defaultdict
+from pathlib import Path
+from typing import Any, Generator
+
+import joblib
+import numpy as np
 import pandas as pd
 import pyranges as pr
 
 from bolero.pp.genome import Genome
+from bolero.tl.dataset.parquet_db import GenomeParquetDB
+from bolero.utils import understand_regions
+
+from .utils import convert_np_to_torch, get_device, validate_region
 
 
-def _validate_region(region_bed: pr.PyRanges, chrom_sizes: dict[str, int]):
-    """
-    Validate the region bed file.
+class BackgroundGenerator:
+    def __init__(self, generator, max_prefetch=50, as_torch=True):
+        """
+        The generator will run in a separate thread and will prefetch up to max_prefetch items.
+        """
+        self.queue = queue.Queue(max_prefetch)
+        self.generator = generator
+        self.thread = threading.Thread(target=self._worker)
+        self.thread.daemon = True
+        self.thread.start()
+        self.as_torch = as_torch
 
-    1. start < end
-    2. region coordinates are within the chromosome sizes
-    """
-    rdf = region_bed.df
-    assert rdf["Start"].min() >= 0, "Start coordinate must be >= 0"
+    def _worker(self):
+        for item in self.generator:
+            if self.as_torch:
+                item = convert_np_to_torch(item, get_device())
+            self.queue.put(item)
+        self.queue.put(None)  # Sentinel to mark end
 
-    assert (
-        rdf["End"] > rdf["Start"]
-    ).all(), "End coordinate must be greater than Start coordinate"
+    def __iter__(self):
+        return self
 
-    for chrom, rdf_chrom in rdf.groupby("Chromosome"):
-        try:
-            size = chrom_sizes[chrom]
-        except KeyError as e:
-            raise ValueError(f"Chromosome {chrom} not found in chromosome sizes") from e
+    def __next__(self):
+        item = self.queue.get()
+        if item is None:
+            raise StopIteration
+        return item
 
-        assert (
-            rdf_chrom["End"].max() <= size
-        ), f"End coordinate must be <= {size} for chromosome {chrom}"
-    return
+
+class PseudobulkRecord:
+    pid: str
+    row_names: dict[str, list[str]]
+    n_frags: dict[int] | None
+    cov_scale: dict[float] | None
+    embedding: np.ndarray | None
+    embedding_multi: np.ndarray | None
+    sample_weight: float | None
+    annotation: dict[str, Any] | None
+
+    def __init__(
+        self,
+        pid: str,
+        **kwargs,
+    ):
+        if "cluster_ids" in kwargs:
+            kwargs["row_names"] = kwargs.pop("cluster_ids")
+
+        self.pid = pid
+        self.row_names = kwargs.pop("row_names")
+        self.n_frags = kwargs.pop("n_frags", None)
+        self.cov_scale = kwargs.pop("cov_scale", None)
+        self.embedding = kwargs.pop("embedding", None)
+        self.embedding_multi = kwargs.pop("embedding_multi", None)
+        self.sample_weight = kwargs.pop("sample_weight", None)
+
+        # remaining kwargs are considered as annotation
+        self.annotation = kwargs
+        self._validate()
+        return
+
+    def _validate(self):
+        # one of embedding or embedding_multi must be set
+        if self.embedding is not None:
+            assert self.embedding.ndim == 1, "embedding must be 1D"
+        elif self.embedding_multi is not None:
+            assert self.embedding_multi.ndim == 2, "embedding_multi must be 2D"
+        else:
+            raise ValueError("Either embedding or embedding_multi must be set")
+        return
+
+    def __repr__(self):
+        return f"PseudobulkRecord(pid={self.pid})"
+
+
+class PseudobulkRecordManager:
+    def __init__(
+        self,
+        pseudobulk_records: str | Path | dict[str, dict],
+        annotation: pd.DataFrame = None,
+    ):
+        if isinstance(pseudobulk_records, (str, Path)):
+            self.original_records = joblib.load(pseudobulk_records)
+        else:
+            self.original_records = pseudobulk_records
+
+        self.pseudobulk_records: dict[str, PseudobulkRecord] = OrderedDict()
+        for pid, pid_record in self.original_records.items():
+            self.pseudobulk_records[pid] = PseudobulkRecord(pid, **pid_record)
+        self.pseudobulk_ids = list(self.pseudobulk_records.keys())
+
+        if annotation is not None:
+            self.add_annotation("annotation", annotation)
+        return
+
+    def get_pseudobulk_attrs(
+        self, attr: str, pids: list = None, prefix: str = None, series: bool = True
+    ) -> pd.Series | list:
+        """
+        Get pseudobulk attributes.
+        """
+        if pids is None:
+            pids = self.pseudobulk_ids
+
+        data = []
+        for pid in pids:
+            value = getattr(self.pseudobulk_records[pid], attr)
+            if prefix is not None and isinstance(value, dict):
+                value = value[prefix]
+            data.append(value)
+        if series:
+            data = pd.Series(data, index=pids)
+        return data
+
+    def get_n_frags(self, pids: list = None, prefix: str = None) -> pd.Series:
+        """
+        Get the number of fragments for each pseudobulk.
+        """
+        return self.get_pseudobulk_attrs("n_frags", pids, prefix)
+
+    def get_cov(self, pids: list = None, prefix: str = None) -> pd.Series:
+        """
+        Alias for get_n_frags.
+        """
+        return self.get_n_frags(pids, prefix)
+
+    def get_cov_scale(self, pids: list = None, prefix: str = None) -> pd.Series:
+        """
+        Get the coverage scale for each pseudobulk.
+        """
+        return self.get_pseudobulk_attrs("cov_scale", pids, prefix)
+
+    def get_embedding(self, pids: list = None) -> np.ndarray:
+        """
+        Get the embedding for each pseudobulk.
+        """
+        data = self.get_pseudobulk_attrs("embedding", pids, series=False)
+        data = np.stack(data)
+        return data
+
+    def get_embedding_multi(self, pids: list = None) -> np.ndarray:
+        """
+        Get the multi-embedding for each pseudobulk.
+        """
+        data = self.get_pseudobulk_attrs("embedding_multi", pids, series=False)
+        data = np.stack(data)
+        return data
+
+    def get_sample_weight(self, pids: list = None) -> np.ndarray:
+        """
+        Get the sample weight for each pseudobulk.
+        """
+        return self.get_pseudobulk_attrs("sample_weight", pids)
+
+    def get_annotation(self, key, pids: list = None) -> pd.DataFrame:
+        """
+        Get the annotation for each pseudobulk.
+        """
+        return self.get_pseudobulk_attrs("annotation", pids=pids, prefix=key)
+
+    def add_annotation(self, name: str, annotation: dict | pd.Series | pd.DataFrame):
+        """
+        Add annotation to the pseudobulk records.
+        """
+        if isinstance(annotation, pd.DataFrame):
+            # assume each column is a separate annotation and the index is the pid
+            for col, annot in annotation.items():
+                self.add_annotation(col, annot)
+            return
+
+        for pid, annot in annotation.items():
+            if pid not in self.pseudobulk_records:
+                raise ValueError(f"PID {pid} not found in pseudobulk records")
+            self.pseudobulk_records[pid].annotation[name] = annot
+        return
+
+    def get_merge_plan(self) -> dict[str, list[str]]:
+        """
+        Get the merge plan for the pseudobulk records.
+        """
+        merge_plan = {}
+        for pid, record in self.pseudobulk_records.items():
+            merge_plan[pid] = record.row_names
+        return merge_plan
+
+    def __getitem__(self, pid: str) -> PseudobulkRecord:
+        """
+        Get a pseudobulk record by its ID.
+        """
+        return self.pseudobulk_records[pid]
+
+    def __len__(self) -> int:
+        """
+        Get the number of pseudobulk records.
+        """
+        return len(self.pseudobulk_records)
+
+    def __iter__(self):
+        """
+        Iterate over the pseudobulk records.
+        """
+        for pid in self.pseudobulk_ids:
+            yield self.pseudobulk_records[pid]
+
+    def __repr__(self):
+        return f"PseudobulkRecordManager({len(self.pseudobulk_records)} records)"
+
+    def items(self):
+        """
+        Get the items of the pseudobulk records.
+        """
+        yield from self.pseudobulk_records.items()
 
 
 class GenericGenomeDataManager:
-    def __init__(self, genome: str | Genome, region_bed: pd.DataFrame):
+    def __init__(self, genome: str | Genome):
         self.genome = Genome(genome) if isinstance(genome, str) else genome
-        self.region_bed = region_bed
+
+        # region information
+        self._regions = None
+        self._regions_bed = None
+
+        # Pseudobulk records
+        self.pseudobulk_manager = None
 
         # Signal dataset from parquet or bigwig
-        self._parquet_dataset = None
-        self._bigwig_dataset = None
+        self.datasets: dict[str, GenomeParquetDB] = {}
 
         # Mutation information for mutation task
         self._mutation_table = None
+
+    def add_regions(self, regions: Any):
+        """
+        Add regions to the data manager.
+
+        Parameters
+        ----------
+        regions : Any
+            The regions to add. Can be a list of tuples, a dataframe, or a PyRanges object.
+        """
+        regions = understand_regions(regions, as_df=True)
+        validate_region(
+            region_bed=pr.PyRanges(regions),
+            chrom_sizes=self.genome.chrom_sizes,
+        )
+        self._regions_bed = pr.PyRanges(regions).sort()
+        self._regions = self._regions_bed.df
+        return
+
+    @property
+    def regions(self) -> pd.DataFrame:
+        """
+        Return the regions dataframe.
+        """
+        if self._regions is None:
+            raise ValueError("Regions not set, call add_regions() first")
+        return self._regions
+
+    @property
+    def regions_bed(self) -> pr.PyRanges:
+        """
+        Return the regions as a PyRanges object.
+        """
+        if self._regions_bed is None:
+            raise ValueError("Regions not set, call add_regions() first")
+        return self._regions_bed
 
     def add_mutations(self):
         """
@@ -48,4 +288,234 @@ class GenericGenomeDataManager:
         """
         raise NotImplementedError(
             "add_mutations method not implemented in GenericGenomeDataManager"
+        )
+
+    def add_parquet_dataset(
+        self,
+        dataset_name,
+        dataset_dir: str,
+        parallel: int = 1,
+        resolution: int | dict[int] = None,
+    ):
+        """
+        Add a parquet dataset to the data manager.
+
+        Parameters
+        ----------
+        dataset_name : str
+            The name of the dataset.
+        dataset_dir : str
+            The directory path to the parquet dataset.
+        parallel : int, optional
+            The number of parallel processes to use for reading the dataset. Default is 1.
+        merge_plan : dict, optional
+            The pseudobulk merge plan to sum meta-cells (rows) into pseudobulks.
+            Default is None, which means no pseudobulk merging.
+            If a dict is provided, it should be in the format:
+            {
+                "pseudobulk1": ["cell1", "cell2", ...],
+                "pseudobulk2": ["cell3", "cell4", ...],
+                ...
+            }, OR,
+            {
+                "pseudobulk1": {
+                    "prefix1": ["cell1", "cell2", ...],
+                    "prefix2": ["cell3", "cell4", ...]
+                },
+                "pseudobulk2": {
+                    "prefix1": ["cell5", "cell6", ...],
+                    "prefix2": ["cell7", "cell8", ...]
+                },
+                ...
+            }
+        resolution : int or dict, optional
+            The resolution of the dataset.
+            Default is None, which means resolution should be inferred from the dataset.
+        """
+        if self.pseudobulk_manager is None:
+            raise ValueError(
+                "No pseudobulk manager provided, call add_pseudobulk_records() first"
+            )
+
+        merge_plan = {
+            pid: rec.row_names for pid, rec in self.pseudobulk_manager.items()
+        }
+        pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
+
+        self.datasets[dataset_name] = GenomeParquetDB(
+            dataset_dir=dataset_dir,
+            parallel=parallel,
+            merge_plan=merge_plan,
+            pseudobulk_ids=pseudobulk_ids,
+            resolution=resolution,
+        )
+
+    def add_pseudobulk_records(
+        self,
+        pseudobulk_records: str | Path | dict[str, dict],
+        annotation: pd.DataFrame = None,
+    ):
+        """
+        Add pseudobulk records to the data manager.
+
+        Parameters
+        ----------
+        pseudobulk_records : str | Path | dict
+            The pseudobulk records to add. Can be a path to a file or a dictionary.
+        annotation : pd.DataFrame, optional
+            The annotation to add to the pseudobulk records.
+        """
+        self.pseudobulk_manager = PseudobulkRecordManager(
+            pseudobulk_records=pseudobulk_records, annotation=annotation
+        )
+
+    def query_dna_onehot(
+        self,
+        regions: pd.DataFrame | pr.PyRanges,
+        length_last: bool = True,
+    ) -> np.ndarray:
+        """
+        Query the DNA one-hot encoding for the regions.
+
+        Parameters
+        ----------
+        regions : pd.DataFrame | pr.PyRanges
+            The regions to query. Can be a dataframe or a PyRanges object.
+        length_last : bool, optional
+            If True, the last dimension of the one-hot encoding will be the sequence length.
+
+        Returns
+        -------
+        np.ndarray
+            The one-hot encoding of the DNA sequence for the regions.
+        """
+        onehot = self.genome.get_regions_one_hot(regions)
+
+        if length_last:
+            onehot = onehot.transpose(0, 2, 1)
+            # shape is (n_regions, 4, seq_len)
+        return onehot
+
+    def _add_pseudobulk_info_into_batch(
+        self, info_keys: list[str], pids: list[str] = None
+    ) -> dict[str, Any]:
+        """
+        Add pseudobulk information into the batch data.
+        """
+        if pids is None:
+            pids = self.pseudobulk_manager.pseudobulk_ids
+
+        data_col = defaultdict(list)
+        for info_key in info_keys:
+            data_list = self.pseudobulk_manager.get_pseudobulk_attrs(
+                pids=pids, attr=info_key, series=False
+            )
+            for _data in data_list:
+                if isinstance(_data, dict):
+                    for k, v in _data.items():
+                        data_col[f"{k}:{info_key}"].append(v)
+                else:
+                    data_col[info_key].append(_data)
+        data_col = {k: np.array(v) for k, v in data_col.items()}
+        return data_col
+
+    def _iter_batches_chunk(
+        self,
+        regions: list[str],
+        batch_size: int = 32,
+        add_dna: bool = True,
+        add_data: bool = True,
+        pseudobulk_info_keys: list[str] = None,
+    ) -> Generator:
+        """
+        Query the regions from the dataset.
+        """
+        if add_data:
+            da_data_dict = {
+                da_name: da.iter_batches(regions, batch_size=batch_size)
+                for da_name, da in self.datasets.items()
+            }
+        else:
+            da_data_dict = {}
+
+        if pseudobulk_info_keys is not None:
+            pseudobulk_info = self._add_pseudobulk_info_into_batch(
+                info_keys=pseudobulk_info_keys,
+                pids=None,
+            )
+        for cur_start in range(0, len(regions), batch_size):
+            regions_ref = np.array(regions[cur_start : cur_start + batch_size])
+            batch_data = {"region": regions_ref}
+
+            # add true data from each dataset
+            for da_name, data_iter in da_data_dict.items():
+                da_batch = next(data_iter)
+
+                # make sure regions across datasets are matching
+                da_regions = da_batch.pop("region")
+                assert np.array_equal(
+                    regions_ref, da_regions
+                ), f"Regions do not match for dataset {da_name}, expected {regions_ref}, got {da_regions}"
+
+                for key, value in da_batch.items():
+                    assert (
+                        key not in batch_data
+                    ), f"Key {key} already exists in batch_data"
+                    batch_data[key] = value
+
+            # add dna one-hot encoding
+            if add_dna:
+                # add dna one-hot encoding
+                onehot = self.query_dna_onehot(regions_ref)
+                batch_data["dna"] = onehot
+
+            # add pseudobulk information
+            if pseudobulk_info_keys is not None:
+                batch_data.update(pseudobulk_info)
+
+            # add mutation information
+            # TODO: add mutation information with dna_mut key
+
+            yield batch_data
+
+    def iter_batches(
+        self,
+        regions: list[str] = None,
+        batch_size: int = 32,
+        add_dna: bool = True,
+        add_data: bool = True,
+        pseudobulk_info_keys: list[str] = None,
+        as_torch: bool = True,
+        device: str = "auto",
+    ) -> Generator:
+        """
+        Iterate over the batches of data.
+        """
+        if regions is None:
+            regions = self.regions["Name"].to_list()
+
+        if device == "auto":
+            device = get_device()
+
+        region_chunk_size = batch_size * 100
+        for cur_start in range(0, len(regions), region_chunk_size):
+            cur_end = min(cur_start + region_chunk_size, len(self.regions))
+            regions_chunk = regions[cur_start:cur_end]
+
+            iterable = self._iter_batches_chunk(
+                regions=regions_chunk,
+                batch_size=batch_size,
+                add_dna=add_dna,
+                add_data=add_data,
+                pseudobulk_info_keys=pseudobulk_info_keys,
+            )
+            yield from iterable
+
+    def get_dataloader(self, max_prefetch=50, **kwargs) -> BackgroundGenerator:
+        """
+        Get a dataloader for the data manager.
+        """
+        return BackgroundGenerator(
+            self.iter_batches(**kwargs),
+            max_prefetch=max_prefetch,
         )
