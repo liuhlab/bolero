@@ -64,6 +64,7 @@ class GenericPredictor:
 
     def _load_ckeckpoint(self, model: _model_cls) -> _model_cls:
         checkpoint_path = self.config["checkpoint_path"]
+        print("Loading checkpoint from", checkpoint_path)
         state = torch.load(
             checkpoint_path, map_location=torch.device("cpu"), weights_only=False
         )

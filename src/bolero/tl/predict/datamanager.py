@@ -510,6 +510,15 @@ class GenericGenomeDataManager:
             data_prefix_names.extend(da.prefix_names)
         return data_prefix_names
 
+    @staticmethod
+    def apply_callbacks(batch, callbacks):
+        """
+        Apply the callbacks sequentially to the batch.
+        """
+        for callback in callbacks:
+            batch = callback(batch)
+        return batch
+
     def get_dataloader(
         self,
         regions: list[str],
