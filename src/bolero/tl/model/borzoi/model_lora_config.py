@@ -139,7 +139,7 @@ def make_all_conditional_lora_config(
         "lora_scale": lora_scale,
         "convert_conv": True,
         "convert_linear": True,
-        "emb_attn_pooling": True,
+        "emb_attn_pooling": emb_attn_pooling,
     }
     lora_config = {
         "conv_dna": {

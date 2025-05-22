@@ -1,3 +1,5 @@
+from typing import Generator
+
 import torch
 from einops import rearrange
 
@@ -35,8 +37,10 @@ class BorzoiPredictor(GenericPredictor):
         n_emb = emb.shape[0]
         n_region = dna.shape[0]
 
-        emb_idx = torch.arange(n_emb).repeat_interleave(n_region)
-        region_idx = torch.arange(n_region).repeat(n_emb)
+        emb_idx = torch.arange(n_emb).repeat(n_region)
+        # [0, 1, ..., n_emb-1, ..., 0, 1, ..., n_emb-1]
+        region_idx = torch.arange(n_region).repeat_interleave(n_emb)
+        # [0, ..., 0, 1, ..., 1, ..., n_region-1, ..., n_region-1]
 
         pred_col = []
         for i in range(0, len(emb_idx), batch_size):
@@ -47,10 +51,11 @@ class BorzoiPredictor(GenericPredictor):
                 y_pred_mini_batch = self.model(dna_mini_batch, embedding=emb_mini_batch)
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
-        # reshape to (n_region, n_emb, n_pseudobulk)
+        # reshape to (n_region, n_emb, seq_len)
+        # here only deal with one modality case
         y_pred = rearrange(
             y_pred,
-            "(n_region n_emb) seq_len -> n_region n_emb seq_len",
+            "(n_region n_emb) 1 seq_len -> n_region n_emb seq_len",
             n_region=n_region,
             n_emb=n_emb,
         )
@@ -66,7 +71,7 @@ class BorzoiPredictor(GenericPredictor):
         dna_key="dna",
         embedding_key="embedding",
         batch_size=16,
-    ):
+    ) -> Generator:
         """
         Get the dataloader for prediction.
         """
@@ -104,4 +109,13 @@ class BorzoiPredictor(GenericPredictor):
             pseudobulk_info_keys=["cov_scale", embedding_key],
             collate_fn=_collate_fn,
         )
-        return dataloader
+
+        for batch in dataloader:
+            with torch.inference_mode():
+                batch = self._lora_model_prediction_step(
+                    batch,
+                    dna_key="__dna__",
+                    embedding_key="__embedding__",
+                    batch_size=batch_size,
+                )
+            yield batch

@@ -34,7 +34,8 @@ class BackgroundGenerator:
             collate_fn = lambda x: x
         self.collate_fn = collate_fn
 
-    def _ensure_started(self):
+    def start(self):
+        """Start the generator thread."""
         if not self.started:
             self.thread.start()
             self.started = True
@@ -45,11 +46,11 @@ class BackgroundGenerator:
         self.queue.put(None)  # Sentinel to mark end
 
     def __iter__(self):
-        self._ensure_started()
+        self.start()
         return self
 
     def __next__(self):
-        self._ensure_started()
+        self.start()
         item = self.queue.get()
         if item is None:
             raise StopIteration

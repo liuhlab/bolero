@@ -69,8 +69,12 @@ class GenericPredictor:
         )
         if "model_state_dict" in state:
             state = state["model_state_dict"]
+        elif "state_dict" in state:
+            state = state["state_dict"]
+        else:
+            pass
 
-        model.load_state_dict(state, strict=False)
+        model.load_state_dict(state, strict=True)
 
         model.to(self.device)
         model.eval()
@@ -102,13 +106,24 @@ class GenericPredictor:
     @property
     def datamanager(self) -> GenericGenomeDataManager:
         """
-        Get the datamanager, loading it if it hasn't been loaded yet.
+        Get the datamanager.
         """
         if self._dm is None:
             raise ValueError(
                 "Datamanager not set. Please call add_datamanager() first."
             )
         return self._dm
+
+    @property
+    def pseudobulk_manager(self):
+        """
+        Get the pseudobulk manager inside the datamanager.
+        """
+        if self._dm is None:
+            raise ValueError(
+                "Datamanager not set. Please call add_datamanager() first."
+            )
+        return self._dm.pseudobulk_manager
 
     def get_fold_regions(self, test_only=True) -> pd.DataFrame | tuple[pd.DataFrame]:
         """
