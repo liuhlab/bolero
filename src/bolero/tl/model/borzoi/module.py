@@ -321,7 +321,17 @@ class ConvDna(nn.Module):
     def forward(self, x, *args, **kwargs):
         """ConvDna forward pass."""
         x = maybe_pass_additional_params(self.conv_layer, x, *args, **kwargs)
-        return self.max_pool(x)
+
+        bs = x.shape[0]
+        if bs <= 8:
+            result = self.max_pool(x)
+        else:
+            # do max pooling per chunk of 8
+            result = []
+            for i in range(0, bs, 8):
+                result.append(self.max_pool(x[i : i + 8]))
+            result = torch.cat(result, dim=0)
+        return result
 
 
 class ConvBlock(nn.Module):

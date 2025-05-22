@@ -34,7 +34,7 @@ class ParallelRowProcessor:
             }
         self.tocsc = tocsc
 
-    def convert(self, data_dict):
+    def convert(self, data_dict, subset_plan=None):
         """Convert the data_dict to a pseudobulk matrix."""
         # byte to csr matrix
         data_dict = self.byte_to_csr(data_dict)
@@ -44,7 +44,7 @@ class ParallelRowProcessor:
         for key, value in data_dict.items():
             if key in self.row_to_pseudobulk:
                 # from (n_meta_cell, n_bin) to (n_pseudobulk, n_bin)
-                value = self.row_to_pseudobulk[key](value)
+                value = self.row_to_pseudobulk[key](value, subset_plan=subset_plan)
             if self.tocsc and hasattr(value, "tocsc"):
                 value = value.tocsc()
 
@@ -258,7 +258,7 @@ class GenomeParquetDB:
         return actor_pool
 
     def query_parquet_regions(
-        self, regions: list[str], return_ordered=True
+        self, regions: list[str], return_ordered=True, pseudobulk_subset_plan=None
     ) -> Generator:
         """
         Given a list of regions, find which Parquet file(s) contain any of those regions,
@@ -274,6 +274,7 @@ class GenomeParquetDB:
             for more general region query, use "query_regions" method.
         return_ordered: If True, the results are returned in the order of the input regions.
                         If False, the results are returned in an unordered fashion.
+        pseudobulk_subset_plan: A bool array for selecting subset of pseudobulk rows.
         """
         # Build a comma-separated list of quoted region strings for SQL
         regions = list(set(regions))  # Deduplicate regions
@@ -309,7 +310,10 @@ class GenomeParquetDB:
                 break
 
             row_dict = dict(zip(cols, row))
-            actor_pool.submit(lambda a, x: a.convert.remote(x), row_dict)
+            actor_pool.submit(
+                lambda a, x: a.convert.remote(x, subset_plan=pseudobulk_subset_plan),
+                row_dict,
+            )
             runing_task += 1
 
             # once we've launched at least one task per actor, wait for that many
@@ -319,7 +323,12 @@ class GenomeParquetDB:
                 else:
                     _data = actor_pool.get_next_unordered()
                 yield _data
-                actor_pool.submit(lambda a, x: a.convert.remote(x), row_dict)
+                actor_pool.submit(
+                    lambda a, x: a.convert.remote(
+                        x, subset_plan=pseudobulk_subset_plan
+                    ),
+                    row_dict,
+                )
 
         while runing_task > 0:
             if return_ordered:
@@ -331,7 +340,7 @@ class GenomeParquetDB:
         return
 
     def _get_non_overlap_parquet_clusters(
-        self, parquet_regions_bed: pr.PyRanges
+        self, parquet_regions_bed: pr.PyRanges, pseudobulk_subset_plan=None
     ) -> tuple[dict[str, dict], pr.PyRanges]:
         """
         Given a parquet_regions bed, query the parquet dataset for the regions,
@@ -339,7 +348,11 @@ class GenomeParquetDB:
         """
         # query parquet regions
         parquet_regions_data = {}
-        for data in self.query_parquet_regions(parquet_regions_bed.df["Name"].tolist()):
+        data_iter = self.query_parquet_regions(
+            parquet_regions_bed.df["Name"].tolist(),
+            pseudobulk_subset_plan=pseudobulk_subset_plan,
+        )
+        for data in data_iter:
             parquet_regions_data[data["region"]] = data
 
         # Merge overlapping parquet regions into non-overlapping parquet cluster regions
@@ -407,13 +420,16 @@ class GenomeParquetDB:
             )
             .to_dict()
         )
+        # cluster order
+        cluster_order = jdf["Name_b"].unique()
 
         cluster_data_refs = {
             cname: ray.put(data) for cname, data in cluster_data.items()
         }
         task_inputs = []
-        for cluster, specs in specs_per_cluster.items():
-            # each task handles extracting chunk_size regions
+        for cluster in cluster_order:
+            # each tasks in order of cluster
+            specs = specs_per_cluster[cluster]
             chunk_size = 200
             for i in range(0, len(specs), chunk_size):
                 task_inputs.append(
@@ -430,7 +446,7 @@ class GenomeParquetDB:
         for result in tasks:
             yield from result
 
-    def _query_regions_iter(self, regions):
+    def _query_regions_iter(self, regions, pseudobulk_subset_plan=None):
         regions_to_get: pr.PyRanges = pr.PyRanges(understand_regions(regions)).sort()
 
         # Load relevant parquet regions and merge them into non-overlapping clusters
@@ -438,7 +454,7 @@ class GenomeParquetDB:
             regions_to_get
         ).sort()
         cluster_data, cluster_bed = self._get_non_overlap_parquet_clusters(
-            parquet_regions_to_get
+            parquet_regions_to_get, pseudobulk_subset_plan=pseudobulk_subset_plan
         )
 
         data_iter = self._extract_region_from_cluster(
@@ -449,6 +465,7 @@ class GenomeParquetDB:
     def query_regions(
         self,
         regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index,
+        pseudobulk_subset_plan=None,
     ) -> list[dict] | Generator:
         """
         Load data from the Parquet dataset for any regions.
@@ -459,11 +476,12 @@ class GenomeParquetDB:
             The keys of the dictionaries are the same as the columns in the Parquet dataset.
             The values are either sparse matrices or arrays, depending on the data type.
         """
-        return list(self._query_regions_iter(regions))
+        return list(self._query_regions_iter(regions, pseudobulk_subset_plan))
 
     def iter_batches(
         self,
-        regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index | None = None,
+        regions: list[str] | pr.PyRanges | pd.DataFrame | pd.Index,
+        pseudobulk_subset_plan=None,
         batch_size: int | None = 32,
     ):
         """
@@ -473,8 +491,9 @@ class GenomeParquetDB:
         ----------
         regions: Regions to query.
         batch_size: Number of regions to include in each batch.
+        pseudobulk_subset_plan: A bool array for selecting subset of pseudobulk rows.
         """
-        data_iter = self._query_regions_iter(regions)
+        data_iter = self._query_regions_iter(regions, pseudobulk_subset_plan)
 
         # yield every batch_size regions at a time
         batch_data = defaultdict(list)

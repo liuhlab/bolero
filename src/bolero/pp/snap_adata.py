@@ -74,10 +74,25 @@ class CSRRowMerge:
         self.P = coo_matrix((data, (rows, cols)), shape=(n_output, n_input)).tocsr()
         self.dtype = dtype
 
-    def __call__(self, A):
-        """Apply the merge plan to the input matrix A."""
+    def __call__(self, A, subset_plan: None | np.ndarray = None):
+        """
+        Apply the merge plan to the input matrix A.
+
+        Parameters
+        ----------
+        A : scipy.sparse.csr_matrix
+            Input sparse matrix to be merged. shape (n_cells, n_bins)
+        subset_plan : list, optional
+            If provided, only pseudobulk rows selected by this plan will be merged.
+            P will be (n_selected_pseudobulks, n_cells) and only selected pseudobulks will be merged.
+            If None, P will be (n_pseudobulks, n_cells) and all pseudobulks will be merged.
+        """
         assert A.shape[0] == self.n_input
-        return self.P.dot(A.tocsr()).astype(self.dtype)
+        if subset_plan is not None:
+            P = self.P[subset_plan, :]
+        else:
+            P = self.P
+        return P.dot(A.tocsr()).astype(self.dtype)
 
 
 class AdataPseudobulkMerger:

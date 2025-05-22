@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pyranges as pr
 import torch
@@ -39,14 +43,14 @@ def get_device():
         return torch.device("cpu")
 
 
-def convert_np_to_torch(x, device):
+def convert_np_to_torch(x):
     """
     Convert numpy arrays to PyTorch tensors, while preserving the original type
     """
     if isinstance(x, np.ndarray):
         # Check if it's numeric or boolean
         if np.issubdtype(x.dtype, np.number) or np.issubdtype(x.dtype, np.bool_):
-            return torch.from_numpy(x).to(device)
+            return torch.from_numpy(x)
         else:
             return x  # Keep as numpy array (e.g., string dtype)
     elif isinstance(x, (list, tuple)):
@@ -57,3 +61,22 @@ def convert_np_to_torch(x, device):
         return {k: convert_np_to_torch(v) for k, v in x.items()}
     else:
         return x  # Leave unchanged
+
+
+def load_config(config) -> dict:
+    """
+    Load the config file.
+    """
+    if isinstance(config, str):
+        config_path = Path(config)
+        if config_path.suffix == ".json":
+            with open(config_path) as f:
+                config = json.load(f)
+        elif config_path.suffix in (".joblib", "joblib.gz"):
+            config = joblib.load(config_path)
+        elif config_path.suffix == ".pkl":
+            with open(config_path, "rb") as f:
+                config = joblib.load(f)
+        else:
+            raise ValueError("Config file must be a .json or .pkl file")
+    return config

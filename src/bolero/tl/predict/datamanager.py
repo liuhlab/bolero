@@ -8,16 +8,18 @@ import joblib
 import numpy as np
 import pandas as pd
 import pyranges as pr
+import torch
 
 from bolero.pp.genome import Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDB
-from bolero.utils import understand_regions
 
-from .utils import convert_np_to_torch, get_device, validate_region
+from .utils import convert_np_to_torch, get_device
 
 
 class BackgroundGenerator:
-    def __init__(self, generator, max_prefetch=50, as_torch=True):
+    def __init__(
+        self, generator, max_prefetch=20, as_torch=True, device=None, collate_fn=None
+    ):
         """
         The generator will run in a separate thread and will prefetch up to max_prefetch items.
         """
@@ -25,23 +27,43 @@ class BackgroundGenerator:
         self.generator = generator
         self.thread = threading.Thread(target=self._worker)
         self.thread.daemon = True
-        self.thread.start()
+        self.started = False
         self.as_torch = as_torch
+        self.device = device
+        if collate_fn is None:
+            collate_fn = lambda x: x
+        self.collate_fn = collate_fn
+
+    def _ensure_started(self):
+        if not self.started:
+            self.thread.start()
+            self.started = True
 
     def _worker(self):
         for item in self.generator:
-            if self.as_torch:
-                item = convert_np_to_torch(item, get_device())
             self.queue.put(item)
         self.queue.put(None)  # Sentinel to mark end
 
     def __iter__(self):
+        self._ensure_started()
         return self
 
     def __next__(self):
+        self._ensure_started()
         item = self.queue.get()
         if item is None:
             raise StopIteration
+
+        # convert numpy arrays to torch tensors
+        if self.as_torch:
+            item = convert_np_to_torch(item)
+        for key, value in item.items():
+            if isinstance(value, torch.Tensor):
+                item[key] = value.to(self.device)
+
+        # apply collate function
+        item = self.collate_fn(item)
+
         return item
 
 
@@ -233,10 +255,6 @@ class GenericGenomeDataManager:
     def __init__(self, genome: str | Genome):
         self.genome = Genome(genome) if isinstance(genome, str) else genome
 
-        # region information
-        self._regions = None
-        self._regions_bed = None
-
         # Pseudobulk records
         self.pseudobulk_manager = None
 
@@ -245,42 +263,6 @@ class GenericGenomeDataManager:
 
         # Mutation information for mutation task
         self._mutation_table = None
-
-    def add_regions(self, regions: Any):
-        """
-        Add regions to the data manager.
-
-        Parameters
-        ----------
-        regions : Any
-            The regions to add. Can be a list of tuples, a dataframe, or a PyRanges object.
-        """
-        regions = understand_regions(regions, as_df=True)
-        validate_region(
-            region_bed=pr.PyRanges(regions),
-            chrom_sizes=self.genome.chrom_sizes,
-        )
-        self._regions_bed = pr.PyRanges(regions).sort()
-        self._regions = self._regions_bed.df
-        return
-
-    @property
-    def regions(self) -> pd.DataFrame:
-        """
-        Return the regions dataframe.
-        """
-        if self._regions is None:
-            raise ValueError("Regions not set, call add_regions() first")
-        return self._regions
-
-    @property
-    def regions_bed(self) -> pr.PyRanges:
-        """
-        Return the regions as a PyRanges object.
-        """
-        if self._regions_bed is None:
-            raise ValueError("Regions not set, call add_regions() first")
-        return self._regions_bed
 
     def add_mutations(self):
         """
@@ -396,7 +378,7 @@ class GenericGenomeDataManager:
             # shape is (n_regions, 4, seq_len)
         return onehot
 
-    def _add_pseudobulk_info_into_batch(
+    def _prepare_pseudobulk_info(
         self, info_keys: list[str], pids: list[str] = None
     ) -> dict[str, Any]:
         """
@@ -425,24 +407,36 @@ class GenericGenomeDataManager:
         batch_size: int = 32,
         add_dna: bool = True,
         add_data: bool = True,
+        pseudobulk_subset: list[str] = None,
         pseudobulk_info_keys: list[str] = None,
     ) -> Generator:
         """
-        Query the regions from the dataset.
+        Prepare batches for a list of regions.
         """
+        _pseudobulk_subset_bool = {}
+        if pseudobulk_subset is not None:
+            for da_name, da in self.datasets.items():
+                sel_bool = da.pseudobulk_ids.isin(pseudobulk_subset)
+                _pseudobulk_subset_bool[da_name] = sel_bool
+
         if add_data:
             da_data_dict = {
-                da_name: da.iter_batches(regions, batch_size=batch_size)
+                da_name: da.iter_batches(
+                    regions,
+                    batch_size=batch_size,
+                    pseudobulk_subset_plan=_pseudobulk_subset_bool.get(da_name, None),
+                )
                 for da_name, da in self.datasets.items()
             }
         else:
             da_data_dict = {}
 
         if pseudobulk_info_keys is not None:
-            pseudobulk_info = self._add_pseudobulk_info_into_batch(
+            pseudobulk_info = self._prepare_pseudobulk_info(
                 info_keys=pseudobulk_info_keys,
-                pids=None,
+                pids=pseudobulk_subset,
             )
+
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
             batch_data = {"region": regions_ref}
@@ -453,6 +447,7 @@ class GenericGenomeDataManager:
 
                 # make sure regions across datasets are matching
                 da_regions = da_batch.pop("region")
+
                 assert np.array_equal(
                     regions_ref, da_regions
                 ), f"Regions do not match for dataset {da_name}, expected {regions_ref}, got {da_regions}"
@@ -478,28 +473,24 @@ class GenericGenomeDataManager:
 
             yield batch_data
 
-    def iter_batches(
+    def _iter_batches(
         self,
-        regions: list[str] = None,
+        regions: list[str],
         batch_size: int = 32,
         add_dna: bool = True,
         add_data: bool = True,
+        pseudobulk_subset: list[str] = None,
         pseudobulk_info_keys: list[str] = None,
-        as_torch: bool = True,
-        device: str = "auto",
+        batches_per_chunk: int = 100,
     ) -> Generator:
         """
-        Iterate over the batches of data.
+        Iterate over the chunked list of regions.
+
+        To achieve asynchronous data loading, use the get_dataloader method.
         """
-        if regions is None:
-            regions = self.regions["Name"].to_list()
-
-        if device == "auto":
-            device = get_device()
-
-        region_chunk_size = batch_size * 100
+        region_chunk_size = batch_size * batches_per_chunk
         for cur_start in range(0, len(regions), region_chunk_size):
-            cur_end = min(cur_start + region_chunk_size, len(self.regions))
+            cur_end = min(cur_start + region_chunk_size, len(regions))
             regions_chunk = regions[cur_start:cur_end]
 
             iterable = self._iter_batches_chunk(
@@ -507,15 +498,70 @@ class GenericGenomeDataManager:
                 batch_size=batch_size,
                 add_dna=add_dna,
                 add_data=add_data,
+                pseudobulk_subset=pseudobulk_subset,
                 pseudobulk_info_keys=pseudobulk_info_keys,
             )
             yield from iterable
 
-    def get_dataloader(self, max_prefetch=50, **kwargs) -> BackgroundGenerator:
+    def _get_data_prefixs(self) -> list[str]:
+        data_prefix_names = []
+        for da in self.datasets.values():
+            data_prefix_names.extend(da.prefix_names)
+        return data_prefix_names
+
+    def get_dataloader(
+        self,
+        regions: list[str],
+        batch_size: int = 32,
+        add_dna: bool = True,
+        add_data: bool = True,
+        pseudobulk_subset: list[str] = None,
+        pseudobulk_info_keys: list[str] = None,
+        as_torch: bool = True,
+        device: str | None = None,
+        collate_fn: callable = None,
+        **kwargs,
+    ) -> BackgroundGenerator:
         """
         Get a dataloader for the data manager.
+
+        Parameters
+        ----------
+        regions : list[str], optional
+            The regions to query. If None, all regions will be used. Default is None.
+        batch_size : int, optional
+            The batch size to use. Default is 32.
+        add_dna : bool, optional
+            If True, the DNA one-hot encoding will be added to the batch. Default is True.
+        add_data : bool, optional
+            If True, the data from the parquet datasets will be added to the batch. Default is True.
+        pseudobulk_info_keys : list[str], optional
+            The keys of the pseudobulk information to add to the batch. Default is None, no pseudobulk info.
+        device : str, optional
+            The device to use for the torch tensors. Default is None, which means
+            the default device will be used.
+        max_prefetch : int, optional
+            The maximum number of batches to prefetch. Default is 50.
+        as_torch : bool, optional
+            If True, the batches will be converted to torch tensors. Default is True.
+        **kwargs : Any
+            Additional arguments to pass to the iter_batches method.
         """
+        if device is None:
+            device = get_device()
+
+        iterable = self._iter_batches(
+            regions=regions,
+            batch_size=batch_size,
+            add_dna=add_dna,
+            add_data=add_data,
+            pseudobulk_subset=pseudobulk_subset,
+            pseudobulk_info_keys=pseudobulk_info_keys,
+            **kwargs,
+        )
         return BackgroundGenerator(
-            self.iter_batches(**kwargs),
-            max_prefetch=max_prefetch,
+            iterable,
+            as_torch=as_torch,
+            device=device,
+            collate_fn=collate_fn,
         )
