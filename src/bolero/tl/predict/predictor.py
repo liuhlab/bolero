@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import numpy as np
 import pandas as pd
 import pyranges as pr
 import torch
@@ -158,6 +159,44 @@ class GenericPredictor:
             regions = regions.df["Name"].tolist()
         return regions
 
+    def apply_callbacks(self, batch: dict) -> dict:
+        """
+        Apply the callbacks to the batch.
+        """
+        for callback in self._callbacks:
+            batch = callback(batch)
+        return batch
 
-# Task: accomplish certain type of prediction
-# Metric: for each batch in task, add in certain values OR across batches, add in certain values
+    def compute_cumulative_callbacks(self):
+        """
+        Compute the cumulative callbacks.
+        """
+        total_data = {}
+        for callback in self._callbacks:
+            if hasattr(callback, "compute"):
+                d = callback.compute()
+                total_data.update(d)
+        return total_data
+
+    @staticmethod
+    def _print_batch(batch, prefix=""):
+        """
+        Print the batch.
+        """
+        keys = sorted(batch.keys())
+
+        print(f"==========\n{prefix} Batch Schema:")
+        for key in keys:
+            value = batch[key]
+            if isinstance(value, torch.Tensor):
+                print(
+                    f"- {key}: {type(value)} {value.shape} {value.dtype} {value.device}"
+                )
+            elif isinstance(value, np.ndarray):
+                print(f"- {key}: {type(value)} {value.shape} {value.dtype}")
+            elif hasattr(value, "shape"):
+                print(f"- {key}: {type(value)} {value.shape}")
+            else:
+                print(f"- {key}: {type(value)} {value}")
+        print("==========\n")
+        return

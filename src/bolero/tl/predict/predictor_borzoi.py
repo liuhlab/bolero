@@ -1,6 +1,11 @@
+import pathlib
+import tempfile
 import time
+from collections import defaultdict
+from shutil import rmtree
 from typing import Generator
 
+import joblib
 import numpy as np
 import pandas as pd
 import pyranges as pr
@@ -27,6 +32,8 @@ class BorzoiPredictor(GenericPredictor):
         else:
             peak_df = None
         self.peak_df: pd.DataFrame | None = peak_df
+
+        self._callbacks = []
 
     def _create_datamanager(self):
         config = self.config
@@ -114,7 +121,9 @@ class BorzoiPredictor(GenericPredictor):
         return callback_list
 
     def _get_prediction_callbacks(self):
-        callbacks = [("pearsonr", {"output_key": "profile_r"})]
+        callbacks = [
+            ("pearsonr", {"output_key": "profile_r"})
+        ]  # calc pearsonr on last dim (seq_len)
         if self.peak_df is not None:
             peak_level_callbacks = [
                 # extract peak data from borzoi regions
@@ -124,11 +133,12 @@ class BorzoiPredictor(GenericPredictor):
                 #
                 # calculate peak level profile correlation
                 (
-                    "pearsonr",
+                    "cumulative_pearsonr",
                     {
                         "ytrue_key": "__ytrue__:peak",
                         "ypred_key": "__ypred__:peak",
-                        "output_key": "peak_profile_r",
+                        "reduce_dims": -1,  # (sample, peak) -> (sample,)
+                        "output_key": "peak_cum_profile_r",
                     },
                 ),
                 # calculate peak level sample correlation
@@ -137,7 +147,7 @@ class BorzoiPredictor(GenericPredictor):
                     {
                         "ytrue_key": "__ytrue__:peak",
                         "ypred_key": "__ypred__:peak",
-                        "permute": (1, 0),  # (peak, sample) -> (sample, peak)
+                        "permute": (1, 0),  # (sample, peak) -> (peak, sample)
                         "output_key": "peak_sample_r",
                     },
                 ),
@@ -147,7 +157,7 @@ class BorzoiPredictor(GenericPredictor):
 
     def get_prediction_dataloader(
         self,
-        regions="test_regions",
+        regions,
         pseudobulk_ids=None,
         add_true_data=False,
         dna_key="dna",
@@ -159,10 +169,6 @@ class BorzoiPredictor(GenericPredictor):
         Get the dataloader for prediction.
         """
         # 1. Get regions
-        if isinstance(regions, str) and regions == "test_regions":
-            regions = self.get_fold_regions(test_only=True)
-        else:
-            regions = understand_regions(regions)
         regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
@@ -199,14 +205,14 @@ class BorzoiPredictor(GenericPredictor):
             collate_fn=_collate_fn,
         )
         pid_array = (
-            dataloader.dataset.pseudobulk_ids
+            self.pseudobulk_manager.pseudobulk_ids
             if pseudobulk_ids is None
             else pseudobulk_ids
         )
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        callbacks = self._get_prediction_callbacks()
+        self._callbacks = self._get_prediction_callbacks()
 
         # trigger model load
         _ = self.model
@@ -226,7 +232,7 @@ class BorzoiPredictor(GenericPredictor):
                 timer["infer"] += time.time() - t
 
                 t = time.time()
-                batch = self.apply_callbacks(batch, callbacks)
+                batch = self.apply_callbacks(batch)
                 timer["callback"] += time.time() - t
                 timer["counter"] += 1
 
@@ -236,10 +242,147 @@ class BorzoiPredictor(GenericPredictor):
 
         if verbose:
             print(
-                f"Total time: {timer['total']:.2f}s, "
+                f"Total time: {timer['total']:.2f}s\n"
                 f"Inference time: {timer['infer']:.2f}s or "
-                f"{timer['infer']/timer['counter']:.3f}s per batch, "
+                f"{timer['infer']/timer['counter']:.3f}s per batch\n"
                 f"Callback time: {timer['callback']:.2f}s or "
-                f"{timer['callback']/timer['counter']:.3f}s per batch, "
-                f"(total {timer['counter']} batches)"
+                f"{timer['callback']/timer['counter']:.3f}s per batch\n"
+                f"(total {timer['counter']} batches)\n"
             )
+
+    def prediction_task(
+        self,
+        output_dir,
+        regions="test_regions",
+        downsample_regions=None,
+        downsample_seed=0,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys=None,
+        verbose=True,
+    ):
+        """
+        Prediction task for Borzoi.
+        Compute the prediction on a set of regions and pseudobulk records.
+        Then compute the stats and save them to a file.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        regions: str or pd.DataFrame or list[str]
+            The regions to predict. If "test_regions", use the test regions.
+        downsample_regions: int
+            The number of regions to downsample. If None, use all regions.
+        downsample_seed: int
+            The seed for downsampling.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output file. If None, save all keys.
+        verbose: bool
+            Whether to print the progress.
+        """
+        if isinstance(regions, str) and regions == "test_regions":
+            regions = self.get_fold_regions(test_only=True)
+        else:
+            regions = understand_regions(regions)
+        if downsample_regions is not None:
+            regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            add_true_data=True,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+        )
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        stats_path = output_dir / "summary_stats.joblib.gz"
+        stats_tmpdir = tempfile.mkdtemp()
+        stats_tmpdir = pathlib.Path(stats_tmpdir)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+            print(f"Saving stats to {stats_path}")
+            print(f"Using temporary directory {stats_tmpdir}")
+
+        # data to save for each batch
+        save_keys = [] if save_keys is None else save_keys
+        # stats to collect across batches
+        stats_keys = [
+            "region",
+            "profile_r",
+            "peak",
+            "peak_sample_r",
+            "pseudobulk_ids",
+            "peak_cum_profile_r",
+        ]
+
+        batch_stats_paths = []
+        save_batch = {}
+        for idx, batch in enumerate(dataloader):
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+
+            # save the batch to a file
+            save_batch = {}
+            stats_batch = {}
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                if k in save_keys:
+                    save_batch[k] = v
+                if k in stats_keys:
+                    stats_batch[k] = v
+            # data to save for each batch
+            save_path = batch_dir / f"batch_{idx}.joblib.gz"
+            joblib.dump(save_batch, save_path)
+            # stats to collect across batches
+            batch_stats_path = stats_tmpdir / f"batch_{idx}.joblib"
+            joblib.dump(stats_batch, batch_stats_path)
+            batch_stats_paths.append(batch_stats_path)
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
+
+        # collect the stats across batches
+        total_stats = defaultdict(list)
+        for _path in batch_stats_paths:
+            batch_stats = joblib.load(_path)
+            for k, v in batch_stats.items():
+                total_stats[k].append(v)
+
+        # concatenate the stats
+        for k in total_stats.keys():
+            v = total_stats[k]
+            if k == "pseudobulk_ids":
+                total_stats[k] = v[0]
+            elif isinstance(v[0], pd.DataFrame):
+                total_stats[k] = pd.concat(v)
+            else:
+                total_stats[k] = np.concatenate(v)
+
+        # add cumulative stats to final stats
+        cum_data = self.compute_cumulative_callbacks()
+        for k, v in cum_data.items():
+            if k in stats_keys:
+                total_stats[k] = v
+
+        # save the stats
+        joblib.dump(total_stats, stats_path)
+
+        # remove the temporary files
+        rmtree(stats_tmpdir)
+        if verbose:
+            self._print_batch(total_stats, prefix="Final Stats")
+            print(f"Removed temporary files in {stats_tmpdir}")
+        return
+
+
+# TODO: attribution task - just prediction, collapse lora, no true data
+# TODO: add a b test prediction task, predict the delta between two conditions

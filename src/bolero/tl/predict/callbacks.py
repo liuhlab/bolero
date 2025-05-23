@@ -4,6 +4,7 @@ import torch
 from einops import einsum, rearrange
 from torchmetrics.functional import pearson_corrcoef
 
+from bolero.tl.model.borzoi.metrics import MeanPearsonCorrCoefPerChannel
 from bolero.utils import understand_regions
 
 
@@ -17,7 +18,7 @@ class PearsonCorrcoef:
         numpy: bool = True,
     ):
         """
-        Calculate the Pearson correlation coefficient along the sequence length dimension.
+        Calculate the Pearson correlation coefficient along the last dimension.
 
         Parameters
         ----------
@@ -29,7 +30,7 @@ class PearsonCorrcoef:
             The key for the predicted values in the batch dictionary.
         permute : tuple[int] | None
             If not None, permute the dimensions of the input tensors before calculating the correlation.
-            This is useful for cases where the sequence length dimension is not the last dimension.
+            This is useful for cases where the last dimension is not the last dimension.
         numpy : bool
             If True, return the result as a numpy array. Default is False (returns a torch tensor).
         """
@@ -61,6 +62,69 @@ class PearsonCorrcoef:
             r = r.cpu().numpy()
         batch[self.output_key] = r
         return batch
+
+
+class CumulativePearsonCorrcoef:
+    def __init__(
+        self,
+        reduce_dims: int | tuple[int],
+        ytrue_key: str = "__ytrue__",
+        ypred_key: str = "__ypred__",
+        output_key: str = "cumulative_pearsonr",
+        numpy: bool = True,
+    ):
+        """
+        Calculate the cumulative Pearson correlation coefficient along the sequence length dimension.
+
+        Parameters
+        ----------
+        output_key : str
+            The key for the output in the batch dictionary.
+        ytrue_key : str
+            The key for the true values in the batch dictionary.
+        ypred_key : str
+            The key for the predicted values in the batch dictionary.
+        permute : tuple[int] | None
+            If not None, permute the dimensions of the input tensors before calculating the correlation.
+            This is useful for cases where the sequence length dimension is not the last dimension.
+        numpy : bool
+            If True, return the result as a numpy array. Default is False (returns a torch tensor).
+        """
+        self.ytrue_key = ytrue_key
+        self.ypred_key = ypred_key
+        self.reduce_dims = reduce_dims
+        self.output_key = output_key
+        self.numpy = numpy
+
+        self._cumulative_pearsonr = None
+
+    def __call__(self, batch):
+        """
+        Cumulating data to the calculator, but make no changes to the batch.
+        """
+        if self._cumulative_pearsonr is None:
+            # create cumulative pearsonr object in first call
+            _data = batch[self.ytrue_key]
+            pshape = _data.sum(dim=self.reduce_dims).shape
+            self._cumulative_pearsonr = MeanPearsonCorrCoefPerChannel(
+                n_channels=pshape, reduce_dims=self.reduce_dims
+            ).to(_data.device)
+
+        ytrue = batch[self.ytrue_key]
+        ypred = batch[self.ypred_key]
+        self._cumulative_pearsonr.update(ypred, ytrue)
+        return batch
+
+    def compute(self) -> dict:
+        """Compute the cumulative Pearson correlation coefficient."""
+        r = self._cumulative_pearsonr.compute()
+        if self.numpy:
+            r = r.cpu().numpy()
+
+        data_dict = {
+            self.output_key: r,
+        }
+        return data_dict
 
 
 class PeakDataSummary:
@@ -164,5 +228,6 @@ class PeakDataSummary:
 
 CALLBACK_NAME_TO_CLASS = {
     "pearsonr": PearsonCorrcoef,
+    "cumulative_pearsonr": CumulativePearsonCorrcoef,
     "extract_peak": PeakDataSummary,
 }
