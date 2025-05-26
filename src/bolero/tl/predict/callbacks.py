@@ -2,26 +2,32 @@ import numpy as np
 import pandas as pd
 import torch
 from einops import einsum, rearrange
+from torchmetrics import Metric, PearsonCorrCoef, R2Score
 from torchmetrics.functional import pearson_corrcoef
 
-from bolero.tl.model.borzoi.metrics import MeanPearsonCorrCoefPerChannel
 from bolero.utils import understand_regions
 
 
-class PearsonCorrcoef:
+class MetricCallback:
     def __init__(
         self,
-        output_key: str = "pearsonr",
+        metric_cls: Metric,
+        output_key: str,
         ytrue_key: str = "__ytrue__",
         ypred_key: str = "__ypred__",
         permute: tuple[int] | None = None,
         numpy: bool = True,
+        cumulative: bool = False,
+        _init_metric_with_example: bool = False,
+        **metric_kwargs,
     ):
         """
-        Calculate the Pearson correlation coefficient along the last dimension.
+        Calculate the metrics along the first dimension.
 
         Parameters
         ----------
+        metric_cls : Metric
+            The metric class to be used. It should be a subclass of torchmetrics.Metric.
         output_key : str
             The key for the output in the batch dictionary.
         ytrue_key : str
@@ -29,102 +35,135 @@ class PearsonCorrcoef:
         ypred_key : str
             The key for the predicted values in the batch dictionary.
         permute : tuple[int] | None
-            If not None, permute the dimensions of the input tensors before calculating the correlation.
-            This is useful for cases where the last dimension is not the last dimension.
+            If the dimention of interest is not the first dimension, use this to permute the dimensions.
         numpy : bool
             If True, return the result as a numpy array. Default is False (returns a torch tensor).
+        cumulative : bool
+            If True, calculate the metric cumulatively. Default is False (calculate the metric for each batch).
+        metric_kwargs : dict
+            Additional keyword arguments to be passed to the metric class.
         """
-        self.output_key = output_key
-        self.ytrue_key = ytrue_key
-        self.ypred_key = ypred_key
-        self.permute = permute
-        self.numpy = numpy
+        self.output_key: str = output_key
+        self.ytrue_key: str = ytrue_key
+        self.ypred_key: str = ypred_key
+        self.permute: tuple[int] | None = permute
+        self.numpy: bool = numpy
+        self.cumulative: bool = cumulative
 
-    def __call__(self, batch):
+        self.metric: Metric | None = None
+        self.metric_cls = metric_cls
+        self._metric_kwargs = metric_kwargs
+        if not _init_metric_with_example:
+            self.metric: Metric = metric_cls(**metric_kwargs)
+        self._output_shape: tuple[int] | None = None
+        self.first_call: bool = True
+
+    def to(self, device) -> "MetricCallback":
+        """Move the metric to the specified device."""
+        if hasattr(self.metric, "to"):
+            self.metric.to(device)
+        return
+
+    def _compute(self, ypred=None, ytrue=None) -> torch.Tensor | np.ndarray:
+        """Compute the metric."""
+        if self.cumulative:
+            score: torch.Tensor = self.metric.compute().to(torch.float32)
+        else:
+            score: torch.Tensor = self.metric(ypred, ytrue).to(torch.float32)
+
+        if self._output_shape is not None:
+            score = score.reshape(*self._output_shape)
+
+        if self.numpy:
+            score = score.cpu().numpy()
+        return score
+
+    def __call__(self, batch: dict) -> dict:
         """Calculate the Pearson correlation coefficient."""
-        ytrue = batch[self.ytrue_key]
-        ypred = batch[self.ypred_key]
+        ytrue: torch.Tensor = batch[self.ytrue_key]
+        ypred: torch.Tensor = batch[self.ypred_key]
 
-        # use permute to put the dimension of interest at the end
+        if self.first_call:
+            self.to(ytrue.device)
+            self.first_call = False
+
+        # use permute to put the dimension of interest at the first dimension
         if self.permute is not None:
             ytrue = ytrue.permute(*self.permute)
             ypred = ypred.permute(*self.permute)
 
-        *out_shape, _ = ytrue.shape
-        ytrue = rearrange(ytrue, "... l -> l (...)")
-        ypred = rearrange(ypred, "... l -> l (...)")
-        r = pearson_corrcoef(ypred.to(torch.float64), ytrue.to(torch.float64)).to(
-            torch.float32
-        )
-        r = r.reshape(*out_shape)
+        if ytrue.ndim > 2:
+            _, *out_shape = ytrue.shape
+            ytrue = rearrange(ytrue, "l ... -> l (...)")
+            ypred = rearrange(ypred, "l ... -> l (...)")
+            self._output_shape = out_shape
+        else:
+            out_shape = None
 
-        if self.numpy:
-            r = r.cpu().numpy()
-        batch[self.output_key] = r
-        return batch
+        ypred = ypred.to(torch.float64)
+        ytrue = ytrue.to(torch.float64)
 
+        if self.cumulative:
+            # for cumulative metric, we need to update the metric instead of calling it
+            self.metric.update(ypred, ytrue)
+            # and do nothing to the batch
+            return batch
 
-class CumulativePearsonCorrcoef:
-    def __init__(
-        self,
-        reduce_dims: int | tuple[int],
-        ytrue_key: str = "__ytrue__",
-        ypred_key: str = "__ypred__",
-        output_key: str = "cumulative_pearsonr",
-        numpy: bool = True,
-    ):
-        """
-        Calculate the cumulative Pearson correlation coefficient along the sequence length dimension.
-
-        Parameters
-        ----------
-        output_key : str
-            The key for the output in the batch dictionary.
-        ytrue_key : str
-            The key for the true values in the batch dictionary.
-        ypred_key : str
-            The key for the predicted values in the batch dictionary.
-        permute : tuple[int] | None
-            If not None, permute the dimensions of the input tensors before calculating the correlation.
-            This is useful for cases where the sequence length dimension is not the last dimension.
-        numpy : bool
-            If True, return the result as a numpy array. Default is False (returns a torch tensor).
-        """
-        self.ytrue_key = ytrue_key
-        self.ypred_key = ypred_key
-        self.reduce_dims = reduce_dims
-        self.output_key = output_key
-        self.numpy = numpy
-
-        self._cumulative_pearsonr = None
-
-    def __call__(self, batch):
-        """
-        Cumulating data to the calculator, but make no changes to the batch.
-        """
-        if self._cumulative_pearsonr is None:
-            # create cumulative pearsonr object in first call
-            _data = batch[self.ytrue_key]
-            pshape = _data.sum(dim=self.reduce_dims).shape
-            self._cumulative_pearsonr = MeanPearsonCorrCoefPerChannel(
-                n_channels=pshape, reduce_dims=self.reduce_dims
-            ).to(_data.device)
-
-        ytrue = batch[self.ytrue_key]
-        ypred = batch[self.ypred_key]
-        self._cumulative_pearsonr.update(ypred, ytrue)
+        # calculate the metric within batch
+        score = self._compute(ypred, ytrue)
+        batch[self.output_key] = score
         return batch
 
     def compute(self) -> dict:
-        """Compute the cumulative Pearson correlation coefficient."""
-        r = self._cumulative_pearsonr.compute()
-        if self.numpy:
-            r = r.cpu().numpy()
+        """Compute the metric."""
+        score = self._compute()
 
         data_dict = {
-            self.output_key: r,
+            self.output_key: score,
         }
         return data_dict
+
+
+class PearsonCorrcoefCallback(MetricCallback):
+    def __init__(self, **kwargs):
+        """
+        Calculate the Pearson correlation coefficient along the first dimension.
+        """
+        default_kwargs = {
+            "metric_cls": PearsonCorrCoef,
+            "output_key": "pearsonr",
+            # pearsonr class needs an example to set num_outputs
+            "_init_metric_with_example": True,
+        }
+        default_kwargs.update(kwargs)
+        super().__init__(**default_kwargs)
+
+    def __call__(self, batch: dict) -> dict:
+        """Init metric with example, then calculate pearsonr."""
+        if self.cumulative:
+            if self.metric is None:
+                # init metric with example
+                ytrue: torch.Tensor = batch[self.ytrue_key]
+                if self.permute is not None:
+                    ytrue = ytrue.permute(*self.permute)
+                num_outputs = ytrue[0].shape.numel()
+                self._metric_kwargs["num_outputs"] = num_outputs
+                self.metric = self.metric_cls(**self._metric_kwargs)
+        else:
+            #
+            self.metric = pearson_corrcoef
+
+        return super().__call__(batch)
+
+
+class R2ScoreCallback(MetricCallback):
+    def __init__(self, **kwargs):
+        """
+        Calculate the R2 score along the first dimension.
+        """
+        default_kwargs = {"metric_cls": R2Score, "output_key": "r2_score"}
+        default_kwargs.update(kwargs)
+        super().__init__(**default_kwargs)
 
 
 class PeakDataSummary:
@@ -227,7 +266,7 @@ class PeakDataSummary:
 
 
 CALLBACK_NAME_TO_CLASS = {
-    "pearsonr": PearsonCorrcoef,
-    "cumulative_pearsonr": CumulativePearsonCorrcoef,
+    "pearsonr": PearsonCorrcoefCallback,
+    "r2_score": R2ScoreCallback,
     "extract_peak": PeakDataSummary,
 }

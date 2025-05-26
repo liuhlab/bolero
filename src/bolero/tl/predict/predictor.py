@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import joblib
 import numpy as np
 import pandas as pd
 import pyranges as pr
@@ -12,6 +13,7 @@ from bolero.tl.model.borzoi.utils import BorzoiRegions
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 from bolero.utils import understand_regions
 
+from .callbacks import CALLBACK_NAME_TO_CLASS
 from .datamanager import GenericGenomeDataManager
 from .utils import get_device, load_config, validate_region
 
@@ -159,12 +161,41 @@ class GenericPredictor:
             regions = regions.df["Name"].tolist()
         return regions
 
+    def _prepare_post_inference_callbacks(
+        self, callbacks: str | list[str] | list[tuple[str, dict]]
+    ):
+        """
+        Prepare the post inference callbacks.
+
+        callbacks: list[tuple[str, dict]]
+            A list of tuples, where each tuple contains the name of the callback and its arguments.
+            The callback name should be one of the keys in CALLBACK_NAME_TO_CLASS.
+        """
+        if isinstance(callbacks, str):
+            callbacks = [callbacks]
+
+        callback_list = []
+        for name_and_kwargs in callbacks:
+            if isinstance(name_and_kwargs, str):
+                name_and_kwargs = (name_and_kwargs, {})
+            name, kwargs = name_and_kwargs
+            callback = CALLBACK_NAME_TO_CLASS[name](**kwargs)
+            callback_list.append(callback)
+        return callback_list
+
     def apply_callbacks(self, batch: dict) -> dict:
         """
         Apply the callbacks to the batch.
         """
-        for callback in self._callbacks:
-            batch = callback(batch)
+        try:
+            idx = 0
+            for callback in self._callbacks:
+                batch = callback(batch)
+                idx += 1
+        except ValueError as e:
+            print(f"Callback {idx}", callback)
+            self._print_batch(batch)
+            raise e
         return batch
 
     def compute_cumulative_callbacks(self):
@@ -172,10 +203,11 @@ class GenericPredictor:
         Compute the cumulative callbacks.
         """
         total_data = {}
-        for callback in self._callbacks:
-            if hasattr(callback, "compute"):
-                d = callback.compute()
-                total_data.update(d)
+        with torch.inference_mode():
+            for callback in self._callbacks:
+                if getattr(callback, "cumulative", False):
+                    d = callback.compute()
+                    total_data.update(d)
         return total_data
 
     @staticmethod
@@ -200,3 +232,17 @@ class GenericPredictor:
                 print(f"- {key}: {type(value)} {value}")
         print("==========\n")
         return
+
+    def _save_task_configs(self, task_config, output_path):
+        """
+        Save the task configs.
+        """
+        ensemble_dict = {
+            "config": self.config,
+            "pseudobulk_records": self.pseudobulk_manager.original_records,
+            "task_config": task_config,
+        }
+        joblib.dump(
+            ensemble_dict,
+            output_path,
+        )

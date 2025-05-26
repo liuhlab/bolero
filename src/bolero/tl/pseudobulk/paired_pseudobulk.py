@@ -19,7 +19,7 @@ from bolero.utils import validate_config
 #                    'meta_cell_1',
 #                    'meta_cell_2',
 #                    ...
-#                 ]
+#                ]
 #        },
 #    'n_frags': {
 #        'DA_NAME': N_FRAGS,
@@ -299,6 +299,7 @@ class PairedPseudobulker:
             sel_pseudobulk["cluster_ids"][self.prefix_name]
         ].values.tolist()
 
+        # 4. create a new pseudobulk record for the OT selected pseudobulk
         n_frags = self.meta_cell_n_frags.loc[p_ot_meta_cells].sum()
         pad_emb_to_n = sel_pseudobulk["embedding_multi"].shape[0]
         ot_pseudobulk = {

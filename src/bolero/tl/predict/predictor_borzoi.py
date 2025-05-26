@@ -16,7 +16,6 @@ from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.utils import understand_regions
 
-from .callbacks import CALLBACK_NAME_TO_CLASS
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
 
@@ -98,32 +97,17 @@ class BorzoiPredictor(GenericPredictor):
         batch["__ypred__"] = y_pred.detach()
         return batch
 
-    def prepare_post_inference_callbacks(
-        self, callbacks: str | list[str] | list[tuple[str, dict]]
-    ):
-        """
-        Prepare the post inference callbacks.
-
-        callbacks: list[tuple[str, dict]]
-            A list of tuples, where each tuple contains the name of the callback and its arguments.
-            The callback name should be one of the keys in CALLBACK_NAME_TO_CLASS.
-        """
-        if isinstance(callbacks, str):
-            callbacks = [callbacks]
-
-        callback_list = []
-        for name_and_kwargs in callbacks:
-            if isinstance(name_and_kwargs, str):
-                name_and_kwargs = (name_and_kwargs, {})
-            name, kwargs = name_and_kwargs
-            callback = CALLBACK_NAME_TO_CLASS[name](**kwargs)
-            callback_list.append(callback)
-        return callback_list
-
     def _get_prediction_callbacks(self):
         callbacks = [
-            ("pearsonr", {"output_key": "profile_r"})
-        ]  # calc pearsonr on last dim (seq_len)
+            # calc pearsonr on last dim (seq_len)
+            (
+                "pearsonr",
+                {
+                    "output_key": "profile_r",
+                    "permute": (2, 0, 1),
+                },
+            )
+        ]
         if self.peak_df is not None:
             peak_level_callbacks = [
                 # extract peak data from borzoi regions
@@ -131,29 +115,29 @@ class BorzoiPredictor(GenericPredictor):
                 # this step adds the peak data to the batch:
                 # "__ytrue__:peak" and "__ypred__:peak"
                 #
-                # calculate peak level profile correlation
-                (
-                    "cumulative_pearsonr",
-                    {
-                        "ytrue_key": "__ytrue__:peak",
-                        "ypred_key": "__ypred__:peak",
-                        "reduce_dims": -1,  # (sample, peak) -> (sample,)
-                        "output_key": "peak_cum_profile_r",
-                    },
-                ),
-                # calculate peak level sample correlation
+                # calculate peak cumulative profile correlation
                 (
                     "pearsonr",
                     {
                         "ytrue_key": "__ytrue__:peak",
                         "ypred_key": "__ypred__:peak",
-                        "permute": (1, 0),  # (sample, peak) -> (peak, sample)
+                        "permute": (1, 0),  # (sample, peak) -> (sample,)
+                        "output_key": "peak_cum_profile_r",
+                        "cumulative": True,
+                    },
+                ),
+                # calculate peak sample correlation
+                (
+                    "pearsonr",
+                    {
+                        "ytrue_key": "__ytrue__:peak",
+                        "ypred_key": "__ypred__:peak",
                         "output_key": "peak_sample_r",
                     },
                 ),
             ]
             callbacks.extend(peak_level_callbacks)
-        return self.prepare_post_inference_callbacks(callbacks)
+        return self._prepare_post_inference_callbacks(callbacks)
 
     def get_prediction_dataloader(
         self,
@@ -381,6 +365,16 @@ class BorzoiPredictor(GenericPredictor):
         if verbose:
             self._print_batch(total_stats, prefix="Final Stats")
             print(f"Removed temporary files in {stats_tmpdir}")
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+            },
+            output_path=config_path,
+        )
         return
 
 
