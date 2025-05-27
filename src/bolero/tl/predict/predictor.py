@@ -192,7 +192,7 @@ class GenericPredictor:
             for callback in self._callbacks:
                 batch = callback(batch)
                 idx += 1
-        except ValueError as e:
+        except Exception as e:
             print(f"Callback {idx}", callback)
             self._print_batch(batch)
             raise e

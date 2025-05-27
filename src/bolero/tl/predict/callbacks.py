@@ -1,11 +1,12 @@
 import re
+from functools import partial
 
 import numpy as np
 import pandas as pd
 import torch
 from einops import einsum, rearrange
 from torchmetrics import Metric, PearsonCorrCoef, R2Score
-from torchmetrics.functional import pearson_corrcoef
+from torchmetrics.functional import pearson_corrcoef, r2_score
 
 from bolero.utils import understand_regions
 
@@ -20,7 +21,6 @@ class MetricCallback:
         permute: tuple[int] | None = None,
         numpy: bool = True,
         cumulative: bool = False,
-        _init_metric_with_example: bool = False,
         **metric_kwargs,
     ):
         """
@@ -55,10 +55,24 @@ class MetricCallback:
         self.metric: Metric | None = None
         self.metric_cls = metric_cls
         self._metric_kwargs = metric_kwargs
-        if not _init_metric_with_example:
-            self.metric: Metric = metric_cls(**metric_kwargs)
         self._output_shape: tuple[int] | None = None
         self.first_call: bool = True
+
+    @property
+    def _functional_metric(self):
+        raise NotImplementedError(
+            "The functional metric should be defined in the subclass."
+        )
+
+    def _create_metric_if_none(self, *args, **kwargs):
+        if self.metric is None:
+            if self.cumulative:
+                # For cumulative metric, use the metric class which saves the state
+                self.metric = self.metric_cls(**self._metric_kwargs)
+            else:
+                # For non-cumulative metric, use the functional metric
+                self.metric = self._functional_metric
+        return
 
     def to(self, device) -> "MetricCallback":
         """Move the metric to the specified device."""
@@ -82,6 +96,8 @@ class MetricCallback:
 
     def __call__(self, batch: dict) -> dict:
         """Calculate the Pearson correlation coefficient."""
+        self._create_metric_if_none(batch)
+
         ytrue: torch.Tensor = batch[self.ytrue_key]
         ypred: torch.Tensor = batch[self.ypred_key]
 
@@ -134,28 +150,27 @@ class PearsonCorrcoefCallback(MetricCallback):
         default_kwargs = {
             "metric_cls": PearsonCorrCoef,
             "output_key": "pearsonr",
-            # pearsonr class needs an example to set num_outputs
-            "_init_metric_with_example": True,
         }
         default_kwargs.update(kwargs)
         super().__init__(**default_kwargs)
 
-    def __call__(self, batch: dict) -> dict:
-        """Init metric with example, then calculate pearsonr."""
-        if self.cumulative:
-            if self.metric is None:
-                # init metric with example
+    def _create_metric_if_none(self, batch):
+        if self.metric is None:
+            if self.cumulative:
+                # init metric shape with example
                 ytrue: torch.Tensor = batch[self.ytrue_key]
                 if self.permute is not None:
                     ytrue = ytrue.permute(*self.permute)
                 num_outputs = ytrue[0].shape.numel()
                 self._metric_kwargs["num_outputs"] = num_outputs
                 self.metric = self.metric_cls(**self._metric_kwargs)
-        else:
-            #
-            self.metric = pearson_corrcoef
+            else:
+                self.metric = self._functional_metric
+        return
 
-        return super().__call__(batch)
+    @property
+    def _functional_metric(self):
+        return pearson_corrcoef
 
 
 class R2ScoreCallback(MetricCallback):
@@ -163,9 +178,21 @@ class R2ScoreCallback(MetricCallback):
         """
         Calculate the R2 score along the first dimension.
         """
-        default_kwargs = {"metric_cls": R2Score, "output_key": "r2_score"}
+        default_kwargs = {
+            "metric_cls": R2Score,
+            "output_key": "r2_score",
+            "multioutput": "raw_values",
+        }
         default_kwargs.update(kwargs)
         super().__init__(**default_kwargs)
+
+    @property
+    def _functional_metric(self):
+        return partial(
+            r2_score,
+            multioutput=self._metric_kwargs.get("multioutput", "raw_values"),
+            adjusted=self._metric_kwargs.get("adjusted", 0),
+        )
 
 
 class PeakDataSummary:
@@ -338,6 +365,9 @@ class CalculatePairedDataDelta:
         ypred_key = self.ypred_key
         all_pids = pid_table.index
 
+        yture_col = []
+        ypred_col = []
+        cond_pairs = []
         for (cond0, cond1), cond_df in pid_table.groupby(["cond0", "cond1"]):
             cond0_pids = cond_df[cond_df["cond"] == cond0].sort_values("idx").index
             cond1_pids = cond_df[cond_df["cond"] == cond1].sort_values("idx").index
@@ -345,12 +375,17 @@ class CalculatePairedDataDelta:
             ytrue_cond0 = batch[ytrue_key][all_pids.isin(cond0_pids)]
             ytrue_cond1 = batch[ytrue_key][all_pids.isin(cond1_pids)]
             ytrue_delta = ytrue_cond0 - ytrue_cond1
-            batch[f"{ytrue_key}:{cond0}|{cond1}:{self.output_suffix}"] = ytrue_delta
+            yture_col.append(ytrue_delta)
 
             ypred_cond0 = batch[ypred_key][all_pids.isin(cond0_pids)]
             ypred_cond1 = batch[ypred_key][all_pids.isin(cond1_pids)]
             ypred_delta = ypred_cond0 - ypred_cond1
-            batch[f"{ypred_key}:{cond0}|{cond1}:{self.output_suffix}"] = ypred_delta
+            ypred_col.append(ypred_delta)
+            cond_pairs.extend([[cond0, cond1]] * len(ytrue_delta))
+
+        batch[f"{ytrue_key}:{self.output_suffix}"] = torch.concatenate(yture_col)
+        batch[f"{ypred_key}:{self.output_suffix}"] = torch.concatenate(ypred_col)
+        batch["condition_pairs"] = np.array(cond_pairs)
         return batch
 
 

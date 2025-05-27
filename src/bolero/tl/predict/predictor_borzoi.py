@@ -104,10 +104,17 @@ class BorzoiPredictor(GenericPredictor):
             (
                 "pearsonr",
                 {
-                    "output_key": "profile_r",
+                    "output_key": "profile_pearsonr",
                     "permute": (2, 0, 1),
                 },
-            )
+            ),
+            (
+                "r2_score",
+                {
+                    "output_key": "profile_r2",
+                    "permute": (2, 0, 1),
+                },
+            ),
         ]
         if self.peak_df is not None:
             peak_level_callbacks = [
@@ -122,8 +129,18 @@ class BorzoiPredictor(GenericPredictor):
                     {
                         "ytrue_key": "__ytrue__:peak",
                         "ypred_key": "__ypred__:peak",
-                        "permute": (1, 0),  # (sample, peak) -> (sample,)
-                        "output_key": "peak_cum_profile_r",
+                        "permute": (1, 0),  # (sample, peak) -> (peak, sample)
+                        "output_key": "peak_cum_profile_pearsonr",
+                        "cumulative": True,
+                    },
+                ),
+                (
+                    "r2_score",
+                    {
+                        "ytrue_key": "__ytrue__:peak",
+                        "ypred_key": "__ypred__:peak",
+                        "permute": (1, 0),
+                        "output_key": "peak_cum_profile_r2",
                         "cumulative": True,
                     },
                 ),
@@ -133,7 +150,15 @@ class BorzoiPredictor(GenericPredictor):
                     {
                         "ytrue_key": "__ytrue__:peak",
                         "ypred_key": "__ypred__:peak",
-                        "output_key": "peak_sample_r",
+                        "output_key": "peak_sample_pearsonr",
+                    },
+                ),
+                (
+                    "r2_score",
+                    {
+                        "ytrue_key": "__ytrue__:peak",
+                        "ypred_key": "__ypred__:peak",
+                        "output_key": "peak_sample_r2",
                     },
                 ),
             ]
@@ -206,7 +231,10 @@ class BorzoiPredictor(GenericPredictor):
         timer = {"infer": 0, "callback": 0, "total": 0, "counter": 0}
         start = time.time()
         for batch in dataloader:
+            batch["pseudobulk_ids"] = pid_array
+
             with torch.inference_mode():
+                # Inference step
                 t = time.time()
                 batch = self._lora_model_prediction_step(
                     batch,
@@ -216,12 +244,12 @@ class BorzoiPredictor(GenericPredictor):
                 )
                 timer["infer"] += time.time() - t
 
+                # Post-inference callbacks
                 t = time.time()
                 batch = self.apply_callbacks(batch)
                 timer["callback"] += time.time() - t
                 timer["counter"] += 1
 
-            batch["pseudobulk_ids"] = pid_array
             yield batch
         timer["total"] = time.time() - start
 
@@ -384,7 +412,7 @@ class BorzoiPairPredictor(BorzoiPredictor):
         paired_pseudobulker, config = self._create_pseudobulk_records_from_design(
             config
         )
-        self.pseudobulk_manager = paired_pseudobulker
+        self.paired_pseudobulker = paired_pseudobulker
 
         super().__init__(config)
 
@@ -418,6 +446,26 @@ class BorzoiPairPredictor(BorzoiPredictor):
                     "ytrue_key": "__ytrue__:peak",
                     "ypred_key": "__ypred__:peak",
                     "output_suffix": "delta",
+                },
+            ),
+            (
+                "pearsonr",
+                {
+                    "ytrue_key": "__ytrue__:peak:delta",
+                    "ypred_key": "__ypred__:peak:delta",
+                    "permute": (1, 0),  # (sample, peak) -> (peak, sample)
+                    "output_key": "peak_delta_pearsonr",
+                    "cumulative": True,
+                },
+            ),
+            (
+                "r2_score",
+                {
+                    "ytrue_key": "__ytrue__:peak:delta",
+                    "ypred_key": "__ypred__:peak:delta",
+                    "permute": (1, 0),
+                    "output_key": "peak_delta_r2",
+                    "cumulative": True,
                 },
             ),
         ]

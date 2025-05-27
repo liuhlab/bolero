@@ -40,7 +40,7 @@ dependencies = [
     "tmtoolkit",
     "tqdm",
     "torchinfo",
-    "torchmetrics",
+    "torchmetrics>=1.6.0",
     "torchscale",
     "transformers",
     "scvi-tools",
