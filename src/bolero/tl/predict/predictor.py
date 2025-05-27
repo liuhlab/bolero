@@ -165,7 +165,7 @@ class GenericPredictor:
         self, callbacks: str | list[str] | list[tuple[str, dict]]
     ):
         """
-        Prepare the post inference callbacks.
+        Prepare the post inference callbacks from its name and arguments.
 
         callbacks: list[tuple[str, dict]]
             A list of tuples, where each tuple contains the name of the callback and its arguments.

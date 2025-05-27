@@ -14,6 +14,7 @@ from einops import rearrange
 
 from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
+from bolero.tl.pseudobulk.paired_pseudobulk import PairedPseudobulker
 from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
@@ -376,6 +377,53 @@ class BorzoiPredictor(GenericPredictor):
             output_path=config_path,
         )
         return
+
+
+class BorzoiPairPredictor(BorzoiPredictor):
+    def __init__(self, config):
+        paired_pseudobulker, config = self._create_pseudobulk_records_from_design(
+            config
+        )
+        self.pseudobulk_manager = paired_pseudobulker
+
+        super().__init__(config)
+
+    def _create_pseudobulk_records_from_design(self, config):
+        """
+        Create paired pseudobulk records from the design.
+        """
+        paired_pseudobulker = PairedPseudobulker(
+            pseudobulk_and_ot_info=config["pseudobulk_records_path"],
+            emb_key="embedding",
+            downsample_pseudobulk=None,
+            barcode_order=None,
+            seed=42,
+        )
+        designs = config["designs"]
+        config["pseudobulk_records_path"] = (
+            paired_pseudobulker.create_pseudobulk_records_from_design(designs)
+        )
+        return paired_pseudobulker, config
+
+    def _get_prediction_callbacks(self):
+        # get the default prediction callbacks first
+        pred_callbacks = super()._get_prediction_callbacks()
+
+        # add paired task callbacks
+        paired_callbacks = [
+            # calculate paired profile correlation
+            (
+                "calc_paired_delta",
+                {
+                    "ytrue_key": "__ytrue__:peak",
+                    "ypred_key": "__ypred__:peak",
+                    "output_suffix": "delta",
+                },
+            ),
+        ]
+        cb = self._prepare_post_inference_callbacks(paired_callbacks)
+        pred_callbacks.extend(cb)
+        return pred_callbacks
 
 
 # TODO: attribution task - just prediction, collapse lora, no true data

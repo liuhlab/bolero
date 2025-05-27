@@ -46,7 +46,7 @@ from bolero.utils import validate_config
 # }
 
 
-def sample_mapping(tmat: pd.DataFrame) -> pd.Series:
+def sample_mapping(tmat: pd.DataFrame, deterministic=False) -> pd.Series:
     """
     Sample a one-to-one mapping from a transition matrix.
 
@@ -65,7 +65,11 @@ def sample_mapping(tmat: pd.DataFrame) -> pd.Series:
     _tmat = torch.from_numpy(tmat.values)
     src_names = tmat.index
     tgt_names = tmat.columns
-    tgt_idx = torch.multinomial(_tmat, num_samples=1).squeeze(1)
+    if deterministic:
+        # For deterministic sampling, we use the argmax of the transition matrix
+        tgt_idx = _tmat.argmax(dim=1)
+    else:
+        tgt_idx = torch.multinomial(_tmat, num_samples=1).squeeze(1)
     tgt_ordered = tgt_names[tgt_idx.cpu().numpy()]
     mapping = pd.Series(tgt_ordered, index=src_names)
     return mapping
@@ -265,14 +269,40 @@ class PairedPseudobulker:
             print(f"Downsampled to {len(pseudobulk_records)} pseudobulk records.")
         return pseudobulk_records
 
-    def _sample_single_pseudobulk(self, skip_pids=None):
-        # 1. sample a condition pair
-        cond_pair = tuple(self.local_rng.choice(self.condition_pairs))
+    def _sample_single_pseudobulk(
+        self,
+        skip_pids=None,
+        cond_pair=None,
+        p_sample=None,
+        pid_choice=None,
+    ):
+        """
+        Sample a single pseudobulk pair from the predefined pseudobulk records.
+
+        Parameters
+        ----------
+        skip_pids : set, optional
+            A set of pseudobulk IDs to skip when sampling.
+        cond_pair : tuple, optional
+            A tuple of two condition names to use. If None, a random condition pair will be sampled.
+        p_sample : int, optional
+            The index of the condition to use (0 or 1). If None, a random condition will be sampled.
+        pid_choice : str, optional
+            A specific pseudobulk ID to use. If None, a random pseudobulk will be sampled.
+
+        Returns
+        -------
+        cond_pair_pseudobulks : list[dict]
+        """
+        # 1. For a condition pair, get the transition matrix
+        if cond_pair is None:
+            cond_pair = tuple(self.local_rng.choice(self.condition_pairs))
         tmat = self.ot_transition[cond_pair]
         cond_pair_pseudobulks = [None, None]
 
         # 2. select a predefined pseudobulk from either source or target condition
-        p_sample = self.local_rng.choice([0, 1])
+        if p_sample is None:
+            p_sample = self.local_rng.choice([0, 1])
         related_pseudobulks = list(
             self.condition_to_related_pseudobulk[cond_pair[p_sample]]
         )
@@ -284,9 +314,10 @@ class PairedPseudobulker:
             related_pseudobulks
         ).dropna()
         related_sample_weights /= related_sample_weights.sum()
-        pid_choice = self.local_rng.choice(
-            related_pseudobulks, 1, replace=False, p=related_sample_weights.values
-        )[0]
+        if pid_choice is None:
+            pid_choice = self.local_rng.choice(
+                related_pseudobulks, 1, replace=False, p=related_sample_weights.values
+            )[0]
         sel_pseudobulk = deepcopy(self.pseudobulk_records[pid_choice])
         cond_pair_pseudobulks[p_sample] = sel_pseudobulk
 
@@ -333,12 +364,35 @@ class PairedPseudobulker:
             # self.pseudobulk_records[pid][f'{cov_key}_list'] = cov_value_list
             # self.pseudobulk_records[pid]['parquet_prefix_to_int_rows'] = parquet_prefix_to_rows
             # cov_value_list = [data[cov_key][prefix] for prefix in self.prefix_order]
-        return cond_pair_pseudobulks, cond_pair, pid_choice
+        return cond_pair_pseudobulks, pid_choice
 
     def take_by_name(self, name):
         """Take a pseudobulk by name."""
         data = deepcopy(self.pseudobulk_records[name])
         return data
+
+    def take_pair_by_name(self, cond_pair, p_sample, pid_choice):
+        """
+        Take a pseudobulk pair by condition pair and sample index.
+
+        Parameters
+        ----------
+        cond_pair : tuple
+            A tuple of two condition names.
+        p_sample : int
+            The index of the condition to use (0 or 1).
+        pid_choice : str, optional
+            A specific pseudobulk ID to use. If None, a random pseudobulk will be sampled.
+
+        Returns
+        -------
+        cond_pair_pseudobulks : list[dict]
+            A list of two pseudobulk records for the condition pair.
+        """
+        cond_pair_pseudobulks, _ = self._sample_single_pseudobulk(
+            cond_pair=cond_pair, p_sample=p_sample, pid_choice=pid_choice
+        )
+        return cond_pair_pseudobulks
 
     def take(self, n):
         """Take n pseudobulks from the random pool."""
@@ -351,14 +405,72 @@ class PairedPseudobulker:
         used_pids = set()
         for _ in range(n):
             # 1. sample a condition pair
-            cond_pair_pseudobulks, cond_pair, pid_choice = (
-                self._sample_single_pseudobulk(skip_pids=used_pids)
+            cond_pair_pseudobulks, pid_choice = self._sample_single_pseudobulk(
+                skip_pids=used_pids
             )
             used_pids.add(pid_choice)
             # cond_pair_pseudobulk: list of two pseudobulk records, source and target
             # cond_pair: tuple of two condition names
             records.append(cond_pair_pseudobulks)
         return records
+
+    def create_pseudobulk_records_from_design(
+        self, designs: list[tuple]
+    ) -> dict[str, dict]:
+        """
+        Create pseudobulk records from a design.
+
+        Parameters
+        ----------
+        designs : list[tuple]
+            A list of tuples, where each tuple contains:
+            - cond_pair: tuple of two condition names to compare (e.g., ("control", "treatment")).
+                Pairs should belong to self.condition_pairs, and unique among all designs.
+            - p_sample: index of the condition to sample from (0 or 1)
+            - n_pids: number of pseudobulks to sample from the condition pair
+            Full example: [
+                (("control", "treatment1"), 0, 5),
+                (("control", "treatment2"), 0, 5),
+            ]
+            This example will create 10 * 2 = 20 pseudobulks in total.
+
+        Returns
+        -------
+        pseudobulk_col : dict
+            A dictionary where keys are pseudobulk names and values are the corresponding pseudobulk records.
+        Each pseudobulk name is formatted as "{name0}|{name1}:{name0}-{idx}" and "{name0}|{name1}:{name1}-{idx}".
+        """
+        pseudobulk_col = {}
+        for cond_pair, p_sample, n_pids in designs:
+            sample_from_cond = cond_pair[p_sample]
+            related_pids = pd.Series(
+                list(self.condition_to_related_pseudobulk[sample_from_cond])
+            )
+            if n_pids > related_pids.size:
+                n_pids = related_pids.size
+                print(
+                    f"{sample_from_cond} only has {related_pids.size} pseudobulks, will use all of them."
+                )
+                pids = related_pids.tolist()
+            else:
+                pids = related_pids.sample(n_pids, random_state=0).tolist()
+
+            for idx, pid in enumerate(pids):
+                p0, p1 = self.take_pair_by_name(cond_pair, p_sample, pid)
+                name0, name1 = cond_pair
+
+                p0_key = f"{name0}|{name1}:{name0}-{idx}"
+                assert (
+                    p0_key not in pseudobulk_col
+                ), f"Duplicate key {p0_key} found in pseudobulk_col."
+                pseudobulk_col[p0_key] = p0
+
+                p1_key = f"{name0}|{name1}:{name1}-{idx}"
+                assert (
+                    p1_key not in pseudobulk_col
+                ), f"Duplicate key {p1_key} found in pseudobulk_col."
+                pseudobulk_col[p1_key] = p1
+        return pseudobulk_col
 
 
 class GeneratePairedPseudobulk:

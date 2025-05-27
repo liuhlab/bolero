@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import pandas as pd
 import torch
@@ -265,8 +267,96 @@ class PeakDataSummary:
         return data_dict
 
 
+class CalculatePairedDataDelta:
+    def __init__(
+        self, ytrue_key="__ytrue__", ypred_key="__ypred__", output_suffix="delta"
+    ):
+        """
+        This class will understand the matching pseudobulk pairs from two conditions through the pseudobulk_ids;
+        and calculate the delta between the each pseudobulk pair for both true and predicted values.
+
+        The paired data is expected to have pseudobulk_ids in the format:
+        cond0|cond1:cond-idxN, where cond0 and cond1 are the conditions, cond is the condition of the data,
+        and idx is the index of the pairs.
+
+
+        Parameters
+        ----------
+        ytrue_key : str
+            The key for the true values in the batch dictionary.
+        ypred_key : str
+            The key for the predicted values in the batch dictionary.
+        output_suffix : str
+            The suffix to be added to the output keys for the delta values.
+            Default is "delta".
+        """
+        self.ytrue_key = ytrue_key
+        self.ypred_key = ypred_key
+        self.output_suffix = output_suffix
+
+        pattern = r"(?P<cond0>[^|]+)\|(?P<cond1>[^:]+):(?P<cond>[^-]+)-(?P<idx>\d+)"
+        self.paired_pid_pattern = re.compile(pattern)
+        self._pid_table = None
+
+    def _make_or_check_pid_table(self, batch: dict) -> pd.DataFrame:
+        """
+        Make or check the pid table in the batch.
+        """
+        if self._pid_table is None:
+            # first batch, make the pid table
+            all_pids = pd.Index(batch["pseudobulk_ids"])
+
+            pid_table = []
+            for pid in all_pids:
+                match = self.paired_pid_pattern.fullmatch(pid)
+                if match is None:
+                    raise ValueError(
+                        f"Can not parse pid: {pid} with pattern {self.paired_pid_pattern.pattern}"
+                    )
+                result = match.groupdict()
+                result["pid"] = pid
+                pid_table.append(result)
+            pid_table = pd.DataFrame(pid_table).set_index("pid")
+            pid_table["idx"] = pid_table["idx"].astype(int)
+            self._pid_table = pid_table
+        else:
+            # check the pid table
+            all_pids = pd.Index(batch["pseudobulk_ids"])
+            if not all_pids.equals(self._pid_table.index):
+                raise ValueError(
+                    "The pseudobulk_ids in the batch do not match the pid table."
+                )
+        return self._pid_table
+
+    def __call__(self, batch: dict) -> dict:
+        """
+        Calculate the delta between the true and predicted values for each paired condition.
+        """
+        pid_table = self._make_or_check_pid_table(batch)
+
+        ytrue_key = self.ytrue_key
+        ypred_key = self.ypred_key
+        all_pids = pid_table.index
+
+        for (cond0, cond1), cond_df in pid_table.groupby(["cond0", "cond1"]):
+            cond0_pids = cond_df[cond_df["cond"] == cond0].sort_values("idx").index
+            cond1_pids = cond_df[cond_df["cond"] == cond1].sort_values("idx").index
+
+            ytrue_cond0 = batch[ytrue_key][all_pids.isin(cond0_pids)]
+            ytrue_cond1 = batch[ytrue_key][all_pids.isin(cond1_pids)]
+            ytrue_delta = ytrue_cond0 - ytrue_cond1
+            batch[f"{ytrue_key}:{cond0}|{cond1}:{self.output_suffix}"] = ytrue_delta
+
+            ypred_cond0 = batch[ypred_key][all_pids.isin(cond0_pids)]
+            ypred_cond1 = batch[ypred_key][all_pids.isin(cond1_pids)]
+            ypred_delta = ypred_cond0 - ypred_cond1
+            batch[f"{ypred_key}:{cond0}|{cond1}:{self.output_suffix}"] = ypred_delta
+        return batch
+
+
 CALLBACK_NAME_TO_CLASS = {
     "pearsonr": PearsonCorrcoefCallback,
     "r2_score": R2ScoreCallback,
     "extract_peak": PeakDataSummary,
+    "calc_paired_delta": CalculatePairedDataDelta,
 }
