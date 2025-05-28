@@ -626,6 +626,9 @@ class _TimeEncoder(nn.Module):
 
         return: (bs, d_out)
         """
+        while x.ndim < 2:
+            x = x.unsqueeze(0)
+
         x = cyclical_time_encoder(x, self.time_freqs)
         return self.layers(x)
 
@@ -748,8 +751,8 @@ class CondFlowModule(nn.Module):
         cond_emb: torch.Tensor | dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """
-        cell_emb: (bs, d_e) or (bs, n, h_e)
-        time_emb: (bs, 1) or (bs, h_t)
+        cell_emb: (bs, d_e) or (bs, n, d_e)
+        time: (bs, 1) or (1,)
         cond_emb: (bs, d_c) or (bs, n, d_c)
 
         return: (bs, h_e + h_t + h_c)
@@ -762,7 +765,11 @@ class CondFlowModule(nn.Module):
             cell_emb = cell_emb.mean(dim=1)
 
         # encode time embedding
-        time_emb = self.time_encoder(time)
+        time_emb: torch.Tensor = self.time_encoder(time)
+        if time_emb.shape[0] == 1:
+            # if the input is a single time step, repeat it to match the batch size
+            bs = cell_emb.shape[0]
+            time_emb = time_emb.repeat(bs, 1)
 
         # encode condition embedding
         if isinstance(self.cond_encoder, dict):

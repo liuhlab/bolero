@@ -294,10 +294,8 @@ class PeakDataSummary:
         return data_dict
 
 
-class CalculatePairedDataDelta:
-    def __init__(
-        self, ytrue_key="__ytrue__", ypred_key="__ypred__", output_suffix="delta"
-    ):
+class ProcessPairedData:
+    def __init__(self, data_keys: list[str] = ("__ytrue__", "__ypred__"), split_dim=0):
         """
         This class will understand the matching pseudobulk pairs from two conditions through the pseudobulk_ids;
         and calculate the delta between the each pseudobulk pair for both true and predicted values.
@@ -306,20 +304,24 @@ class CalculatePairedDataDelta:
         cond0|cond1:cond-idxN, where cond0 and cond1 are the conditions, cond is the condition of the data,
         and idx is the index of the pairs.
 
-
         Parameters
         ----------
-        ytrue_key : str
-            The key for the true values in the batch dictionary.
-        ypred_key : str
-            The key for the predicted values in the batch dictionary.
+        data_keys : list[str]
+            The keys for the true and predicted values in the batch dictionary.
+            Default is ["__ytrue__", "__ypred__"].
         output_suffix : str
             The suffix to be added to the output keys for the delta values.
             Default is "delta".
         """
-        self.ytrue_key = ytrue_key
-        self.ypred_key = ypred_key
-        self.output_suffix = output_suffix
+        if isinstance(data_keys, str):
+            data_keys = [data_keys]
+        self.data_keys: list[str] = data_keys
+        if isinstance(split_dim, int):
+            split_dim = [split_dim for _ in range(len(data_keys))]
+        assert (
+            len(split_dim) == len(data_keys)
+        ), "split_dim should be an int or a list of ints with the same length as data_keys."
+        self.split_dims: list[int] = split_dim
 
         pattern = r"(?P<cond0>[^|]+)\|(?P<cond1>[^:]+):(?P<cond>[^-]+)-(?P<idx>\d+)"
         self.paired_pid_pattern = re.compile(pattern)
@@ -355,37 +357,74 @@ class CalculatePairedDataDelta:
                 )
         return self._pid_table
 
+    @staticmethod
+    def _bool_sel_at_dim(dim, tensor, bool_sel):
+        """Select data with a boolean mask at the specified dimension."""
+        if dim == 0:
+            return tensor[bool_sel]
+        elif dim == -1:
+            return tensor[..., bool_sel]
+        else:
+            sel = [slice(None)] * tensor.ndim
+            sel[dim] = bool_sel
+            return tensor[tuple(sel)]
+
     def __call__(self, batch: dict) -> dict:
         """
         Calculate the delta between the true and predicted values for each paired condition.
         """
         pid_table = self._make_or_check_pid_table(batch)
 
-        ytrue_key = self.ytrue_key
-        ypred_key = self.ypred_key
-        all_pids = pid_table.index
+        for data_key, split_dim in zip(self.data_keys, self.split_dims):
+            all_pids = pid_table.index
 
-        yture_col = []
-        ypred_col = []
-        cond_pairs = []
-        for (cond0, cond1), cond_df in pid_table.groupby(["cond0", "cond1"]):
-            cond0_pids = cond_df[cond_df["cond"] == cond0].sort_values("idx").index
-            cond1_pids = cond_df[cond_df["cond"] == cond1].sort_values("idx").index
+            cond0_col = []
+            cond1_col = []
+            cond_pairs = []
+            for (cond0, cond1), cond_df in pid_table.groupby(["cond0", "cond1"]):
+                # select the pids for the two conditions
+                cond0_pids = cond_df[cond_df["cond"] == cond0].sort_values("idx").index
+                cond1_pids = cond_df[cond_df["cond"] == cond1].sort_values("idx").index
+                # save cond data separately
+                data_cond0 = self._bool_sel_at_dim(
+                    split_dim, batch[data_key], all_pids.isin(cond0_pids)
+                )
+                data_cond1 = self._bool_sel_at_dim(
+                    split_dim, batch[data_key], all_pids.isin(cond1_pids)
+                )
+                cond0_col.append(data_cond0)
+                cond1_col.append(data_cond1)
+                # record the condition pairs
+                cond_pairs.extend([[cond0, cond1]] * len(data_cond0))
 
-            ytrue_cond0 = batch[ytrue_key][all_pids.isin(cond0_pids)]
-            ytrue_cond1 = batch[ytrue_key][all_pids.isin(cond1_pids)]
-            ytrue_delta = ytrue_cond0 - ytrue_cond1
-            yture_col.append(ytrue_delta)
-
-            ypred_cond0 = batch[ypred_key][all_pids.isin(cond0_pids)]
-            ypred_cond1 = batch[ypred_key][all_pids.isin(cond1_pids)]
-            ypred_delta = ypred_cond0 - ypred_cond1
-            ypred_col.append(ypred_delta)
-            cond_pairs.extend([[cond0, cond1]] * len(ytrue_delta))
-
-        batch[f"{ytrue_key}:{self.output_suffix}"] = torch.concatenate(yture_col)
-        batch[f"{ypred_key}:{self.output_suffix}"] = torch.concatenate(ypred_col)
+            batch[f"{data_key}:cond0"] = torch.concatenate(cond0_col)
+            batch[f"{data_key}:cond1"] = torch.concatenate(cond1_col)
+            batch[f"{data_key}:delta"] = (
+                batch[f"{data_key}:cond1"] - batch[f"{data_key}:cond0"]
+            )
         batch["condition_pairs"] = np.array(cond_pairs)
+        return batch
+
+
+class Rename:
+    def __init__(self, name_map: dict[str, str]):
+        """
+        Rename keys in the batch dictionary.
+
+        Parameters
+        ----------
+        name_map : dict[str, str]
+            A mapping from old keys to new keys.
+        """
+        self.name_map = name_map
+
+    def __call__(self, batch: dict) -> dict:
+        """
+        Rename the keys in the batch dictionary according to the name_map.
+        """
+        for old_key, new_key in self.name_map.items():
+            if old_key in batch:
+                batch[new_key] = batch.pop(old_key)
         return batch
 
 
@@ -393,5 +432,6 @@ CALLBACK_NAME_TO_CLASS = {
     "pearsonr": PearsonCorrcoefCallback,
     "r2_score": R2ScoreCallback,
     "extract_peak": PeakDataSummary,
-    "calc_paired_delta": CalculatePairedDataDelta,
+    "process_paired_data": ProcessPairedData,
+    "rename": Rename,
 }

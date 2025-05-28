@@ -13,6 +13,9 @@ import torch
 from einops import rearrange
 
 from bolero.tl.model.borzoi.model import Borzoi
+from bolero.tl.model.borzoi.model_flow import (
+    BorzoiLoRAFlowPredictor as _BorzoiFlowModelWithODESolver,
+)
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.pseudobulk.paired_pseudobulk import PairedPseudobulker
 from bolero.utils import understand_regions
@@ -55,7 +58,7 @@ class BorzoiPredictor(GenericPredictor):
             model.convert_to_lora()
         return model
 
-    def _lora_model_prediction_step(
+    def _model_prediction_step(
         self,
         batch,
         dna_key="__dna__",
@@ -98,7 +101,7 @@ class BorzoiPredictor(GenericPredictor):
         batch["__ypred__"] = y_pred.detach()
         return batch
 
-    def _get_prediction_callbacks(self):
+    def _get_post_prediction_callbacks(self):
         callbacks = [
             # calc pearsonr on last dim (seq_len)
             (
@@ -163,7 +166,7 @@ class BorzoiPredictor(GenericPredictor):
                 ),
             ]
             callbacks.extend(peak_level_callbacks)
-        return self._prepare_post_inference_callbacks(callbacks)
+        return self._prepare_callbacks(callbacks)
 
     def get_prediction_dataloader(
         self,
@@ -222,7 +225,7 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._callbacks = self._get_prediction_callbacks()
+        self._callbacks = self._get_post_prediction_callbacks()
 
         # trigger model load
         _ = self.model
@@ -236,7 +239,7 @@ class BorzoiPredictor(GenericPredictor):
             with torch.inference_mode():
                 # Inference step
                 t = time.time()
-                batch = self._lora_model_prediction_step(
+                batch = self._model_prediction_step(
                     batch,
                     dna_key="__dna__",
                     embedding_key="__embedding__",
@@ -433,19 +436,17 @@ class BorzoiPairPredictor(BorzoiPredictor):
         )
         return paired_pseudobulker, config
 
-    def _get_prediction_callbacks(self):
+    def _get_post_prediction_callbacks(self):
         # get the default prediction callbacks first
-        pred_callbacks = super()._get_prediction_callbacks()
+        pred_callbacks = super()._get_post_prediction_callbacks()
 
         # add paired task callbacks
         paired_callbacks = [
             # calculate paired profile correlation
             (
-                "calc_paired_delta",
+                "process_paired_data",
                 {
-                    "ytrue_key": "__ytrue__:peak",
-                    "ypred_key": "__ypred__:peak",
-                    "output_suffix": "delta",
+                    "data_keys": ["__ytrue__:peak", "__ypred__:peak"],
                 },
             ),
             (
@@ -469,10 +470,118 @@ class BorzoiPairPredictor(BorzoiPredictor):
                 },
             ),
         ]
-        cb = self._prepare_post_inference_callbacks(paired_callbacks)
+        cb = self._prepare_callbacks(paired_callbacks)
         pred_callbacks.extend(cb)
         return pred_callbacks
 
 
+class BorzoiFlowPredictor(BorzoiPairPredictor):
+    """
+    BorzoiFlowPredictor is a predictor for Borzoi models that uses ODEs to predict
+    the trajectory of the model given an initial condition.
+    It is used for flow-based models.
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._ode_solver = None
+
+    def _create_solver(self) -> _BorzoiFlowModelWithODESolver:
+        solver = _BorzoiFlowModelWithODESolver(
+            model=self.model,
+            **self.config.get("ode_solver_kwargs", {}),
+        )
+        return solver
+
+    @property
+    def ode_solver(self) -> _BorzoiFlowModelWithODESolver:
+        """
+        Get the ODE solver for the model.
+        If not set, create a new one.
+        """
+        if self._ode_solver is None:
+            self._ode_solver = self._create_solver()
+        return self._ode_solver
+
+    def _get_pre_prediction_callbacks(self):
+        callback_configs = [
+            # calculate paired profile correlation
+            (
+                "process_paired_data",
+                {
+                    "data_keys": ["__ytrue__", "__conditionemb__", "__embedding__"],
+                    "split_dim": [1, 0, 0],
+                },
+            ),
+        ]
+        callbacks = self._prepare_callbacks(callback_configs)
+        return callbacks
+
+    def _model_prediction_step(
+        self,
+        batch,
+        dna_key="__dna__",
+        x0_key="__ytrue__:cond0",
+        cell_embedding_key="__embedding__:cond0",
+        cond_embedding_key="__conditionemb__:cond1",
+        time_range_key="__timerange__",
+        output_key="__ypred__:cond1",
+        batch_size=16,
+    ):
+        """
+        Forward pass through the model.
+        """
+        # prepare data
+        dna = batch[dna_key]
+        cell_emb = batch[cell_embedding_key]
+        cond_emb = batch[cond_embedding_key]
+        x0 = batch[x0_key]
+        t_range = batch[time_range_key]
+
+        n_emb = cell_emb.shape[0]
+        n_region = dna.shape[0]
+
+        emb_idx = torch.arange(n_emb).repeat(n_region)
+        # [0, 1, ..., n_emb-1, ..., 0, 1, ..., n_emb-1]
+        region_idx = torch.arange(n_region).repeat_interleave(n_emb)
+        # [0, ..., 0, 1, ..., 1, ..., n_region-1, ..., n_region-1]
+
+        pred_col = []
+        for i in range(0, len(emb_idx), batch_size):
+            use_emb = emb_idx[i : i + batch_size]
+            use_reg = region_idx[i : i + batch_size]
+
+            # cell_emb shape (n_emb, d_cell)
+            cell_emb_mini_batch = cell_emb[use_emb].contiguous()
+            # cond_emb shape (n_emb, d_cond)
+            cond_emb_mini_batch = cond_emb[use_emb].contiguous()
+            # dna has shape (n_region, 4, seq_len)
+            dna_mini_batch = dna[use_reg].contiguous()
+            # x0 has shape (n_region, n_emb, seq_len)
+            # we need to select the paired region and embedding and get (bs, seq_len)
+            x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
+
+            with self._autocast_context():
+                y_pred_mini_batch = self.ode_solver.predict(
+                    x_0=x0_mini_batch,
+                    t_range=t_range,
+                    cell_emb=cell_emb_mini_batch,
+                    cond_emb=cond_emb_mini_batch,
+                    dna_one_hot=dna_mini_batch,
+                )
+                pred_col.append(y_pred_mini_batch)
+        y_pred = torch.cat(pred_col, dim=0)
+        # reshape to (n_region, n_emb, seq_len)
+        # here only deal with one modality case
+        y_pred = rearrange(
+            y_pred,
+            "(n_region n_emb) 1 seq_len -> n_region n_emb seq_len",
+            n_region=n_region,
+            n_emb=n_emb,
+        )
+
+        batch[output_key] = y_pred.detach()
+        return batch
+
+
 # TODO: attribution task - just prediction, collapse lora, no true data
-# TODO: add a b test prediction task, predict the delta between two conditions

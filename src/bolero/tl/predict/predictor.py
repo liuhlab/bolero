@@ -161,9 +161,7 @@ class GenericPredictor:
             regions = regions.df["Name"].tolist()
         return regions
 
-    def _prepare_post_inference_callbacks(
-        self, callbacks: str | list[str] | list[tuple[str, dict]]
-    ):
+    def _prepare_callbacks(self, callbacks: str | list[str] | list[tuple[str, dict]]):
         """
         Prepare the post inference callbacks from its name and arguments.
 
@@ -182,6 +180,22 @@ class GenericPredictor:
             callback = CALLBACK_NAME_TO_CLASS[name](**kwargs)
             callback_list.append(callback)
         return callback_list
+
+    def _get_post_prediction_callbacks(self) -> list:
+        """
+        Get the post prediction callbacks to apply after inference.
+
+        This method needs to be overridden by subclasses to provide specific callbacks.
+        """
+        return self._prepare_callbacks([])
+
+    def _get_pre_prediction_callbacks(self) -> list:
+        """
+        Get the pre prediction callbacks to apply before inference.
+
+        This method needs to be overridden by subclasses to provide specific callbacks.
+        """
+        return self._prepare_callbacks([])
 
     def apply_callbacks(self, batch: dict) -> dict:
         """

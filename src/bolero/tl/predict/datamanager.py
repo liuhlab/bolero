@@ -144,7 +144,16 @@ class PseudobulkRecordManager:
 
         data = []
         for pid in pids:
-            value = getattr(self.pseudobulk_records[pid], attr)
+            try:
+                value = getattr(self.pseudobulk_records[pid], attr)
+            except AttributeError:
+                # try to get from annotation if not found in record
+                try:
+                    value = self.pseudobulk_records[pid].annotation[attr]
+                except KeyError as e:
+                    raise KeyError(
+                        f"Attribute {attr} not found in pseudobulk record {pid} or its annotation"
+                    ) from e
             if prefix is not None and isinstance(value, dict):
                 value = value[prefix]
             data.append(value)
