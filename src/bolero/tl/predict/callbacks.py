@@ -268,6 +268,18 @@ class PeakDataSummary:
         result = einsum(data, feature_masks, "c s, f s -> c f")
         return result
 
+    def _crop_data(self, data: torch.Tensor) -> torch.Tensor:
+        """Crop data to the specified sequence length"""
+        if data.shape[-1] == self.seq_len:
+            return data
+        elif data.shape[-1] > self.seq_len:
+            crop_start = (data.shape[-1] - self.seq_len) // 2
+            return data[..., crop_start : crop_start + self.seq_len]
+        else:
+            raise ValueError(
+                f"Data length {data.shape[-1]} is less than the expected sequence length {self.seq_len}."
+            )
+
     def __call__(self, data_dict: dict):
         """Summarize peak data"""
         # prepare region mask
@@ -284,6 +296,7 @@ class PeakDataSummary:
         feature_data_dict = {suffix: features}
         for key in self.data_keys:
             data = data_dict[key]
+            data = self._crop_data(data)
             feture_data_col = []
             for _data, mask in zip(data, feature_masks):
                 feature_data = self.get_feature_level_data(_data, mask)

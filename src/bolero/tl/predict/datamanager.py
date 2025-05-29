@@ -10,7 +10,7 @@ import pandas as pd
 import pyranges as pr
 import torch
 
-from bolero.pp.genome import Genome
+from bolero.pp.genome import FastaOneHot, Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDB
 
 from .utils import convert_np_to_torch, get_device
@@ -262,7 +262,7 @@ class PseudobulkRecordManager:
 
 
 class GenericGenomeDataManager:
-    def __init__(self, genome: str | Genome):
+    def __init__(self, genome: str | Genome, device: str | None = None):
         self.genome = Genome(genome) if isinstance(genome, str) else genome
 
         # Pseudobulk records
@@ -273,6 +273,16 @@ class GenericGenomeDataManager:
 
         # Mutation information for mutation task
         self._mutation_table = None
+
+        self.device = device if device is not None else get_device()
+
+        self._onehot_encoder: FastaOneHot = self._create_one_hot_encoder()
+
+    def _create_one_hot_encoder(self):
+        onehot_encoder = FastaOneHot(
+            fasta_path=self.genome.fasta_path, device=self.device, parallel=8
+        )
+        return onehot_encoder
 
     def add_mutations(self):
         """
@@ -381,10 +391,13 @@ class GenericGenomeDataManager:
         np.ndarray
             The one-hot encoding of the DNA sequence for the regions.
         """
-        onehot = self.genome.get_regions_one_hot(regions)
+        if isinstance(regions, pr.PyRanges):
+            regions = regions.df
+
+        onehot = self._onehot_encoder.get_regions_onehot(regions)
 
         if length_last:
-            onehot = onehot.transpose(0, 2, 1)
+            onehot = onehot.permute(0, 2, 1)
             # shape is (n_regions, 4, seq_len)
         return onehot
 
@@ -537,7 +550,6 @@ class GenericGenomeDataManager:
         pseudobulk_subset: list[str] = None,
         pseudobulk_info_keys: list[str] = None,
         as_torch: bool = True,
-        device: str | None = None,
         collate_fn: callable = None,
         **kwargs,
     ) -> BackgroundGenerator:
@@ -556,9 +568,6 @@ class GenericGenomeDataManager:
             If True, the data from the parquet datasets will be added to the batch. Default is True.
         pseudobulk_info_keys : list[str], optional
             The keys of the pseudobulk information to add to the batch. Default is None, no pseudobulk info.
-        device : str, optional
-            The device to use for the torch tensors. Default is None, which means
-            the default device will be used.
         max_prefetch : int, optional
             The maximum number of batches to prefetch. Default is 50.
         as_torch : bool, optional
@@ -566,9 +575,6 @@ class GenericGenomeDataManager:
         **kwargs : Any
             Additional arguments to pass to the iter_batches method.
         """
-        if device is None:
-            device = get_device()
-
         iterable = self._iter_batches(
             regions=regions,
             batch_size=batch_size,
@@ -581,6 +587,6 @@ class GenericGenomeDataManager:
         return BackgroundGenerator(
             iterable,
             as_torch=as_torch,
-            device=device,
+            device=self.device,
             collate_fn=collate_fn,
         )

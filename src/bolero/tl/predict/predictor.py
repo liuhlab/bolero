@@ -197,13 +197,20 @@ class GenericPredictor:
         """
         return self._prepare_callbacks([])
 
-    def apply_callbacks(self, batch: dict) -> dict:
+    def apply_callbacks(self, batch: dict, stage: str) -> dict:
         """
         Apply the callbacks to the batch.
         """
+        if stage == "pre":
+            callbacks = self._pre_callbacks
+        elif stage == "post":
+            callbacks = self._post_callbacks
+        else:
+            raise ValueError(f"Unknown stage: {stage}. Use 'pre' or 'post'.")
+
         try:
             idx = 0
-            for callback in self._callbacks:
+            for callback in callbacks:
                 batch = callback(batch)
                 idx += 1
         except Exception as e:

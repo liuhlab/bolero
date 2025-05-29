@@ -12,10 +12,12 @@ import pyBigWig
 import pyfaidx
 import pyranges as pr
 import ray
+import torch
 import xarray as xr
 import zarr
 from numcodecs import Zstd
 from pyfaidx import Fasta
+from ray.util import ActorPool
 from tqdm import tqdm
 
 from bolero.pp.genome_dataset import GenomeOneHotZarr
@@ -1161,3 +1163,85 @@ class Genome:
             else:
                 use_records = None
         return use_records
+
+
+@ray.remote
+class _one_hot_encoder:
+    def __init__(self):
+        lut = np.zeros((256, 4), dtype=np.uint8)
+        for col, b in enumerate("ACGT"):
+            row = ord(b)
+            lut[row, col] = 1
+        self.lookup_table = lut
+
+    def encode(self, seq: str) -> torch.Tensor:
+        onehot = self.lookup_table[np.frombuffer(seq.encode("ascii"), dtype=np.uint8)]
+        return torch.from_numpy(onehot)
+
+
+class FastaOneHot:
+    def __init__(self, fasta_path: str, device: str = "cpu", parallel: int = 1):
+        """
+        Parameters
+        ----------
+        fasta_path : str
+            Path to genome FASTA file.
+        device : str
+            'cpu' or 'cuda' for GPU acceleration.
+        """
+        self.fasta = Fasta(fasta_path, as_raw=True, sequence_always_upper=True)
+        self.device = device
+
+        self.encoder_pool = ActorPool(
+            [_one_hot_encoder.remote() for _ in range(parallel)]
+        )
+
+    def get_region_sequence(self, region: str) -> str:
+        """
+        Returns DNA string of the region.
+        """
+        chrom, coord = region.split(":")
+        start, end = map(int, coord.split("-"))
+        seq = self.fasta[chrom][start:end]
+        return seq
+
+    def get_regions_sequence(self, region_bed: pd.DataFrame) -> list[str]:
+        """
+        Extracts sequences from a BED DataFrame. First three columns must be Chromosome, Start, End.
+
+        Returns list of DNA strings, shape (n_region,)
+        """
+        region_bed = understand_regions(region_bed, as_df=True)
+
+        sequences = []
+        for _, (chrom, start, end, *_) in region_bed.iterrows():
+            seq = self.fasta[chrom][start:end]
+            sequences.append(seq)
+        return sequences
+
+    def get_region_onehot(self, region: str) -> torch.Tensor:
+        """
+        Returns torch.Tensor of shape (4, seq_len), dtype=torch.uint8
+        """
+        seq = self.get_region_sequence(region)
+        result = next(
+            self.encoder_pool.map(
+                lambda e, s: e.encode.remote(s),
+                [seq],
+            )
+        )
+        onehot = result.to(self.device)
+        return onehot
+
+    def get_regions_onehot(self, region_bed: pd.DataFrame) -> torch.Tensor:
+        """
+        Returns torch.Tensor of shape (n_region, 4, seq_len), dtype=torch.uint8
+        """
+        sequences = self.get_regions_sequence(region_bed)
+        results = self.encoder_pool.map(
+            lambda e, seq: e.encode.remote(seq),
+            sequences,
+        )
+        onehots = torch.stack(list(results), dim=0)
+        onehots = onehots.to(self.device)
+        return onehots

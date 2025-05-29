@@ -46,7 +46,7 @@ class BorzoiPredictor(GenericPredictor):
         parallel = config.get("parallel", 8)
 
         dm = GenericGenomeDataManager(genome=genome)
-        _ = dm.genome.genome_one_hot
+        # _ = dm.genome.genome_one_hot
         dm.add_pseudobulk_records(pseudobulk_records_path)
         dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
         self.add_datamanager(dm)
@@ -168,29 +168,16 @@ class BorzoiPredictor(GenericPredictor):
             callbacks.extend(peak_level_callbacks)
         return self._prepare_callbacks(callbacks)
 
-    def get_prediction_dataloader(
+    def _create_fn_and_dataloader(
         self,
+        dna_key,
+        data_key,
+        embedding_key,
         regions,
-        pseudobulk_ids=None,
-        add_true_data=False,
-        dna_key="dna",
-        embedding_key="embedding",
-        batch_size=32,
-        verbose=True,
-    ) -> Generator:
-        """
-        Get the dataloader for prediction.
-        """
-        # 1. Get regions
-        regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
-
-        # 2. Get data loader
-        da_prefix = self.datamanager._get_data_prefixs()
-        assert (
-            len(da_prefix) == 1
-        ), "Currently only one data prefix is supported for prediction."
-        data_key = da_prefix[0]
-
+        pseudobulk_ids,
+        add_true_data,
+        batch_size,
+    ):
         def _collate_fn(batch, add_data=add_true_data):
             # rename keys
             batch["__dna__"] = batch.pop(dna_key)
@@ -217,6 +204,41 @@ class BorzoiPredictor(GenericPredictor):
             pseudobulk_info_keys=["cov_scale", embedding_key],
             collate_fn=_collate_fn,
         )
+        return dataloader
+
+    def get_prediction_dataloader(
+        self,
+        regions,
+        pseudobulk_ids=None,
+        add_true_data=False,
+        dna_key="dna",
+        embedding_key="embedding",
+        batch_size=32,
+        verbose=True,
+    ) -> Generator:
+        """
+        Get the dataloader for prediction.
+        """
+        # 1. Get regions
+        regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
+
+        # 2. Get data loader
+        da_prefix = self.datamanager._get_data_prefixs()
+        assert (
+            len(da_prefix) == 1
+        ), "Currently only one data prefix is supported for prediction."
+        data_key = da_prefix[0]
+
+        dataloader = self._create_fn_and_dataloader(
+            dna_key=dna_key,
+            data_key=data_key,
+            embedding_key=embedding_key,
+            regions=regions,
+            pseudobulk_ids=pseudobulk_ids,
+            add_true_data=add_true_data,
+            batch_size=batch_size,
+        )
+
         pid_array = (
             self.pseudobulk_manager.pseudobulk_ids
             if pseudobulk_ids is None
@@ -225,7 +247,8 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._callbacks = self._get_post_prediction_callbacks()
+        self._pre_callbacks = self._get_pre_prediction_callbacks()
+        self._post_callbacks = self._get_post_prediction_callbacks()
 
         # trigger model load
         _ = self.model
@@ -237,19 +260,22 @@ class BorzoiPredictor(GenericPredictor):
             batch["pseudobulk_ids"] = pid_array
 
             with torch.inference_mode():
+                # Pre-inference callbacks
+                t = time.time()
+                batch = self.apply_callbacks(batch, "pre")
+                timer["callback"] += time.time() - t
+
                 # Inference step
                 t = time.time()
                 batch = self._model_prediction_step(
                     batch,
-                    dna_key="__dna__",
-                    embedding_key="__embedding__",
                     batch_size=batch_size,
                 )
                 timer["infer"] += time.time() - t
 
                 # Post-inference callbacks
                 t = time.time()
-                batch = self.apply_callbacks(batch)
+                batch = self.apply_callbacks(batch, "post")
                 timer["callback"] += time.time() - t
                 timer["counter"] += 1
 
@@ -266,6 +292,17 @@ class BorzoiPredictor(GenericPredictor):
                 f"(total {timer['counter']} batches)\n"
             )
 
+    def _get_default_stats_keys(self):
+        STATS_KEYS = [
+            "region",
+            "profile_r",
+            "peak",
+            "peak_sample_r",
+            "pseudobulk_ids",
+            "peak_cum_profile_r",
+        ]
+        return STATS_KEYS
+
     def prediction_task(
         self,
         output_dir,
@@ -275,6 +312,7 @@ class BorzoiPredictor(GenericPredictor):
         pseudobulk_ids=None,
         batch_size=16,
         save_keys=None,
+        stats_keys=None,
         verbose=True,
     ):
         """
@@ -330,14 +368,9 @@ class BorzoiPredictor(GenericPredictor):
         # data to save for each batch
         save_keys = [] if save_keys is None else save_keys
         # stats to collect across batches
-        stats_keys = [
-            "region",
-            "profile_r",
-            "peak",
-            "peak_sample_r",
-            "pseudobulk_ids",
-            "peak_cum_profile_r",
-        ]
+        stats_keys = (
+            self._get_default_stats_keys() if stats_keys is None else stats_keys
+        )
 
         batch_stats_paths = []
         save_batch = {}
@@ -517,6 +550,57 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         callbacks = self._prepare_callbacks(callback_configs)
         return callbacks
 
+    def _get_post_prediction_callbacks(self):
+        # add paired task callbacks
+        callbacks = [
+            (
+                "extract_peak",
+                {
+                    "peak_bed": self.peak_df,
+                    "data_keys": [
+                        "__ytrue__:cond1",
+                        "__ytrue__:delta",
+                        "__ypred__:cond1",
+                        "__ypred__:delta",
+                    ],
+                },
+            ),
+            (
+                "rename",
+                {
+                    "name_map": {
+                        "__ytrue__:cond1:peak": "__ytrue__:peak:cond1",
+                        "__ytrue__:delta:peak": "__ytrue__:peak:delta",
+                        "__ypred__:cond1:peak": "__ypred__:peak:cond1",
+                        "__ypred__:delta:peak": "__ypred__:peak:delta",
+                    }
+                },
+            ),
+            # calculate paired profile correlation
+            (
+                "pearsonr",
+                {
+                    "ytrue_key": "__ytrue__:peak:delta",
+                    "ypred_key": "__ypred__:peak:delta",
+                    "permute": (1, 0),  # (sample, peak) -> (peak, sample)
+                    "output_key": "peak_delta_pearsonr",
+                    "cumulative": True,
+                },
+            ),
+            (
+                "r2_score",
+                {
+                    "ytrue_key": "__ytrue__:peak:delta",
+                    "ypred_key": "__ypred__:peak:delta",
+                    "permute": (1, 0),
+                    "output_key": "peak_delta_r2",
+                    "cumulative": True,
+                },
+            ),
+        ]
+        cb = self._prepare_callbacks(callbacks)
+        return cb
+
     def _model_prediction_step(
         self,
         batch,
@@ -525,7 +609,6 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         cell_embedding_key="__embedding__:cond0",
         cond_embedding_key="__conditionemb__:cond1",
         time_range_key="__timerange__",
-        output_key="__ypred__:cond1",
         batch_size=16,
     ):
         """
@@ -580,8 +663,56 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             n_emb=n_emb,
         )
 
-        batch[output_key] = y_pred.detach()
+        batch["__ypred__:cond1"] = y_pred.detach()
+        batch["__ypred__:delta"] = batch["__ytrue__:cond0"] - batch["__ypred__:cond1"]
         return batch
+
+    def _create_fn_and_dataloader(
+        self,
+        dna_key,
+        data_key,
+        embedding_key,
+        regions,
+        pseudobulk_ids,
+        add_true_data,
+        batch_size,
+    ):
+        def _collate_fn(batch, add_data=add_true_data):
+            # rename keys
+            batch["__dna__"] = batch.pop(dna_key)
+            batch["__embedding__"] = batch.pop(embedding_key)
+            batch["__timerange__"] = [0, 1]
+
+            if add_data:
+                # coverage normalize true data
+                data = batch.pop(data_key)
+                logscale = batch[f"{data_key}:cov_scale"]
+                data = data / 2 ** logscale[None, :, None]
+                data = data.float()
+                batch["__ytrue__"] = data
+            return batch
+
+        dataloader = self.datamanager.get_dataloader(
+            regions=regions,
+            batch_size=batch_size,
+            add_dna=True,
+            add_data=add_true_data,
+            pseudobulk_subset=pseudobulk_ids,
+            pseudobulk_info_keys=["cov_scale", embedding_key, "__conditionemb__"],
+            collate_fn=_collate_fn,
+        )
+        return dataloader
+
+    def _get_default_stats_keys(self):
+        STATS_KEYS = [
+            "region",
+            "peak",
+            "pseudobulk_ids",
+            "condition_pairs",
+            "peak_delta_pearsonr",
+            "peak_delta_r2",
+        ]
+        return STATS_KEYS
 
 
 # TODO: attribution task - just prediction, collapse lora, no true data
