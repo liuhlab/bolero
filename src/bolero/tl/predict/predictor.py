@@ -225,7 +225,7 @@ class GenericPredictor:
         """
         total_data = {}
         with torch.inference_mode():
-            for callback in self._callbacks:
+            for callback in self._post_callbacks:
                 if getattr(callback, "cumulative", False):
                     d = callback.compute()
                     total_data.update(d)
