@@ -53,19 +53,22 @@ class VolcanoPlot:
         tranform_y=True,
         pval_cutoff=0.05,
         log_fc_cutoff=0,
-        y_qmax=0.999,
-        x_qmax=0.999,
+        y_qmax=0.9999,
+        x_qmax=0.9999,
     ):
         self.data = data
 
         self.plot_data = pd.DataFrame(
             {
                 "x": data[x],
-                "y": -np.log10(data[y]) if tranform_y else data[y],
+                "y": -np.log10(data[y].astype("float64") + 1e-50)
+                if tranform_y
+                else data[y],
                 "pass_filter": (data[y] < pval_cutoff)
                 & (data[x].abs() > log_fc_cutoff),
             }
         )
+        self.plot_data["y"] = self.plot_data["y"].clip(upper=50)
         # get color, non-sig is grey, sig and neg is blue, sig and pos is red
         self.plot_data["hue"] = (
             np.sign(self.plot_data["x"]) * self.plot_data["pass_filter"]
@@ -74,8 +77,13 @@ class VolcanoPlot:
         self.y_cutoff = -np.log10(pval_cutoff)
 
         # cap y values at y_qmax
-        self.y_max = max(5, self.plot_data["y"].quantile(y_qmax))
-        self.x_max = self.plot_data["x"].abs().quantile(x_qmax)
+        sig_plot_data = self.plot_data[self.plot_data["pass_filter"]]
+        if sig_plot_data.empty:
+            self.y_max = 5
+            self.x_max = 3
+        else:
+            self.y_max = max(5, sig_plot_data["y"].quantile(y_qmax))
+            self.x_max = max(3, sig_plot_data["x"].abs().quantile(x_qmax))
         self.plot_data["y"] = self.plot_data["y"].clip(upper=self.y_max)
 
     @staticmethod
@@ -90,7 +98,10 @@ class VolcanoPlot:
         for _, group_df in plot_data.groupby(groupby, observed=True):
             if group_df["pass_filter"].sum() >= min_sig:
                 data_col.append(group_df)
-        plot_data = pd.concat(data_col, ignore_index=True)
+        if len(data_col) == 0:
+            plot_data = pd.DataFrame(columns=plot_data.columns)
+        else:
+            plot_data = pd.concat(data_col, ignore_index=True)
         return plot_data
 
     def plot(
@@ -143,6 +154,8 @@ class VolcanoPlot:
             n_groups = plot_data[groupby].nunique().prod()
 
         n_rows = int(np.ceil(n_groups / max_cols))
+        if n_rows == 0:
+            n_rows = 1
         if isinstance(panel_size, int):
             panel_size = (panel_size, panel_size)
 
@@ -168,13 +181,11 @@ class VolcanoPlot:
             group_iter = plot_data.groupby(groupby, observed=True)
 
         for ax, (group, group_data) in zip(axes.flatten(), group_iter):
-            print(group, group_data.head())
             ax.set_title(" ".join(map(str, group)))
             group_data = group_data.reset_index(drop=True)
             _volcano_scatter(ax, group_data, self.pval_cutoff, max_dots=max_dots)
             ax.set_ylim(0, self.y_max)
             ax.set_xlim(-self.x_max, self.x_max)
-            break
 
         for ax in axes.flatten()[n_groups:]:
             ax.axis("off")
