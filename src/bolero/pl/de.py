@@ -61,9 +61,11 @@ class VolcanoPlot:
         self.plot_data = pd.DataFrame(
             {
                 "x": data[x],
-                "y": -np.log10(data[y].astype("float64") + 1e-50)
-                if tranform_y
-                else data[y],
+                "y": (
+                    -np.log10(data[y].astype("float64") + 1e-50)
+                    if tranform_y
+                    else data[y]
+                ),
                 "pass_filter": (data[y] < pval_cutoff)
                 & (data[x].abs() > log_fc_cutoff),
             }
@@ -87,7 +89,7 @@ class VolcanoPlot:
         self.plot_data["y"] = self.plot_data["y"].clip(upper=self.y_max)
 
     @staticmethod
-    def _sel_group_by_sig(plot_data, groupby, min_sig=1):
+    def _sel_group_by_sig(plot_data, groupby, min_sig=1, max_axes=16):
         """
         Select groups with at least `min_sig` significant points.
         """
@@ -98,6 +100,13 @@ class VolcanoPlot:
         for _, group_df in plot_data.groupby(groupby, observed=True):
             if group_df["pass_filter"].sum() >= min_sig:
                 data_col.append(group_df)
+
+        if len(data_col) > max_axes:
+            # sel df by data shape, df with more rows are selected first
+            data_col = sorted(data_col, key=lambda df: df.shape[0], reverse=True)[
+                :max_axes
+            ]
+
         if len(data_col) == 0:
             plot_data = pd.DataFrame(columns=plot_data.columns)
         else:
@@ -112,6 +121,7 @@ class VolcanoPlot:
         fig_kwargs=None,
         max_dots=10000,
         group_min_sig=10,
+        max_axes=16,
     ):
         """
         Plot the volcano plot with optional grouping.
@@ -149,7 +159,9 @@ class VolcanoPlot:
             for col in groupby:
                 plot_data[col] = self.data[col]
             if group_min_sig > 0:
-                plot_data = self._sel_group_by_sig(plot_data, groupby, group_min_sig)
+                plot_data = self._sel_group_by_sig(
+                    plot_data, groupby, group_min_sig, max_axes
+                )
 
             n_groups = plot_data[groupby].nunique().prod()
 

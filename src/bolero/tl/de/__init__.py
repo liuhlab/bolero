@@ -21,6 +21,20 @@ DE_TABLE_DTYPES = {
 }
 
 
+def _get_terms_from_design(design: str):
+    """
+    Extract terms from the design formula.
+    """
+    parts = design.lstrip("~").replace(" ", "").split("+")
+    terms = set()
+    for part in parts:
+        if "+" in part:
+            terms.update(part.split("+"))
+        else:
+            terms.add(part)
+    return terms
+
+
 def _single_test_contrasts(
     da,
     diff_group,
@@ -81,12 +95,42 @@ def _run_edger(
     # fit the EdgeR model
     pdata = anndata.read_h5ad(pdata_path, backed="r")
     sel_pdata = pdata[obs_names].to_memory()
+    terms = _get_terms_from_design(design)
+    for term in terms:
+        cat_count = sel_pdata.obs[term].value_counts()
+        if cat_count.min() < 2:
+            print(
+                f"Skipping group {diff_group} for term '{term}' due to insufficient samples: "
+                f"{cat_count.min()} < 2."
+            )
+            return
+
     da = pt.tl.EdgeR(adata=sel_pdata, design=design)
-    da.fit()
+    adata_obs = sel_pdata.obs
+    try:
+        da.fit()
+    except Exception as e:
+        print(f"Error fitting EdgeR model for group {diff_group}")
+        print(f"Design: {design}, Obs Names: {obs_names}")
+        print(adata_obs.loc[obs_names])
+        raise e
 
     # test contrasts
     for column, pairs in test_groups.items():
         for base, cond in pairs:
+            assert (
+                column in adata_obs.columns
+            ), f"Column '{column}' not found in pdata.obs."
+            col_cat_counts = adata_obs[column].value_counts()
+            base_count = col_cat_counts.get(base, 0)
+            cond_count = col_cat_counts.get(cond, 0)
+            if base_count < 2 or cond_count < 2:
+                print(
+                    f"Skipping contrast {column} {base} vs {cond} in group {diff_group} "
+                    f"due to insufficient samples: {base_count} vs {cond_count}."
+                )
+                continue
+
             output_path = output_dir / f"{diff_group}.{column}.{base}.{cond}.feather"
             _single_test_contrasts(
                 da,
@@ -109,6 +153,7 @@ class EdgeR:
         pdata_path: str,
         test_policy: dict,
         output_prefix: str,
+        use_obs: list = None,
         sig_only=True,
         pval_cutoff=0.1,
         log_fc_cutoff=0,
@@ -135,6 +180,8 @@ class EdgeR:
             }
         output_prefix : str
             Prefix for the output files. The results will be saved with name `<output_prefix>_{policy_name}.feather`.
+        use_obs : list, optional
+            List of pseudobulk_ids to use for the analysis. If None, all pseudobulk_ids will be used.
         sig_only : bool, optional
             If True, only significant results will be saved. Default is True.
         pval_cutoff : float, optional
@@ -143,6 +190,7 @@ class EdgeR:
             Log fold change cutoff for significance. Default is 0.
         """
         self.pdata_path = pdata_path
+        self.use_obs = use_obs
         self.test_policy = test_policy
         self.pval_cutoff = pval_cutoff
         self.sig_only = sig_only
@@ -152,6 +200,16 @@ class EdgeR:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self._validate_policy()
+
+    @property
+    def pdata(self):
+        """
+        Load the pseudobulk level raw count data in AnnData format.
+        """
+        pdata = anndata.read_h5ad(self.pdata_path, backed="r")
+        if self.use_obs is not None:
+            pdata = pdata[self.use_obs]
+        return pdata
 
     def _concat_results(self, policy_dirs):
         for policy_name, dir_list in policy_dirs.items():
@@ -171,7 +229,7 @@ class EdgeR:
         """
         Print the test policy and group pairs for debugging purposes.
         """
-        pdata = anndata.read_h5ad(self.pdata_path, backed="r")
+        pdata = self.pdata
         group_strs = set()
         for policy_name, policy_dict in self.test_policy.items():
             pdata_groupby = policy_dict["groupby"]
@@ -188,21 +246,13 @@ class EdgeR:
         """
         Validate the test policy to ensure it contains the required fields.
         """
-        pdata = anndata.read_h5ad(self.pdata_path, backed="r")
+        pdata = self.pdata
 
         for policy_name, policy_dict in self.test_policy.items():
             assert (
                 "test_design" in policy_dict
             ), f"Policy '{policy_name}' is missing 'test_design'."
-            test_design = (
-                policy_dict["test_design"].lstrip("~").replace(" ", "").split("+")
-            )
-            terms = set()
-            for term in test_design:
-                if "+" in term:
-                    terms.update(term.split("+"))
-                else:
-                    terms.add(term)
+            terms = _get_terms_from_design(policy_dict["test_design"])
             for term in terms:
                 if term not in pdata.obs.columns:
                     raise ValueError(
@@ -252,7 +302,7 @@ class EdgeR:
         """
         Fit the EdgeR model and perform differential expression analysis.
         """
-        pdata = anndata.read_h5ad(self.pdata_path, backed="r")
+        pdata = self.pdata
 
         tasks = []
         policy_dirs = {}
