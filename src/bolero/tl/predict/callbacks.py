@@ -295,6 +295,9 @@ class PeakDataSummary:
         suffix = self.suffix
         feature_data_dict = {suffix: features}
         for key in self.data_keys:
+            if key not in data_dict:
+                continue
+
             data = data_dict[key]
             data = self._crop_data(data)
             feture_data_col = []

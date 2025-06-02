@@ -108,3 +108,27 @@ class BorzoiLoRAFlowPredictor:
             return x_pred_traj
         else:
             return x_pred_traj[-1]
+
+    def predict_vt(
+        self,
+        x_0: torch.Tensor,
+        cell_emb: torch.Tensor = None,
+        cond_emb: torch.Tensor = None,
+        dna_one_hot: torch.Tensor = None,
+    ):
+        """
+        Predict the velocity field at a specific time t given an initial condition.
+        """
+        t = torch.tensor([0], dtype=torch.float32, device=x_0.device)
+
+        if self.vf_model is None:
+            vf_model = self._set_vf_model(cell_emb, cond_emb, dna_one_hot)
+            assert vf_model is not None, (
+                "Velocity field model must be set before prediction, "
+                "please provide cell_emb, cond_emb, dna_one_hot."
+            )
+        else:
+            vf_model = self.vf_model
+
+        vt = vf_model(t=t, x_t=x_0).float()
+        return vt

@@ -561,11 +561,15 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                     continue
                 self._convert_single_module(module_name, config)
 
-        # also make sure kv_bottleneck is trainable
+        # also make sure some part of the model is trainable
         for name, param in self.named_parameters():
             if "kv_bottleneck" in name:
                 param.requires_grad = True
             if ("final_output_head" in name) and (self.no_lora_on_output):
+                param.requires_grad = True
+            if "cond_flow_module" in name:
+                param.requires_grad = True
+            if "signal_encoder" in name:
                 param.requires_grad = True
         return
 

@@ -295,11 +295,14 @@ class BorzoiPredictor(GenericPredictor):
     def _get_default_stats_keys(self):
         STATS_KEYS = [
             "region",
-            "profile_r",
+            "profile_pearsonr",
+            "profile_r2",
             "peak",
-            "peak_sample_r",
+            "peak_sample_pearsonr",
+            "peak_sample_r2",
             "pseudobulk_ids",
-            "peak_cum_profile_r",
+            "peak_cum_profile_pearsonr",
+            "peak_cum_profile_r2",
         ]
         return STATS_KEYS
 
@@ -368,9 +371,11 @@ class BorzoiPredictor(GenericPredictor):
         # data to save for each batch
         save_keys = [] if save_keys is None else save_keys
         # stats to collect across batches
-        stats_keys = (
-            self._get_default_stats_keys() if stats_keys is None else stats_keys
-        )
+        default_stats_keys = self._get_default_stats_keys()
+        if stats_keys is not None:
+            stats_keys = list(set(default_stats_keys + stats_keys))
+        else:
+            stats_keys = default_stats_keys
 
         batch_stats_paths = []
         save_batch = {}
@@ -507,6 +512,14 @@ class BorzoiPairPredictor(BorzoiPredictor):
         pred_callbacks.extend(cb)
         return pred_callbacks
 
+    def _get_default_stats_keys(self):
+        STATS_KEYS = super()._get_default_stats_keys()
+        STATS_KEYS += [
+            "peak_delta_pearsonr",
+            "peak_delta_r2",
+        ]
+        return STATS_KEYS
+
 
 class BorzoiFlowPredictor(BorzoiPairPredictor):
     """
@@ -518,6 +531,15 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
     def __init__(self, config):
         super().__init__(config)
         self._ode_solver = None
+
+        # prediction mode can be "ode" or "velocity"
+        # "ode" means using the ODE solver to predict the trajectory
+        # "velocity" means using the model to predict the velocity field
+        self._prediction_mode = self.config.get("prediction_mode", "ode")
+        assert self._prediction_mode in ("ode", "velocity"), (
+            f"Invalid prediction mode: {self._prediction_mode}. "
+            "Must be one of 'ode' or 'velocity'."
+        )
 
     def _create_solver(self) -> _BorzoiFlowModelWithODESolver:
         solver = _BorzoiFlowModelWithODESolver(
@@ -645,13 +667,22 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
-                y_pred_mini_batch = self.ode_solver.predict(
-                    x_0=x0_mini_batch,
-                    t_range=t_range,
-                    cell_emb=cell_emb_mini_batch,
-                    cond_emb=cond_emb_mini_batch,
-                    dna_one_hot=dna_mini_batch,
-                )
+                if self._prediction_mode == "velocity":
+                    y_pred_mini_batch = self.ode_solver.predict_vt(
+                        x_0=x0_mini_batch,
+                        cell_emb=cell_emb_mini_batch,
+                        cond_emb=cond_emb_mini_batch,
+                        dna_one_hot=dna_mini_batch,
+                    )
+                    # y_pred_mini_batch here is actual y_pred delta
+                else:
+                    y_pred_mini_batch = self.ode_solver.predict(
+                        x_0=x0_mini_batch,
+                        t_range=t_range,
+                        cell_emb=cell_emb_mini_batch,
+                        cond_emb=cond_emb_mini_batch,
+                        dna_one_hot=dna_mini_batch,
+                    )
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
         # reshape to (n_region, n_emb, seq_len)
@@ -663,9 +694,20 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             n_emb=n_emb,
         )
 
-        batch["__ypred__:cond1"] = y_pred.detach()
+        if self._prediction_mode == "velocity":
+            # y_pred is the velocity, we need to add it to the initial condition
+            batch["__ypred__:cond1"] = x0 + y_pred.detach()
+        else:
+            batch["__ypred__:cond1"] = y_pred.detach()
         batch["__ypred__:delta"] = batch["__ytrue__:cond0"] - batch["__ypred__:cond1"]
         return batch
+
+    def _model_prediction_step_nosde(
+        self,
+    ):
+        """
+        Forward pass through the model without ODE solver, just use the velocity prediction.
+        """
 
     def _create_fn_and_dataloader(
         self,
