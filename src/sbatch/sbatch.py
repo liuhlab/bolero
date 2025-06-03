@@ -268,8 +268,14 @@ class PreemptibleManager:
         max_jobs: int = 16,
     ):
         if isinstance(command_list, str):
-            with open(command_list) as f:
-                command_list = [l.strip() for l in f.readlines()]
+            is_path = pathlib.Path(command_list).exists()
+            if is_path:
+                command_list = pathlib.Path(command_list)
+                with open(command_list) as f:
+                    command_list = [l.strip() for l in f.readlines()]
+            else:
+                command_list = command_list.split("\n")
+
         self.command_dict = dict(enumerate(command_list))
         print(f"Total {len(self.command_dict)} commands to submit.")
         self.job_name = job_name

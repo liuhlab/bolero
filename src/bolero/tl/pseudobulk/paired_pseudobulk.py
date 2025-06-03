@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from copy import deepcopy
 from typing import Any, Union
 
@@ -91,49 +92,79 @@ def pad_or_chunk_emb(emb, target_n=128):
 
 
 class PredefinedCondEncoder:
-    def __init__(self, cond_emb: dict[np.ndarray] = None, conditions=None):
+    def __init__(self, cond_emb: dict[list | str] | list[str] = None):
         """
-        Condition encoder from pre-defined condition embedding or one hot encoding.
+        Condition encoder that saves one-hot encoding for categorical conditions.
+        Keep numerical conditions as is.
+
+        Parameters
+        ----------
+        cond_emb : dict[np.ndarray], optional
+            A dictionary of cond_key and cond_values.
+            If cond_key is categoricals, cond_values should be possible categories.
+            If cond_key is numerical, cond_values should be "CONTINUOUS".
+            If provided, conditions will not be used.
         """
-        if cond_emb is not None and conditions is not None:
-            raise ValueError(
-                "Either cond_emb or conditions must be provided, not both."
-            )
+        if isinstance(cond_emb, list):
+            cond_emb = {"DEFAULT": cond_emb}
 
-        if cond_emb is not None:
-            assert isinstance(cond_emb, dict), "cond_emb must be a dict."
+        self.encoder_dict = OrderedDict()
 
-            self.cond_emb = cond_emb
-            self.onehot_encoder = None
-        elif conditions is not None:
-            category = np.array(conditions)
-            if category.ndim < 2:
-                category = category.reshape(-1, 1)
-            self.onehot_encoder = OneHotEncoder(dtype="float32", sparse_output=False)
-            self.onehot_encoder.fit(category)
-        else:
-            raise ValueError("Either cond_emb or conditions must be provided.")
+        sorted_keys = sorted(cond_emb.keys())
+        for cond_key in sorted_keys:
+            cond_values = cond_emb[cond_key]
+            if isinstance(cond_values, str) and cond_values == "CONTINUOUS":
+                # numerical condition
+                self.encoder_dict[cond_key] = None
+            else:
+                # categorical condition
+                cond_values = np.array(cond_values)
+                if cond_values.ndim < 2:
+                    cond_values = cond_values.reshape(-1, 1)
+                _encoder = OneHotEncoder(dtype="float32", sparse_output=False)
+                _encoder.fit(cond_values)
+                self.encoder_dict[cond_key] = _encoder
 
-        self.emb_dim = (
-            list(self.cond_emb.values())[0].shape[-1]
-            if cond_emb is not None
-            else self.onehot_encoder.get_feature_names_out().size
-        )
+        self.cond_emb_dims = {
+            k: v.categories_[0].size if isinstance(v, OneHotEncoder) else 1
+            for k, v in self.encoder_dict.items()
+        }
         return
 
-    def transform(self, cond: str | list[str]) -> np.ndarray:
+    def transform(
+        self, cond: str | list[str] | dict
+    ) -> np.ndarray | dict[str, np.ndarray]:
         """
         Transform the condition to the embedding.
         """
-        if self.onehot_encoder is None:
-            return self.cond_emb[cond]
-        else:
-            if not isinstance(cond, np.ndarray):
-                cond = np.array(cond)
-            if cond.ndim < 2:
-                cond = cond.reshape(-1, 1)
-            emb = self.onehot_encoder.transform(cond)
-            return emb
+        if not isinstance(cond, dict):
+            # single condition, using default key
+            cond = {"DEFAULT": cond}
+
+        all_emb = {}
+        for cond_key, cond_values in cond.items():
+            try:
+                encoder = self.encoder_dict[cond_key]
+            except KeyError as e:
+                raise KeyError(
+                    f"Condition key '{cond_key}' not found in encoder dictionary. "
+                    f"Available keys: {list(self.encoder_dict.keys())}, input: {cond}"
+                ) from e
+
+            if not isinstance(cond_values, np.ndarray):
+                cond_values = np.array(cond_values)
+            if cond_values.ndim < 2:
+                cond_values = cond_values.reshape(-1, 1)
+            if isinstance(encoder, OneHotEncoder):
+                emb = encoder.transform(cond_values)
+            else:
+                emb = cond_values.astype("float32")
+            all_emb[cond_key] = emb
+
+        if len(all_emb) == 1 and "DEFAULT" in all_emb:
+            # If only one condition is present, return it directly
+            return all_emb["DEFAULT"]
+        return all_emb
 
     def __call__(self, *args, **kwds) -> np.ndarray:
         """
@@ -212,6 +243,12 @@ class PairedPseudobulker:
             "ot_transition"
         ]
         self.condition_pairs = list(self.ot_transition.keys())
+        self.conditions = set()
+        for cond_pair in self.condition_pairs:
+            self.conditions.update(cond_pair)
+        self.condition_terms: dict[str, dict] = pseudobulk_and_ot_info.get(
+            "condition_terms", {}
+        )
 
         # 5. condition to related pseudobulk mapping
         self.condition_to_related_pseudobulk = pseudobulk_and_ot_info[
@@ -219,6 +256,7 @@ class PairedPseudobulker:
         ]
         cond_emb = pseudobulk_and_ot_info.get("condition_emb", None)
         self.condition_encoder = self._make_condition_encoder(cond_emb)
+        self.cond_emb_dims = self.condition_encoder.cond_emb_dims
 
         # 6. target coverage
         self.target_cov = pseudobulk_and_ot_info["target_cov"]
@@ -247,13 +285,11 @@ class PairedPseudobulker:
         self.sampling_weights: pd.Series = sampling_weights / sampling_weights.sum()
         return
 
-    def _make_condition_encoder(self, cond_emb):
-        if cond_emb is None:
-            conditions = list(self.condition_to_related_pseudobulk.keys())
-        else:
-            conditions = None
+    def _make_condition_encoder(self, cond_dict):
+        if cond_dict is None:
+            cond_dict = list(self.condition_to_related_pseudobulk.keys())
 
-        encoder = PredefinedCondEncoder(cond_emb, conditions)
+        encoder = PredefinedCondEncoder(cond_dict)
         return encoder
 
     def _load_records(self, pseudobulk_records, downsample_pseudobulk):
@@ -319,6 +355,7 @@ class PairedPseudobulker:
                 related_pseudobulks, 1, replace=False, p=related_sample_weights.values
             )[0]
         sel_pseudobulk = deepcopy(self.pseudobulk_records[pid_choice])
+        sel_pseudobulk.setdefault("__t__", p_sample)
         cond_pair_pseudobulks[p_sample] = sel_pseudobulk
 
         # 3. sample a matched meta cell list from the OT transition matrix
@@ -343,6 +380,7 @@ class PairedPseudobulker:
             ),
             "sample_weight": sel_pseudobulk["sample_weight"],
         }
+        ot_pseudobulk.setdefault("__t__", p_ot)
         cond_pair_pseudobulks[p_ot] = ot_pseudobulk
 
         # Following code is for generator to handle the pseudobulk records
@@ -350,7 +388,8 @@ class PairedPseudobulker:
             # 1. set the embedding for generator to use
             d["__embedding__"] = d[self.emb_key]
             d["__covlogfc__"] = d[self.cov_key]
-            d["__conditionemb__"] = self.condition_encoder(cond)
+            cond_terms = self.condition_terms.get(cond, cond)
+            d["__conditionemb__"] = self.condition_encoder(cond_terms)
 
             # 2. convert meta cell list to int row index
             if self.barcode_order is not None:
@@ -463,12 +502,14 @@ class PairedPseudobulker:
                 assert (
                     p0_key not in pseudobulk_col
                 ), f"Duplicate key {p0_key} found in pseudobulk_col."
+                p0.setdefault("__t__", 0)
                 pseudobulk_col[p0_key] = p0
 
                 p1_key = f"{name0}|{name1}:{name1}-{idx}"
                 assert (
                     p1_key not in pseudobulk_col
                 ), f"Duplicate key {p1_key} found in pseudobulk_col."
+                p1.setdefault("__t__", 1)
                 pseudobulk_col[p1_key] = p1
         return pseudobulk_col
 
@@ -517,6 +558,8 @@ class GeneratePairedPseudobulk:
     def _sample_location_and_conditional_flow(self, data_dict, output_prefix):
         x0 = data_dict[f"{output_prefix}:bulk_data_0"]
         x1 = data_dict[f"{output_prefix}:bulk_data_1"]
+        t_start = data_dict.get("__t_0", 0)
+        t_end = data_dict.get("__t_1", 1)
 
         x0 = torch.from_numpy(x0)
         x1 = torch.from_numpy(x1)
@@ -524,6 +567,10 @@ class GeneratePairedPseudobulk:
         t, xt, ut = self.flow_matcher.sample_location_and_conditional_flow(
             x0=x0, x1=x1, t=None, return_noise=False
         )
+        # scale t to the range [t_start, t_end]
+        # default trange is [0, 1], so t is unchanged
+        t = t_start + t * (t_end - t_start)
+
         data_dict["__t__"] = t.numpy()
         data_dict["__xt__"] = xt.numpy()
         data_dict["__ut__"] = ut.numpy()
@@ -553,7 +600,10 @@ class GeneratePairedPseudobulk:
                     row_embedding
                 )
 
-                # 3. add pseudobulk data with optional
+                # 3. add trange if available
+                this_bulk_dict["__t{suffix}"] = pseudobulk["__t__"]
+
+                # 4. add pseudobulk data with optional
                 # coverage normalization and resolution reduction
                 prefix_to_rows = pseudobulk["cluster_ids"]
                 cov_logfc = pseudobulk["__covlogfc__"]
@@ -584,12 +634,12 @@ class GeneratePairedPseudobulk:
                     combined_bulk_data
                 )
 
-                # 4. copy shared information to the bulk dict
+                # 5. copy shared information to the bulk dict
                 for key in self.bypass_keys:
                     if key in data_dict:
                         this_bulk_dict[key] = deepcopy(data_dict[key])
 
-            # 5. add flow match sampling
+            # 6. add flow match sampling
             this_bulk_dict = self._sample_location_and_conditional_flow(
                 this_bulk_dict, output_prefix
             )

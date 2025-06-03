@@ -117,7 +117,7 @@ class BorzoiLoRAFlowPredictor:
         dna_one_hot: torch.Tensor = None,
     ):
         """
-        Predict the velocity field at a specific time t given an initial condition.
+        Predict the velocity field at a time 0 given an initial condition.
         """
         t = torch.tensor([0], dtype=torch.float32, device=x_0.device)
 

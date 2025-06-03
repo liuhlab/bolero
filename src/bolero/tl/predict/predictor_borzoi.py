@@ -674,6 +674,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                         cond_emb=cond_emb_mini_batch,
                         dna_one_hot=dna_mini_batch,
                     )
+                    # This is equivalent to single step ODE approximation
                     # y_pred_mini_batch here is actual y_pred delta
                 else:
                     y_pred_mini_batch = self.ode_solver.predict(
