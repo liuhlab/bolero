@@ -47,7 +47,7 @@ from bolero.utils import validate_config
 # }
 
 
-def sample_mapping(tmat: pd.DataFrame, deterministic=False) -> pd.Series:
+def sample_mapping(tmat: pd.DataFrame, seed=None) -> pd.Series:
     """
     Sample a one-to-one mapping from a transition matrix.
 
@@ -63,14 +63,15 @@ def sample_mapping(tmat: pd.DataFrame, deterministic=False) -> pd.Series:
         A mapping from source names to target names. The index is the source names and the values are the target names.
         shape: (n_source,)
     """
+    if seed is not None:
+        generator = torch.Generator().manual_seed(seed)
+    else:
+        generator = None
+
     _tmat = torch.from_numpy(tmat.values)
     src_names = tmat.index
     tgt_names = tmat.columns
-    if deterministic:
-        # For deterministic sampling, we use the argmax of the transition matrix
-        tgt_idx = _tmat.argmax(dim=1)
-    else:
-        tgt_idx = torch.multinomial(_tmat, num_samples=1).squeeze(1)
+    tgt_idx = torch.multinomial(_tmat, num_samples=1, generator=generator).squeeze(1)
     tgt_ordered = tgt_names[tgt_idx.cpu().numpy()]
     mapping = pd.Series(tgt_ordered, index=src_names)
     return mapping
@@ -311,6 +312,7 @@ class PairedPseudobulker:
         cond_pair=None,
         p_sample=None,
         pid_choice=None,
+        ot_seed=None,
     ):
         """
         Sample a single pseudobulk pair from the predefined pseudobulk records.
@@ -362,7 +364,7 @@ class PairedPseudobulker:
         if p_sample == 1:
             tmat = tmat.T
         p_ot = 0 if p_sample == 1 else 1
-        mapping = sample_mapping(tmat)
+        mapping = sample_mapping(tmat, seed=ot_seed)
         p_ot_meta_cells = mapping.loc[
             sel_pseudobulk["cluster_ids"][self.prefix_name]
         ].values.tolist()
@@ -429,7 +431,7 @@ class PairedPseudobulker:
             A list of two pseudobulk records for the condition pair.
         """
         cond_pair_pseudobulks, _ = self._sample_single_pseudobulk(
-            cond_pair=cond_pair, p_sample=p_sample, pid_choice=pid_choice
+            cond_pair=cond_pair, p_sample=p_sample, pid_choice=pid_choice, ot_seed=0
         )
         return cond_pair_pseudobulks
 
@@ -479,12 +481,12 @@ class PairedPseudobulker:
             A dictionary where keys are pseudobulk names and values are the corresponding pseudobulk records.
         Each pseudobulk name is formatted as "{name0}|{name1}:{name0}-{idx}" and "{name0}|{name1}:{name1}-{idx}".
         """
-        pseudobulk_col = {}
+        pseudobulk_col = OrderedDict()
         for cond_pair, p_sample, n_pids in designs:
             sample_from_cond = cond_pair[p_sample]
             related_pids = pd.Series(
                 list(self.condition_to_related_pseudobulk[sample_from_cond])
-            )
+            ).sort_values()
             if n_pids > related_pids.size:
                 n_pids = related_pids.size
                 print(
@@ -495,8 +497,8 @@ class PairedPseudobulker:
                 pids = related_pids.sample(n_pids, random_state=0).tolist()
 
             for idx, pid in enumerate(pids):
-                p0, p1 = self.take_pair_by_name(cond_pair, p_sample, pid)
-                name0, name1 = cond_pair
+                p1, p0 = self.take_pair_by_name(cond_pair, p_sample, pid)
+                name1, name0 = cond_pair
 
                 p0_key = f"{name0}|{name1}:{name0}-{idx}"
                 assert (
@@ -601,7 +603,7 @@ class GeneratePairedPseudobulk:
                 )
 
                 # 3. add trange if available
-                this_bulk_dict["__t{suffix}"] = pseudobulk["__t__"]
+                this_bulk_dict[f"__t{suffix}"] = pseudobulk["__t__"]
 
                 # 4. add pseudobulk data with optional
                 # coverage normalization and resolution reduction

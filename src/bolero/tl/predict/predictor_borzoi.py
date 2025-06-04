@@ -580,6 +580,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                 {
                     "peak_bed": self.peak_df,
                     "data_keys": [
+                        "__ytrue__:cond0",
                         "__ytrue__:cond1",
                         "__ytrue__:delta",
                         "__ypred__:cond1",
@@ -591,6 +592,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                 "rename",
                 {
                     "name_map": {
+                        "__ytrue__:cond0:peak": "__ytrue__:peak:cond0",
                         "__ytrue__:cond1:peak": "__ytrue__:peak:cond1",
                         "__ytrue__:delta:peak": "__ytrue__:peak:delta",
                         "__ypred__:cond1:peak": "__ypred__:peak:cond1",
@@ -663,7 +665,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             # dna has shape (n_region, 4, seq_len)
             dna_mini_batch = dna[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
-            # we need to select the paired region and embedding and get (bs, seq_len)
+            # we need to select the paired region and embedding and get (bs, 1, seq_len)
             x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
@@ -700,7 +702,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             batch["__ypred__:cond1"] = x0 + y_pred.detach()
         else:
             batch["__ypred__:cond1"] = y_pred.detach()
-        batch["__ypred__:delta"] = batch["__ytrue__:cond0"] - batch["__ypred__:cond1"]
+        batch["__ypred__:delta"] = batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
         return batch
 
     def _model_prediction_step_nosde(

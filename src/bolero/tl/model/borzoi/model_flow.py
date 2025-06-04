@@ -29,8 +29,12 @@ class BorzoiLoRAFlowWrapperForODE(nn.Module):
             cell_emb=self.cell_emb, time=t, cond_emb=self.cond_emb
         )
 
+        # Data loader provides coverage count scale
+        # model takes log1p scale as input
+        log_x_t = torch.log1p(x_t)
+
         # Compute the velocity field
-        vt = self.model(x=self.dna_one_hot, signal=x_t, embedding=emb, crop=False)
+        vt = self.model(x=self.dna_one_hot, signal=log_x_t, embedding=emb, crop=False)
         return vt
 
 
@@ -41,14 +45,17 @@ class BorzoiLoRAFlowPredictor:
         cell_emb: torch.Tensor = None,
         cond_emb: torch.Tensor = None,
         dna_one_hot: torch.Tensor = None,
+        method: str = "dopri5",
+        rtol: float = 1e-4,
+        atol: float = 1e-4,
         **ode_solver_kwargs,
     ):
         self.model = model
         self.vf_model = self._set_vf_model(cell_emb, cond_emb, dna_one_hot)
         self.ode_solver_kwargs = {
-            "method": "dopri5",
-            "rtol": 1e-4,
-            "atol": 1e-4,
+            "method": method,
+            "rtol": rtol,
+            "atol": atol,
             **ode_solver_kwargs,
         }
 
