@@ -343,7 +343,7 @@ class BorzoiPredictor(GenericPredictor):
             Whether to print the progress.
         """
         if isinstance(regions, str) and regions == "test_regions":
-            regions = self.get_fold_regions(test_only=True)
+            regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
         else:
             regions = understand_regions(regions)
         if downsample_regions is not None:

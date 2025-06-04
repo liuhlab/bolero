@@ -509,3 +509,54 @@ def exponential_linspace_int(start, end, num, divisible_by=1):
 
     base = math.exp(math.log(end / start) / (num - 1))
     return [_round(start * base**i) for i in range(num)]
+
+
+def minimize_overlap_regions(
+    regions: Union[pr.PyRanges, pd.DataFrame],
+) -> pd.DataFrame:
+    """
+    Given a set of overlapping regions, return the minimum overlapping regions that cover the all set.
+    This function is useful during model inference, to maximumly reduce the number of testing regions while
+    still covering the whole region set.
+
+    Parameters
+    ----------
+    regions : pr.PyRanges or pd.DataFrame
+        The input regions to process. If a PyRanges object is provided, it will be converted to a DataFrame.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the minimum overlapping regions that cover the entire set of input regions.
+    """
+    if not isinstance(regions, pr.PyRanges):
+        regions = pr.PyRanges(regions)
+
+    use_regions = []
+    # use pr.PyRanges to identify overlapping region clusters
+    regions_with_cluster = regions.sort().cluster().df
+    # Within each cluster, select the set of minimum overlapping regions
+    for _, cluster_df in regions_with_cluster.groupby("Cluster"):
+        # overlap_until keep records overlapping relationship of sorted regions
+        overlap_until = np.argmax(
+            (
+                cluster_df.iloc[:, 1].values[None, :]
+                - cluster_df.iloc[:, 2].values[:, None]
+            )
+            > 0,
+            axis=1,
+        )
+        # prevent boarder issue
+        overlap_until[overlap_until == 0] = overlap_until.size + 10
+
+        cur_idx = 0
+        use_idx = []
+        while cur_idx <= overlap_until.size - 1:
+            use_idx.append(cur_idx)
+            # jump to the last overlapping region of current region
+            cur_idx = overlap_until[cur_idx] - 1
+        use_df = cluster_df.iloc[use_idx].reset_index(drop=True)
+        use_regions.append(use_df)
+
+    use_regions = pd.concat(use_regions)
+    return use_regions

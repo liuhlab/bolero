@@ -11,7 +11,7 @@ from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.model.borzoi.utils import BorzoiRegions
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
-from bolero.utils import understand_regions
+from bolero.utils import minimize_overlap_regions, understand_regions
 
 from .callbacks import CALLBACK_NAME_TO_CLASS
 from .datamanager import GenericGenomeDataManager
@@ -129,7 +129,9 @@ class GenericPredictor:
             )
         return self._dm.pseudobulk_manager
 
-    def get_fold_regions(self, test_only=True) -> pd.DataFrame | tuple[pd.DataFrame]:
+    def get_fold_regions(
+        self, test_only=True, minimize_overlap=False
+    ) -> pd.DataFrame | tuple[pd.DataFrame]:
         """
         Get the regions for the fold during training.
 
@@ -137,11 +139,20 @@ class GenericPredictor:
         ----------
         test_only : bool
             If True, return only the test regions. If False, return train and valid regions as well.
+        minimize_overlap : bool
+            If True, minimize the overlap between regions to reduce the number of regions.
         """
         fold = self.config["fold_split_id"]
         train_regions, test_regions, valid_regions = (
             self.borzoi_regions.get_train_valid_test_regions(fold)
         )
+        if minimize_overlap:
+            # minimize region overlap to reduce number of regions
+            test_regions = minimize_overlap_regions(test_regions)
+            if not test_only:
+                train_regions = minimize_overlap_regions(train_regions)
+                valid_regions = minimize_overlap_regions(valid_regions)
+
         if test_only:
             return test_regions
         else:
