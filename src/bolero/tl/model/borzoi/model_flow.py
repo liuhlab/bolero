@@ -139,3 +139,70 @@ class BorzoiLoRAFlowPredictor:
 
         vt = vf_model(t=t, x_t=x_0).float()
         return vt
+
+
+class BorzoiLoRAFlowPredictorFP:
+    def __init__(
+        self,
+        model: BorzoiLoRA,
+        cell_emb: torch.Tensor = None,
+        cond_emb: torch.Tensor = None,
+        dna_one_hot: torch.Tensor = None,
+        trange: torch.Tensor = None,
+        steps: int = 100,
+        flow_sigma: float = 1,
+    ):
+        self.model = model
+        self.vf_model = self._set_vf_model(cell_emb, cond_emb, dna_one_hot)
+        if trange is None:
+            trange = [0, 0.999]
+        tmin, tmax = trange
+        self.ts = torch.linspace(tmin, tmax, steps, dtype=torch.float32)
+        self.dt = self.ts[1] - self.ts[0]
+        self.flow_sigma = flow_sigma
+
+    def _set_vf_model(
+        self,
+        cell_emb: torch.Tensor,
+        cond_emb: torch.Tensor,
+        dna_one_hot: torch.Tensor,
+    ):
+        if cell_emb is None or cond_emb is None or dna_one_hot is None:
+            return None
+
+        vf_model = BorzoiLoRAFlowWrapperForODE(
+            model=self.model,
+            cell_emb=cell_emb,
+            cond_emb=cond_emb,
+            dna_one_hot=dna_one_hot,
+        )
+        return vf_model
+
+    def _step(self, vf_model, t, xt):
+        vt = vf_model(t, xt)
+        sigma = self.flow_sigma * (1 - t)
+        dt = self.dt
+
+        mu = xt + vt * dt  # add drift
+        xt = mu + sigma * torch.randn_like(mu) * dt.sqrt()  # add score
+        return xt, mu
+
+    def predict(self, x_0, cell_emb=None, cond_emb=None, dna_one_hot=None):
+        """
+        Predict the trajectory of the flow given an initial condition.
+        """
+        xt = x_0
+        if self.vf_model is None:
+            vf_model = self._set_vf_model(cell_emb, cond_emb, dna_one_hot)
+            assert vf_model is not None, (
+                "Velocity field model must be set before prediction, "
+                "please provide cell_emb, cond_emb, dna_one_hot."
+            )
+        else:
+            vf_model = self.vf_model
+        ones = torch.ones_like(xt)
+
+        for tscalar in self.ts:
+            t = tscalar * ones
+            xt, mu = self._step(vf_model, t, xt)
+        return mu

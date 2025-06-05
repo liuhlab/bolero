@@ -16,6 +16,9 @@ from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_flow import (
     BorzoiLoRAFlowPredictor as _BorzoiFlowModelWithODESolver,
 )
+from bolero.tl.model.borzoi.model_flow import (
+    BorzoiLoRAFlowPredictorFP as _BorzoiFlowModelWithSDESolverFP,
+)
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.pseudobulk.paired_pseudobulk import PairedPseudobulker
 from bolero.utils import understand_regions
@@ -542,10 +545,17 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         )
 
     def _create_solver(self) -> _BorzoiFlowModelWithODESolver:
-        solver = _BorzoiFlowModelWithODESolver(
-            model=self.model,
-            **self.config.get("ode_solver_kwargs", {}),
-        )
+        cfm_class = self.config.get("cfm_class", "cfm")
+        if cfm_class == "fp":
+            solver = _BorzoiFlowModelWithSDESolverFP(
+                model=self.model,
+                **self.config.get("solver_kwargs", {}),
+            )
+        else:
+            solver = _BorzoiFlowModelWithODESolver(
+                model=self.model,
+                **self.config.get("solver_kwargs", {}),
+            )
         return solver
 
     @property

@@ -279,6 +279,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "read_parquet_kwargs": None,
         "min_cov": 0,
         "paired_data": False,
+        "cfm_class": "cfm",
+        "cfm_kwargs": None,
         "normalize_cov": None,
         "deg_list": None,
         "use_pseudobulk_profile": False,
@@ -304,6 +306,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         read_parquet_kwargs=None,
         min_cov: int = 0,
         paired_data=False,
+        cfm_class="cfm",
+        cfm_kwargs=None,
         normalize_cov=None,
         deg_list=None,
         use_pseudobulk_profile=False,
@@ -332,6 +336,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.cov_filter_name = cov_filter_name
         self.min_cov = min_cov
         self.paired_data = paired_data
+        self.cfm_class = cfm_class
+        self.cfm_kwargs = cfm_kwargs
         self.normalize_cov = normalize_cov
         self.deg_list = deg_list
         self.use_pseudobulk_profile = use_pseudobulk_profile
@@ -621,8 +627,11 @@ class BorzoiDataset(RayGenomeChunkDataset):
     ):
         if self.paired_data:
             fn = GeneratePairedPseudobulk
+            kwargs.setdefault("flow_matcher_class", self.cfm_class)
+            kwargs.setdefault("flow_matcher_kwargs", self.cfm_kwargs)
         else:
             fn = GenerateBorzoiPseudobulk
+
         fn_constructor_kwargs = {
             "n_pseudobulks": self.n_pseudobulks,
             "normalize_cov": self.normalize_cov,

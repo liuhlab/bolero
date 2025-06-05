@@ -54,6 +54,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "output_head_kwargs": None,
             # conditional flow matching parameters
             "flow_model": False,
+            "freeze_signal_encoder": False,  # only for ablation studies
             "cond_emb_dim": None,
             "cond_flow_kwargs": None,
         }
@@ -92,6 +93,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         output_head_kwargs=None,
         # conditional flow matching parameters
         flow_model=False,
+        freeze_signal_encoder=False,  # only for ablation studies
         cond_emb_dim=None,
         cond_flow_kwargs=None,
         # base model
@@ -130,6 +132,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         self.lora_preset = lora_preset
         self.out_channels = out_channels
         self.flow_model = flow_model
+        self.freeze_signal_encoder = freeze_signal_encoder
+        if self.freeze_signal_encoder:
+            print("Freezing signal encoder for ablation study")
 
         # update base model pretrained weights
         print("Loading base model weights from:", base_checkpoint_path)
@@ -570,7 +575,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             if "cond_flow_module" in name:
                 param.requires_grad = True
             if "signal_encoder" in name:
-                param.requires_grad = True
+                if self.freeze_signal_encoder:
+                    # ablation study, freeze the signal encoder
+                    param.requires_grad = False
+                else:
+                    param.requires_grad = True
+
         return
 
     def _model_summary(

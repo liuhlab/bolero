@@ -6,9 +6,15 @@ import joblib
 import numpy as np
 import pandas as pd
 import torch
+from scipy.sparse import csr_matrix
 from sklearn.preprocessing import OneHotEncoder
 
-from bolero.tl.model.flow.matcher import ConditionalFlowMatcher
+from bolero.tl.model.flow.matcher import (
+    ConditionalFlowMatcher,
+    ConstantFlowMatcher,
+    FollmerProcessFlowMatcher,
+    SchrodingerBridgeConditionalFlowMatcher,
+)
 from bolero.utils import validate_config
 
 # pseudobulk_records schema:
@@ -227,10 +233,16 @@ class PairedPseudobulker:
         pseudobulk_keys = list(self.pseudobulk_records.keys())
         # process records
         self.pseudobulk_ids = pd.Index(pseudobulk_keys)
+
+        # collect meta cell idx information
         self.n_pids = self.pseudobulk_ids.size
 
         # 2. meta cell embedding, shape (n_meta_cell, emb_dim)
         self.meta_cell_emb: pd.DataFrame = pseudobulk_and_ot_info["meta_cell_emb"]
+        all_meta_cells = self.meta_cell_emb.index.tolist()
+        self.metacell_id_to_int = pd.Series(
+            range(len(all_meta_cells)), index=all_meta_cells
+        )
 
         # 3. meta cell N frags, shape (n_meta_cell,)
         self.meta_cell_n_frags = pseudobulk_and_ot_info["meta_cell_n_frags"]
@@ -400,6 +412,10 @@ class PairedPseudobulker:
                     k: sorted([self.barcode_order[k][c] for c in v])
                     for k, v in parquet_prefix_to_rows.items()
                 }
+                meta_cell_index: np.array = self.metacell_id_to_int.loc[
+                    d["cluster_ids"][self.prefix_name]
+                ].values
+                d["meta_cell_index"] = meta_cell_index
                 d["cluster_ids"] = parquet_prefix_to_rows
 
             # self.pseudobulk_records[pid][f'{cov_key}_list'] = cov_value_list
@@ -497,7 +513,7 @@ class PairedPseudobulker:
                 pids = related_pids.sample(n_pids, random_state=0).tolist()
 
             for idx, pid in enumerate(pids):
-                p1, p0 = self.take_pair_by_name(cond_pair, p_sample, pid)
+                p0, p1 = self.take_pair_by_name(cond_pair, p_sample, pid)
                 name1, name0 = cond_pair
 
                 p0_key = f"{name0}|{name1}:{name0}-{idx}"
@@ -529,14 +545,30 @@ class GeneratePairedPseudobulk:
         bypass_keys=None,
         normalize_cov=None,
         reduce_resolution=None,
-        flow_matcher_sigma=0.0,
+        flow_matcher_class="cfm",
+        flow_matcher_kwargs=None,
         **name_to_pseudobulker,
     ):
         self.name_to_pseudobulker = name_to_pseudobulker
         self.n_pseudobulks = n_pseudobulks
         self.return_rows = return_rows
         self.inplace = inplace
-        self.flow_matcher = ConditionalFlowMatcher(sigma=flow_matcher_sigma)
+
+        flow_matcher_kwargs = {} if flow_matcher_kwargs is None else flow_matcher_kwargs
+        if flow_matcher_class == "cfm":
+            cfm_cls = ConditionalFlowMatcher
+        elif flow_matcher_class == "sb":
+            cfm_cls = SchrodingerBridgeConditionalFlowMatcher
+        elif flow_matcher_class == "fp":
+            cfm_cls = FollmerProcessFlowMatcher
+        elif flow_matcher_class == "constant":
+            cfm_cls = ConstantFlowMatcher
+        else:
+            raise ValueError(
+                f"Unknown flow_matcher_class: {flow_matcher_class}. "
+                "Supported classes are 'cfm', 'sb', 'fp', and 'constant'."
+            )
+        self.flow_matcher = cfm_cls(**flow_matcher_kwargs)
 
         self.bypass_keys = ["region"]
         if bypass_keys is not None:
@@ -548,7 +580,7 @@ class GeneratePairedPseudobulk:
         self.reduce_resolution = reduce_resolution
 
         # suffix for p1 and p0 data keys
-        self.suffix = ["_1", "_0"]
+        self.suffix = ["_0", "_1"]
         return
 
     def _reduce_resolution(self, data):
@@ -614,7 +646,10 @@ class GeneratePairedPseudobulk:
                     prefix_rows = prefix_to_rows[prefix]
                     # row_by_base is a csr_matrix of shape (n_rows, region_length)
                     try:
-                        row_by_base = data_dict[prefix]
+                        row_by_base: csr_matrix = data_dict[prefix]
+                        assert isinstance(
+                            row_by_base, csr_matrix
+                        ), f"Expected csr_matrix for prefix {prefix}, got {type(row_by_base)}"
                     except KeyError as e:
                         raise KeyError(
                             f"Key {prefix} not found in data_dict, {data_dict.keys()}"

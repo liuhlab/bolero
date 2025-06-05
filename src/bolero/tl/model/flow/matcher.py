@@ -77,6 +77,7 @@ if ott_available:
         solver = sinkhorn.Sinkhorn(threshold=threshold, **kwargs)
         out = solver(problem)
         return out.matrix
+
 else:
     match_linear = None
 
@@ -413,6 +414,24 @@ class ExactOptimalTransportConditionalFlowMatcher(ConditionalFlowMatcher):
             return t, xt, ut, y0, y1
 
 
+class ConstantFlowMatcher(ConditionalFlowMatcher):
+    """
+    This class does no interpolation, just for ablation studies.
+    """
+
+    def sample_location_and_conditional_flow(self, x0, x1, t, return_noise=False):
+        """
+        return constant flow matching samples for ablation studies.
+        """
+        t = torch.zeros(x0.shape[0]).type_as(x0)
+        xt = x0.clone()
+        ut = x1 - x0
+        if return_noise:
+            eps = torch.zeros_like(x0)
+            return t, xt, ut, eps
+        return t, xt, ut
+
+
 class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
     """Child class for Schrödinger bridge conditional flow matching method. This class implements
     the SB-CFM methods from [1] and inherits the ConditionalFlowMatcher parent class.
@@ -421,33 +440,20 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
     sample_location_and_conditional_flow functions.
     """
 
-    def __init__(self, sigma: Union[float, int] = 1.0, ot_method="exact"):
+    def __init__(self, sigma: Union[float, int] = 1.0):
         r"""Initialize the SchrodingerBridgeConditionalFlowMatcher class. It requires the hyper-
         parameter $\sigma$ and the entropic OT map.
 
         Parameters
         ----------
         sigma : Union[float, int]
-        ot_sampler: exact OT method to draw couplings (x0, x1) (see Eq.(17) [1]).
-            we use exact as the default as we found this to perform better
-            (more accurate and faster) in practice for reasonable batch sizes.
-            We note that as batchsize --> infinity the correct choice is the
-            sinkhorn method theoretically.
         """
-        if not ott_available:
-            raise ImportError(
-                "OT library not available. Please install the 'ott' package."
-            )
-
         if sigma <= 0:
             raise ValueError(f"Sigma must be strictly positive, got {sigma}.")
         elif sigma < 1e-3:
             print("Small sigma values may lead to numerical instability.")
 
         super().__init__(sigma)
-        self.ot_method = ot_method
-        raise NotImplementedError
-        # self.ot_sampler = OTPlanSampler(method=ot_method, reg=2 * self.sigma**2)
 
     def compute_sigma_t(self, t):
         """
@@ -500,40 +506,6 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
         ut = sigma_t_prime_over_sigma_t * (xt - mu_t) + x1 - x0
         return ut
 
-    def sample_location_and_conditional_flow(self, x0, x1, t=None, return_noise=False):
-        """
-        Compute the sample xt (drawn from N(t * x1 + (1 - t) * x0, sqrt(t * (1 - t))*sigma^2 ))
-        and the conditional vector field ut(x1|x0) = (1 - 2 * t) / (2 * t * (1 - t)) * (xt - mu_t) + x1 - x0,
-        (see Eq.(15) [1]) with respect to the minibatch entropic OT plan.
-
-        Parameters
-        ----------
-        x0 : Tensor, shape (bs, *dim)
-            represents the source minibatch
-        x1 : Tensor, shape (bs, *dim)
-            represents the target minibatch
-        (optionally) t : Tensor, shape (bs)
-            represents the time levels
-            if None, drawn from uniform [0,1]
-        return_noise: bool
-            return the noise sample epsilon
-
-
-        Returns
-        -------
-        t : FloatTensor, shape (bs)
-        xt : Tensor, shape (bs, *dim)
-            represents the samples drawn from probability path pt
-        ut : conditional vector field ut(x1|x0) = x1 - x0
-        (optionally) epsilon : Tensor, shape (bs, *dim) such that xt = mu_t + sigma_t * epsilon
-
-        References
-        ----------
-        [1] Improving and Generalizing Flow-Based Generative Models with minibatch optimal transport, Preprint, Tong et al.
-        """
-        x0, x1 = self.ot_sampler.sample_plan(x0, x1)
-        return super().sample_location_and_conditional_flow(x0, x1, t, return_noise)
-
     def guided_sample_location_and_conditional_flow(
         self, x0, x1, y0=None, y1=None, t=None, return_noise=False
     ):
@@ -570,7 +542,6 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
         ----------
         [1] Improving and Generalizing Flow-Based Generative Models with minibatch optimal transport, Preprint, Tong et al.
         """
-        x0, x1, y0, y1 = self.ot_sampler.sample_plan_with_labels(x0, x1, y0, y1)
         if return_noise:
             t, xt, ut, eps = super().sample_location_and_conditional_flow(
                 x0, x1, t, return_noise
@@ -581,3 +552,102 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
                 x0, x1, t, return_noise
             )
             return t, xt, ut, y0, y1
+
+
+class FollmerProcessFlowMatcher:
+    """Child class for Follmer Process flow matching method.
+    This class implements the interpolant class in:
+    https://github.com/interpolants/forecasting
+
+    Reference: https://arxiv.org/abs/2403.13724
+    """
+
+    def __init__(self, sigma: Union[float, int] = 1.0):
+        r"""Initialize the StochasticFlowMatcher class. It requires the hyper-parameter $\sigma$.
+
+        Parameters
+        ----------
+        sigma : Union[float, int]
+        """
+        self.sigma = sigma
+
+    def _eps(self, x):
+        return torch.randn_like(x)
+
+    def _alpha(self, t):
+        return 1 - t
+
+    def _alpha_dot(self, t):
+        return -1 * torch.ones_like(t)
+
+    def _beta(self, t):
+        return t.pow(2)
+
+    def _beta_dot(self, t):
+        return 2 * t
+
+    def _sigma(self, t):
+        return self.sigma * (1 - t)
+
+    def _sigma_dot(self, t):
+        return -self.sigma * torch.ones_like(t)
+
+    def _gamma(self, t):
+        return t.sqrt() * self._sigma(t)
+
+    def _xt(self, t, x0, x1, eps):
+        t = pad_t_like_x(t, x0)
+        alpha = self._alpha(t)
+        beta = self._beta(t)
+        gamma = self._gamma(t)
+        return alpha * x0 + beta * x1 + gamma * eps
+
+    def _ut(self, t, x0, x1, eps):
+        t = pad_t_like_x(t, x0)
+        alpha_dot = self._alpha_dot(t)
+        beta_dot = self._beta_dot(t)
+        sigma_dot = self._sigma_dot(t)
+        t_root = t.sqrt()
+        return alpha_dot * x0 + beta_dot * x1 + t_root * sigma_dot * eps
+
+    def sample_location_and_conditional_flow(self, x0, x1, t=None, return_noise=False):
+        """
+        Compute the sample xt (drawn from N(t * x1 + (1 - t) * x0, sigma))
+        and the conditional vector field ut(x1|x0) = x1 - x0, see Eq.(15) [1].
+
+        Parameters
+        ----------
+        x0 : Tensor, shape (bs, *dim)
+            represents the source minibatch
+        x1 : Tensor, shape (bs, *dim)
+            represents the target minibatch
+        (optionally) t : Tensor, shape (bs)
+            represents the time levels
+            if None, drawn from uniform [0,1]
+        return_noise : bool
+            return the noise sample epsilon
+
+
+        Returns
+        -------
+        t : FloatTensor, shape (bs)
+        xt : Tensor, shape (bs, *dim)
+            represents the samples drawn from probability path pt
+        ut : conditional vector field ut(x1|x0)
+        (optionally) eps: Tensor, shape (bs, *dim) such that xt = mu_t + sigma_t * epsilon
+
+        References
+        ----------
+        [1] Improving and Generalizing Flow-Based Generative Models with minibatch optimal transport, Preprint, Tong et al.
+        """
+        if t is None:
+            t = torch.rand(x0.shape[0]).type_as(x0)
+        assert len(t) == x0.shape[0], "t has to have batch size dimension"
+
+        eps = self._eps(x0)
+        xt = self._xt(t, x0, x1, eps)
+        ut = self._ut(t, x0, x1, eps)
+        if return_noise:
+            return t, xt, ut, eps
+        else:
+            return t, xt, ut
