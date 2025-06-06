@@ -16,8 +16,8 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
-import ray
 
+from bolero.pp.genome import FastaOneHotNoParallel
 from bolero.tl.topic.region_embedding import RegionEmbedder
 
 
@@ -378,6 +378,7 @@ class FetchRegionOneHot:
 
     def __init__(
         self,
+        fasta_path: str,
         region_key: str = "region",
         output_key: str = "dna_one_hot",
         dtype: str = "float32",
@@ -403,8 +404,9 @@ class FetchRegionOneHot:
         self.output_key = output_key
         self.dtype = dtype
         self.random_shift = random_shift
+        self.onehot_encoder = FastaOneHotNoParallel(fasta_path=fasta_path)
 
-    def __call__(self, data: dict, remote_genome_one_hot, key_suffix=None) -> dict:
+    def __call__(self, data: dict, key_suffix=None) -> dict:
         """
         Apply the FetchRegionOneHot transform to the input data.
 
@@ -423,7 +425,6 @@ class FetchRegionOneHot:
             The modified data dictionary with the one-hot encoded DNA.
             DNA one-hot shape: (batch, channel, length)
         """
-        genome_one_hot = ray.get(remote_genome_one_hot)
         # shape: (batch, length, channel)
 
         if key_suffix is None:
@@ -444,9 +445,11 @@ class FetchRegionOneHot:
                     new_regions.append(region)
                 regions = new_regions
 
-            one_hot = genome_one_hot.get_regions_one_hot(regions)
-            # change to (batch, channel, length)
-            data[self.output_key + suffix] = np.moveaxis(
-                one_hot.astype(self.dtype), -2, -1
+            one_hot = (
+                self.onehot_encoder.get_regions_one_hot(regions)
+                .permute(0, 2, 1)
+                .numpy()
             )
+            # (batch, length, channel)
+            data[self.output_key + suffix] = one_hot.astype(self.dtype)
         return data

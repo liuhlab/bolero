@@ -422,9 +422,10 @@ class BorzoiDataset(RayGenomeChunkDataset):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {
             "random_shift": self.max_jitter if self.is_train() else 0,
+            "fasta_path": self.genome.fasta_path,
             "dtype": "bool",
         }
-        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+        fn_kwargs = {}
 
         dataset = dataset.map_batches(
             fn=fn,
@@ -812,7 +813,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # add dna one hot
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
-            concurrency=1,
+            concurrency=(1, concurrency // 2 + 1),
             batch_size=batch_size,
         )
 

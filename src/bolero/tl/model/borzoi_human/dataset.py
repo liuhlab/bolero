@@ -490,10 +490,10 @@ class BorzoiDatasetOnline(RayRegionDataset):
         fn = FetchRegionOneHot
         fn_constructor_kwargs = {
             "random_shift": self.max_jitter if self._dataset_mode == "train" else 0,
+            "fasta_path": self.genome.fasta_path,
             "dtype": "bool",
         }
         fn_kwargs = {
-            "remote_genome_one_hot": self.genome.remote_genome_one_hot,
             "key_suffix": key_suffix,
         }
 

@@ -49,7 +49,6 @@ class BorzoiPredictor(GenericPredictor):
         parallel = config.get("parallel", 8)
 
         dm = GenericGenomeDataManager(genome=genome)
-        # _ = dm.genome.genome_one_hot
         dm.add_pseudobulk_records(pseudobulk_records_path)
         dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
         self.add_datamanager(dm)

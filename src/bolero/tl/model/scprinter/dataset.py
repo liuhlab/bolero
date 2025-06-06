@@ -341,10 +341,11 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
             # TODO HL:
             # the random_shift parameter is not used in scPrinter
             # although we could change scPrinter dataloader to use the same way as Borzoi
+            "fasta_path": self.genome.fasta_path,
             "random_shift": 0,
             "dtype": "bool",
         }
-        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+        fn_kwargs = {}
 
         dataset = dataset.map_batches(
             fn=fn,
@@ -405,6 +406,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         compressed_bytes_to_tensor_concurrency = (1, concurrency // 4)
         generate_pseudobulk_concurrency = (1, concurrency // 4)
         generate_regions_concurrency = (1, concurrency)
+        one_hot_concurrency = (1, concurrency // 4)
         work_ds = self._get_processed_dataset(
             folds=folds,
             region_bed=region_bed,
@@ -422,7 +424,7 @@ class scPrinterDataset(BorzoiDataset, RayGenomeChunkDataset):
         # add dna one hot
         work_ds = self._get_dna_one_hot(
             dataset=work_ds,
-            concurrency=1,
+            concurrency=one_hot_concurrency,
         )
 
         # add tn5 bias if available

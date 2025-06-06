@@ -105,7 +105,8 @@ class RayGenomeChunkDataset(GenericDataset):
 
         if load_one_hot:
             # trigger one hot loading
-            _ = self.genome.genome_one_hot
+            # _ = self.genome.genome_one_hot
+            pass
 
         self.window_size = config["window_size"]
         self.step_size = config["step_size"]
@@ -229,10 +230,10 @@ class RayGenomeChunkDataset(GenericDataset):
 
     def _get_dna_one_hot(self, dataset, concurrency=1):
         fn = FetchRegionOneHot
-        fn_kwargs = {"remote_genome_one_hot": self.genome.remote_genome_one_hot}
+        fn_constructor_kwargs = {"fasta_path": self.genome.fasta_path}
 
         dataset = dataset.map_batches(
-            fn=fn, fn_kwargs=fn_kwargs, concurrency=concurrency
+            fn=fn, fn_constructor_kwargs=fn_constructor_kwargs, concurrency=concurrency
         )
         self.dna_column = DNA_NAME
         return dataset
@@ -564,9 +565,8 @@ class RayRegionDataset(GenericDataset):
         self, dataset, dtype="float32", concurrency=1, batch_size=1024, key_suffix=None
     ):
         fn = FetchRegionOneHot
-        fn_constructor_kwargs = {"dtype": dtype}
+        fn_constructor_kwargs = {"fasta_path": self.genome.fasta_path, "dtype": dtype}
         fn_kwargs = {
-            "remote_genome_one_hot": self.genome.remote_genome_one_hot,
             "key_suffix": key_suffix,
         }
 

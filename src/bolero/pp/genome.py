@@ -1165,8 +1165,7 @@ class Genome:
         return use_records
 
 
-@ray.remote
-class _one_hot_encoder:
+class _one_hot_encoder_no_parallel:
     def __init__(self):
         lut = np.zeros((256, 4), dtype=np.uint8)
         for col, b in enumerate("ACGT"):
@@ -1179,8 +1178,19 @@ class _one_hot_encoder:
         return torch.from_numpy(onehot)
 
 
-class FastaOneHot:
-    def __init__(self, fasta_path: str, device: str = "cpu", parallel: int = 1):
+@ray.remote
+class _one_hot_encoder(_one_hot_encoder_no_parallel):
+    """
+    One-hot encoder for DNA sequences.
+    This class is used in parallel processing to encode DNA sequences into one-hot format.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+
+class FastaOneHotNoParallel:
+    def __init__(self, fasta_path: str, device: str = "cpu"):
         """
         Parameters
         ----------
@@ -1192,9 +1202,7 @@ class FastaOneHot:
         self.fasta = Fasta(fasta_path, as_raw=True, sequence_always_upper=True)
         self.device = device
 
-        self.encoder_pool = ActorPool(
-            [_one_hot_encoder.remote() for _ in range(parallel)]
-        )
+        self.encoder = _one_hot_encoder_no_parallel()
 
     def get_region_sequence(self, region: str) -> str:
         """
@@ -1218,6 +1226,49 @@ class FastaOneHot:
             seq = self.fasta[chrom][start:end]
             sequences.append(seq)
         return sequences
+
+    def get_region_onehot(self, region: str) -> torch.Tensor:
+        """
+        Returns torch.Tensor of shape (4, seq_len), dtype=torch.uint8
+        """
+        seq = self.get_region_sequence(region)
+        result = self.encoder.encode(seq)
+        onehot = result.to(self.device)
+        return onehot
+
+    def get_regions_onehot(self, region_bed: pd.DataFrame) -> torch.Tensor:
+        """
+        Returns torch.Tensor of shape (n_region, 4, seq_len), dtype=torch.uint8
+        """
+        sequences = self.get_regions_sequence(region_bed)
+        results = [self.encoder.encode(seq) for seq in sequences]
+        onehots = torch.stack(list(results), dim=0)
+        onehots = onehots.to(self.device)
+        return onehots
+
+    def get_regions_one_hot(self, region_bed: pd.DataFrame) -> torch.Tensor:
+        """
+        Alias for get_regions_onehot.
+        """
+        return self.get_regions_onehot(region_bed)
+
+
+class FastaOneHot(FastaOneHotNoParallel):
+    def __init__(self, fasta_path: str, device: str = "cpu", parallel: int = 1):
+        """
+        Parameters
+        ----------
+        fasta_path : str
+            Path to genome FASTA file.
+        device : str
+            'cpu' or 'cuda' for GPU acceleration.
+        """
+        self.fasta = Fasta(fasta_path, as_raw=True, sequence_always_upper=True)
+        self.device = device
+
+        self.encoder_pool = ActorPool(
+            [_one_hot_encoder.remote() for _ in range(parallel)]
+        )
 
     def get_region_onehot(self, region: str) -> torch.Tensor:
         """

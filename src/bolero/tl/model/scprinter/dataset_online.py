@@ -205,10 +205,8 @@ class scPrinterOnlineDataset(BorzoiDatasetOnline, RayRegionDataset):
         Get the DNA one hot for the dataset.
         """
         fn = FetchRegionOneHot
-        fn_constructor_kwargs = {"dtype": "bool"}
-        fn_kwargs = {
-            "remote_genome_one_hot": self.genome.remote_genome_one_hot,
-        }
+        fn_constructor_kwargs = {"dtype": "bool", "fasta_path": self.genome.fasta_path}
+        fn_kwargs = {}
 
         dataset = dataset.map_batches(
             fn=fn,
