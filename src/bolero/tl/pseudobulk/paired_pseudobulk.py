@@ -39,17 +39,27 @@ from bolero.utils import validate_config
 #    'sample_weight': float, # optional
 # }
 
-# pseudobulk_and_ot_info schema:
+# pseudobulk_and_ot_info schema for PairedPseudobulker:
 # {
 #    'pseudobulk_records': dict of predefined coverage pseudobulk records
 #    'meta_cell_emb': pd.DataFrame (n_meta_cell, emb_dim), # embedding of each meta cell
 #    'meta_cell_n_frags': pd.Series (n_meta_cell,), # number of fragments for each meta cell
-#    'ot_transition': dict of transition matrix between conditions
-#    'condition_to_related_pseudobulk': dict of condition to related pseudobulks mapping
 #    'target_cov': int, # target coverage for pseudobulk
-#    'cond_pair_emb': dict of condition pair embedding
+#    'condition_to_related_pseudobulk': dict of condition to related pseudobulks mapping
+#    'ot_transition': dict of transition matrix between conditions
 #    'condition_emb': optional, pre-computed condition embedding,
 #        if not provided, will use one hot encoder on condition_to_related_pseudobulk.keys()
+#    'condition_terms': dict of dict, mapping condition name in cond_pairs into dict of terms.
+#        example: {'ctrl_0h': {'cond': 'ctrl', 't': '0h'}, 'pert_1h': {'cond': 'pert', 't': '1h'},
+# }
+
+# pseudobulk_and_ot_info schema for NullPairedPseudobulker:
+# This class uses pseudobulk_records as p1, while p0 is randomly sampled from all available meta cells.
+# {
+#    'pseudobulk_records': dict of predefined coverage pseudobulk records
+#    'meta_cell_emb': pd.DataFrame (n_meta_cell, emb_dim), # embedding of each meta cell
+#    'meta_cell_n_frags': pd.Series (n_meta_cell,), # number of fragments for each meta cell
+#    'target_cov': int, # target coverage for pseudobulk
 # }
 
 
@@ -132,30 +142,32 @@ class PredefinedCondEncoder:
                 _encoder.fit(cond_values)
                 self.encoder_dict[cond_key] = _encoder
 
-        self.cond_emb_dims = {
-            k: v.categories_[0].size if isinstance(v, OneHotEncoder) else 1
-            for k, v in self.encoder_dict.items()
-        }
+        self.cond_emb_dims = OrderedDict()
+        for k, v in self.encoder_dict.items():
+            self.cond_emb_dims[k] = (
+                v.categories_[0].size if isinstance(v, OneHotEncoder) else 1
+            )
         return
 
-    def transform(
-        self, cond: str | list[str] | dict
-    ) -> np.ndarray | dict[str, np.ndarray]:
+    def transform(self, cond: str | list[str] | dict) -> np.ndarray:
         """
         Transform the condition to the embedding.
+
+        When condition has multiple terms, the result will be concatenated.
         """
         if not isinstance(cond, dict):
             # single condition, using default key
             cond = {"DEFAULT": cond}
 
-        all_emb = {}
-        for cond_key, cond_values in cond.items():
+        all_emb = []
+        # make sure all_emb follows the order of self.encoder_dict
+        for cond_key, encoder in self.encoder_dict.items():
             try:
-                encoder = self.encoder_dict[cond_key]
+                cond_values = cond[cond_key]
             except KeyError as e:
                 raise KeyError(
-                    f"Condition key '{cond_key}' not found in encoder dictionary. "
-                    f"Available keys: {list(self.encoder_dict.keys())}, input: {cond}"
+                    f"Condition key '{cond_key}' not found in cond dictionary. "
+                    f"Available keys: {list(self.cond.keys())}, encoder keys: {self.encoder_dict.keys()}"
                 ) from e
 
             if not isinstance(cond_values, np.ndarray):
@@ -166,12 +178,41 @@ class PredefinedCondEncoder:
                 emb = encoder.transform(cond_values)
             else:
                 emb = cond_values.astype("float32")
-            all_emb[cond_key] = emb
+            all_emb.append(emb)
 
-        if len(all_emb) == 1 and "DEFAULT" in all_emb:
-            # If only one condition is present, return it directly
-            return all_emb["DEFAULT"]
+        all_emb = np.concatenate(all_emb, axis=-1)
         return all_emb
+
+    def split_cond_emb(
+        self, cond_emb: torch.Tensor
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
+        """
+        Split the condition embedding back to the original terms.
+
+        Parameters
+        ----------
+        cond_emb : np.ndarray or torch.Tensor
+            The condition embedding to split.
+
+        Returns
+        -------
+        cond_dict : dict
+            A dictionary of condition terms.
+        """
+        if len(self.cond_emb_dims) == 1:
+            # single condition term, return as is
+            return cond_emb
+
+        # multiple condition terms, split and return as dict
+        cond_dict = {}
+        start_idx = 0
+        for cond_key in self.encoder_dict.keys():
+            dim = self.cond_emb_dims[cond_key]
+            end_idx = start_idx + dim
+            cond_dict[cond_key] = cond_emb[..., start_idx:end_idx]
+            start_idx = end_idx
+        assert end_idx == cond_emb.shape[-1], "Condition embedding dimension mismatch."
+        return cond_dict
 
     def __call__(self, *args, **kwds) -> np.ndarray:
         """
@@ -180,13 +221,31 @@ class PredefinedCondEncoder:
         return self.transform(*args, **kwds)
 
 
-class PairedPseudobulker:
+class PseudobulkerMixin:
+    """
+    Mixin class for pseudobulker to provide common methods.
+    """
+
     default_config = {
         "pseudobulk_and_ot_info": "REQUIRED",
         "emb_key": "embedding",
         "downsample_pseudobulk": None,
         "barcode_order": None,
     }
+    local_rng: np.random.Generator
+    cov_key: str
+    pseudobulk_records: dict[dict[str, Any]]
+    emb_key: str
+    pseudobulk_ids: pd.Index
+    n_pids: int
+    meta_cell_emb: pd.DataFrame
+    metacell_id_to_int: pd.Series
+    meta_cell_n_frags: pd.Series
+    target_cov: int
+    barcode_order: dict[str, dict[str, int]] | None
+    prefix_order: list[str] | None
+    prefix_name: str
+    sampling_weights: pd.Series
 
     @classmethod
     def create_from_config(cls, **config):
@@ -196,33 +255,33 @@ class PairedPseudobulker:
         pseudobulker = cls(**config)
         return pseudobulker
 
-    def __init__(
-        self,
-        pseudobulk_and_ot_info: Union[str, dict],
-        emb_key: str = "embedding",
-        downsample_pseudobulk: int = None,
-        barcode_order: Union[str, list] = None,
-        seed=42,
-    ):
-        """
-        Load VQ records and prepare pseudobulk data.
+    def _load_records(self, pseudobulk_records, downsample_pseudobulk):
+        if isinstance(pseudobulk_records, str):
+            pseudobulk_records = joblib.load(pseudobulk_records)
+        if downsample_pseudobulk is not None:
+            use_id = self.local_rng.choice(
+                list(pseudobulk_records.keys()), downsample_pseudobulk, replace=False
+            )
+            pseudobulk_records = {
+                k: v for k, v in pseudobulk_records.items() if k in use_id
+            }
+            print(f"Downsampled to {len(pseudobulk_records)} pseudobulk records.")
+        return pseudobulk_records
 
-        Parameters
-        ----------
-        pseudobulk_records (dict[str, dict]):
-            The prefix name (in ray dataset) to VQ records file path mapping.
-        emb_key (str): The key to use for the embedding.
-        downsample_pseudobulk (int): The number of pseudobulks to downsample to.
-        barcode_order (dict): The order of barcodes for each prefix.
-        flow_match_sigma (float): The sigma for the flow matcher.
-        seed (int): The random seed for sampling.
-        """
+    def _prepare_pseudobulk_and_meta_cell_records(
+        self,
+        pseudobulk_and_ot_info,
+        emb_key,
+        downsample_pseudobulk,
+        barcode_order,
+        seed,
+    ):
         self.local_rng: np.random.Generator = np.random.default_rng(seed=seed)
         self.cov_key = "cov_scale"
 
         pseudobulk_and_ot_info = joblib.load(pseudobulk_and_ot_info)
 
-        # 1. pseudobulk dict records
+        # Pre-computed pseudobulk records
         self.pseudobulk_records: dict[dict[str, Any]] = self._load_records(
             pseudobulk_and_ot_info["pseudobulk_records"], downsample_pseudobulk
         )
@@ -233,47 +292,21 @@ class PairedPseudobulker:
         pseudobulk_keys = list(self.pseudobulk_records.keys())
         # process records
         self.pseudobulk_ids = pd.Index(pseudobulk_keys)
-
         # collect meta cell idx information
         self.n_pids = self.pseudobulk_ids.size
 
-        # 2. meta cell embedding, shape (n_meta_cell, emb_dim)
+        # Meta cell
         self.meta_cell_emb: pd.DataFrame = pseudobulk_and_ot_info["meta_cell_emb"]
         all_meta_cells = self.meta_cell_emb.index.tolist()
         self.metacell_id_to_int = pd.Series(
             range(len(all_meta_cells)), index=all_meta_cells
         )
-
-        # 3. meta cell N frags, shape (n_meta_cell,)
         self.meta_cell_n_frags = pseudobulk_and_ot_info["meta_cell_n_frags"]
 
-        # 4. OT transition matrix between conditions
-        # schema: {
-        #     (source_condition, target_condition):
-        #         pd.DataFrame (n_source_meta_cell, n_target_meta_cell)
-        # }
-        self.ot_transition: dict[str, pd.DataFrame] = pseudobulk_and_ot_info[
-            "ot_transition"
-        ]
-        self.condition_pairs = list(self.ot_transition.keys())
-        self.conditions = set()
-        for cond_pair in self.condition_pairs:
-            self.conditions.update(cond_pair)
-        self.condition_terms: dict[str, dict] = pseudobulk_and_ot_info.get(
-            "condition_terms", {}
-        )
-
-        # 5. condition to related pseudobulk mapping
-        self.condition_to_related_pseudobulk = pseudobulk_and_ot_info[
-            "condition_to_related_pseudobulk"
-        ]
-        cond_emb = pseudobulk_and_ot_info.get("condition_emb", None)
-        self.condition_encoder = self._make_condition_encoder(cond_emb)
-        self.cond_emb_dims = self.condition_encoder.cond_emb_dims
-
-        # 6. target coverage
+        # Target coverage
         self.target_cov = pseudobulk_and_ot_info["target_cov"]
 
+        # Barcode order
         self.barcode_order = barcode_order
         if barcode_order is not None:
             self.barcode_order = {
@@ -296,6 +329,95 @@ class PairedPseudobulker:
 
         sampling_weights = pd.Series(sampling_weights).reindex(self.pseudobulk_ids)
         self.sampling_weights: pd.Series = sampling_weights / sampling_weights.sum()
+        return pseudobulk_and_ot_info
+
+    def take_by_name(self, name):
+        """Take a pseudobulk by name."""
+        data = deepcopy(self.pseudobulk_records[name])
+        return data
+
+    def take(self, n):
+        """Take n pseudobulks from the random pool."""
+        if n > self.n_pids:
+            raise ValueError(
+                f"Cannot take {n} pseudobulks, only {self.n_pids} available."
+            )
+
+        records = []
+        used_pids = set()
+        for _ in range(n):
+            # 1. sample a condition pair
+            cond_pair_pseudobulks, pid_choice = self._sample_single_pseudobulk(
+                skip_pids=used_pids
+            )
+            if cond_pair_pseudobulks is None:
+                break
+            used_pids.add(pid_choice)
+            # cond_pair_pseudobulk: list of two pseudobulk records, source and target
+            # cond_pair: tuple of two condition names
+            records.append(cond_pair_pseudobulks)
+        return records
+
+
+class PairedPseudobulker(PseudobulkerMixin):
+    """
+    Generate paired pseudobulks from predefined pseudobulk records,
+    condition pairs, and pre-computed OT transition matrix between each condition pair.
+    """
+
+    def __init__(
+        self,
+        pseudobulk_and_ot_info: Union[str, dict],
+        emb_key: str = "embedding",
+        downsample_pseudobulk: int = None,
+        barcode_order: Union[str, list] = None,
+        seed=42,
+    ):
+        """
+        Load pseudobulk records and prepare pseudobulk embedding and OT data.
+
+        Parameters
+        ----------
+        pseudobulk_records (dict[str, dict]):
+            The prefix name (in ray dataset) to VQ records file path mapping.
+        emb_key (str): The key to use for the embedding.
+        downsample_pseudobulk (int): The number of pseudobulks to downsample to.
+        barcode_order (dict): The order of barcodes for each prefix.
+        flow_match_sigma (float): The sigma for the flow matcher.
+        seed (int): The random seed for sampling.
+        """
+        # 1. pseudobulk dict records and meta cell information
+        pseudobulk_and_ot_info = self._prepare_pseudobulk_and_meta_cell_records(
+            pseudobulk_and_ot_info=pseudobulk_and_ot_info,
+            emb_key=emb_key,
+            downsample_pseudobulk=downsample_pseudobulk,
+            barcode_order=barcode_order,
+            seed=seed,
+        )
+
+        # 2. OT transition matrix between conditions
+        # schema: {
+        #     (source_condition, target_condition):
+        #         pd.DataFrame (n_source_meta_cell, n_target_meta_cell)
+        # }
+        self.ot_transition: dict[str, pd.DataFrame] = pseudobulk_and_ot_info[
+            "ot_transition"
+        ]
+        self.condition_pairs = list(self.ot_transition.keys())
+        self.conditions = set()
+        for cond_pair in self.condition_pairs:
+            self.conditions.update(cond_pair)
+        self.condition_terms: dict[str, dict] = pseudobulk_and_ot_info.get(
+            "condition_terms", {}
+        )
+
+        # 3. condition to related pseudobulk mapping
+        self.condition_to_related_pseudobulk = pseudobulk_and_ot_info[
+            "condition_to_related_pseudobulk"
+        ]
+        cond_emb = pseudobulk_and_ot_info.get("condition_emb", None)
+        self.condition_encoder = self._make_condition_encoder(cond_emb)
+        self.cond_emb_dims = self.condition_encoder.cond_emb_dims
         return
 
     def _make_condition_encoder(self, cond_dict):
@@ -304,19 +426,6 @@ class PairedPseudobulker:
 
         encoder = PredefinedCondEncoder(cond_dict)
         return encoder
-
-    def _load_records(self, pseudobulk_records, downsample_pseudobulk):
-        if isinstance(pseudobulk_records, str):
-            pseudobulk_records = joblib.load(pseudobulk_records)
-        if downsample_pseudobulk is not None:
-            use_id = self.local_rng.choice(
-                list(pseudobulk_records.keys()), downsample_pseudobulk, replace=False
-            )
-            pseudobulk_records = {
-                k: v for k, v in pseudobulk_records.items() if k in use_id
-            }
-            print(f"Downsampled to {len(pseudobulk_records)} pseudobulk records.")
-        return pseudobulk_records
 
     def _sample_single_pseudobulk(
         self,
@@ -353,13 +462,15 @@ class PairedPseudobulker:
         # 2. select a predefined pseudobulk from either source or target condition
         if p_sample is None:
             p_sample = self.local_rng.choice([0, 1])
-        related_pseudobulks = list(
+        related_pseudobulks = set(
             self.condition_to_related_pseudobulk[cond_pair[p_sample]]
         )
         if skip_pids is not None:
-            related_pseudobulks = [
-                pid for pid in related_pseudobulks if pid not in skip_pids
-            ]
+            related_pseudobulks -= set(skip_pids)
+        related_pseudobulks = list(related_pseudobulks)
+
+        if len(related_pseudobulks) == 0:
+            return None, None
         related_sample_weights = self.sampling_weights.reindex(
             related_pseudobulks
         ).dropna()
@@ -404,6 +515,7 @@ class PairedPseudobulker:
             d["__covlogfc__"] = d[self.cov_key]
             cond_terms = self.condition_terms.get(cond, cond)
             d["__conditionemb__"] = self.condition_encoder(cond_terms)
+            d["__conditionterms__"] = cond_terms
 
             # 2. convert meta cell list to int row index
             if self.barcode_order is not None:
@@ -422,54 +534,6 @@ class PairedPseudobulker:
             # self.pseudobulk_records[pid]['parquet_prefix_to_int_rows'] = parquet_prefix_to_rows
             # cov_value_list = [data[cov_key][prefix] for prefix in self.prefix_order]
         return cond_pair_pseudobulks, pid_choice
-
-    def take_by_name(self, name):
-        """Take a pseudobulk by name."""
-        data = deepcopy(self.pseudobulk_records[name])
-        return data
-
-    def take_pair_by_name(self, cond_pair, p_sample, pid_choice):
-        """
-        Take a pseudobulk pair by condition pair and sample index.
-
-        Parameters
-        ----------
-        cond_pair : tuple
-            A tuple of two condition names.
-        p_sample : int
-            The index of the condition to use (0 or 1).
-        pid_choice : str, optional
-            A specific pseudobulk ID to use. If None, a random pseudobulk will be sampled.
-
-        Returns
-        -------
-        cond_pair_pseudobulks : list[dict]
-            A list of two pseudobulk records for the condition pair.
-        """
-        cond_pair_pseudobulks, _ = self._sample_single_pseudobulk(
-            cond_pair=cond_pair, p_sample=p_sample, pid_choice=pid_choice, ot_seed=0
-        )
-        return cond_pair_pseudobulks
-
-    def take(self, n):
-        """Take n pseudobulks from the random pool."""
-        if n > self.n_pids:
-            raise ValueError(
-                f"Cannot take {n} pseudobulks, only {self.n_pids} available."
-            )
-
-        records = []
-        used_pids = set()
-        for _ in range(n):
-            # 1. sample a condition pair
-            cond_pair_pseudobulks, pid_choice = self._sample_single_pseudobulk(
-                skip_pids=used_pids
-            )
-            used_pids.add(pid_choice)
-            # cond_pair_pseudobulk: list of two pseudobulk records, source and target
-            # cond_pair: tuple of two condition names
-            records.append(cond_pair_pseudobulks)
-        return records
 
     def create_pseudobulk_records_from_design(
         self, designs: list[tuple]
@@ -513,7 +577,13 @@ class PairedPseudobulker:
                 pids = related_pids.sample(n_pids, random_state=0).tolist()
 
             for idx, pid in enumerate(pids):
-                p0, p1 = self.take_pair_by_name(cond_pair, p_sample, pid)
+                (p0, p1), _ = self._sample_single_pseudobulk(
+                    skip_pids=None,
+                    cond_pair=cond_pair,
+                    p_sample=p_sample,
+                    pid_choice=pid,
+                    ot_seed=0,
+                )
                 name1, name0 = cond_pair
 
                 p0_key = f"{name0}|{name1}:{name0}-{idx}"
@@ -530,6 +600,137 @@ class PairedPseudobulker:
                 p1.setdefault("__t__", 1)
                 pseudobulk_col[p1_key] = p1
         return pseudobulk_col
+
+
+class EnsemblePairedPseudobulker(PseudobulkerMixin):
+    """
+    Generate paired pseudobulks from predefined pseudobulk records,
+    the predefined pseudobulk will be used as p1, while p0 will be randomly sampled from all available pseudobulks.
+    """
+
+    def __init__(
+        self,
+        pseudobulk_and_ot_info: Union[str, dict],
+        emb_key: str = "embedding",
+        downsample_pseudobulk: int = None,
+        barcode_order: Union[str, list] = None,
+        seed=42,
+        p0_n_meta_cells=1000,
+    ):
+        """
+        Load pseudobulk records and prepare pseudobulk embedding data.
+
+        Parameters
+        ----------
+        pseudobulk_records (dict[str, dict]):
+            The prefix name (in ray dataset) to VQ records file path mapping.
+        emb_key (str): The key to use for the embedding.
+        downsample_pseudobulk (int): The number of pseudobulks to downsample to.
+        barcode_order (dict): The order of barcodes for each prefix.
+        flow_match_sigma (float): The sigma for the flow matcher.
+        seed (int): The random seed for sampling.
+        """
+        self._prepare_pseudobulk_and_meta_cell_records(
+            pseudobulk_and_ot_info=pseudobulk_and_ot_info,
+            emb_key=emb_key,
+            downsample_pseudobulk=downsample_pseudobulk,
+            barcode_order=barcode_order,
+            seed=seed,
+        )
+        self.p0_n_meta_cells = min(p0_n_meta_cells, self.meta_cell_emb.shape[0])
+        return
+
+    def _sample_single_pseudobulk(
+        self,
+        skip_pids=None,
+        pid_choice=None,
+    ):
+        """
+        Sample a single pseudobulk pair from the predefined pseudobulk records.
+
+        Parameters
+        ----------
+        skip_pids : set, optional
+            A set of pseudobulk IDs to skip when sampling.
+        pid_choice : str, optional
+            A specific pseudobulk ID to use. If None, a random pseudobulk will be sampled.
+
+        Returns
+        -------
+        cond_pair_pseudobulks : list[dict]
+            A list of two pseudobulk records, p0 and p1.
+        """
+        if pid_choice is None:
+            skip_pids = set() if skip_pids is None else set(skip_pids)
+            use_pids = set(self.pseudobulk_ids) - skip_pids
+            pid_choice = self.local_rng.choice(list(use_pids))
+
+        p1_pseudobulk = self.take_by_name(pid_choice)
+        p1_pseudobulk.setdefault("__t__", 1)
+        p1_pseudobulk["__conditionemb__"] = p1_pseudobulk[self.emb_key]
+
+        # TODO: weighted by sample weight here
+        p0_meta_cells = self.local_rng.choice(
+            self.meta_cell_emb.index,
+            size=self.p0_n_meta_cells,
+            replace=False,
+        ).tolist()
+        n_frags = self.meta_cell_n_frags.loc[p0_meta_cells].sum()
+        cov_scale = np.log2(n_frags / self.target_cov)
+
+        # use mean emb as p0 cell emb
+        p0_embedding = self.meta_cell_emb.loc[p0_meta_cells].mean().values
+        p0_pseudobulk = {
+            "cluster_ids": {self.prefix_name: p0_meta_cells},
+            "n_frags": {self.prefix_name: n_frags},
+            "cov_scale": {self.prefix_name: cov_scale},
+            # IMPORTANT: flow model use embedding of p0, and condition embedding of p1
+            # Here we put concatenated embedding into p0 so that flow model can use it directly
+            self.emb_key: p0_embedding,
+            "__conditionemb__": p0_embedding,  # this is not used anyway
+        }
+        p0_pseudobulk.setdefault("__t__", 0)
+
+        cond_pair_pseudobulks = [p0_pseudobulk, p1_pseudobulk]
+        for d in cond_pair_pseudobulks:
+            # 1. set the embedding for generator to use
+            d["__embedding__"] = d[self.emb_key]
+            d["__covlogfc__"] = d[self.cov_key]
+
+            # 2. convert meta cell list to int row index
+            if self.barcode_order is not None:
+                parquet_prefix_to_rows: dict = d["cluster_ids"]
+                parquet_prefix_to_rows = {
+                    k: sorted([self.barcode_order[k][c] for c in v])
+                    for k, v in parquet_prefix_to_rows.items()
+                }
+                meta_cell_index: np.array = self.metacell_id_to_int.loc[
+                    d["cluster_ids"][self.prefix_name]
+                ].values
+                d["meta_cell_index"] = meta_cell_index
+                d["cluster_ids"] = parquet_prefix_to_rows
+        return cond_pair_pseudobulks, pid_choice
+
+    def create_pseudobulk_records_from_design(self, *args, **kwargs) -> dict[str, dict]:
+        """
+        Create pseudobulk pairs for each pseudobulk in the self.pseudobulk_records.
+        """
+        pseudobulk_col = OrderedDict()
+        for pid in enumerate(self.pseudobulk_ids):
+            p_pair = self._sample_single_pseudobulk(skip_pids=None, pid_choice=pid)[0]
+            pseudobulk_col[pid] = p_pair
+        return pseudobulk_col
+
+
+# TODO: RandomPairedPseudobulker,
+# take two random pair of pseudobulks as p0 and p1, concat their embeddings as final embedding
+
+
+PAIRED_PSEUDOBULKER_CLS_DICT = {
+    "condition": PairedPseudobulker,
+    "ensemble": EnsemblePairedPseudobulker,
+    # "random": None, TODO
+}
 
 
 class GeneratePairedPseudobulk:

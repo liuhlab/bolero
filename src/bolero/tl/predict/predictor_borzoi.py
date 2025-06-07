@@ -20,7 +20,7 @@ from bolero.tl.model.borzoi.model_flow import (
     BorzoiLoRAFlowPredictorFP as _BorzoiFlowModelWithSDESolverFP,
 )
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
-from bolero.tl.pseudobulk.paired_pseudobulk import PairedPseudobulker
+from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
@@ -463,7 +463,9 @@ class BorzoiPairPredictor(BorzoiPredictor):
         """
         Create paired pseudobulk records from the design.
         """
-        paired_pseudobulker = PairedPseudobulker(
+        paired_mode = self.config.get("paired_mode", "condition")
+        pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[paired_mode]
+        paired_pseudobulker = pseudobulker_cls(
             pseudobulk_and_ot_info=config["pseudobulk_records_path"],
             emb_key="embedding",
             downsample_pseudobulk=None,

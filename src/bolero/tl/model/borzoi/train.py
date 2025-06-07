@@ -1124,7 +1124,19 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         y_pred = y_pred.detach()
         return y_true, y_pred, loss, loss_breakdown
 
+    def _split_cond_emb_to_terms(self, batch):
+        cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+        # split the cond_emb into dict of terms using cond_encoder in pseudobulker
+        predefined_cond_encoder = self.dataset.name_to_pseudobulker[
+            self.prefix
+        ].condition_encoder
+        cond_emb_terms = predefined_cond_encoder.split_cond_emb(cond_emb)
+        batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
+        return batch
+
     def _model_forward_pass_flow(self, model: BorzoiLoRA, batch: dict):
+        batch = self._split_cond_emb_to_terms(batch)
+
         # 1. sequence input
         dna_one_hot = batch["dna_one_hot"]  # (bs, seq_len, 4)
         a0 = batch[f"{self.prefix}:bulk_data_0"]  # (bs, seq_len, model.out_channels)

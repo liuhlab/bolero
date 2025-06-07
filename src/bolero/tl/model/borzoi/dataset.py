@@ -17,8 +17,8 @@ from bolero.tl.dataset.transforms import (
     ReverseComplmentMinusStrand,
 )
 from bolero.tl.pseudobulk.paired_pseudobulk import (
+    PAIRED_PSEUDOBULKER_CLS_DICT,
     GeneratePairedPseudobulk,
-    PairedPseudobulker,
 )
 from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
 
@@ -279,6 +279,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "read_parquet_kwargs": None,
         "min_cov": 0,
         "paired_data": False,
+        "paired_mode": "condition",
         "cfm_class": "cfm",
         "cfm_kwargs": None,
         "normalize_cov": None,
@@ -306,6 +307,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         read_parquet_kwargs=None,
         min_cov: int = 0,
         paired_data=False,
+        paired_mode="condition",
         cfm_class="cfm",
         cfm_kwargs=None,
         normalize_cov=None,
@@ -335,9 +337,12 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.n_pseudobulks = n_pseudobulks
         self.cov_filter_name = cov_filter_name
         self.min_cov = min_cov
+
         self.paired_data = paired_data
+        self.paired_mode = paired_mode
         self.cfm_class = cfm_class
         self.cfm_kwargs = cfm_kwargs
+
         self.normalize_cov = normalize_cov
         self.deg_list = deg_list
         self.use_pseudobulk_profile = use_pseudobulk_profile
@@ -477,7 +482,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             pseudobulker_kwargs["barcode_order"] = self.barcode_order
 
         if self.paired_data:
-            pseudobulker_cls = PairedPseudobulker
+            pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[self.paired_mode]
         else:
             pseudobulker_cls = RNAVQPseudobulker
         generator = pseudobulker_cls.create_from_config(**pseudobulker_kwargs)

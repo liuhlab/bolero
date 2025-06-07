@@ -726,21 +726,23 @@ class CondFlowModule(nn.Module):
                 encoder_dropout=cond_encoder_dropout,
                 attn_pooling=cond_attn_pooling,
             )
+            cond_enc_output_dim = cond_encoder_dims[-1]
         elif isinstance(cond_emb_dim, dict):
             self.cond_encoder = nn.ModuleDict()
             for k, v in cond_emb_dim.items():
                 self.cond_encoder[k] = _SimpleEncoder(
                     input_dim=v,
-                    encoder_dims=cond_encoder_dims[k],
-                    encoder_dropout=cond_encoder_dropout[k],
+                    encoder_dims=cond_encoder_dims,
+                    encoder_dropout=cond_encoder_dropout,
                     attn_pooling=cond_attn_pooling,
                 )
+            cond_enc_output_dim = len(self.cond_encoder) * cond_encoder_dims[-1]
         else:
             raise ValueError(
                 f"cond_emb_dim must be int or dict, but got {type(cond_emb_dim)}"
             )
         self.output_dim = (
-            cell_encoder_dims[-1] + time_encoder_dims[-1] + cond_encoder_dims[-1]
+            cell_encoder_dims[-1] + time_encoder_dims[-1] + cond_enc_output_dim
         )
         return
 
@@ -772,12 +774,12 @@ class CondFlowModule(nn.Module):
             time_emb = time_emb.repeat(bs, 1)
 
         # encode condition embedding
-        if isinstance(self.cond_encoder, dict):
+        if isinstance(self.cond_encoder, nn.ModuleDict):
             assert isinstance(
                 cond_emb, dict
             ), f"cond_emb must be dict, but got {type(cond_emb)}"
             cond_emb = [
-                encoder[cond_emb[k]] for k, encoder in self.cond_encoder.items()
+                encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
             ]
             cond_emb = torch.cat(cond_emb, dim=-1)
         else:
