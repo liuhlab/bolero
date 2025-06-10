@@ -223,3 +223,35 @@ class scFootprintLoraTrainerOnline(scFootprintLoRATrainer):
         loss_dict = model.loss(batch)
         batch.update(loss_dict)
         return batch, loss_dict["loss_total"]
+
+
+class scFootprintLoraTrainer2Step(scFootprintLoraTrainerOnline):
+    trainer_config = scFootprintLoraTrainerOnline.trainer_config.copy()
+    trainer_config.update(
+        {
+            "mode": "lora",
+            "lr": 0.0005,
+            "accumulate_grad": 4,
+            "prefix": "pseudobulk",
+            "checkpoint_path": "REQUIRED",
+        }
+    )
+
+    def _setup_model(self):
+        checkpoint = torch.load(self.config["checkpoint_path"], weights_only=False)
+        if isinstance(checkpoint, dict):
+            super()._setup_model()
+            self.model.load_state_dict(checkpoint["state_dict"])
+        else:
+            self.model = checkpoint
+
+        for name, param in self.model.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+
+        self.model.train()
+        self._set_total_params()
+
+        return
