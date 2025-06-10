@@ -289,7 +289,6 @@ class BorzoiHumanLoRATrainer(BorzoiHumanTrainerMixin):
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
         dna_key = "dna_one_hot"
         embedding_key = "cell_type_embedding"
-
         # ==========
         # Get batch data
         # ==========

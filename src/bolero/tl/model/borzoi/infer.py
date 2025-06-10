@@ -369,7 +369,9 @@ class BorzoiInferencer:
             emb = torch.from_numpy(emb.values)
         elif isinstance(emb, np.ndarray):
             emb = torch.from_numpy(emb)
-        emb = emb.cuda().unsqueeze(0)
+
+        model_dtype = next(self.model.parameters()).dtype             
+        emb = emb.to(model_dtype).cuda().unsqueeze(0)
 
         emb_model = self.model.collapse_lora(emb)
         emb_model = emb_model.eval().cuda()
@@ -415,10 +417,12 @@ class BorzoiInferencer:
             batch_dna = self._get_dna_one_hot(batch_bed)
 
             outputs = self._forward_pass(model, batch_dna)
-            outputs = _clip_at_center(outputs, self.peak_bins)
+            # outputs = _clip_at_center(outputs, self.peak_bins)
+            outputs = outputs['atac']
             all_data.append(outputs.cpu())
         all_data = torch.cat(all_data, dim=0)
         return all_data
+
 
     @torch.no_grad()
     def _forward_pass(self, model, data):
