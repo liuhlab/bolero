@@ -25,6 +25,7 @@ from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
+from .utils import load_config
 
 
 class BorzoiPredictor(GenericPredictor):
@@ -207,6 +208,58 @@ class BorzoiPredictor(GenericPredictor):
             collate_fn=_collate_fn,
         )
         return dataloader
+
+    def iter_debug_batch(
+        self,
+        dna_key="dna",
+        embedding_key="embedding",
+        pseudobulk_ids=None,
+        add_true_data=True,
+        batch_size=16,
+    ):
+        """Iterable for debugging"""
+        # 1. Get regions
+        regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
+        regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
+
+        # 2. Get data loader
+        da_prefix = self.datamanager._get_data_prefixs()
+        assert (
+            len(da_prefix) == 1
+        ), "Currently only one data prefix is supported for prediction."
+        data_key = da_prefix[0]
+
+        dataloader = self._create_fn_and_dataloader(
+            dna_key=dna_key,
+            data_key=data_key,
+            embedding_key=embedding_key,
+            regions=regions,
+            pseudobulk_ids=pseudobulk_ids,
+            add_true_data=add_true_data,
+            batch_size=batch_size,
+        )
+
+        pid_array = (
+            self.pseudobulk_manager.pseudobulk_ids
+            if pseudobulk_ids is None
+            else pseudobulk_ids
+        )
+        pid_array = np.array(pid_array)
+
+        # 3. Get callbacks
+        self._pre_callbacks = self._get_pre_prediction_callbacks()
+        self._post_callbacks = self._get_post_prediction_callbacks()
+
+        # trigger model load
+        _ = self.model
+
+        # 4. Inference and callback
+        for batch in dataloader:
+            batch["pseudobulk_ids"] = pid_array
+
+            with torch.inference_mode():
+                batch = self.apply_callbacks(batch, "pre")
+            yield batch
 
     def get_prediction_dataloader(
         self,
@@ -463,7 +516,8 @@ class BorzoiPairPredictor(BorzoiPredictor):
         """
         Create paired pseudobulk records from the design.
         """
-        paired_mode = self.config.get("paired_mode", "condition")
+        _train_config = load_config(config["train_config"])
+        paired_mode = _train_config.get("paired_mode", "condition")
         pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[paired_mode]
         paired_pseudobulker = pseudobulker_cls(
             pseudobulk_and_ot_info=config["pseudobulk_records_path"],
@@ -636,6 +690,16 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         cb = self._prepare_callbacks(callbacks)
         return cb
 
+    def _split_cond_emb_to_terms(self, cond_emb):
+        # split the cond_emb into dict of terms using cond_encoder in pseudobulker
+        pseduobulker = self.paired_pseudobulker
+        condition_encoder = getattr(pseduobulker, "condition_encoder", None)
+        if condition_encoder is not None:
+            cond_emb_terms = condition_encoder.split_cond_emb(cond_emb)
+        else:
+            cond_emb_terms = cond_emb
+        return cond_emb_terms
+
     def _model_prediction_step(
         self,
         batch,
@@ -656,6 +720,8 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         x0 = batch[x0_key]
         t_range = batch[time_range_key]
 
+        # x0 = torch.log1p(x0)
+
         n_emb = cell_emb.shape[0]
         n_region = dna.shape[0]
 
@@ -673,6 +739,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             cell_emb_mini_batch = cell_emb[use_emb].contiguous()
             # cond_emb shape (n_emb, d_cond)
             cond_emb_mini_batch = cond_emb[use_emb].contiguous()
+            cond_emb_mini_batch = self._split_cond_emb_to_terms(cond_emb_mini_batch)
             # dna has shape (n_region, 4, seq_len)
             dna_mini_batch = dna[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
@@ -708,12 +775,20 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             n_emb=n_emb,
         )
 
+        # if self._prediction_mode == "velocity":
+        #     # y_pred is the velocity, we need to add it to the initial condition
+        #     x1 = x0 + y_pred.detach()
+        # else:
+        #     x1 = y_pred.detach()
+        # batch["__ypred__:cond1"] = torch.expm1(x1).clamp(min=0.0)
+
         if self._prediction_mode == "velocity":
             # y_pred is the velocity, we need to add it to the initial condition
             batch["__ypred__:cond1"] = x0 + y_pred.detach()
         else:
             batch["__ypred__:cond1"] = y_pred.detach()
         batch["__ypred__:delta"] = batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
+        # joblib.dump(batch, "debug_batch.joblib.gz")
         return batch
 
     def _model_prediction_step_nosde(

@@ -738,9 +738,13 @@ class CondFlowModule(nn.Module):
                 )
             cond_enc_output_dim = len(self.cond_encoder) * cond_encoder_dims[-1]
         else:
-            raise ValueError(
-                f"cond_emb_dim must be int or dict, but got {type(cond_emb_dim)}"
+            self.cond_encoder = None
+            print(
+                f"cond_emb_dim is not int nor dict, no cond_encoder for the model. "
+                f"Make sure this looks intended: {cond_emb_dim}."
             )
+            cond_enc_output_dim = 0
+
         self.output_dim = (
             cell_encoder_dims[-1] + time_encoder_dims[-1] + cond_enc_output_dim
         )
@@ -759,12 +763,15 @@ class CondFlowModule(nn.Module):
 
         return: (bs, h_e + h_t + h_c)
         """
+        to_cat = []
+
         # encode cell embedding
         cell_emb = self.cell_encoder(cell_emb)
         if cell_emb.ndim == 3:
             # if not attn_pooling in encoder,
             # here just perform mean pooling on the cell embedding
             cell_emb = cell_emb.mean(dim=1)
+        to_cat.append(cell_emb)
 
         # encode time embedding
         time_emb: torch.Tensor = self.time_encoder(time)
@@ -772,24 +779,27 @@ class CondFlowModule(nn.Module):
             # if the input is a single time step, repeat it to match the batch size
             bs = cell_emb.shape[0]
             time_emb = time_emb.repeat(bs, 1)
+        to_cat.append(time_emb)
 
         # encode condition embedding
-        if isinstance(self.cond_encoder, nn.ModuleDict):
-            assert isinstance(
-                cond_emb, dict
-            ), f"cond_emb must be dict, but got {type(cond_emb)}"
-            cond_emb = [
-                encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
-            ]
-            cond_emb = torch.cat(cond_emb, dim=-1)
-        else:
-            cond_emb = self.cond_encoder(cond_emb)
+        if self.cond_encoder is not None:
+            if isinstance(self.cond_encoder, nn.ModuleDict):
+                assert isinstance(
+                    cond_emb, dict
+                ), f"cond_emb must be dict, but got {type(cond_emb)}"
+                cond_emb = [
+                    encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
+                ]
+                cond_emb = torch.cat(cond_emb, dim=-1)
+            else:
+                cond_emb = self.cond_encoder(cond_emb)
 
-        if cond_emb.ndim == 3:
-            # if not attn_pooling in encoder,
-            # here just perform mean pooling on the condition embedding
-            cond_emb = cond_emb.mean(dim=1)
+            if cond_emb.ndim == 3:
+                # if not attn_pooling in encoder,
+                # here just perform mean pooling on the condition embedding
+                cond_emb = cond_emb.mean(dim=1)
+            to_cat.append(cond_emb)
 
         # combine all embeddings
-        emb = torch.cat([cell_emb, time_emb, cond_emb], dim=-1)
+        emb = torch.cat(to_cat, dim=-1)
         return emb

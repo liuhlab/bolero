@@ -263,6 +263,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "grad_norm_collector": False,
         "save_state_every_n_epoch": None,
         "validation_batch_fold": 3,
+        "use_xt": False,
     }
 
     def __init__(self, config):
@@ -435,6 +436,13 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
     def _model_forward_pass(self, model, batch):
         raise NotImplementedError
 
+    def _maybe_modify_sample_name(self, batch):
+        if self.dataset.paired_data:
+            t = batch["__t__"].cpu().numpy().ravel()
+            samples = [f"{idx}:t{_t:.2f}" for idx, _t in enumerate(list(t))]
+            batch["sample_id"] = samples
+        return batch
+
     def _plot_example(
         self, example_batches, true_key="true_data", pred_key="pred_data", y_sync=False
     ):
@@ -444,6 +452,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         for idx, batch in enumerate(example_batches):
             if idx >= self.plot_example_per_epoch:
                 break
+
+            self._maybe_modify_sample_name(batch)
 
             try:
                 plotter = BorzoiExamplePlotter(
@@ -464,7 +474,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 else:
                     nrows = 2
 
-                for channel in range(self.model.out_channels):
+                for channel in range(batch[true_key].shape[1]):
                     fig = plotter.plot(
                         batch,
                         channel=channel,
@@ -732,7 +742,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                     n_channels=self.model.out_channels
                 ).to(self.device)
             nan_loss = False
-            print_steps = max(5, self.train_batches // 20)
+            print_steps = max(5, self.train_batches // 50)
             example_step = max(
                 5, self.train_batches // (self.plot_example_per_epoch + 1)
             )
@@ -1125,27 +1135,31 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         return y_true, y_pred, loss, loss_breakdown
 
     def _split_cond_emb_to_terms(self, batch):
-        cond_emb = batch[f"{self.prefix}:condition_emb_1"]
         # split the cond_emb into dict of terms using cond_encoder in pseudobulker
-        predefined_cond_encoder = self.dataset.name_to_pseudobulker[
-            self.prefix
-        ].condition_encoder
-        cond_emb_terms = predefined_cond_encoder.split_cond_emb(cond_emb)
-        batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
+        pseduobulker = self.dataset.name_to_pseudobulker[self.prefix]
+        condition_encoder = getattr(pseduobulker, "condition_encoder", None)
+        if condition_encoder is not None:
+            cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+            cond_emb_terms = condition_encoder.split_cond_emb(cond_emb)
+            batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
         return batch
 
     def _model_forward_pass_flow(self, model: BorzoiLoRA, batch: dict):
         batch = self._split_cond_emb_to_terms(batch)
 
         # 1. sequence input
-        dna_one_hot = batch["dna_one_hot"]  # (bs, seq_len, 4)
-        a0 = batch[f"{self.prefix}:bulk_data_0"]  # (bs, seq_len, model.out_channels)
-        signal = torch.log1p(a0)
+        dna_one_hot = batch["dna_one_hot"]  # (bs, 4, seq_len)
+        if self.config.get("use_xt", False):
+            # xt is already in log scale
+            signal = batch["__xt__"]  # use __xt__ not working
+        else:
+            a0 = batch[f"{self.prefix}:bulk_data_0"]
+            signal = torch.log1p(a0)
 
         # 2. conditional input
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
         time = batch["__t__"]
-        cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+        cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
 
         # 3. aggregate all conditional input
         cond_ensemble = model.cond_flow_module(

@@ -241,7 +241,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # setup flow model
         if flow_model:
-            assert cond_emb_dim is not None, "cond_emb_dim is required for flow model"
             cond_flow_kwargs = cond_flow_kwargs or {}
 
             self.signal_encoder, self.cond_flow_module = self.setup_flow_model(
@@ -664,21 +663,24 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         if torch.is_autocast_enabled():
             if x.dtype != torch.float16:
                 x = x.half()
-            if signal.dtype != torch.float16:
-                signal = signal.half()
+            if signal is not None:
+                if signal.dtype != torch.float16:
+                    signal = signal.half()
         else:
             if x.dtype != torch.float32:
                 x = x.float()
-            if signal.dtype != torch.float32:
-                signal = signal.float()
+            if signal is not None:
+                if signal.dtype != torch.float32:
+                    signal = signal.float()
 
         x = self.conv_dna(x, embedding)
 
         x_unet0 = self.res_tower(x, embedding)
 
         # inject signal into the DNA embedding at resolution 32
-        sig_emb = self.signal_encoder(signal)
-        x_unet0 += sig_emb
+        if signal is not None:
+            sig_emb = self.signal_encoder(signal)
+            x_unet0 += sig_emb
 
         x_unet1 = self.unet1(x_unet0, embedding)
         x = self._max_pool(x_unet1)

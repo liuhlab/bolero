@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from sklearn.cluster import KMeans
+from tqdm import tqdm
 
 try:
     import SEACells
@@ -9,7 +11,9 @@ except ImportError as e:
     ) from e
 
 
-def calc_meta_cells(adata, meta_fold, obsm, min_seacells=10, n_waypoint_eigs=10):
+def calc_meta_cells(
+    adata, meta_fold, obsm, min_seacells=10, n_waypoint_eigs=10, verbose=False
+):
     """
     Meta cell calculation using SEACells.
 
@@ -27,7 +31,8 @@ def calc_meta_cells(adata, meta_fold, obsm, min_seacells=10, n_waypoint_eigs=10)
     n_waypoint_eigs = min(min_seacells, n_waypoint_eigs)
     n_cells = adata.shape[0]
     n_meta_cells = max(n_cells // meta_fold, min_seacells)
-    print(f"Group {n_cells} cells to {n_meta_cells} meta cells")
+    if verbose:
+        print(f"Group {n_cells} cells to {n_meta_cells} meta cells")
     model = SEACells.core.SEACells(
         adata,
         build_kernel_on=obsm,
@@ -50,6 +55,40 @@ def calc_meta_cells(adata, meta_fold, obsm, min_seacells=10, n_waypoint_eigs=10)
     return model, assign
 
 
+def kmeans_split(
+    df: pd.DataFrame, desired_cluster_size: int, random_state=42
+) -> list[pd.DataFrame]:
+    """
+    Recursively split a cell-by-embedding dataframe into smaller chunks using KMeans,
+    such that each chunk is roughly of the desired_cluster_size.
+
+    Parameters
+    ----------
+    - df: pandas DataFrame, rows are cells, columns are embeddings
+    - desired_cluster_size: int, approximate size for each final cluster
+    - random_state: int, for reproducibility
+
+    Returns
+    -------
+    - List of pandas DataFrames, each with rows <= desired_cluster_size * 2
+    """
+    if len(df) <= 2 * desired_cluster_size:
+        return [df]
+
+    # Apply KMeans with 2 clusters
+    kmeans = KMeans(n_clusters=2, n_init=10, random_state=random_state)
+    labels = kmeans.fit_predict(df.values)
+
+    # Split based on labels
+    df0 = df[labels == 0]
+    df1 = df[labels == 1]
+
+    # Recurse
+    return kmeans_split(
+        df0, desired_cluster_size, random_state=random_state
+    ) + kmeans_split(df1, desired_cluster_size, random_state=random_state)
+
+
 def run_meta_cells(
     adata,
     obsm,
@@ -57,10 +96,11 @@ def run_meta_cells(
     max_fragments=3000000,
     group_size_cutoff=200,
     min_seacells_per_group=5,
-    large_group_split_threshold=30000,
+    large_group_split_threshold=3000,
     n_fragment_key="n_fragments",
     meta_fold=75,
     random_state=0,
+    verbose=False,
 ):
     """
     Run meta cell calculation on the given AnnData object.
@@ -103,34 +143,47 @@ def run_meta_cells(
         total_assign = assign["SEACell"]
     else:
         total_assign = []
-        for group, sub_df in adata.obs.groupby(groupby, observed=True):
+        n_groups = adata.obs[groupby].nunique()
+        for group, sub_df in tqdm(
+            adata.obs.groupby(groupby, observed=True),
+            total=n_groups,
+            desc="Calculating meta cells",
+        ):
             n_cells = sub_df.shape[0]
             if sub_df.shape[0] < group_size_cutoff:
-                print(
-                    f"Skipping group '{group}' with {n_cells} cells: "
-                    f"not enough cells to form meta cells (need at least 2)."
-                )
+                if verbose:
+                    print(
+                        f"Skipping group '{group}' with {n_cells} cells: "
+                        f"not enough cells to form meta cells (need at least 2)."
+                    )
                 # If the group has fewer cells than needed for meta cells, use the group name as the assignment
                 assign = pd.Series([group] * n_cells, index=sub_df.index)
                 total_assign.append(assign)
                 continue
 
-            if n_cells > large_group_split_threshold:
-                # Randomly split the group into smaller groups
-                n_split = int(np.ceil(n_cells / large_group_split_threshold))
-                chunk_size = n_cells // n_split + 1
-                print(f"Splitting group '{group}' into {n_split} smaller groups.")
-
-                sub_df = sub_df.sample(frac=1, replace=False, random_state=random_state)
-                for idx, chunk_start in enumerate(range(0, n_cells, chunk_size)):
-                    chunk_sub_df = sub_df.iloc[
-                        chunk_start : min(chunk_start + chunk_size, n_cells)
-                    ]
-                    ct_adata = adata[chunk_sub_df.index].copy()
-                    _group = f"{group}.{idx}"
+            if n_cells > large_group_split_threshold * 2:
+                # split the group into smaller groups using KMeans
+                cell_emb = pd.DataFrame(
+                    adata[sub_df.index].obsm[obsm].copy(), index=sub_df.index
+                )
+                cell_splits = kmeans_split(
+                    cell_emb,
+                    desired_cluster_size=large_group_split_threshold,
+                    random_state=random_state,
+                )
+                if verbose:
                     print(
-                        f"Run meta cell for {_group} with adata shape {ct_adata.shape}"
+                        f"Splitting group '{group}' into {len(cell_splits)} smaller groups."
                     )
+
+                for idx, split_df in enumerate(cell_splits):
+                    split_cells = adata.obs_names.intersection(split_df.index)
+                    ct_adata = adata[split_cells].copy()
+                    _group = f"{group}.{idx}"
+                    if verbose:
+                        print(
+                            f"Run meta cell for {_group} with adata shape {ct_adata.shape}"
+                        )
                     _, assign = calc_meta_cells(
                         ct_adata,
                         meta_fold=meta_fold,
@@ -141,7 +194,10 @@ def run_meta_cells(
                     total_assign.append(assign)
             else:
                 ct_adata = adata[sub_df.index].copy()
-                print(f"Run meta cell for {group} with adata shape {ct_adata.shape}")
+                if verbose:
+                    print(
+                        f"Run meta cell for {group} with adata shape {ct_adata.shape}"
+                    )
                 _, assign = calc_meta_cells(
                     ct_adata,
                     meta_fold=meta_fold,

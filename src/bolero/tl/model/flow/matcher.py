@@ -273,6 +273,9 @@ class ConditionalFlowMatcher:
             t = torch.rand(x0.shape[0]).type_as(x0)
         assert len(t) == x0.shape[0], "t has to have batch size dimension"
 
+        # x0 = torch.log1p(x0)
+        # x1 = torch.log1p(x1)
+
         eps = self.sample_noise_like(x0)
         xt = self.sample_xt(x0, x1, t, eps)
         ut = self.compute_conditional_flow(x0, x1, t, xt)

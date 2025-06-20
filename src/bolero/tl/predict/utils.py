@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import joblib
@@ -79,4 +80,6 @@ def load_config(config) -> dict:
                 config = joblib.load(f)
         else:
             raise ValueError("Config file must be a .json or .pkl file")
+    else:
+        config = deepcopy(config)
     return config

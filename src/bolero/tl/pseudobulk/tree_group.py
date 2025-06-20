@@ -68,7 +68,7 @@ def _tree_based_cat_split(embedding, cell_counts, min_cell_count=200, method="wa
     based on their similarity in the embedding space and the specified minimum cell count.
     """
     # 1) Build tree
-    Z = linkage(embedding.values, method="ward")
+    Z = linkage(embedding.values, method=method)
     root_node = to_tree(Z, rd=False)
 
     # 2) Build leaf_cell_counts

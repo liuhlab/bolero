@@ -39,27 +39,38 @@ from bolero.utils import validate_config
 #    'sample_weight': float, # optional
 # }
 
-# pseudobulk_and_ot_info schema for PairedPseudobulker:
+# pseudobulk_and_ot_info schema for Pseudobulker:
 # {
 #    'pseudobulk_records': dict of predefined coverage pseudobulk records
 #    'meta_cell_emb': pd.DataFrame (n_meta_cell, emb_dim), # embedding of each meta cell
 #    'meta_cell_n_frags': pd.Series (n_meta_cell,), # number of fragments for each meta cell
 #    'target_cov': int, # target coverage for pseudobulk
 #    'condition_to_related_pseudobulk': dict of condition to related pseudobulks mapping
-#    'ot_transition': dict of transition matrix between conditions
-#    'condition_emb': optional, pre-computed condition embedding,
+#    'condition_emb': optional, instruct how to create pre-defined condition encoder,
 #        if not provided, will use one hot encoder on condition_to_related_pseudobulk.keys()
+#        if provided, it should contain all terms and posible values as provided in condition_terms
+#        or metacell_condition_terms
 #    'condition_terms': dict of dict, mapping condition name in cond_pairs into dict of terms.
 #        example: {'ctrl_0h': {'cond': 'ctrl', 't': '0h'}, 'pert_1h': {'cond': 'pert', 't': '1h'},
+#    'metacell_condition_terms': dict of series, value per meta cell,
+#        it provides meta cell level condition terms, each pseudobulk can use its cluster_ids
+#        to get the aggregated meta cell condition terms, it will be aggregated and add into
+#        __conditionterms__ with cond_terms together currently, meta_cell conditon
+#    'metacell_condition_terms_agg': dict of callable, optional, specify how to aggregate
+#        meta cell condition terms. if not provided, will use mean.
 # }
 
-# pseudobulk_and_ot_info schema for NullPairedPseudobulker:
-# This class uses pseudobulk_records as p1, while p0 is randomly sampled from all available meta cells.
+# Additional pseudobulk_and_ot_info key for PairedPseudobulker:
 # {
-#    'pseudobulk_records': dict of predefined coverage pseudobulk records
-#    'meta_cell_emb': pd.DataFrame (n_meta_cell, emb_dim), # embedding of each meta cell
-#    'meta_cell_n_frags': pd.Series (n_meta_cell,), # number of fragments for each meta cell
-#    'target_cov': int, # target coverage for pseudobulk
+#    'ot_transition': dict of transition matrix between conditions
+# }
+
+# Additional pseudobulk_and_ot_info key for EnsemblePairedPseudobulker:
+# This class uses pseudobulk_records as p1,
+# while p0 is randomly sampled from all available meta cells.
+# {
+#    'ensemble_whitelist': list of meta cell id to use for p0 pseudobulk,
+#        if not provided, all meta cells will be used.
 # }
 
 
@@ -84,7 +95,7 @@ def sample_mapping(tmat: pd.DataFrame, seed=None) -> pd.Series:
     else:
         generator = None
 
-    _tmat = torch.from_numpy(tmat.values)
+    _tmat = torch.from_numpy(tmat.values.copy())
     src_names = tmat.index
     tgt_names = tmat.columns
     tgt_idx = torch.multinomial(_tmat, num_samples=1, generator=generator).squeeze(1)
@@ -119,7 +130,7 @@ class PredefinedCondEncoder:
         cond_emb : dict[np.ndarray], optional
             A dictionary of cond_key and cond_values.
             If cond_key is categoricals, cond_values should be possible categories.
-            If cond_key is numerical, cond_values should be "CONTINUOUS".
+            If cond_key is numerical, cond_values should be "CONTINUOUS:dims".
             If provided, conditions will not be used.
         """
         if isinstance(cond_emb, list):
@@ -130,9 +141,17 @@ class PredefinedCondEncoder:
         sorted_keys = sorted(cond_emb.keys())
         for cond_key in sorted_keys:
             cond_values = cond_emb[cond_key]
-            if isinstance(cond_values, str) and cond_values == "CONTINUOUS":
+            if (
+                isinstance(cond_values, str)
+                and cond_values.split(":")[0] == "CONTINUOUS"
+            ):
                 # numerical condition
-                self.encoder_dict[cond_key] = None
+                _, *dim = cond_values.split(":")
+                if len(dim) == 0:
+                    dim = 1
+                else:
+                    dim = int(dim[0])
+                self.encoder_dict[cond_key] = dim
             else:
                 # categorical condition
                 cond_values = np.array(cond_values)
@@ -145,7 +164,7 @@ class PredefinedCondEncoder:
         self.cond_emb_dims = OrderedDict()
         for k, v in self.encoder_dict.items():
             self.cond_emb_dims[k] = (
-                v.categories_[0].size if isinstance(v, OneHotEncoder) else 1
+                v.categories_[0].size if isinstance(v, OneHotEncoder) else v
             )
         return
 
@@ -167,7 +186,7 @@ class PredefinedCondEncoder:
             except KeyError as e:
                 raise KeyError(
                     f"Condition key '{cond_key}' not found in cond dictionary. "
-                    f"Available keys: {list(self.cond.keys())}, encoder keys: {self.encoder_dict.keys()}"
+                    f"Available keys: {list(cond.keys())}, encoder keys: {self.encoder_dict.keys()}"
                 ) from e
 
             if not isinstance(cond_values, np.ndarray):
@@ -199,7 +218,7 @@ class PredefinedCondEncoder:
         cond_dict : dict
             A dictionary of condition terms.
         """
-        if len(self.cond_emb_dims) == 1:
+        if (len(self.cond_emb_dims) == 1) and ("DEFAULT" in self.cond_emb_dims):
             # single condition term, return as is
             return cond_emb
 
@@ -358,6 +377,77 @@ class PseudobulkerMixin:
             records.append(cond_pair_pseudobulks)
         return records
 
+    def _make_condition_encoder(self, cond_dict):
+        if cond_dict is None:
+            cond_dict = list(self.condition_to_related_pseudobulk.keys())
+
+        encoder = PredefinedCondEncoder(cond_dict)
+        return encoder
+
+    def _prepare_condition_terms_and_emb(self, pseudobulk_and_ot_info: dict):
+        self.condition_terms: dict[str, dict] = pseudobulk_and_ot_info.get(
+            "condition_terms", {}
+        )
+        self.metacell_condition_terms: dict[str, pd.Series] = (
+            pseudobulk_and_ot_info.get("metacell_condition_terms", {})
+        )
+        self.metacell_condition_terms_agg = pseudobulk_and_ot_info.get(
+            "metacell_condition_terms_agg", {}
+        )
+        for term in self.metacell_condition_terms.keys():
+            self.metacell_condition_terms_agg.setdefault(term, lambda x: x.mean())
+
+        # 3. condition to related pseudobulk mapping
+        self.condition_to_related_pseudobulk = pseudobulk_and_ot_info[
+            "condition_to_related_pseudobulk"
+        ]
+        pid_to_cond = {}
+        for cond, pids in self.condition_to_related_pseudobulk.items():
+            for pid in pids:
+                assert pid not in pid_to_cond, (
+                    f"Duplicate pseudobulk {pid} found in multiple conditions: "
+                    f"{pid_to_cond[pid]} and {cond}."
+                )
+                pid_to_cond[pid] = cond
+        self.pseudobulk_id_to_condition = pd.Series(
+            pid_to_cond, index=self.pseudobulk_ids
+        )
+
+        cond_emb = pseudobulk_and_ot_info.get("condition_emb", None)
+        for k in self.metacell_condition_terms.keys():
+            cond_emb[k] = "CONTINUOUS"
+        self.condition_encoder = self._make_condition_encoder(cond_emb)
+        self.cond_emb_dims = self.condition_encoder.cond_emb_dims
+        return
+
+    def _add_cond_term_and_emb_to_pseudobulk(
+        self, pseudobulk_rec: dict[str, Any], cond: str
+    ):
+        cond_terms = self.condition_terms.get(cond, cond)
+        # aggregate meta cell condition terms (if any)
+        cids = pseudobulk_rec["cluster_ids"][self.prefix_name]
+        for term, term_series in self.metacell_condition_terms.items():
+            agg_func = self.metacell_condition_terms_agg.get(term)
+            cid_values = term_series.reindex(cids)
+            agg_value = agg_func(cid_values)
+            if np.isnan(agg_value):
+                print(pseudobulk_rec)
+                raise ValueError(
+                    f"Condition term {term} has NaN value in {cond} pseudobulk, "
+                    "please check the condition terms and meta cell records."
+                )
+            try:
+                cond_terms[term] = agg_value
+            except Exception as e:
+                print(cond_terms)
+                print(agg_value)
+                print(term)
+                print(pseudobulk_rec)
+                raise e
+        pseudobulk_rec["__conditionemb__"] = self.condition_encoder(cond_terms)
+        pseudobulk_rec["__conditionterms__"] = cond_terms
+        return pseudobulk_rec
+
 
 class PairedPseudobulker(PseudobulkerMixin):
     """
@@ -407,25 +497,9 @@ class PairedPseudobulker(PseudobulkerMixin):
         self.conditions = set()
         for cond_pair in self.condition_pairs:
             self.conditions.update(cond_pair)
-        self.condition_terms: dict[str, dict] = pseudobulk_and_ot_info.get(
-            "condition_terms", {}
-        )
 
-        # 3. condition to related pseudobulk mapping
-        self.condition_to_related_pseudobulk = pseudobulk_and_ot_info[
-            "condition_to_related_pseudobulk"
-        ]
-        cond_emb = pseudobulk_and_ot_info.get("condition_emb", None)
-        self.condition_encoder = self._make_condition_encoder(cond_emb)
-        self.cond_emb_dims = self.condition_encoder.cond_emb_dims
+        self._prepare_condition_terms_and_emb(pseudobulk_and_ot_info)
         return
-
-    def _make_condition_encoder(self, cond_dict):
-        if cond_dict is None:
-            cond_dict = list(self.condition_to_related_pseudobulk.keys())
-
-        encoder = PredefinedCondEncoder(cond_dict)
-        return encoder
 
     def _sample_single_pseudobulk(
         self,
@@ -499,7 +573,9 @@ class PairedPseudobulker(PseudobulkerMixin):
             "cluster_ids": {self.prefix_name: p_ot_meta_cells},
             "n_frags": {self.prefix_name: n_frags},
             "cov_scale": {self.prefix_name: np.log2(n_frags / self.target_cov)},
-            "embedding": self.meta_cell_emb.loc[p_ot_meta_cells].mean().values,
+            # CAUTION: current pseudobulk records use the first meta cell's
+            # embedding as embedding key, NOT mean embedding
+            "embedding": self.meta_cell_emb.loc[p_ot_meta_cells].values[0],
             "embedding_multi": pad_or_chunk_emb(
                 self.meta_cell_emb.loc[p_ot_meta_cells].values, pad_emb_to_n
             ),
@@ -511,11 +587,11 @@ class PairedPseudobulker(PseudobulkerMixin):
         # Following code is for generator to handle the pseudobulk records
         for d, cond in zip(cond_pair_pseudobulks, cond_pair):
             # 1. set the embedding for generator to use
+            # add cell embedding and coverage
             d["__embedding__"] = d[self.emb_key]
             d["__covlogfc__"] = d[self.cov_key]
-            cond_terms = self.condition_terms.get(cond, cond)
-            d["__conditionemb__"] = self.condition_encoder(cond_terms)
-            d["__conditionterms__"] = cond_terms
+            # add condition embedding
+            d = self._add_cond_term_and_emb_to_pseudobulk(d, cond)
 
             # 2. convert meta cell list to int row index
             if self.barcode_order is not None:
@@ -584,7 +660,7 @@ class PairedPseudobulker(PseudobulkerMixin):
                     pid_choice=pid,
                     ot_seed=0,
                 )
-                name1, name0 = cond_pair
+                name0, name1 = cond_pair
 
                 p0_key = f"{name0}|{name1}:{name0}-{idx}"
                 assert (
@@ -630,14 +706,27 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         flow_match_sigma (float): The sigma for the flow matcher.
         seed (int): The random seed for sampling.
         """
-        self._prepare_pseudobulk_and_meta_cell_records(
+        pseudobulk_and_ot_info = self._prepare_pseudobulk_and_meta_cell_records(
             pseudobulk_and_ot_info=pseudobulk_and_ot_info,
             emb_key=emb_key,
             downsample_pseudobulk=downsample_pseudobulk,
             barcode_order=barcode_order,
             seed=seed,
         )
+
         self.p0_n_meta_cells = min(p0_n_meta_cells, self.meta_cell_emb.shape[0])
+        self.ensemble_whitelist = list(
+            pseudobulk_and_ot_info.get(
+                "ensemble_whitelist", self.meta_cell_emb.index.copy()
+            )
+        )
+
+        if "condition_to_related_pseudobulk" in pseudobulk_and_ot_info:
+            # pseudobulk has condition information
+            self.conditions = set(
+                pseudobulk_and_ot_info["condition_to_related_pseudobulk"].keys()
+            )
+            self._prepare_condition_terms_and_emb(pseudobulk_and_ot_info)
         return
 
     def _sample_single_pseudobulk(
@@ -663,16 +752,22 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         if pid_choice is None:
             skip_pids = set() if skip_pids is None else set(skip_pids)
             use_pids = set(self.pseudobulk_ids) - skip_pids
+            # TODO: use sampling weights to sample pids
             pid_choice = self.local_rng.choice(list(use_pids))
 
         p1_pseudobulk = self.take_by_name(pid_choice)
         p1_pseudobulk.setdefault("__t__", 1)
-        p1_pseudobulk["__conditionemb__"] = p1_pseudobulk[self.emb_key]
+        p1_cell_emb = p1_pseudobulk[self.emb_key]
 
-        # TODO: weighted by sample weight here
+        if hasattr(self, "condition_encoder"):
+            p1_cond = self.pseudobulk_id_to_condition[pid_choice]
+            p1_pseudobulk = self._add_cond_term_and_emb_to_pseudobulk(
+                p1_pseudobulk, p1_cond
+            )
+
         p0_meta_cells = self.local_rng.choice(
-            self.meta_cell_emb.index,
-            size=self.p0_n_meta_cells,
+            self.ensemble_whitelist,
+            size=min(self.p0_n_meta_cells, len(self.ensemble_whitelist)),
             replace=False,
         ).tolist()
         n_frags = self.meta_cell_n_frags.loc[p0_meta_cells].sum()
@@ -680,15 +775,23 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
 
         # use mean emb as p0 cell emb
         p0_embedding = self.meta_cell_emb.loc[p0_meta_cells].mean().values
+        p0_p1_embedding = np.concatenate([p0_embedding, p1_cell_emb], axis=-1)
+        # IMPORTANT: flow model use embedding of p0, and condition embedding of p1
+        # Here we concat p0 and p1 embeddings as final embedding
+        # we put p0_p1_embedding into both p0 and p1 to make sure they are in the same shape
+        p1_pseudobulk[self.emb_key] = p0_p1_embedding
+
         p0_pseudobulk = {
             "cluster_ids": {self.prefix_name: p0_meta_cells},
             "n_frags": {self.prefix_name: n_frags},
             "cov_scale": {self.prefix_name: cov_scale},
-            # IMPORTANT: flow model use embedding of p0, and condition embedding of p1
-            # Here we put concatenated embedding into p0 so that flow model can use it directly
-            self.emb_key: p0_embedding,
-            "__conditionemb__": p0_embedding,  # this is not used anyway
+            self.emb_key: p0_p1_embedding,
         }
+        if hasattr(self, "condition_encoder"):
+            # copy p1 condition embedding to p0
+            p0_pseudobulk["__conditionemb__"] = p1_pseudobulk["__conditionemb__"]
+            p0_pseudobulk["__conditionterms__"] = p1_pseudobulk["__conditionterms__"]
+
         p0_pseudobulk.setdefault("__t__", 0)
 
         cond_pair_pseudobulks = [p0_pseudobulk, p1_pseudobulk]
@@ -711,14 +814,35 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
                 d["cluster_ids"] = parquet_prefix_to_rows
         return cond_pair_pseudobulks, pid_choice
 
-    def create_pseudobulk_records_from_design(self, *args, **kwargs) -> dict[str, dict]:
+    def create_pseudobulk_records_from_design(self, designs) -> dict[str, dict]:
         """
         Create pseudobulk pairs for each pseudobulk in the self.pseudobulk_records.
         """
+        if designs is not None:
+            use_pids = pd.Index(designs).intersection(self.pseudobulk_ids)
+        else:
+            use_pids = self.pseudobulk_ids
+
+        # assume designs is None or is a list of pids to use
         pseudobulk_col = OrderedDict()
-        for pid in enumerate(self.pseudobulk_ids):
-            p_pair = self._sample_single_pseudobulk(skip_pids=None, pid_choice=pid)[0]
-            pseudobulk_col[pid] = p_pair
+
+        for idx, pid in enumerate(use_pids):
+            (p0, p1), _ = self._sample_single_pseudobulk(skip_pids=None, pid_choice=pid)
+            p0_key = f"ensemble|data:ensemble-{idx}"
+            assert (
+                p0_key not in pseudobulk_col
+            ), f"Duplicate key {p0_key} found in pseudobulk_col."
+            p0.setdefault("__t__", 0)
+            p0["__pid__"] = pid
+            pseudobulk_col[p0_key] = p0
+
+            p1_key = f"ensemble|data:data-{idx}"
+            assert (
+                p1_key not in pseudobulk_col
+            ), f"Duplicate key {p1_key} found in pseudobulk_col."
+            p1.setdefault("__t__", 1)
+            p1["__pid__"] = pid
+            pseudobulk_col[p1_key] = p1
         return pseudobulk_col
 
 
@@ -780,7 +904,7 @@ class GeneratePairedPseudobulk:
         self.normalize_cov = normalize_cov
         self.reduce_resolution = reduce_resolution
 
-        # suffix for p1 and p0 data keys
+        # suffix for p0 and p1 data keys
         self.suffix = ["_0", "_1"]
         return
 
@@ -825,9 +949,10 @@ class GeneratePairedPseudobulk:
             this_bulk_dict = {}
             for pseudobulk, suffix in zip(cond_pair_pseudobulks, self.suffix):
                 # 1. add condition embedding
-                this_bulk_dict[f"{output_prefix}:condition_emb{suffix}"] = pseudobulk[
-                    "__conditionemb__"
-                ]
+                if "__conditionemb__" in pseudobulk:
+                    this_bulk_dict[f"{output_prefix}:condition_emb{suffix}"] = (
+                        pseudobulk["__conditionemb__"]
+                    )
 
                 # 2. add pseudobulk embedding
                 row_embedding = pseudobulk["__embedding__"]
