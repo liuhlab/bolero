@@ -1,3 +1,4 @@
+import gc
 import pathlib
 import tempfile
 import time
@@ -10,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pyranges as pr
 import torch
+import xarray as xr
 from einops import rearrange
 
 from bolero.tl.model.borzoi.model import Borzoi
@@ -449,16 +451,28 @@ class BorzoiPredictor(GenericPredictor):
                 # module.running_mean.zero_()
                 # module.running_var.fill_(1.0)
 
-    def _model_attribution_step(self, model, batch):
+    def _model_attribution_step(self, model, batch, attr_batch_size):
         dna = batch["__dna__"].float()
         dna.requires_grad_()
 
-        result = model(dna)
-        dna_attr = result[0].detach().cpu().numpy()
-        batch["__dna__:attr"] = dna_attr
+        bs = dna.shape[0]
+        attr_col = []
+        for i in range(0, bs, attr_batch_size):
+            dna_mini_batch = dna[i : i + attr_batch_size]
+            # calculate the attribution
+            result = model(dna_mini_batch)
+            dna_attr = result[0].detach().cpu().numpy()
+            attr_col.append(dna_attr)
+        attr_col = np.concatenate(attr_col, axis=0)
+        batch["__dna__:attr"] = attr_col
+
+        gc.collect()
+        torch.cuda.empty_cache()
         return batch
 
-    def _prepare_attr_regions(self, pseudobulk_ids, regions_per_pseudobulk):
+    def _prepare_attr_regions(
+        self, pseudobulk_ids, regions_per_pseudobulk
+    ) -> dict[str, list[str]]:
         if isinstance(regions_per_pseudobulk, dict):
             # use different regions for each pseudobulk
             missing = []
@@ -469,7 +483,7 @@ class BorzoiPredictor(GenericPredictor):
                 f"Missing regions for pseudobulks: {missing}. "
                 "Please provide regions for all pseudobulks."
             )
-            regions = {
+            regions_per_pseudobulk = {
                 pid: self._valid_and_sort_regions(
                     regions_per_pseudobulk[pid],
                     return_list=True,
@@ -482,15 +496,16 @@ class BorzoiPredictor(GenericPredictor):
             regions: list[str] = self._valid_and_sort_regions(
                 regions, return_list=True, standard_size=524288
             )
-        return regions
+            regions_per_pseudobulk = {pid: regions for pid in pseudobulk_ids}
+        return regions_per_pseudobulk
 
     def get_attribution_dataloader(
         self,
         regions_per_pseudobulk,
-        pseudobulk_ids=None,
+        pseudobulk_ids,
         dna_key="dna",
         embedding_key="embedding",
-        batch_size=8,
+        batch_size=6,
         verbose=True,
     ) -> Generator:
         """
@@ -505,12 +520,6 @@ class BorzoiPredictor(GenericPredictor):
         2. attribution task needs to collapse lora model into base,
             this can only be done one pseudobulk at a time.
         """
-        if pseudobulk_ids is None:
-            pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
-        regions_per_pseudobulk = self._prepare_attr_regions(
-            pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
-        )
-
         da_prefix = self.datamanager._get_data_prefixs()
         assert (
             len(da_prefix) == 1
@@ -538,7 +547,8 @@ class BorzoiPredictor(GenericPredictor):
                 pseudobulk_ids=[pseudobulk_id],
                 # attribution task will not use true data in parquet
                 add_true_data=False,
-                batch_size=batch_size,
+                # batch size for attr is small, but we set it larger here so we save less batch files
+                batch_size=batch_size * 100,
             )
 
             # 3. Get callbacks
@@ -549,6 +559,8 @@ class BorzoiPredictor(GenericPredictor):
 
             # 4. Inference and callback
             for batch in dataloader:
+                batch["pseudobulk_id"] = pseudobulk_id
+
                 if attr_model is None:
                     model = self._prepare_attr_model(batch)
                 # Pre-inference callbacks
@@ -558,7 +570,9 @@ class BorzoiPredictor(GenericPredictor):
 
                 # Inference step
                 t = time.time()
-                batch = self._model_attribution_step(model, batch)
+                batch = self._model_attribution_step(
+                    model, batch, attr_batch_size=batch_size
+                )
                 timer["infer"] += time.time() - t
 
                 # Post-inference callbacks
@@ -569,7 +583,7 @@ class BorzoiPredictor(GenericPredictor):
                 yield batch
         timer["total"] = time.time() - start
 
-        if verbose:
+        if verbose and timer["counter"] > 0:
             print(
                 f"Total time: {timer['total']:.2f}s\n"
                 f"Inference time: {timer['infer']:.2f}s or "
@@ -736,13 +750,79 @@ class BorzoiPredictor(GenericPredictor):
         )
         return
 
+    def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk):
+        # make a pid-by-region bool table
+        pid_region_table_log = {}
+        for pid, regions in regions_per_pseudobulk.items():
+            pid_region_table_log[pid] = pd.Series(
+                np.ones(len(regions), dtype=bool), index=regions
+            )
+        pid_region_table_log = pd.DataFrame(pid_region_table_log)
+
+        # collect all finished batches
+        batch_paths = batch_dir.glob("*.joblib.gz")
+        bids = []
+        for path in batch_paths:
+            bids.append(int(path.name.split(".")[0].split("_")[1]))
+            batch = joblib.load(path)
+            regions = batch["region"]
+            pid = batch["pseudobulk_id"]
+            pid_region_table_log.loc[regions, pid] = False
+
+        # only run unfinished pid and regions
+        cur_bid = max(bids) + 1 if len(bids) > 0 else 0
+        regions_per_pseudobulk_torun = {
+            pid: regions_bool[regions_bool].index.tolist()
+            for pid, regions_bool in pid_region_table_log.items()
+            if regions_bool.any()
+        }
+        for pid, regions in regions_per_pseudobulk_torun.items():
+            print(pid, len(regions))
+        return regions_per_pseudobulk_torun, cur_bid
+
+    def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
+        for pid in pseudobulk_ids:
+            pid_batch_paths = list(batch_dir.glob(f"*.{pid}.joblib.gz"))
+
+            temp_path = batch_dir / f"{pid}.attr.zarr.temp"
+            zarr_path = batch_dir / f"{pid}.attr.zarr"
+            if not zarr_path.exists():
+                pid_data = []
+                for p in pid_batch_paths:
+                    batch = joblib.load(p)
+                    region = batch["region"]
+                    pid = batch["pseudobulk_id"]
+                    attr = batch["__dna__:attr"]
+                    da = xr.DataArray(attr, dims=["region", "base", "pos"])
+                    da.coords["region"] = region
+                    da.coords["base"] = list("ACGT")
+                    pid_data.append(da)
+                pid_data = xr.concat(pid_data, dim="region")
+                pid_ds = xr.Dataset({"dna": pid_data}).chunk(region=10000)
+
+                # change regions (524288) into attr regions (1024)
+                full_regions = pid_ds.get_index("region")
+                attr_length = attr.shape[-1]
+                regions = self.genome.standard_region_length(
+                    full_regions, length=attr_length, keep_original=True
+                )
+                regions = regions.set_index("Original_Name").reindex(full_regions)
+                pid_ds.coords["region"] = regions["Name"].values
+
+                pid_ds.to_zarr(temp_path, mode="w")
+                temp_path.rename(zarr_path)
+
+            for path in pid_batch_paths:
+                path.unlink()
+        return
+
     def attribution_task(
         self,
         output_dir,
         regions_per_pseudobulk,
         pseudobulk_ids=None,
-        batch_size=8,
-        save_keys=None,
+        batch_size=6,
+        save_keys=("__dna__:attr", "region", "pseudobulk_ids"),
         verbose=True,
     ):
         """
@@ -765,51 +845,68 @@ class BorzoiPredictor(GenericPredictor):
         verbose: bool
             Whether to print the progress.
         """
-        original_region_input = regions_per_pseudobulk
-        if isinstance(regions_per_pseudobulk, str):
-            regions_per_pseudobulk = understand_regions(regions_per_pseudobulk)
-        dataloader = self.get_attribution_dataloader(
-            regions_per_pseudobulk=regions_per_pseudobulk,
-            pseudobulk_ids=pseudobulk_ids,
-            dna_key="dna",
-            embedding_key="embedding",
-            batch_size=batch_size,
-            verbose=verbose,
-        )
-
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
         batch_dir.mkdir(parents=True, exist_ok=True)
         if verbose:
             print(f"Saving batches to {batch_dir}")
 
-        save_batch = {}
-        for idx, batch in enumerate(dataloader):
-            if idx == 0 and verbose:
-                self._print_batch(batch, prefix="Dataloader")
+        if pseudobulk_ids is None:
+            pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
+        if isinstance(regions_per_pseudobulk, str):
+            regions_per_pseudobulk = understand_regions(regions_per_pseudobulk)
+        regions_per_pseudobulk = self._prepare_attr_regions(
+            pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
+        )
+        regions_per_pseudobulk_torun, cur_bid = (
+            self._check_finished_attribution_batches(
+                batch_dir=batch_dir,
+                regions_per_pseudobulk=regions_per_pseudobulk,
+            )
+        )
+        if len(regions_per_pseudobulk_torun) != 0:
+            dataloader = self.get_attribution_dataloader(
+                regions_per_pseudobulk=regions_per_pseudobulk_torun,
+                pseudobulk_ids=pseudobulk_ids,
+                dna_key="dna",
+                embedding_key="embedding",
+                batch_size=batch_size,
+                verbose=verbose,
+            )
 
-            # save the batch to a file
             save_batch = {}
-            for k, v in batch.items():
-                if isinstance(v, torch.Tensor):
-                    v = v.cpu().numpy()
-                if k in save_keys:
-                    save_batch[k] = v
-            # data to save for each batch
-            save_path = batch_dir / f"batch_{idx}.joblib.gz"
-            joblib.dump(save_batch, save_path)
+            for idx, batch in enumerate(dataloader):
+                idx = idx + cur_bid
+                if idx == 0 and verbose:
+                    self._print_batch(batch, prefix="Dataloader")
 
-        if verbose and len(save_batch) > 0:
-            self._print_batch(save_batch, prefix="Saved")
+                # save the batch to a file
+                save_batch = {}
+                for k, v in batch.items():
+                    if isinstance(v, torch.Tensor):
+                        v = v.cpu().numpy()
+                    if k in save_keys:
+                        save_batch[k] = v
+                # data to save for each batch
+                pid = batch["pseudobulk_id"]
+                save_path = batch_dir / f"batch_{idx}.{pid}.joblib.gz"
+                joblib.dump(save_batch, save_path)
 
-        config_path = output_dir / "config.joblib.gz"
-        self._save_task_configs(
-            task_config={
-                "regions": original_region_input,
-                "pseudobulk_ids": pseudobulk_ids,
-                "save_keys": save_keys,
-            },
-            output_path=config_path,
+            if verbose and len(save_batch) > 0:
+                self._print_batch(save_batch, prefix="Saved")
+
+            config_path = output_dir / "config.joblib.gz"
+            self._save_task_configs(
+                task_config={
+                    "regions": regions_per_pseudobulk,
+                    "pseudobulk_ids": pseudobulk_ids,
+                    "save_keys": save_keys,
+                },
+                output_path=config_path,
+            )
+
+        self._save_pseudobulk_attr_ds(
+            pseudobulk_ids=pseudobulk_ids, batch_dir=batch_dir
         )
         return
 

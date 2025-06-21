@@ -16,11 +16,11 @@ from bolero import Genome
 from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER, one_hot_decoding, one_hot_encoding
 
 DEFAULT_BASE_COLOR = (
-    "#006f3c",
-    "#264b96",
-    "#bf212f",
-    "#f9a73e",
-)  # Green, Blue, Red, Yellow for A, C, G, T
+    "#006f3c",  # A
+    "#264b96",  # C
+    "#bf212f",  # G
+    "#f9a73e",  # T
+)
 
 
 def approximate_error(motif):
