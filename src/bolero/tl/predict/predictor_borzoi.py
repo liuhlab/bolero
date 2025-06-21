@@ -28,6 +28,64 @@ from .predictor import GenericPredictor
 from .utils import load_config
 
 
+def _clip(data: torch.Tensor, clip_length: int) -> torch.Tensor:
+    seq_len = data.shape[-1]
+    radius = clip_length // 2
+    start = seq_len // 2 - radius
+    end = start + clip_length
+    return data[..., start:end]
+
+
+def _clip_at_center(
+    data, clip_length
+) -> torch.Tensor | dict[str, torch.Tensor] | list[torch.Tensor]:
+    if isinstance(data, dict):
+        return {k: _clip(v, clip_length) for k, v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        return [_clip(d, clip_length) for d in data]
+    else:
+        return _clip(data, clip_length)
+
+
+class BorzoiInputXGradient:
+    def __init__(
+        self,
+        model,
+        peak_length=512,
+        attr_length=1024,
+    ):
+        self.model = model
+        self.model_dna_length = 524288
+        self.model_resolution = 32
+        self.peak_length = peak_length
+        self.peak_bins = peak_length // self.model_resolution
+        self.attr_length = attr_length
+
+        def _forward_hook(inputs):
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                outputs = model(inputs)  # Shape: (batch_size, 1, 16352)
+
+            # Shape: (batch_size, )
+            outputs = _clip_at_center(outputs, self.peak_bins)
+            peak_outputs = outputs.sum(dim=-1)
+            return peak_outputs
+
+        from captum.attr import InputXGradient
+
+        self.attributor = InputXGradient(_forward_hook)
+
+    def __call__(
+        self,
+        *args,
+    ) -> torch.Tensor | list[torch.Tensor]:
+        """
+        Compute the input gradients for the given DNA sequence and other inputs.
+        """
+        attr_data = self.attributor.attribute(inputs=args)
+        attr_data = _clip_at_center(attr_data, self.attr_length)
+        return attr_data
+
+
 class BorzoiPredictor(GenericPredictor):
     def __init__(self, config):
         super().__init__(config, BorzoiLoRA)
@@ -104,6 +162,9 @@ class BorzoiPredictor(GenericPredictor):
         batch["__ypred__"] = y_pred.detach()
         return batch
 
+    def _get_post_attribution_callbacks(self):
+        return []
+
     def _get_post_prediction_callbacks(self):
         callbacks = [
             # calc pearsonr on last dim (seq_len)
@@ -170,6 +231,17 @@ class BorzoiPredictor(GenericPredictor):
             ]
             callbacks.extend(peak_level_callbacks)
         return self._prepare_callbacks(callbacks)
+
+    def _get_post_callbacks(self, mode="prediction"):
+        if mode == "prediction":
+            return self._get_post_prediction_callbacks()
+        elif mode == "attribution":
+            return self._get_post_attribution_callbacks()
+        else:
+            raise ValueError(
+                f"Invalid mode: {mode}. "
+                "Must be one of 'prediction' or 'attribution'."
+            )
 
     def _create_fn_and_dataloader(
         self,
@@ -303,7 +375,7 @@ class BorzoiPredictor(GenericPredictor):
 
         # 3. Get callbacks
         self._pre_callbacks = self._get_pre_prediction_callbacks()
-        self._post_callbacks = self._get_post_prediction_callbacks()
+        self._post_callbacks = self._get_post_callbacks("prediction")
 
         # trigger model load
         _ = self.model
@@ -333,7 +405,6 @@ class BorzoiPredictor(GenericPredictor):
                 batch = self.apply_callbacks(batch, "post")
                 timer["callback"] += time.time() - t
                 timer["counter"] += 1
-
             yield batch
         timer["total"] = time.time() - start
 
@@ -346,6 +417,169 @@ class BorzoiPredictor(GenericPredictor):
                 f"{timer['callback']/timer['counter']:.3f}s per batch\n"
                 f"(total {timer['counter']} batches)\n"
             )
+
+    def _collapse_model(self, emb):
+        """Collapse model for inference given an embedding vector."""
+        # TODO: get pseudobulk information and collapse model
+        if isinstance(emb, pd.Series):
+            emb = torch.from_numpy(emb.values)
+        elif isinstance(emb, np.ndarray):
+            emb = torch.from_numpy(emb)
+        emb = emb.cuda().unsqueeze(0)
+
+        emb_model = self.model.collapse_lora(emb)
+        emb_model = emb_model.eval().cuda()
+        return emb_model
+
+    def _prepare_attr_model(self, batch) -> torch.nn.Module:
+        embedding = batch["__embedding__"]
+        model = self._collapse_model(embedding)
+        attr_model = BorzoiInputXGradient(model=model)
+        return attr_model
+
+    def _no_training_randomness(self):
+        """
+        Disable any dropout or batch normalization updates
+        """
+        for module in self.model.modules():
+            if isinstance(module, torch.nn.Dropout):
+                module.p = 0.0
+            elif isinstance(module, torch.nn.BatchNorm1d):
+                module.track_running_stats = False
+                # module.running_mean.zero_()
+                # module.running_var.fill_(1.0)
+
+    def _model_attribution_step(self, model, batch):
+        dna = batch["__dna__"].float()
+        dna.requires_grad_()
+
+        result = model(dna)
+        dna_attr = result[0].detach().cpu().numpy()
+        batch["__dna__:attr"] = dna_attr
+        return batch
+
+    def _prepare_attr_regions(self, pseudobulk_ids, regions_per_pseudobulk):
+        if isinstance(regions_per_pseudobulk, dict):
+            # use different regions for each pseudobulk
+            missing = []
+            for pid in pseudobulk_ids:
+                if pid not in regions_per_pseudobulk:
+                    missing.append(pid)
+            assert len(missing) == 0, (
+                f"Missing regions for pseudobulks: {missing}. "
+                "Please provide regions for all pseudobulks."
+            )
+            regions = {
+                pid: self._valid_and_sort_regions(
+                    regions_per_pseudobulk[pid],
+                    return_list=True,
+                    standard_size=524288,
+                )
+                for pid in pseudobulk_ids
+            }
+        else:
+            regions = regions_per_pseudobulk
+            regions: list[str] = self._valid_and_sort_regions(
+                regions, return_list=True, standard_size=524288
+            )
+        return regions
+
+    def get_attribution_dataloader(
+        self,
+        regions_per_pseudobulk,
+        pseudobulk_ids=None,
+        dna_key="dna",
+        embedding_key="embedding",
+        batch_size=8,
+        verbose=True,
+    ) -> Generator:
+        """
+        Get the dataloader for attribution.
+
+        The main difference on data loader side is that prediction dataloader
+        iterates all region and all pseudobulk together;
+        attribution dataloader iterate all regions for one pseudobulk at a time.
+        This is because
+        1. predition task fetch parquet only once by putting all pseudobulk together,
+            attribution task will not use parquet data.
+        2. attribution task needs to collapse lora model into base,
+            this can only be done one pseudobulk at a time.
+        """
+        if pseudobulk_ids is None:
+            pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
+        regions_per_pseudobulk = self._prepare_attr_regions(
+            pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
+        )
+
+        da_prefix = self.datamanager._get_data_prefixs()
+        assert (
+            len(da_prefix) == 1
+        ), "Currently only one data prefix is supported for prediction."
+        data_key = da_prefix[0]
+
+        # trigger model load
+        _ = self.model
+        self._no_training_randomness()
+
+        timer = {"infer": 0, "callback": 0, "total": 0, "counter": 0}
+        start = time.time()
+        for pseudobulk_id in pseudobulk_ids:
+            if isinstance(regions_per_pseudobulk, dict):
+                regions = regions_per_pseudobulk[pseudobulk_id]
+            else:
+                regions = regions_per_pseudobulk
+
+            dataloader = self._create_fn_and_dataloader(
+                dna_key=dna_key,
+                data_key=data_key,
+                embedding_key=embedding_key,
+                regions=regions,
+                # attribution task will iterate one pseudobulk at a time
+                pseudobulk_ids=[pseudobulk_id],
+                # attribution task will not use true data in parquet
+                add_true_data=False,
+                batch_size=batch_size,
+            )
+
+            # 3. Get callbacks
+            self._pre_callbacks = self._get_pre_prediction_callbacks()
+            self._post_callbacks = self._get_post_callbacks("attribution")
+
+            attr_model = None
+
+            # 4. Inference and callback
+            for batch in dataloader:
+                if attr_model is None:
+                    model = self._prepare_attr_model(batch)
+                # Pre-inference callbacks
+                t = time.time()
+                batch = self.apply_callbacks(batch, "pre")
+                timer["callback"] += time.time() - t
+
+                # Inference step
+                t = time.time()
+                batch = self._model_attribution_step(model, batch)
+                timer["infer"] += time.time() - t
+
+                # Post-inference callbacks
+                t = time.time()
+                batch = self.apply_callbacks(batch, "post")
+                timer["callback"] += time.time() - t
+                timer["counter"] += 1
+                yield batch
+        timer["total"] = time.time() - start
+
+        if verbose:
+            print(
+                f"Total time: {timer['total']:.2f}s\n"
+                f"Inference time: {timer['infer']:.2f}s or "
+                f"{timer['infer']/timer['counter']:.3f}s per batch\n"
+                f"Callback time: {timer['callback']:.2f}s or "
+                f"{timer['callback']/timer['counter']:.3f}s per batch\n"
+                f"(total {timer['counter']} batches)\n"
+            )
+        # TODO: clean up memory during batches
+        # TODO: cache partial attr and make task preemptible
 
     def _get_default_stats_keys(self):
         STATS_KEYS = [
@@ -495,6 +729,83 @@ class BorzoiPredictor(GenericPredictor):
         self._save_task_configs(
             task_config={
                 "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+            },
+            output_path=config_path,
+        )
+        return
+
+    def attribution_task(
+        self,
+        output_dir,
+        regions_per_pseudobulk,
+        pseudobulk_ids=None,
+        batch_size=8,
+        save_keys=None,
+        verbose=True,
+    ):
+        """
+        Prediction task for Borzoi.
+        Compute the prediction on a set of regions and pseudobulk records.
+        Then compute the stats and save them to a file.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        regions_per_pseudobulk: str or pd.DataFrame or list[str]
+            The regions to run attribution on. Regions center should be a peak.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output file. If None, save all keys.
+        verbose: bool
+            Whether to print the progress.
+        """
+        original_region_input = regions_per_pseudobulk
+        if isinstance(regions_per_pseudobulk, str):
+            regions_per_pseudobulk = understand_regions(regions_per_pseudobulk)
+        dataloader = self.get_attribution_dataloader(
+            regions_per_pseudobulk=regions_per_pseudobulk,
+            pseudobulk_ids=pseudobulk_ids,
+            dna_key="dna",
+            embedding_key="embedding",
+            batch_size=batch_size,
+            verbose=verbose,
+        )
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+
+        save_batch = {}
+        for idx, batch in enumerate(dataloader):
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+
+            # save the batch to a file
+            save_batch = {}
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                if k in save_keys:
+                    save_batch[k] = v
+            # data to save for each batch
+            save_path = batch_dir / f"batch_{idx}.joblib.gz"
+            joblib.dump(save_batch, save_path)
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": original_region_input,
                 "pseudobulk_ids": pseudobulk_ids,
                 "save_keys": save_keys,
             },
@@ -844,6 +1155,3 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             "peak_delta_r2",
         ]
         return STATS_KEYS
-
-
-# TODO: attribution task - just prediction, collapse lora, no true data

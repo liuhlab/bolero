@@ -158,7 +158,15 @@ class GenericPredictor:
         else:
             return train_regions, valid_regions, test_regions
 
-    def _valid_and_sort_regions(self, regions, return_list=True):
+    def _valid_and_sort_regions(self, regions, return_list=True, standard_size=None):
+        if standard_size is not None:
+            regions = self.genome.standard_region_length(
+                regions,
+                length=standard_size,
+                boarder_strategy="drop",
+                keep_original=True,
+            )
+
         if isinstance(regions, pr.PyRanges):
             regions = regions.sort()
         else:
@@ -170,6 +178,7 @@ class GenericPredictor:
         )
         if return_list:
             regions = regions.df["Name"].tolist()
+
         return regions
 
     def _prepare_callbacks(self, callbacks: str | list[str] | list[tuple[str, dict]]):
