@@ -705,6 +705,8 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         barcode_order (dict): The order of barcodes for each prefix.
         flow_match_sigma (float): The sigma for the flow matcher.
         seed (int): The random seed for sampling.
+        p0_n_meta_cells (int): The number of meta cells to sample for p0 pseudobulk.
+            If fix_p0_meta_cells is provided, this will be ignored.
         """
         pseudobulk_and_ot_info = self._prepare_pseudobulk_and_meta_cell_records(
             pseudobulk_and_ot_info=pseudobulk_and_ot_info,
@@ -715,6 +717,9 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         )
 
         self.p0_n_meta_cells = min(p0_n_meta_cells, self.meta_cell_emb.shape[0])
+        self.fix_p0_meta_cells = list(
+            pseudobulk_and_ot_info.get("fixed_p0_meta_cells", None)
+        )
         self.ensemble_whitelist = list(
             pseudobulk_and_ot_info.get(
                 "ensemble_whitelist", self.meta_cell_emb.index.copy()
@@ -765,11 +770,14 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
                 p1_pseudobulk, p1_cond
             )
 
-        p0_meta_cells = self.local_rng.choice(
-            self.ensemble_whitelist,
-            size=min(self.p0_n_meta_cells, len(self.ensemble_whitelist)),
-            replace=False,
-        ).tolist()
+        if self.fix_p0_meta_cells is None:
+            p0_meta_cells = self.local_rng.choice(
+                self.ensemble_whitelist,
+                size=min(self.p0_n_meta_cells, len(self.ensemble_whitelist)),
+                replace=False,
+            ).tolist()
+        else:
+            p0_meta_cells = self.fix_p0_meta_cells
         n_frags = self.meta_cell_n_frags.loc[p0_meta_cells].sum()
         cov_scale = np.log2(n_frags / self.target_cov)
 
@@ -843,17 +851,16 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             p1.setdefault("__t__", 1)
             p1["__pid__"] = pid
             pseudobulk_col[p1_key] = p1
+
+        assert (
+            len(pseudobulk_col) != 0
+        ), f"no pseudobulk records after design, make sure designs is a list of pid to use; designs: {designs}"
         return pseudobulk_col
-
-
-# TODO: RandomPairedPseudobulker,
-# take two random pair of pseudobulks as p0 and p1, concat their embeddings as final embedding
 
 
 PAIRED_PSEUDOBULKER_CLS_DICT = {
     "condition": PairedPseudobulker,
     "ensemble": EnsemblePairedPseudobulker,
-    # "random": None, TODO
 }
 
 

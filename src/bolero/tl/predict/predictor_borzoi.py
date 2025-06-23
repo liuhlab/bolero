@@ -112,6 +112,11 @@ class BorzoiPredictor(GenericPredictor):
         dm = GenericGenomeDataManager(genome=genome)
         dm.add_pseudobulk_records(pseudobulk_records_path)
         dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
+        # add bigwig if any
+        bw_path_dict = config.get("bigwig_paths", {})
+        for name, path in bw_path_dict.items():
+            dm.add_bigwig_dataset(dataset_name=name, dataset_path=path, resolution=32)
+
         self.add_datamanager(dm)
         return
 

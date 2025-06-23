@@ -54,8 +54,13 @@ class CSRRowMerge:
         self.n_input, self.n_output = n_input, n_output
 
         # check if multimap
-        multimap = isinstance(list(merge_plan.values())[0], list)
-
+        try:
+            multimap = isinstance(list(merge_plan.values())[0], list)
+        except IndexError as e:
+            print(merge_plan)
+            raise ValueError(
+                "merge_plan is empty, please provide a valid merge plan"
+            ) from e
         # P is the auxiliary matrix to merge input rows into output rows
         rows = []
         cols = []

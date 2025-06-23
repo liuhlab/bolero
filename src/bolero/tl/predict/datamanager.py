@@ -7,6 +7,7 @@ from typing import Any, Generator
 import joblib
 import numpy as np
 import pandas as pd
+import pyBigWig
 import pyranges as pr
 import torch
 
@@ -261,6 +262,30 @@ class PseudobulkRecordManager:
         yield from self.pseudobulk_records.items()
 
 
+class _RefBigwig:
+    def __init__(self, bw_path, resolution):
+        self.bw_handle = pyBigWig.open(str(bw_path))
+        self.resolution = resolution
+
+    @staticmethod
+    def _to_coords(region):
+        chrom, coords = region.split(":")
+        start, end = map(int, coords.split("-"))
+        return chrom, start, end
+
+    def fetch(self, regions):
+        region_data = []
+        for region in regions:
+            chrom, start, end = self._to_coords(region)
+            data = self.bw_handle.values(chrom, start, end, numpy=True)
+            region_data.append(data)
+        region_data = np.array(region_data)
+        region_data = region_data.reshape(
+            -1, (region_data.shape[1] // self.resolution), self.resolution
+        ).sum(axis=-1)
+        return region_data
+
+
 class GenericGenomeDataManager:
     def __init__(self, genome: str | Genome, device: str | None = None):
         self.genome = Genome(genome) if isinstance(genome, str) else genome
@@ -270,6 +295,7 @@ class GenericGenomeDataManager:
 
         # Signal dataset from parquet or bigwig
         self.datasets: dict[str, GenomeParquetDB] = {}
+        self.bw_datasets: dict[str, _RefBigwig] = {}
 
         # Mutation information for mutation task
         self._mutation_table = None
@@ -351,6 +377,29 @@ class GenericGenomeDataManager:
             pseudobulk_ids=pseudobulk_ids,
             resolution=resolution,
         )
+
+    def add_bigwig_dataset(
+        self,
+        dataset_name: str,
+        dataset_path: str | Path,
+        resolution: int,
+    ):
+        """
+        Add a bigwig dataset to the data manager.
+
+        Parameters
+        ----------
+        dataset_name : str
+            The name of the dataset.
+        dataset_path : str | Path
+            The path to the bigwig file.
+        resolution : int
+            The resolution of the dataset.
+        """
+        self.bw_datasets[dataset_name] = _RefBigwig(
+            bw_path=dataset_path, resolution=resolution
+        )
+        return
 
     def add_pseudobulk_records(
         self,
@@ -463,6 +512,10 @@ class GenericGenomeDataManager:
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
             batch_data = {"region": regions_ref}
+
+            # add bigwig data
+            for da_name, bw in self.bw_datasets.items():
+                batch_data[da_name] = bw.fetch(regions)
 
             # add true data from each dataset
             for da_name, data_iter in da_data_dict.items():
