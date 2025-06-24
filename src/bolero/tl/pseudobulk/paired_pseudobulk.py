@@ -184,6 +184,7 @@ class PredefinedCondEncoder:
             try:
                 cond_values = cond[cond_key]
             except KeyError as e:
+                # print(cond)
                 raise KeyError(
                     f"Condition key '{cond_key}' not found in cond dictionary. "
                     f"Available keys: {list(cond.keys())}, encoder keys: {self.encoder_dict.keys()}"
@@ -431,7 +432,7 @@ class PseudobulkerMixin:
             cid_values = term_series.reindex(cids)
             agg_value = agg_func(cid_values)
             if np.isnan(agg_value):
-                print(pseudobulk_rec)
+                # print(pseudobulk_rec)
                 raise ValueError(
                     f"Condition term {term} has NaN value in {cond} pseudobulk, "
                     "please check the condition terms and meta cell records."
@@ -439,10 +440,10 @@ class PseudobulkerMixin:
             try:
                 cond_terms[term] = agg_value
             except Exception as e:
-                print(cond_terms)
-                print(agg_value)
-                print(term)
-                print(pseudobulk_rec)
+                # print(cond_terms)
+                # print(agg_value)
+                # print(term)
+                # print(pseudobulk_rec)
                 raise e
         pseudobulk_rec["__conditionemb__"] = self.condition_encoder(cond_terms)
         pseudobulk_rec["__conditionterms__"] = cond_terms
@@ -575,7 +576,7 @@ class PairedPseudobulker(PseudobulkerMixin):
             "cov_scale": {self.prefix_name: np.log2(n_frags / self.target_cov)},
             # CAUTION: current pseudobulk records use the first meta cell's
             # embedding as embedding key, NOT mean embedding
-            "embedding": self.meta_cell_emb.loc[p_ot_meta_cells].values[0],
+            "embedding": self.meta_cell_emb.loc[p_ot_meta_cells].mean(axis=0).values,
             "embedding_multi": pad_or_chunk_emb(
                 self.meta_cell_emb.loc[p_ot_meta_cells].values, pad_emb_to_n
             ),

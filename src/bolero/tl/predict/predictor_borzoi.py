@@ -63,10 +63,18 @@ class BorzoiInputXGradient:
         self.peak_bins = peak_length // self.model_resolution
         self.attr_length = attr_length
 
-        def _forward_hook(inputs):
-            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-                outputs = model(inputs)  # Shape: (batch_size, 1, 16352)
+        def _forward_hook(*args):
+            dna, *signal = args
+            if len(signal) == 0:
+                signal = None
+            else:
+                signal = signal[0]
 
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                if signal is None:
+                    outputs = model(x=dna)  # Shape: (batch_size, 1, 16352)
+                else:
+                    outputs = model(x=dna, signal=signal)
             # Shape: (batch_size, )
             outputs = _clip_at_center(outputs, self.peak_bins)
             peak_outputs = outputs.sum(dim=-1)
@@ -83,6 +91,13 @@ class BorzoiInputXGradient:
         """
         Compute the input gradients for the given DNA sequence and other inputs.
         """
+        if len(args) == 1:
+            # only one input, assume it is the DNA sequence
+            args = (args[0],)
+        else:
+            # two inputs, assume the first is DNA and the second is signal
+            args = tuple(args)
+
         attr_data = self.attributor.attribute(inputs=args)
         attr_data = _clip_at_center(attr_data, self.attr_length)
         return attr_data
@@ -326,8 +341,8 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._pre_callbacks = self._get_pre_prediction_callbacks()
-        self._post_callbacks = self._get_post_prediction_callbacks()
+        self._pre_callbacks = self._get_pre_callbacks("prediction")
+        self._post_callbacks = self._get_post_callbacks("prediction")
 
         # trigger model load
         _ = self.model
@@ -336,8 +351,8 @@ class BorzoiPredictor(GenericPredictor):
         for batch in dataloader:
             batch["pseudobulk_ids"] = pid_array
 
-            with torch.inference_mode():
-                batch = self.apply_callbacks(batch, "pre")
+            # with torch.inference_mode():
+            #     batch = self.apply_callbacks(batch, "pre")
             yield batch
 
     def get_prediction_dataloader(
@@ -381,7 +396,7 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._pre_callbacks = self._get_pre_prediction_callbacks()
+        self._pre_callbacks = self._get_pre_callbacks("prediction")
         self._post_callbacks = self._get_post_callbacks("prediction")
 
         # trigger model load
@@ -557,7 +572,7 @@ class BorzoiPredictor(GenericPredictor):
             )
 
             # 3. Get callbacks
-            self._pre_callbacks = self._get_pre_prediction_callbacks()
+            self._pre_callbacks = self._get_pre_callbacks("attribution")
             self._post_callbacks = self._get_post_callbacks("attribution")
 
             attr_model = None
@@ -1050,7 +1065,24 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         callbacks = self._prepare_callbacks(callback_configs)
         return callbacks
 
-    def _get_post_prediction_callbacks(self):
+    def _get_pre_attribution_callbacks(self):
+        return []
+
+    def _get_pre_callbacks(self, mode="prediction"):
+        if mode == "prediction":
+            return self._get_pre_prediction_callbacks()
+        elif mode == "attribution":
+            return self._get_pre_attribution_callbacks()
+        else:
+            raise ValueError(
+                f"Invalid mode: {mode}. "
+                "Must be one of 'prediction' or 'attribution'."
+            )
+
+    def _get_post_attribution_callbacks(self):
+        return []
+
+    def _get_post_prediction_callbacks(self, prediction_mode="prediction"):
         # add paired task callbacks
         callbacks = [
             (
@@ -1103,6 +1135,20 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         cb = self._prepare_callbacks(callbacks)
         return cb
 
+    def _get_post_callbacks(self, mode="prediction"):
+        """
+        Get the post callbacks for the model.
+        """
+        if mode == "prediction":
+            return self._get_post_prediction_callbacks()
+        elif mode == "attribution":
+            return self._get_post_attribution_callbacks()
+        else:
+            raise ValueError(
+                f"Invalid mode: {mode}. "
+                "Must be one of 'prediction' or 'attribution'."
+            )
+
     def _split_cond_emb_to_terms(self, cond_emb):
         # split the cond_emb into dict of terms using cond_encoder in pseudobulker
         pseduobulker = self.paired_pseudobulker
@@ -1112,6 +1158,47 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         else:
             cond_emb_terms = cond_emb
         return cond_emb_terms
+
+    def _prepare_attr_model(self, batch):
+        embedding = batch["__embedding__"]
+        cond_emb = batch["__conditionemb__"]
+        cond_emb = self._split_cond_emb_to_terms(cond_emb)
+        time = torch.zeros([embedding.shape[0], 1])
+        time = time.type_as(embedding).to(embedding.device)
+
+        agg_emb = self.model.cond_flow_module(
+            cell_emb=embedding, cond_emb=cond_emb, time=time
+        )
+        model = self._collapse_model(agg_emb)
+        attr_model = BorzoiInputXGradient(model=model)
+        return attr_model
+
+    def _model_attribution_step(self, model, batch, attr_batch_size):
+        dna = batch["__dna__"].float()
+        dna.requires_grad_()
+
+        signal = batch["reference"].unsqueeze(1)
+        signal = torch.log1p(signal)
+        signal.requires_grad_()
+
+        bs = dna.shape[0]
+        dna_attr_col = []
+        signal_attr_col = []
+        for i in range(0, bs, attr_batch_size):
+            dna_mini_batch = dna[i : i + attr_batch_size]
+            signal_mini_batch = signal[i : i + attr_batch_size]
+            # calculate the attribution
+            dna_attr, signal_attr = model(dna_mini_batch, signal_mini_batch)
+            dna_attr_col.append(dna_attr.detach().cpu().numpy())
+            signal_attr_col.append(signal_attr.detach().cpu().numpy())
+        dna_attr_col = np.concatenate(dna_attr_col, axis=0)
+        signal_attr_col = np.concatenate(signal_attr_col, axis=0)
+        batch["__dna__:attr"] = dna_attr_col
+        batch["__signal__:attr"] = signal_attr_col
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        return batch
 
     def _model_prediction_step(
         self,
@@ -1203,13 +1290,6 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         batch["__ypred__:delta"] = batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
         # joblib.dump(batch, "debug_batch.joblib.gz")
         return batch
-
-    def _model_prediction_step_nosde(
-        self,
-    ):
-        """
-        Forward pass through the model without ODE solver, just use the velocity prediction.
-        """
 
     def _create_fn_and_dataloader(
         self,

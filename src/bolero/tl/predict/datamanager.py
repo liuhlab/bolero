@@ -279,7 +279,7 @@ class _RefBigwig:
             chrom, start, end = self._to_coords(region)
             data = self.bw_handle.values(chrom, start, end, numpy=True)
             region_data.append(data)
-        region_data = np.array(region_data)
+        region_data = np.nan_to_num(np.array(region_data), nan=0.0)
         region_data = region_data.reshape(
             -1, (region_data.shape[1] // self.resolution), self.resolution
         ).sum(axis=-1)
@@ -515,7 +515,7 @@ class GenericGenomeDataManager:
 
             # add bigwig data
             for da_name, bw in self.bw_datasets.items():
-                batch_data[da_name] = bw.fetch(regions)
+                batch_data[da_name] = bw.fetch(regions_ref)
 
             # add true data from each dataset
             for da_name, data_iter in da_data_dict.items():

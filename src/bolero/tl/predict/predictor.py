@@ -201,7 +201,7 @@ class GenericPredictor:
             callback_list.append(callback)
         return callback_list
 
-    def _get_post_prediction_callbacks(self) -> list:
+    def _get_post_callbacks(self) -> list:
         """
         Get the post prediction callbacks to apply after inference.
 
@@ -209,7 +209,7 @@ class GenericPredictor:
         """
         return self._prepare_callbacks([])
 
-    def _get_pre_prediction_callbacks(self) -> list:
+    def _get_pre_callbacks(self) -> list:
         """
         Get the pre prediction callbacks to apply before inference.
 
