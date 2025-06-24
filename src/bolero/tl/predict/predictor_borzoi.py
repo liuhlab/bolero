@@ -691,6 +691,16 @@ class BorzoiPredictor(GenericPredictor):
             print(f"Saving stats to {stats_path}")
             print(f"Using temporary directory {stats_tmpdir}")
 
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+            },
+            output_path=config_path,
+        )
+
         # data to save for each batch
         save_keys = [] if save_keys is None else save_keys
         # stats to collect across batches
@@ -796,8 +806,6 @@ class BorzoiPredictor(GenericPredictor):
             for pid, regions_bool in pid_region_table_log.items()
             if regions_bool.any()
         }
-        for pid, regions in regions_per_pseudobulk_torun.items():
-            print(pid, len(regions))
         return regions_per_pseudobulk_torun, cur_bid
 
     def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
@@ -884,10 +892,21 @@ class BorzoiPredictor(GenericPredictor):
                 regions_per_pseudobulk=regions_per_pseudobulk,
             )
         )
+        pseudobulk_ids_torun = list(regions_per_pseudobulk_torun.keys())
         if len(regions_per_pseudobulk_torun) != 0:
+            config_path = output_dir / "config.joblib.gz"
+            self._save_task_configs(
+                task_config={
+                    "regions": regions_per_pseudobulk,
+                    "pseudobulk_ids": pseudobulk_ids,
+                    "save_keys": save_keys,
+                },
+                output_path=config_path,
+            )
+
             dataloader = self.get_attribution_dataloader(
                 regions_per_pseudobulk=regions_per_pseudobulk_torun,
-                pseudobulk_ids=pseudobulk_ids,
+                pseudobulk_ids=pseudobulk_ids_torun,
                 dna_key="dna",
                 embedding_key="embedding",
                 batch_size=batch_size,
@@ -914,16 +933,6 @@ class BorzoiPredictor(GenericPredictor):
 
             if verbose and len(save_batch) > 0:
                 self._print_batch(save_batch, prefix="Saved")
-
-            config_path = output_dir / "config.joblib.gz"
-            self._save_task_configs(
-                task_config={
-                    "regions": regions_per_pseudobulk,
-                    "pseudobulk_ids": pseudobulk_ids,
-                    "save_keys": save_keys,
-                },
-                output_path=config_path,
-            )
 
         self._save_pseudobulk_attr_ds(
             pseudobulk_ids=pseudobulk_ids, batch_dir=batch_dir
@@ -1337,3 +1346,46 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             "peak_delta_r2",
         ]
         return STATS_KEYS
+
+    def attribution_task(
+        self,
+        output_dir,
+        regions_per_pseudobulk,
+        pseudobulk_ids=None,
+        batch_size=6,
+        save_keys=("__dna__:attr", "region", "pseudobulk_ids"),
+        verbose=True,
+    ):
+        """
+        Attribution task for BorzoiFlowPredictor.
+        Compute the attribution on a set of regions and pseudobulk records.
+        Then save the results to a file.
+        """
+        original_pid_to_pid = {}
+        for pid, rec in self.pseudobulk_manager.items():
+            pid_type = pid.split(":")[-1].split("-")[0]
+            if pid_type == "ensemble":
+                continue
+            original_pid = rec.annotation["__pid__"]
+            original_pid_to_pid[original_pid] = pid
+
+        if pseudobulk_ids is not None:
+            # translate pid
+            pseudobulk_ids = [
+                original_pid_to_pid.get(pid, pid) for pid in pseudobulk_ids
+            ]
+
+        if isinstance(regions_per_pseudobulk, dict):
+            regions_per_pseudobulk = {
+                original_pid_to_pid.get(k, k): v
+                for k, v in regions_per_pseudobulk.items()
+            }
+
+        super().attribution_task(
+            output_dir=output_dir,
+            regions_per_pseudobulk=regions_per_pseudobulk,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            save_keys=save_keys,
+            verbose=verbose,
+        )

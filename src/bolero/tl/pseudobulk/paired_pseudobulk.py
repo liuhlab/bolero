@@ -718,9 +718,10 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         )
 
         self.p0_n_meta_cells = min(p0_n_meta_cells, self.meta_cell_emb.shape[0])
-        self.fix_p0_meta_cells = list(
-            pseudobulk_and_ot_info.get("fixed_p0_meta_cells", None)
-        )
+        self.fix_p0_meta_cells = pseudobulk_and_ot_info.get("fixed_p0_meta_cells", None)
+        if self.fix_p0_meta_cells is not None:
+            self.fix_p0_meta_cells = list(self.fix_p0_meta_cells)
+
         self.ensemble_whitelist = list(
             pseudobulk_and_ot_info.get(
                 "ensemble_whitelist", self.meta_cell_emb.index.copy()
