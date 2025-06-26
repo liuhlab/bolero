@@ -132,7 +132,7 @@ class ConditionalFlowMatcher:
     - score function $\nabla log p_t(x|x0, x1)$
     """
 
-    def __init__(self, sigma: Union[float, int] = 0.0):
+    def __init__(self, sigma: Union[float, int] = 0.0, resample_xt=True):
         r"""Initialize the ConditionalFlowMatcher class. It requires the hyper-parameter $\sigma$.
 
         Parameters
@@ -140,6 +140,7 @@ class ConditionalFlowMatcher:
         sigma : Union[float, int]
         """
         self.sigma = sigma
+        self.resample_xt = resample_xt
 
     def compute_mu_t(self, x0, x1, t):
         """
@@ -161,6 +162,9 @@ class ConditionalFlowMatcher:
         ----------
         [1] Improving and Generalizing Flow-Based Generative Models with minibatch optimal transport, Preprint, Tong et al.
         """
+        if self.resample_xt:
+            x0 = torch.poisson(x0)
+            x1 = torch.poisson(x1)
         t = pad_t_like_x(t, x0)
         return t * x1 + (1 - t) * x0
 

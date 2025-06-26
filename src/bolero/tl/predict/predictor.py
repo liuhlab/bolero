@@ -177,8 +177,13 @@ class GenericPredictor:
             self.genome.chrom_sizes.to_dict(),
         )
         if return_list:
-            regions = regions.df["Name"].tolist()
-
+            regions = (
+                regions.df["Chromosome"].astype(str)
+                + ":"
+                + regions.df["Start"].astype(str)
+                + "-"
+                + regions.df["End"].astype(str)
+            ).tolist()
         return regions
 
     def _prepare_callbacks(self, callbacks: str | list[str] | list[tuple[str, dict]]):
@@ -201,7 +206,7 @@ class GenericPredictor:
             callback_list.append(callback)
         return callback_list
 
-    def _get_post_callbacks(self) -> list:
+    def _get_post_callbacks(self, *args, **kwargs) -> list:
         """
         Get the post prediction callbacks to apply after inference.
 
@@ -209,7 +214,7 @@ class GenericPredictor:
         """
         return self._prepare_callbacks([])
 
-    def _get_pre_callbacks(self) -> list:
+    def _get_pre_callbacks(self, *args, **kwargs) -> list:
         """
         Get the pre prediction callbacks to apply before inference.
 

@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from Bio.Seq import Seq
 
 DEFAULT_ONE_HOT_ORDER = "ACGT"
@@ -52,6 +53,22 @@ def one_hot_encoding(
     for i, base in enumerate(order.upper()):
         one_hot[:, i] = seq_array == base
     return one_hot
+
+
+def one_hot_encoding_torch(
+    seq: str, order: str = DEFAULT_ONE_HOT_ORDER, batch_dim=True, device=None
+) -> torch.Tensor:
+    """
+    One-hot encoding of a DNA sequence string using PyTorch.
+    If `batch_dim` is True, the output will have an additional batch dimension.
+
+    Output is a tensor of shape (4, seq_len) or (1, 4, seq_len).
+    """
+    one_hot = one_hot_encoding(seq, order).T
+    one_hot_t = torch.tensor(one_hot, dtype=torch.int8, device=device)
+    if batch_dim:
+        one_hot_t = one_hot_t.unsqueeze(0)  # Add batch dimension
+    return one_hot_t
 
 
 class Sequence(Seq):

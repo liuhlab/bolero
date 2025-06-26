@@ -97,6 +97,7 @@ class BorzoiInputXGradient:
         else:
             # two inputs, assume the first is DNA and the second is signal
             args = tuple(args)
+        args = tuple([a for a in args if a is not None])
 
         attr_data = self.attributor.attribute(inputs=args)
         attr_data = _clip_at_center(attr_data, self.attr_length)
@@ -116,6 +117,18 @@ class BorzoiPredictor(GenericPredictor):
         self.peak_df: pd.DataFrame | None = peak_df
 
         self._callbacks = []
+        self.qtl_manager = None
+
+    def register_qtl_manager(self, qtl_table):
+        """
+        Register the QTL manager with the given QTL table.
+
+        This is required in qtl task
+        """
+        from .qtlmanager import QTLManager
+
+        self.qtl_manager = QTLManager(qtl_table, resolution=32)
+        return
 
     def _create_datamanager(self):
         config = self.config
@@ -146,6 +159,7 @@ class BorzoiPredictor(GenericPredictor):
         batch,
         dna_key="__dna__",
         embedding_key="__embedding__",
+        ypred_key="__ypred__",
         batch_size=16,
     ):
         """
@@ -181,7 +195,31 @@ class BorzoiPredictor(GenericPredictor):
             n_emb=n_emb,
         )
 
-        batch["__ypred__"] = y_pred.detach()
+        batch[ypred_key] = y_pred.detach()
+        return batch
+
+    def _model_qtl_step(self, batch, batch_size):
+        # turn "__dna__" into "__dna__:ref" and "__dna__:alt"
+        qtl = self.qtl_manager
+        assert qtl is not None, "QTL manager is not registered."
+
+        batch = qtl.mutate_dna(batch)
+        mutation_cols = ["ref", "alt"]
+        with torch.inference_mode():
+            for mutation_col in mutation_cols:
+                batch = self._model_prediction_step(
+                    batch,
+                    dna_key=f"__dna__:{mutation_col}",
+                    embedding_key="__embedding__",
+                    batch_size=batch_size,
+                    ypred_key=f"__ypred__:{mutation_col}",
+                )
+                batch = qtl.get_peak_sum(
+                    batch,
+                    ypred_key=f"__ypred__:{mutation_col}",
+                )
+        # add peak information to the batch
+        batch = qtl.add_peak_info(batch)
         return batch
 
     def _get_post_attribution_callbacks(self):
@@ -254,11 +292,17 @@ class BorzoiPredictor(GenericPredictor):
             callbacks.extend(peak_level_callbacks)
         return self._prepare_callbacks(callbacks)
 
+    def _get_post_qtl_callbacks(self):
+        callbacks = []
+        return self._prepare_callbacks(callbacks)
+
     def _get_post_callbacks(self, mode="prediction"):
         if mode == "prediction":
             return self._get_post_prediction_callbacks()
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
+        elif mode == "qtl":
+            return self._get_post_qtl_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -310,10 +354,14 @@ class BorzoiPredictor(GenericPredictor):
         pseudobulk_ids=None,
         add_true_data=True,
         batch_size=16,
+        mode="prediction",
+        regions=None,
+        trigger_model=False,
     ):
         """Iterable for debugging"""
         # 1. Get regions
-        regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
+        if regions is None:
+            regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
         regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
@@ -341,11 +389,12 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._pre_callbacks = self._get_pre_callbacks("prediction")
-        self._post_callbacks = self._get_post_callbacks("prediction")
+        self._pre_callbacks = self._get_pre_callbacks(mode)
+        self._post_callbacks = self._get_post_callbacks(mode)
 
         # trigger model load
-        _ = self.model
+        if trigger_model:
+            _ = self.model
 
         # 4. Inference and callback
         for batch in dataloader:
@@ -364,10 +413,14 @@ class BorzoiPredictor(GenericPredictor):
         embedding_key="embedding",
         batch_size=32,
         verbose=True,
+        mode="prediction",
     ) -> Generator:
         """
         Get the dataloader for prediction.
         """
+        assert mode in ["prediction", "qtl"], (
+            f"Invalid mode: {mode}. " "Must be one of 'prediction' or 'qtl'."
+        )
         # 1. Get regions
         regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
 
@@ -396,8 +449,8 @@ class BorzoiPredictor(GenericPredictor):
         pid_array = np.array(pid_array)
 
         # 3. Get callbacks
-        self._pre_callbacks = self._get_pre_callbacks("prediction")
-        self._post_callbacks = self._get_post_callbacks("prediction")
+        self._pre_callbacks = self._get_pre_callbacks(mode)
+        self._post_callbacks = self._get_post_callbacks(mode)
 
         # trigger model load
         _ = self.model
@@ -416,10 +469,13 @@ class BorzoiPredictor(GenericPredictor):
 
                 # Inference step
                 t = time.time()
-                batch = self._model_prediction_step(
-                    batch,
-                    batch_size=batch_size,
-                )
+                if mode == "prediction":
+                    step_fn = self._model_prediction_step
+                elif mode == "qtl":
+                    step_fn = self._model_qtl_step
+                else:
+                    raise ValueError(f"Bad mode: {mode}.")
+                batch = step_fn(batch, batch_size=batch_size)
                 timer["infer"] += time.time() - t
 
                 # Post-inference callbacks
@@ -768,6 +824,66 @@ class BorzoiPredictor(GenericPredictor):
         if verbose:
             self._print_batch(total_stats, prefix="Final Stats")
             print(f"Removed temporary files in {stats_tmpdir}")
+        return
+
+    def qtl_task(
+        self,
+        output_dir,
+        qtl_table,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys="default",
+        add_true_data=False,
+        verbose=True,
+    ):
+        """
+        Prediction task for Borzoi.
+        Compute the prediction on a set of regions and pseudobulk records.
+        Then compute the stats and save them to a file.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        qtl_table: str or pd.DataFrame
+            The QTL table path to use. QTL table should contain inference regions, qtl mutations and qtl peaks.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output file. If None, save all keys.
+        verbose: bool
+            Whether to print the progress.
+        """
+        if isinstance(save_keys, str) and save_keys == "default":
+            save_keys = [
+                "region",
+                "pseudobulk_ids",
+                "mutation_id",
+                "qtl_peaks",
+                "__ypred__:ref:peak",
+                "__ypred__:alt:peak",
+            ]
+
+        # add qtl manager and get regions from the qtl manager
+        self.register_qtl_manager(qtl_table)
+        regions = self.qtl_manager.regions.copy()
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            add_true_data=add_true_data,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+            mode="qtl",
+        )
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
 
         config_path = output_dir / "config.joblib.gz"
         self._save_task_configs(
@@ -775,9 +891,32 @@ class BorzoiPredictor(GenericPredictor):
                 "regions": regions,
                 "pseudobulk_ids": pseudobulk_ids,
                 "save_keys": save_keys,
+                "qtl_table": qtl_table,
             },
             output_path=config_path,
         )
+
+        # data to save for each batch
+        save_keys = [] if save_keys is None else save_keys
+
+        save_batch = {}
+        for idx, batch in enumerate(dataloader):
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+
+            # save the batch to a file
+            save_batch = {}
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                if k in save_keys:
+                    save_batch[k] = v
+            # data to save for each batch
+            save_path = batch_dir / f"batch_{idx}.joblib.gz"
+            joblib.dump(save_batch, save_path)
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
         return
 
     def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk):
@@ -809,24 +948,33 @@ class BorzoiPredictor(GenericPredictor):
         return regions_per_pseudobulk_torun, cur_bid
 
     def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
+        _all_attr_keys = ["__dna__:attr", "__signal__:attr"]
+        _attr_keys = None
         for pid in pseudobulk_ids:
             pid_batch_paths = list(batch_dir.glob(f"*.{pid}.joblib.gz"))
 
             temp_path = batch_dir / f"{pid}.attr.zarr.temp"
             zarr_path = batch_dir / f"{pid}.attr.zarr"
             if not zarr_path.exists():
-                pid_data = []
+                pid_data = defaultdict(list)
                 for p in pid_batch_paths:
                     batch = joblib.load(p)
+                    if _attr_keys is None:
+                        _attr_keys = [k for k in _all_attr_keys if k in batch]
                     region = batch["region"]
                     pid = batch["pseudobulk_id"]
-                    attr = batch["__dna__:attr"]
-                    da = xr.DataArray(attr, dims=["region", "base", "pos"])
-                    da.coords["region"] = region
-                    da.coords["base"] = list("ACGT")
-                    pid_data.append(da)
-                pid_data = xr.concat(pid_data, dim="region")
-                pid_ds = xr.Dataset({"dna": pid_data}).chunk(region=10000)
+                    for key in _attr_keys:
+                        attr = batch[key]
+                        if key == "__dna__:attr":
+                            da = xr.DataArray(attr, dims=["region", "base", "pos"])
+                            da.coords["region"] = region
+                            da.coords["base"] = list("ACGT")
+                        else:
+                            da = xr.DataArray(attr, dims=["region", "channel", "pos"])
+                            da.coords["region"] = region
+                        pid_data[key].append(da)
+                pid_data = {k: xr.concat(v, dim="region") for k, v in pid_data.items()}
+                pid_ds = xr.Dataset(pid_data).chunk(region=10000)
 
                 # change regions (524288) into attr regions (1024)
                 full_regions = pid_ds.get_index("region")
@@ -1035,6 +1183,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             f"Invalid prediction mode: {self._prediction_mode}. "
             "Must be one of 'ode' or 'velocity'."
         )
+        self._model_without_signal = self.config.get("_nosignal", False)
 
     def _create_solver(self) -> _BorzoiFlowModelWithODESolver:
         cfm_class = self.config.get("cfm_class", "cfm")
@@ -1182,7 +1331,25 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         attr_model = BorzoiInputXGradient(model=model)
         return attr_model
 
-    def _model_attribution_step(self, model, batch, attr_batch_size):
+    def _dna_attr_step(self, model, batch, attr_batch_size):
+        """
+        Calculate the attribution for DNA input.
+        """
+        dna = batch["__dna__"].float()
+        dna.requires_grad_()
+
+        bs = dna.shape[0]
+        dna_attr_col = []
+        for i in range(0, bs, attr_batch_size):
+            dna_mini_batch = dna[i : i + attr_batch_size]
+            # calculate the attribution
+            dna_attr = model(dna_mini_batch)[0]
+            dna_attr_col.append(dna_attr.detach().cpu().numpy())
+        dna_attr_col = np.concatenate(dna_attr_col, axis=0)
+        batch["__dna__:attr"] = dna_attr_col
+        return batch
+
+    def _dna_sig_attr_step(self, model, batch, attr_batch_size):
         dna = batch["__dna__"].float()
         dna.requires_grad_()
 
@@ -1204,7 +1371,18 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         signal_attr_col = np.concatenate(signal_attr_col, axis=0)
         batch["__dna__:attr"] = dna_attr_col
         batch["__signal__:attr"] = signal_attr_col
+        return batch
 
+    def _model_attribution_step(self, model, batch, attr_batch_size):
+        """
+        Forward pass through the model to get the attribution.
+        """
+        if self._model_without_signal:
+            batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
+        else:
+            batch = self._dna_attr_step(model, batch, attr_batch_size)
+
+        # clean up memory
         gc.collect()
         torch.cuda.empty_cache()
         return batch
@@ -1253,7 +1431,10 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             dna_mini_batch = dna[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
             # we need to select the paired region and embedding and get (bs, 1, seq_len)
-            x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
+            if self._model_without_signal:
+                x0_mini_batch = None
+            else:
+                x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
                 if self._prediction_mode == "velocity":

@@ -57,6 +57,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "freeze_signal_encoder": False,  # only for ablation studies
             "cond_emb_dim": None,
             "cond_flow_kwargs": None,
+            "signal_norm": False,
+            "nosignal_prob": 0.0,
         }
     )
 
@@ -96,6 +98,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         freeze_signal_encoder=False,  # only for ablation studies
         cond_emb_dim=None,
         cond_flow_kwargs=None,
+        signal_norm=False,
+        nosignal_prob=0.0,
         # base model
         **base_model_kwargs,
     ):
@@ -242,6 +246,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # setup flow model
         if flow_model:
             cond_flow_kwargs = cond_flow_kwargs or {}
+            self.signal_norm = signal_norm
+            self.nosignal_prob = nosignal_prob
 
             self.signal_encoder, self.cond_flow_module = self.setup_flow_model(
                 out_channels=out_channels,
@@ -382,13 +388,25 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         Setup special modules for a flow model
         """
         # 1. put out_channels also in the DNA conv layer, model takes dna_and_At as input
-        signal_encoder = nn.Sequential(
-            nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.Conv1d(128, 512, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.Conv1d(512, 1280, kernel_size=3, padding=1),
-        )
+        if self.signal_norm:
+            signal_encoder = nn.Sequential(
+                nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
+                nn.GroupNorm(4, 128),
+                nn.SiLU(),
+                nn.Conv1d(128, 512, kernel_size=3, padding=1),
+                nn.GroupNorm(16, 512),
+                nn.SiLU(),
+                nn.Conv1d(512, 1280, kernel_size=3, padding=1),
+                nn.GroupNorm(40, 1280),
+            )
+        else:
+            signal_encoder = nn.Sequential(
+                nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
+                nn.SiLU(),
+                nn.Conv1d(128, 512, kernel_size=3, padding=1),
+                nn.SiLU(),
+                nn.Conv1d(512, 1280, kernel_size=3, padding=1),
+            )
         # zero init last layer so that it doesn't affect the model initially
         signal_encoder[-1].weight.data.zero_()
         signal_encoder[-1].bias.data.zero_()
@@ -679,8 +697,12 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # inject signal into the DNA embedding at resolution 32
         if signal is not None:
-            sig_emb = self.signal_encoder(signal)
-            x_unet0 += sig_emb
+            use_signal = True
+            if self.nosignal_prob > 0.0 and self.training:
+                use_signal = torch.rand(1)[0] > self.nosignal_prob
+            if use_signal:
+                sig_emb = self.signal_encoder(signal)
+                x_unet0 += sig_emb
 
         x_unet1 = self.unet1(x_unet0, embedding)
         x = self._max_pool(x_unet1)

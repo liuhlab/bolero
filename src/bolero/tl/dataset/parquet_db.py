@@ -187,6 +187,13 @@ class GenomeParquetDB:
                 cell_row_indices = sorted(
                     cell_row_names.get_indexer(pseudobulk_row_names)
                 )
+                if -1 in cell_row_indices:
+                    # -1 means the row name is not found in the cell row names
+                    raise ValueError(
+                        f"Some pseudobulk row names {pseudobulk_row_names} are not "
+                        f"found in the cell row names for prefix {prefix}."
+                        f"Make sure you used the right parquet dataset and pseudobulk file."
+                    )
                 for cell_row_idx in cell_row_indices:
                     prefix_plan[cell_row_idx].append(pseudobulk_idx)
             all_merge_plan[prefix] = prefix_plan

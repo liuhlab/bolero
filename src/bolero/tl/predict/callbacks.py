@@ -216,7 +216,7 @@ class PeakDataSummary:
         ), "peak_bed should be a pandas DataFrame"
         if "Name" not in peak_bed.columns:
             peak_bed["Name"] = (
-                peak_bed["Chromosome"]
+                peak_bed["Chromosome"].astype(str)
                 + ":"
                 + peak_bed["Start"].astype(str)
                 + "-"
