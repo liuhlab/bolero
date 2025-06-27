@@ -66,7 +66,8 @@ class BorzoiLoRAFlowPredictor:
         cond_emb: torch.Tensor,
         dna_one_hot: torch.Tensor,
     ):
-        if cell_emb is None or cond_emb is None or dna_one_hot is None:
+        if cell_emb is None or dna_one_hot is None:
+            # cond_emb is optional
             return None
 
         vf_model = BorzoiLoRAFlowWrapperForODE(

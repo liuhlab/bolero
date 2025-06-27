@@ -210,7 +210,6 @@ class BorzoiPredictor(GenericPredictor):
                 batch = self._model_prediction_step(
                     batch,
                     dna_key=f"__dna__:{mutation_col}",
-                    embedding_key="__embedding__",
                     batch_size=batch_size,
                     ypred_key=f"__ypred__:{mutation_col}",
                 )
@@ -1175,6 +1174,8 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         super().__init__(config)
         self._ode_solver = None
 
+        self.has_cond_emb = self.config.get("cond_emb_dim") is not None
+
         # prediction mode can be "ode" or "velocity"
         # "ode" means using the ODE solver to predict the trajectory
         # "velocity" means using the model to predict the velocity field
@@ -1210,13 +1211,19 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         return self._ode_solver
 
     def _get_pre_prediction_callbacks(self):
+        _data_keys = ["__ytrue__", "__embedding__"]
+        split_dim = [1, 0]
+        if self.has_cond_emb:
+            _data_keys.append("__conditionemb__")
+            split_dim.append(0)
+
         callback_configs = [
             # calculate paired profile correlation
             (
                 "process_paired_data",
                 {
-                    "data_keys": ["__ytrue__", "__conditionemb__", "__embedding__"],
-                    "split_dim": [1, 0, 0],
+                    "data_keys": _data_keys,
+                    "split_dim": split_dim,
                 },
             ),
         ]
@@ -1231,6 +1238,9 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             return self._get_pre_prediction_callbacks()
         elif mode == "attribution":
             return self._get_pre_attribution_callbacks()
+        elif mode == "qtl":
+            # same as prediction
+            return self._get_pre_prediction_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -1293,6 +1303,9 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         cb = self._prepare_callbacks(callbacks)
         return cb
 
+    def _get_post_qtl_callbacks(self):
+        return []
+
     def _get_post_callbacks(self, mode="prediction"):
         """
         Get the post callbacks for the model.
@@ -1301,6 +1314,8 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             return self._get_post_prediction_callbacks()
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
+        elif mode == "qtl":
+            return self._get_post_qtl_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -1319,8 +1334,11 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
 
     def _prepare_attr_model(self, batch):
         embedding = batch["__embedding__"]
-        cond_emb = batch["__conditionemb__"]
-        cond_emb = self._split_cond_emb_to_terms(cond_emb)
+        if self.has_cond_emb:
+            cond_emb = batch["__conditionemb__"]
+            cond_emb = self._split_cond_emb_to_terms(cond_emb)
+        else:
+            cond_emb = None
         time = torch.zeros([embedding.shape[0], 1])
         time = time.type_as(embedding).to(embedding.device)
 
@@ -1396,6 +1414,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         cond_embedding_key="__conditionemb__:cond1",
         time_range_key="__timerange__",
         batch_size=16,
+        ypred_key="__ypred__:cond1",
     ):
         """
         Forward pass through the model.
@@ -1403,7 +1422,10 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         # prepare data
         dna = batch[dna_key]
         cell_emb = batch[cell_embedding_key]
-        cond_emb = batch[cond_embedding_key]
+        if self.has_cond_emb:
+            cond_emb = batch[cond_embedding_key]
+        else:
+            cond_emb = None
         x0 = batch[x0_key]
         t_range = batch[time_range_key]
 
@@ -1425,8 +1447,11 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             # cell_emb shape (n_emb, d_cell)
             cell_emb_mini_batch = cell_emb[use_emb].contiguous()
             # cond_emb shape (n_emb, d_cond)
-            cond_emb_mini_batch = cond_emb[use_emb].contiguous()
-            cond_emb_mini_batch = self._split_cond_emb_to_terms(cond_emb_mini_batch)
+            if cond_emb is None:
+                cond_emb_mini_batch = None
+            else:
+                cond_emb_mini_batch = cond_emb[use_emb].contiguous()
+                cond_emb_mini_batch = self._split_cond_emb_to_terms(cond_emb_mini_batch)
             # dna has shape (n_region, 4, seq_len)
             dna_mini_batch = dna[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
@@ -1474,10 +1499,9 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
 
         if self._prediction_mode == "velocity":
             # y_pred is the velocity, we need to add it to the initial condition
-            batch["__ypred__:cond1"] = x0 + y_pred.detach()
+            batch[ypred_key] = x0 + y_pred.detach()
         else:
-            batch["__ypred__:cond1"] = y_pred.detach()
-        batch["__ypred__:delta"] = batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
+            batch[ypred_key] = y_pred.detach()
         # joblib.dump(batch, "debug_batch.joblib.gz")
         return batch
 
@@ -1506,13 +1530,17 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                 batch["__ytrue__"] = data
             return batch
 
+        pseudobulk_info_keys = ["cov_scale", embedding_key]
+        if self.has_cond_emb:
+            pseudobulk_info_keys.append("__conditionemb__")
+
         dataloader = self.datamanager.get_dataloader(
             regions=regions,
             batch_size=batch_size,
             add_dna=True,
             add_data=add_true_data,
             pseudobulk_subset=pseudobulk_ids,
-            pseudobulk_info_keys=["cov_scale", embedding_key, "__conditionemb__"],
+            pseudobulk_info_keys=pseudobulk_info_keys,
             collate_fn=_collate_fn,
         )
         return dataloader
@@ -1568,5 +1596,28 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             save_keys=save_keys,
+            verbose=verbose,
+        )
+
+    def qtl_task(
+        self,
+        output_dir,
+        qtl_table,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys="default",
+        verbose=True,
+    ):
+        """
+        QTL task for BorzoiFlowPredictor.
+        """
+        # change add_true_data default to True
+        return super().qtl_task(
+            output_dir=output_dir,
+            qtl_table=qtl_table,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            save_keys=save_keys,
+            add_true_data=True,
             verbose=verbose,
         )
