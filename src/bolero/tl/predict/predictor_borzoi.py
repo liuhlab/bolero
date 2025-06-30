@@ -1502,6 +1502,13 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             batch[ypred_key] = x0 + y_pred.detach()
         else:
             batch[ypred_key] = y_pred.detach()
+
+        try:
+            batch["__ypred__:delta"] = (
+                batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
+            )
+        except KeyError:
+            pass
         # joblib.dump(batch, "debug_batch.joblib.gz")
         return batch
 

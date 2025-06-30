@@ -1149,12 +1149,22 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
 
         # 1. sequence input
         dna_one_hot = batch["dna_one_hot"]  # (bs, 4, seq_len)
+
         if self.config.get("use_xt", False):
-            # xt is already in log scale
+            use_xt = True
+            if model.nosignal_prob > 0.0 and model.training:
+                use_xt = torch.rand(1)[0] > model.nosignal_prob
+        else:
+            use_xt = False
+
+        if use_xt:
             signal = batch["__xt__"]  # use __xt__ not working
         else:
-            a0 = batch[f"{self.prefix}:bulk_data_0"]
-            signal = torch.log1p(a0)
+            signal = batch[f"{self.prefix}:bulk_data_0"]
+            if self.config.get("use_xt", False):
+                # xt is added by one, make signal consistent as well
+                signal += 1
+        signal = torch.log1p(signal)
 
         # 2. conditional input
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]

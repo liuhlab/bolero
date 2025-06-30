@@ -163,8 +163,8 @@ class ConditionalFlowMatcher:
         [1] Improving and Generalizing Flow-Based Generative Models with minibatch optimal transport, Preprint, Tong et al.
         """
         if self.resample_xt:
-            x0 = torch.poisson(x0)
-            x1 = torch.poisson(x1)
+            x0 = torch.poisson(x0 + 1)
+            x1 = torch.poisson(x1 + 1)
         t = pad_t_like_x(t, x0)
         return t * x1 + (1 - t) * x0
 
@@ -276,9 +276,6 @@ class ConditionalFlowMatcher:
         if t is None:
             t = torch.rand(x0.shape[0]).type_as(x0)
         assert len(t) == x0.shape[0], "t has to have batch size dimension"
-
-        # x0 = torch.log1p(x0)
-        # x1 = torch.log1p(x1)
 
         eps = self.sample_noise_like(x0)
         xt = self.sample_xt(x0, x1, t, eps)
