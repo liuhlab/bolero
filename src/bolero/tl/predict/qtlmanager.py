@@ -127,7 +127,8 @@ class QTLManager:
                 pos2start = mutation["pos2start"]
                 # make substitution for both ref and alt,
                 # because some times ref and alt are swapped
-                region_dna = dna_substitution_(region_dna.clone(), pos2start, mut_seq)
+                # region_dna = dna_substitution_(region_dna.clone(), pos2start, mut_seq)
+                region_dna = dna_substitution_(region_dna.clone(), pos2start-1, mut_seq)
                 mut_dna_col[f"{dna_key}:{mutation_col}"].append(region_dna)
 
         for mutation_col in mutation_cols:
