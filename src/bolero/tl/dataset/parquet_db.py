@@ -16,6 +16,58 @@ from bolero.tl.dataset.sc_transforms import CompressedBytesToTensor
 from bolero.utils import understand_regions
 
 
+def pseudobulk_to_merge_plan(
+    row_names,
+    merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None,
+    pseudobulk_ids: list[str] | None = None,
+) -> tuple[dict[str, dict[int, int]] | None, pd.Index]:
+    """
+    Register the merge plan from {pseudobulk_id: [row_names]} to {row_id: pseudobulk_row_id}
+    This conversion generates merge_plan for CSRRowMerge.
+    CSRRowMerge will use this to merge cell rows into pseudobulk rows.
+
+    Currently, assuming the merge plan applies to all prefix in the parquet dataset.
+    """
+    if merge_plan is None:
+        return None, pd.Index([])
+
+    if isinstance(merge_plan, dict):
+        # in case of pid_record contains other information
+        # only take the cluster_ids key which contains the row names
+        new_merge_plan = {}
+        for pid, pid_record in merge_plan.items():
+            if "cluster_ids" in pid_record:
+                new_merge_plan[pid] = pid_record["cluster_ids"]
+            else:
+                new_merge_plan[pid] = pid_record
+        merge_plan = new_merge_plan
+
+    all_merge_plan = {}
+    pseudobulk_ids = (
+        list(merge_plan.keys()) if pseudobulk_ids is None else pseudobulk_ids
+    )
+    for prefix, cell_row_names in row_names.items():
+        prefix_plan = defaultdict(list)
+        for pseudobulk_id, pseudobulk_row_names in merge_plan.items():
+            if isinstance(pseudobulk_row_names, dict):
+                # each prefix has its own pseudobulk row names
+                pseudobulk_row_names = pseudobulk_row_names[prefix]
+            pseudobulk_idx = pseudobulk_ids.index(pseudobulk_id)
+            cell_row_indices = sorted(cell_row_names.get_indexer(pseudobulk_row_names))
+            if -1 in cell_row_indices:
+                # -1 means the row name is not found in the cell row names
+                raise ValueError(
+                    f"Some pseudobulk row names {pseudobulk_row_names} are not "
+                    f"found in the cell row names for prefix {prefix}."
+                    f"Make sure you used the right parquet dataset and pseudobulk file."
+                )
+            for cell_row_idx in cell_row_indices:
+                prefix_plan[cell_row_idx].append(pseudobulk_idx)
+        all_merge_plan[prefix] = prefix_plan
+    pseudobulk_ids = pd.Index(pseudobulk_ids)
+    return all_merge_plan, pseudobulk_ids
+
+
 @ray.remote
 class ParallelRowProcessor:
     def __init__(self, row_merge_plan, n_input, n_output, tocsc=False):
@@ -159,45 +211,11 @@ class GenomeParquetDB:
 
         Currently, assuming the merge plan applies to all prefix in the parquet dataset.
         """
-        if merge_plan is None:
-            return None, pd.Index([])
-
-        if isinstance(merge_plan, dict):
-            # in case of pid_record contains other information
-            # only take the cluster_ids key which contains the row names
-            new_merge_plan = {}
-            for pid, pid_record in merge_plan.items():
-                if "cluster_ids" in pid_record:
-                    new_merge_plan[pid] = pid_record["cluster_ids"]
-                else:
-                    new_merge_plan[pid] = pid_record
-            merge_plan = new_merge_plan
-
-        all_merge_plan = {}
-        pseudobulk_ids = (
-            list(merge_plan.keys()) if pseudobulk_ids is None else pseudobulk_ids
+        all_merge_plan, pseudobulk_ids = pseudobulk_to_merge_plan(
+            self.row_names,
+            merge_plan=merge_plan,
+            pseudobulk_ids=pseudobulk_ids,
         )
-        for prefix, cell_row_names in self.row_names.items():
-            prefix_plan = defaultdict(list)
-            for pseudobulk_id, pseudobulk_row_names in merge_plan.items():
-                if isinstance(pseudobulk_row_names, dict):
-                    # each prefix has its own pseudobulk row names
-                    pseudobulk_row_names = pseudobulk_row_names[prefix]
-                pseudobulk_idx = pseudobulk_ids.index(pseudobulk_id)
-                cell_row_indices = sorted(
-                    cell_row_names.get_indexer(pseudobulk_row_names)
-                )
-                if -1 in cell_row_indices:
-                    # -1 means the row name is not found in the cell row names
-                    raise ValueError(
-                        f"Some pseudobulk row names {pseudobulk_row_names} are not "
-                        f"found in the cell row names for prefix {prefix}."
-                        f"Make sure you used the right parquet dataset and pseudobulk file."
-                    )
-                for cell_row_idx in cell_row_indices:
-                    prefix_plan[cell_row_idx].append(pseudobulk_idx)
-            all_merge_plan[prefix] = prefix_plan
-        pseudobulk_ids = pd.Index(pseudobulk_ids)
         return all_merge_plan, pseudobulk_ids
 
     def _register_resolution(

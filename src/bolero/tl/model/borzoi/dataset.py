@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 import numpy as np
+import pandas as pd
 import ray
 import torch
 
@@ -77,6 +78,61 @@ class MaskBlacklistAndClamp:
                 for data_key in self.data_keys:
                     batch[data_key][region_id, :, nan_slice] = self._mask_value
         return batch
+
+
+class GenerateBorzoiPseudobulkMultiHead:
+    """
+    This class is only for training Borzoi multi-head output benchmark
+    """
+
+    def __init__(self, pseudobulk_records, row_names, **kwargs):
+        from bolero.pp.snap_adata import CSRRowMerge
+        from bolero.tl.dataset.parquet_db import pseudobulk_to_merge_plan
+
+        example_record = list(pseudobulk_records.values())[0]
+        self.prefix_name = list(example_record["cluster_ids"].keys())[0]
+
+        merge_plan, pseudobulk_ids = pseudobulk_to_merge_plan(
+            row_names=row_names, merge_plan=pseudobulk_records
+        )
+        pseudobulk_cov_scale = pd.Series(
+            {k: v["cov_scale"][self.prefix_name] for k, v in pseudobulk_records.items()}
+        )
+        self.pseudobulk_cov_scale = pseudobulk_cov_scale.reindex(pseudobulk_ids).values
+        self.merge_plan = merge_plan
+        n_input = row_names[self.prefix_name].size
+        n_output = pseudobulk_ids.size
+        self.csr_row_merge = CSRRowMerge(
+            merge_plan=merge_plan[self.prefix_name],
+            n_input=n_input,
+            n_output=n_output,
+        )
+        return
+
+    def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
+        """Generate pseudobulks for each output prefix."""
+        output_prefix = "pseudobulk"
+        prefix = self.prefix_name
+
+        try:
+            row_by_base = data_dict.pop(prefix)
+        except KeyError as e:
+            raise KeyError(
+                f"Key {prefix} not found in data_dict, {data_dict.keys()}"
+            ) from e
+
+        _bulk_values = (
+            self.csr_row_merge(row_by_base).todense().astype(np.float32)
+        )  # (n_pseudobulks, region_length)
+        _bulk_values /= 2 ** self.pseudobulk_cov_scale[:, None]
+        data_dict[f"{output_prefix}:bulk_data"] = _bulk_values
+        list_of_dicts = [data_dict]
+        # for k, v in data_dict.items():
+        #     if hasattr(v, "shape"):
+        #         print(k, v.shape)
+        #     else:
+        #         print(k, v)
+        return list_of_dicts
 
 
 class GenerateBorzoiPseudobulk(GeneratePseudobulk):
@@ -290,6 +346,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "gene_data_path": None,
         "tss_bed_path": None,
         "train_region_step_sample": True,
+        # benchmark options
+        "_multihead": False,
     }
 
     def __init__(
@@ -318,6 +376,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         gene_data_path=None,
         tss_bed_path=None,
         train_region_step_sample=True,
+        _multihead=False,
     ):
         super().__init__(
             dataset_path=dataset_path,
@@ -355,6 +414,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
         self.gene_data_path = gene_data_path
         self.tss_bed_path = tss_bed_path
         self.train_region_step_sample = train_region_step_sample
+
+        # benchmark options
+        self._multihead = _multihead
         return
 
     def get_train_valid_test(
@@ -635,6 +697,16 @@ class BorzoiDataset(RayGenomeChunkDataset):
             fn = GeneratePairedPseudobulk
             kwargs.setdefault("flow_matcher_class", self.cfm_class)
             kwargs.setdefault("flow_matcher_kwargs", self.cfm_kwargs)
+        elif getattr(self, "_multihead", False):
+            print("Using multi-head mode for Borzoi dataset")
+            fn = GenerateBorzoiPseudobulkMultiHead
+            assert (
+                len(self.name_to_pseudobulker) == 1
+            ), "Only one pseudobulker is allowed"
+            prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
+            kwargs.setdefault("pseudobulk_records", pseudobulker.pseudobulk_records)
+            kwargs.setdefault("row_names", self.barcode_order)
+            kwargs.setdefault("prefix_name", prefix)
         else:
             fn = GenerateBorzoiPseudobulk
 
@@ -878,6 +950,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
             "concurrency": concurrency,
         }
         data_iter_kwargs = dataloader_kwargs
+
+        if getattr(self, "_multihead", False):
+            shuffle_rows = 5
 
         loader = self._get_dataloader_with_wrapper(
             dataset_kwargs=dataset_kwargs,

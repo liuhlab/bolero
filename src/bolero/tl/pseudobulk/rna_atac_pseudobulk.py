@@ -66,6 +66,7 @@ class RNAVQPseudobulker:
         cov_key = "cov_scale"
 
         vq_records = self._load_vq_records(vq_records, downsample_vq)
+        self.pseudobulk_records = vq_records
 
         record_keys = list(vq_records.values())[0].keys()
 
@@ -150,6 +151,8 @@ class RNAVQPseudobulker:
     def _load_vq_records(self, vq_records, downsample_vq):
         if isinstance(vq_records, str):
             vq_records = joblib.load(vq_records)
+            if "pseudobulk_records" in vq_records:
+                vq_records = vq_records["pseudobulk_records"]
         if downsample_vq is not None:
             use_vq_id = self.local_rng.choice(
                 list(vq_records.keys()), downsample_vq, replace=False
