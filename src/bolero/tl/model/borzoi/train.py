@@ -91,9 +91,15 @@ class TrainerBorzoiDatasetMixin:
         # get the channel order
         try:
             # this part is for mouse pseudobulk dataset
-            self.channel_order = self.dataset.name_to_pseudobulker[
-                self.prefix
-            ].prefix_order
+            if getattr(self.dataset, "_multihead", False):
+                precs = self.dataset.name_to_pseudobulker[
+                    "pseudobulk"
+                ].pseudobulk_records
+                self.channel_order = list(range(len(precs)))
+            else:
+                self.channel_order = self.dataset.name_to_pseudobulker[
+                    self.prefix
+                ].prefix_order
         except AttributeError:
             self.channel_order = ["data"]
         return
@@ -474,7 +480,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 else:
                     nrows = 2
 
-                for channel in range(batch[true_key].shape[1]):
+                for channel in range(min(batch[true_key].shape[1], 3)):
                     fig = plotter.plot(
                         batch,
                         channel=channel,
@@ -570,6 +576,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             log_dict[f"val/val_loss_{k}"] = v
         channel_order = self.channel_order
         for channel, corr in enumerate(val_corr.compute_tensor()):
+            if getattr(self.model, "_multihead", False):
+                if channel > 5:
+                    break
             name = channel_order[channel]
             log_dict[f"val/val_corr_{name}"] = corr
         for channel_name, channel_imgs in val_imgs.items():
@@ -844,6 +853,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         for channel, corr in enumerate(
                             moving_ave_corr.compute_tensor()
                         ):
+                            if getattr(self.model, "_multihead", False):
+                                if channel > 5:
+                                    break
                             name = self.channel_order[channel]
                             log_dict[f"train/train_corr_{name}"] = corr
                         wandb.log(log_dict)

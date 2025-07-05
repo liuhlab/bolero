@@ -59,6 +59,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "cond_flow_kwargs": None,
             "signal_norm": False,
             "nosignal_prob": 0.0,
+            # benchmark parameters
+            "_multihead_model": False,
         }
     )
 
@@ -100,6 +102,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         cond_flow_kwargs=None,
         signal_norm=False,
         nosignal_prob=0.0,
+        # benchmark parameters
+        _multihead_model=False,
         # base model
         **base_model_kwargs,
     ):
@@ -293,6 +297,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # for collaps
         self.collapsed = False
+
+        self._multihead_model = _multihead_model
         return
 
     def setup_rna_head(self, rna_channels, freeze_other_modules=True):
@@ -660,7 +666,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 return_dna_embedding=return_dna_embedding,
             )
 
-        if not getattr(self, "collapsed", False):
+        if (not getattr(self, "collapsed", False)) and (
+            not getattr(self, "_multihead_model", False)
+        ):
             assert embedding is not None, "embedding is required for LoRA model"
         else:
             if self.kv_bottleneck is not None:
