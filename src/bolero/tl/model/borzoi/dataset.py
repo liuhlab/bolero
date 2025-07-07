@@ -1,12 +1,11 @@
 import pathlib
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 from copy import deepcopy
 from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
 import ray
-import torch
 
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
@@ -221,78 +220,6 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
         return list_of_dicts
 
 
-class GenerateBorzoiPseudobulkProfiler:
-    """
-    Transform meta region data into bulk region data.
-    """
-
-    def __init__(
-        self,
-        n_pseudobulks=1000,
-        q=0.995,
-        **name_to_pseudobulker,
-    ):
-        self.n_pseudobulks = n_pseudobulks
-        self.normalize_cov = True
-        self.q = q
-        self.name_to_pseudobulker = name_to_pseudobulker
-
-        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
-        for name, pseudobulker in self.name_to_pseudobulker.items():
-            self.final_prefix = name
-            self.pseudobulker = pseudobulker
-        return
-
-    def _collect_pseudobulks(self, data_dict):
-        pseudobulker = self.pseudobulker
-
-        # merge rows (cell or sample) to bulk and also get embedding data
-        prefix_data_dict = defaultdict(list)
-        for prefix_to_rows, row_embedding, _ in pseudobulker.take(self.n_pseudobulks):
-            cov_logfc = row_embedding[pseudobulker.emb_dims :]
-            for prefix_idx, prefix in enumerate(pseudobulker.prefix_order):
-                prefix_rows = prefix_to_rows[prefix]
-                # row_by_base is a csr_matrix of shape (n_rows, region_length)
-                row_by_base = data_dict[prefix]
-                _bulk_values = (
-                    row_by_base[prefix_rows].sum(axis=0).A1
-                )  # (1, region_length)
-
-                if self.normalize_cov:
-                    prefix_cov_logfc = cov_logfc[prefix_idx]
-                    _bulk_values /= 2**prefix_cov_logfc
-                prefix_data_dict[prefix].append(_bulk_values)
-        prefix_data_dict = {k: np.vstack(v) for k, v in prefix_data_dict.items()}
-        return prefix_data_dict
-
-    def _region_profile_summary(self, prefix_data_dict):
-        upper_bound_col = []
-        mean_p_col = []
-        for prefix in self.pseudobulker.prefix_order:
-            prefix_data = prefix_data_dict[prefix]
-            upper_bound = np.quantile(prefix_data, self.q, axis=0, keepdims=True) + 1e-8
-            data_p = np.clip(prefix_data / upper_bound, a_min=0, a_max=1)
-            data_p_mean = data_p.mean(axis=0, keepdims=True)
-
-            upper_bound_col.append(upper_bound)
-            mean_p_col.append(data_p_mean)
-
-        summary_dict = {
-            f"{self.final_prefix}:upper_bound": np.vstack(upper_bound_col),
-            f"{self.final_prefix}:mean_p": np.vstack(mean_p_col),
-        }
-        return summary_dict
-
-    def __call__(self, data_dict: dict[str, bytes]) -> dict[str, np.ndarray]:
-        """Generate pseudobulks for each output prefix."""
-        prefix_data_dict = self._collect_pseudobulks(data_dict)
-
-        summary_dict = self._region_profile_summary(prefix_data_dict)
-
-        data_dict.update(summary_dict)
-        return data_dict
-
-
 class GetGeneCountData:
     def __init__(self, pid_map, gid_map, pid_key, gid_key):
         self.pid_map = pid_map
@@ -340,7 +267,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         "cfm_kwargs": None,
         "normalize_cov": None,
         "deg_list": None,
-        "use_pseudobulk_profile": False,
         "reduce_resolution": False,
         "use_regions": "borzoi",
         "gene_data_path": None,
@@ -370,7 +296,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         cfm_kwargs=None,
         normalize_cov=None,
         deg_list=None,
-        use_pseudobulk_profile=False,
         reduce_resolution=False,
         use_regions="borzoi",
         gene_data_path=None,
@@ -404,7 +329,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         self.normalize_cov = normalize_cov
         self.deg_list = deg_list
-        self.use_pseudobulk_profile = use_pseudobulk_profile
         self.reduce_resolution = reduce_resolution
 
         self.name_to_pseudobulker = OrderedDict()
@@ -661,32 +585,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         )
         return dataset
 
-    def _generate_pseudobulk_profile(
-        self,
-        dataset,
-        n_pseudobulks=1000,
-        q=0.995,
-        concurrency=1,
-    ):
-        fn = GenerateBorzoiPseudobulkProfiler
-        fn_constructor_kwargs = {
-            "n_pseudobulks": n_pseudobulks,
-            "q": q,
-        }
-        name_to_pseudobulker = self.name_to_pseudobulker
-        fn_constructor_kwargs.update(name_to_pseudobulker)
-
-        dataset = dataset.map(
-            fn=fn,
-            fn_constructor_kwargs=fn_constructor_kwargs,
-            concurrency=concurrency,
-        )
-
-        new_suffixes = ["upper_bound", "mean_p"]
-        name = list(name_to_pseudobulker.keys())[0]
-        self.signal_columns.extend([f"{name}:{suffix}" for suffix in new_suffixes])
-        return dataset
-
     def _generate_pseudobulk(
         self,
         dataset,
@@ -809,13 +707,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # generate pseudobulk
         name_to_pseudobulker = self.name_to_pseudobulker
         if len(name_to_pseudobulker) > 0:
-            if getattr(self, "use_pseudobulk_profile", False):
-                dataset = self._generate_pseudobulk_profile(
-                    dataset=dataset,
-                    concurrency=generate_pseudobulk_concurrency,
-                )
-                pseudobulk_kwargs["bypass_keys"] = self.signal_columns
-
             dataset = self._generate_pseudobulk(
                 dataset=dataset,
                 concurrency=generate_pseudobulk_concurrency,
@@ -963,28 +854,3 @@ class BorzoiDataset(RayGenomeChunkDataset):
             batch_size=self.batch_size if batch_size is None else batch_size,
         )
         return loader
-
-    def maybe_preprocess_batch(self, batch):
-        """Maybe add region weights to weight on gene regions."""
-        if self.use_pseudobulk_profile:
-            batch = self._normalize_by_profile(batch)
-        return batch
-
-    def _normalize_by_profile(self, batch, weight_by_mean_p=False):
-        prefix = list(self.name_to_pseudobulker.keys())[0]
-
-        data = batch[f"{prefix}:bulk_data"]
-        # top quantile value at each position
-        upper = batch[f"{prefix}:upper_bound"]
-        # mean proportion of each position, indicating cellular diversity
-        mean_p = batch[f"{prefix}:mean_p"]
-
-        # calculate the proportion of each position based on the upper bound
-        data_p = torch.clamp(data / upper, max=1)
-
-        if weight_by_mean_p:
-            # weight the data by the mean proportion
-            data_p = data_p * mean_p
-
-        batch[f"{prefix}:bulk_data"] = data_p
-        return batch

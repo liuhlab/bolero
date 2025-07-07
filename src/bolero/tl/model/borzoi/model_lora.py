@@ -231,9 +231,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 out_channels=out_channels,
             )
             self.loss_type = "poisson_multinomial"
-        elif output_head_type == "upper_bound":
-            self.setup_profile_head()
-            self.loss_type = "poisson_multinomial"
         elif output_head_type == "gene_count":
             self.setup_gene_count_head(out_channels=out_channels, **output_head_kwargs)
             # this loss type is still for the tracks, gene count loss is separate
@@ -339,17 +336,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         self.final_output_head = DualOutputHead(
             in_channels=1920, mc_channels=mc_channels, atac_channels=atac_channels
         )
-
-    def setup_profile_head(self):
-        """Setup a single profile head for predicting profile upper bound."""
-        # upper bound are not cell-type-specific, don't add cond lora to it
-        self.upper_bound_head = OutputHead(in_channels=1920, out_channels=1)
-
-        # predict prob without sigmoid (need to add sigmoid in the loss function)
-        self.final_output_head = OutputHead(
-            in_channels=1920, out_channels=1, activation=None
-        )
-        return
 
     def setup_scooby_head(self, embedding_dim, out_channels):
         """Setup a single Scooby output head."""

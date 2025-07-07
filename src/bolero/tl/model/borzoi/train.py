@@ -1030,11 +1030,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         model.freeze_all_parameter_except_output_head()
 
         self.model = model
-
-        # add the upper bound head and change final output head activation to None
-        if self.dataset.use_pseudobulk_profile:
-            self.model.setup_profile_head()
-
         self.model.to(self.device)
         self.model.convert_to_lora()
         if print_model:
@@ -1076,50 +1071,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             pseudobulker_kwargs=pseudobulker_params,
         )
         return dataset
-
-    def _model_forward_pass_profile(self, model: BorzoiLoRA, batch: dict):
-        data_key = f"{self.prefix}:bulk_data"
-        dna_key = "dna_one_hot"
-        embedding_key = f"{self.prefix}:embedding_data"
-        upper_bound_key = f"{self.prefix}:upper_bound"
-        position_weights = batch.get("position_weights", None)
-
-        # ==========
-        # Get batch data
-        # ==========
-        X = batch.pop(dna_key)
-        embedding = batch.get(embedding_key, None)
-        true_p = batch.pop(data_key)
-        true_upper_bound = batch.pop(upper_bound_key)
-
-        # ==========
-        # Forward and Loss
-        # ==========
-        pred_logit, dna_embedding = model(
-            X, embedding=embedding, return_dna_embedding=True
-        )
-
-        # detach the dna_embedding to prevent gradient flow
-        pred_upper_bound = model.upper_bound_head(dna_embedding)
-
-        loss, loss_breakdown, _pred, _true = model.loss_profile_and_upper_bound(
-            y_pred=(pred_upper_bound, pred_logit),
-            y_true=(true_upper_bound, true_p),
-            position_weights=position_weights,
-        )
-        pred_count, pred_p, pred_upper_bound = _pred
-        true_count, true_p, true_upper_bound = _true
-
-        # combine upper bound and data_p
-        y_pred = pred_count
-        y_true = true_count
-        additional_results = {
-            "true_p": true_p,
-            "pred_p": pred_p,
-            "pred_upper_bound": pred_upper_bound,
-            "true_upper_bound": true_upper_bound,
-        }
-        return y_true, y_pred, loss, loss_breakdown, additional_results
 
     def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):
         data_key = f"{self.prefix}:bulk_data"
@@ -1201,12 +1152,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         return ut, vt, loss, loss_breakdown
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        batch = self.dataset.maybe_preprocess_batch(batch)
-
         if self.dataset.paired_data:
             return self._model_forward_pass_flow(model, batch)
-        elif self.dataset.use_pseudobulk_profile:
-            return self._model_forward_pass_profile(model, batch)
         else:
             return self._model_forward_pass_single(model, batch)
 
