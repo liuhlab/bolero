@@ -41,10 +41,10 @@ rule modisco:
         15
     shell:
         "modisco motifs "
-        "-s {{input.dna_path}} "
-        "-a {{input.attr_path}} "
+        "-s '{{input.dna_path}}' "
+        "-a '{{input.attr_path}}' "
         "-n {{params.modisco_n}} "
-        "-o {{output.modisco_h5_path}}"
+        "-o '{{output.modisco_h5_path}}'"
 
 rule modisco_report:
     input:
@@ -56,9 +56,8 @@ rule modisco_report:
         modisco_report_dir=lambda wildcards: f"{{wildcards.sample_dir}}/modisco_report"
     shell:
         "modisco report "
-        "-i {{input.modisco_h5_path}} "
-        "-o {{params.modisco_report_dir}} "
-        "-t {{params.jaspar_meme_path}}"
+        "-i '{{input.modisco_h5_path}}' "
+        "-o '{{params.modisco_report_dir}}' "
 """
 
 FINEMO_PIPELINE_TEMPLATE = """

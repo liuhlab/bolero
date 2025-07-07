@@ -812,9 +812,15 @@ class BorzoiInferenceDataset:
         return
 
     def _get_region_bed(self):
-        region_bed = pd.DataFrame(
-            {k: self.dataset.coords[k].values for k in ["Chromosome", "Start", "End"]}
-        )
+        try:
+            region_bed = pd.DataFrame(
+                {
+                    k: self.dataset.coords[k].values
+                    for k in ["Chromosome", "Start", "End"]
+                }
+            )
+        except KeyError:
+            region_bed = understand_regions(self.regions)
         region_bed.index = self.regions
         return region_bed
 

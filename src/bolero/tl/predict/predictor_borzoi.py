@@ -1396,9 +1396,9 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         Forward pass through the model to get the attribution.
         """
         if self._model_without_signal:
-            batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
-        else:
             batch = self._dna_attr_step(model, batch, attr_batch_size)
+        else:
+            batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
 
         # clean up memory
         gc.collect()
