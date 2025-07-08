@@ -44,16 +44,10 @@ class BorzoiRegions:
             self.genome = genome
             self.genome_name = genome.name
         else:
-            if genome == "hg38":
-                self.genome = Genome("hg38")
-                self.genome_name = "hg38"
-            elif genome == "mm10":
-                self.genome = Genome("mm10")
-                self.genome_name = "mm10"
-            else:
-                raise ValueError(
-                    f"Invalid genome: {genome}, choose from ['hg38', 'mm10']"
-                )
+            _path = BORZOI_DATA_DIR / f"{genome}_sequences.bed.gz"
+            assert _path.exists(), f"Genome {genome} does not have borzoi regions file in {BORZOI_DATA_DIR}."
+            self.genome = Genome(genome)
+            self.genome_name = genome
 
         self._borzoi_regions = None
         self.cur_idmap = None
@@ -216,6 +210,38 @@ class BorzoiRegions:
         train_regions = self._remove_overlap(train_bed, valid_bed, test_bed)
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
+        return train_regions, valid_regions, test_regions
+
+
+class MultiBorzoiRegions:
+    """
+    A class to handle multiple BorzoiRegions for different keys.
+    """
+
+    def __init__(self, key_to_genome):
+        self.key_to_genome = key_to_genome
+        self.regions = {
+            key: BorzoiRegions(genome) for key, genome in key_to_genome.items()
+        }
+        self.fold_splits = BorzoiRegions.fold_splits
+
+    def get_train_valid_test_regions(self, split_id, **kwargs):
+        """
+        Get train, valid, test regions for each key, and add key to the region bed.
+        Concate them in the end.
+        """
+        train_regions, valid_regions, test_regions = [], [], []
+        for key, br in self.regions.items():
+            tr, vr, te = br.get_train_valid_test_regions(split_id=split_id, **kwargs)
+            tr["key"] = key
+            vr["key"] = key
+            te["key"] = key
+            train_regions.append(tr)
+            valid_regions.append(vr)
+            test_regions.append(te)
+        train_regions = pd.concat(train_regions, ignore_index=True)
+        valid_regions = pd.concat(valid_regions, ignore_index=True)
+        test_regions = pd.concat(test_regions, ignore_index=True)
         return train_regions, valid_regions, test_regions
 
 

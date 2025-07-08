@@ -860,9 +860,74 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         return pseudobulk_col
 
 
+class MultiPairedPseudobulker:
+    def __init__(
+        self,
+        pseudobulk_path_dict: dict[str, str],
+        barcode_order_dict: dict[str, dict],
+        pseudobulker_cls: str | PseudobulkerMixin = "ensemble",
+        **pseudobulker_kwargs,
+    ):
+        """
+        This pseudobulker class maintain a dict of individual pseudobulkers
+
+        The take method will randomly sample pseudobulk from the individual pseudobulks
+        The frequency of each pseudobulk is determined by the sample_weight,
+        if not provided, each pseudobulker will be equally weighted.
+
+        Parameters
+        ----------
+        pseudobulk_path_dict : dict[str, str]
+            A dictionary mapping pseudobulk names to their file paths or data.
+            The keys are the names of the pseudobulks, and the values are the paths
+            to the pseudobulk data files or the data itself.
+        pseudobulker_cls : str or PseudobulkerMixin, optional
+            The class to use for creating pseudobulkers. It can be a string
+            representing the class name or an instance of a PseudobulkerMixin subclass.
+            Default is "ensemble", which uses the EnsemblePairedPseudobulker class.
+        """
+        if isinstance(pseudobulker_cls, str):
+            pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[pseudobulker_cls]
+
+        self.pseudobulker_dict: dict[int, PseudobulkerMixin] = {}
+        self.keys: list[str] = []
+        for k, v in pseudobulk_path_dict.items():
+            self.keys.append(k)
+            barcode_order = barcode_order_dict.get(k, None)
+            self.pseudobulker_dict[k] = pseudobulker_cls(
+                v, barcode_order=barcode_order, **pseudobulker_kwargs
+            )
+
+    def take(self, n, key):
+        """
+        Take n pseudobulks from the random pool.
+
+        Parameters
+        ----------
+        n : int
+            The number of pseudobulks to sample.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of pseudobulk records, where each record is a dictionary containing
+            the pseudobulk data and metadata.
+            Each pseudobulk record will have an additional key "__pseudobulker_key__"
+            that indicates which pseudobulker it was sampled from.
+        """
+        pseudobulker = self.pseudobulker_dict[key]
+        pseudobulks = pseudobulker.take(n)
+        for pair in pseudobulks:
+            # add key to each pseudobulk
+            for p in pair:
+                p["__pseudobulker_key__"] = key
+        return pseudobulks
+
+
 PAIRED_PSEUDOBULKER_CLS_DICT = {
     "condition": PairedPseudobulker,
     "ensemble": EnsemblePairedPseudobulker,
+    "multi": MultiPairedPseudobulker,
 }
 
 

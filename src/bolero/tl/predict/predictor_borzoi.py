@@ -668,7 +668,6 @@ class BorzoiPredictor(GenericPredictor):
                 f"(total {timer['counter']} batches)\n"
             )
         # TODO: clean up memory during batches
-        # TODO: cache partial attr and make task preemptible
 
     def _get_default_stats_keys(self):
         STATS_KEYS = [

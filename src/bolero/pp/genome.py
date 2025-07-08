@@ -1190,7 +1190,7 @@ class _one_hot_encoder(_one_hot_encoder_no_parallel):
 
 
 class FastaOneHotNoParallel:
-    def __init__(self, fasta_path: str, device: str = "cpu"):
+    def __init__(self, fasta_path: str | dict, device: str = "cpu"):
         """
         Parameters
         ----------
@@ -1199,58 +1199,75 @@ class FastaOneHotNoParallel:
         device : str
             'cpu' or 'cuda' for GPU acceleration.
         """
-        self.fasta = Fasta(fasta_path, as_raw=True, sequence_always_upper=True)
+        if isinstance(fasta_path, dict):
+            self.fasta = {
+                k: Fasta(v, as_raw=True, sequence_always_upper=True)
+                for k, v in fasta_path.items()
+            }
+        else:
+            self.fasta = Fasta(fasta_path, as_raw=True, sequence_always_upper=True)
         self.device = device
 
         self.encoder = _one_hot_encoder_no_parallel()
 
-    def get_region_sequence(self, region: str) -> str:
+    def get_region_sequence(self, region: str, key=None) -> str:
         """
         Returns DNA string of the region.
         """
         chrom, coord = region.split(":")
         start, end = map(int, coord.split("-"))
-        seq = self.fasta[chrom][start:end]
+        if isinstance(self.fasta, dict):
+            assert key is not None, "key must be provided for multiple FASTA files"
+            fasta = self.fasta[key]
+        else:
+            fasta = self.fasta
+        seq = fasta[chrom][start:end]
         return seq
 
-    def get_regions_sequence(self, region_bed: pd.DataFrame) -> list[str]:
+    def get_regions_sequence(self, region_bed: pd.DataFrame, keys=None) -> list[str]:
         """
         Extracts sequences from a BED DataFrame. First three columns must be Chromosome, Start, End.
 
         Returns list of DNA strings, shape (n_region,)
         """
         region_bed = understand_regions(region_bed, as_df=True)
+        if isinstance(self.fasta, dict):
+            assert keys is not None, "keys must be provided for multiple FASTA files"
 
         sequences = []
-        for _, (chrom, start, end, *_) in region_bed.iterrows():
-            seq = self.fasta[chrom][start:end]
+        for row_idx, (_, (chrom, start, end, *_)) in enumerate(region_bed.iterrows()):
+            if isinstance(self.fasta, dict):
+                fasta = self.fasta[keys[row_idx]]
+            else:
+                fasta = self.fasta
+            seq = fasta[chrom][start:end]
             sequences.append(seq)
         return sequences
 
-    def get_region_onehot(self, region: str) -> torch.Tensor:
+    def get_region_onehot(self, region: str, key=None) -> torch.Tensor:
         """
         Returns torch.Tensor of shape (4, seq_len), dtype=torch.uint8
         """
-        seq = self.get_region_sequence(region)
+        seq = self.get_region_sequence(region, key=key)
         result = self.encoder.encode(seq)
         onehot = result.to(self.device)
         return onehot
 
-    def get_regions_onehot(self, region_bed: pd.DataFrame) -> torch.Tensor:
+    def get_regions_onehot(self, region_bed: pd.DataFrame, keys=None) -> torch.Tensor:
         """
         Returns torch.Tensor of shape (n_region, 4, seq_len), dtype=torch.uint8
         """
-        sequences = self.get_regions_sequence(region_bed)
+        sequences = self.get_regions_sequence(region_bed, keys=keys)
         results = [self.encoder.encode(seq) for seq in sequences]
         onehots = torch.stack(list(results), dim=0)
         onehots = onehots.to(self.device)
         return onehots
 
-    def get_regions_one_hot(self, region_bed: pd.DataFrame) -> torch.Tensor:
+    def get_regions_one_hot(self, region_bed: pd.DataFrame, keys=None) -> torch.Tensor:
         """
         Alias for get_regions_onehot.
         """
-        return self.get_regions_onehot(region_bed)
+        return self.get_regions_onehot(region_bed, keys=keys)
 
 
 class FastaOneHot(FastaOneHotNoParallel):

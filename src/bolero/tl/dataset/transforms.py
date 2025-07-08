@@ -378,7 +378,7 @@ class FetchRegionOneHot:
 
     def __init__(
         self,
-        fasta_path: str,
+        fasta_path: str | dict[str, str],
         region_key: str = "region",
         output_key: str = "dna_one_hot",
         dtype: str = "float32",
@@ -432,6 +432,7 @@ class FetchRegionOneHot:
 
         for suffix in key_suffix:
             regions = data[self.region_key + suffix]
+            keys = data.get("__dataset_keys__", None)
 
             if self.random_shift > 0:
                 new_regions = []
@@ -446,7 +447,7 @@ class FetchRegionOneHot:
                 regions = new_regions
 
             one_hot = (
-                self.onehot_encoder.get_regions_one_hot(regions)
+                self.onehot_encoder.get_regions_one_hot(regions, keys=keys)
                 .permute(0, 2, 1)
                 .numpy()
             )
