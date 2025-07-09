@@ -57,8 +57,10 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
         + "-"
         + peaks["End"].astype(str)
     )
-    peaks["bin_start"] = (peaks["Start"] - table["524k-start"].values) / resolution
-    peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
+    # peaks["bin_start"] = (peaks["Start"] - table["524k-start"].values) / resolution
+    # peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
+    peaks["bin_start"] = ((peaks["Start"] - table["524k-start"].values) + 512) / resolution #TODO TG: Cleaner clipping
+    peaks["bin_end"] = ((peaks["End"] - table["524k-start"].values) + 512) / resolution #TODO TG: Cleaner clipping
     peaks["bin_start"] = peaks["bin_start"].round().astype(int)
     peaks["bin_end"] = peaks["bin_end"].round().astype(int)
     return regions, region_to_mutation, mutations, peaks
