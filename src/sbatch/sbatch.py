@@ -41,7 +41,7 @@ class SlurmManager:
         self,
         job_name: str,
         command: str,
-        time: str = "12:00:00",
+        time: str = "1-00:00:00",
         partition: str = "gpu",
         cpus_per_task: int = 32,
         mem_per_cpu: str = "4G",
@@ -229,7 +229,13 @@ class SlurmManager:
         )
         output = process.stdout
         # load json
-        squeue_data = json.loads(output)
+        try:
+            squeue_data = json.loads(output)
+        except json.JSONDecodeError as e:
+            print("Failed to parse squeue output as JSON.")
+            print(output)
+            raise e
+
         jobs = [SqueueJob(info_dict) for info_dict in squeue_data["jobs"]]
 
         if running_only:

@@ -5,7 +5,7 @@ from .sbatch import PreemptibleManager, SlurmManager
 
 @click.command()
 @click.option("-n", "--job-name", required=True, help="Job name")
-@click.option("--time", default="12:00:00", help="Time limit", show_default=True)
+@click.option("--time", default="1-00:00:00", help="Time limit", show_default=True)
 @click.option("--partition", default="cpu", help="Partition", show_default=True)
 @click.option("--cpus-per-task", default=32, help="CPUs per task", show_default=True)
 @click.option("--mem-per-cpu", default="4G", help="Memory per CPU", show_default=True)
