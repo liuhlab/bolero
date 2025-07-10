@@ -12,7 +12,11 @@ import seaborn as sns
 import torch
 from Bio import motifs
 from matplotlib import pyplot as plt
-from tangermeme.tools.fimo import fimo
+
+try:
+    from memelite import fimo
+except ImportError:
+    from tangermeme.tools.fimo import fimo
 
 # get pkg_data path from package root
 import bolero
