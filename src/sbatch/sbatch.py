@@ -222,26 +222,37 @@ class SlurmManager:
     @staticmethod
     def get_running_jobs(running_only: bool = True, mine_only: bool = True):
         """Get my running jobs from squeue."""
-        process = subprocess.run(
-            ["squeue", "--json"],
-            capture_output=True,
-            text=True,
-        )
-        output = process.stdout
-        # load json
-        try:
-            squeue_data = json.loads(output)
-        except json.JSONDecodeError as e:
-            print("Failed to parse squeue output as JSON.")
-            print(output)
-            raise e
+        jobs = None
+        tried = 0
+        while jobs is None:
+            process = subprocess.run(
+                ["squeue", "--json"],
+                capture_output=True,
+                text=True,
+            )
+            output = process.stdout
+            # load json
+            try:
+                squeue_data = json.loads(output)
+            except json.JSONDecodeError:
+                print(
+                    "Failed to parse squeue output as JSON. Trying again in 60 seconds."
+                )
+                print("Output:", output)
+                time.sleep(60)
+                tried += 1
+                if tried > 30:
+                    raise RuntimeError(
+                        "Failed to get squeue data after multiple attempts."
+                    ) from None
+                continue
 
-        jobs = [SqueueJob(info_dict) for info_dict in squeue_data["jobs"]]
+            jobs = [SqueueJob(info_dict) for info_dict in squeue_data["jobs"]]
 
-        if running_only:
-            jobs = [job for job in jobs if job.running()]
-        if mine_only:
-            jobs = [job for job in jobs if job.mine()]
+            if running_only:
+                jobs = [job for job in jobs if job.running()]
+            if mine_only:
+                jobs = [job for job in jobs if job.mine()]
         return jobs
 
     @staticmethod
