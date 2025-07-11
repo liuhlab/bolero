@@ -131,6 +131,11 @@ class DatasetRecordManager:
         return {k: v.fasta_path for k, v in self.genomes.items()}
 
 
+class MultiGenomeParquetDBActor:
+    def __init__(self):
+        pass
+
+
 class BorzoiMultiDataset(GenericDataset):
     """Single cell pseudobulk dataset for Borzoi model."""
 

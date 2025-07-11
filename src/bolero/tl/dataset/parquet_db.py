@@ -68,8 +68,7 @@ def pseudobulk_to_merge_plan(
     return all_merge_plan, pseudobulk_ids
 
 
-@ray.remote
-class ParallelRowProcessor:
+class RowProcessor:
     def __init__(self, row_merge_plan, n_input, n_output, tocsc=False):
         self.byte_to_csr = CompressedBytesToTensor()
         self.row_merge_plan = row_merge_plan
@@ -105,7 +104,19 @@ class ParallelRowProcessor:
 
 
 @ray.remote
+class ParallelRowProcessor(RowProcessor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
 class _RegionExtractor:
+    def __init__(self):
+        """
+        A simple actor for extracting regions from the cluster data.
+        It will slice the sparse matrix or array according to the region specifications.
+        """
+        pass
+
     def extract(
         self,
         cluster_data: dict[str, str | csc_matrix],
@@ -127,13 +138,30 @@ class _RegionExtractor:
                     rel_start_bin = round(rel_start / resolution)
                     bins = round(region_size / resolution)
                     rel_end_bin = rel_start_bin + bins
+                    assert rel_end_bin <= value.shape[1], (
+                        f"Region {region_name} ({rel_start_bin}-{rel_end_bin}) "
+                        f"exceeds the data size for {key} ({value.shape} value shape)."
+                    )
                     rd[key] = value[:, rel_start_bin:rel_end_bin].copy()
             rd["region"] = region_name
             out.append(rd)
         return out
 
 
-class GenomeParquetDB:
+@ray.remote
+class _ParallelRegionExtractor:
+    def __init__(self):
+        self.extractor = _RegionExtractor()
+
+    def extract(self, *args, **kwargs):
+        """
+        Extract regions from the cluster data.
+        This method is called in parallel by the ray actor pool.
+        """
+        return self.extractor.extract(*args, **kwargs)
+
+
+class GenomeParquetDBNoParallel:
     """
     A DuckDB-based interface for querying genomic regions from a Parquet dataset.
     """
@@ -141,7 +169,6 @@ class GenomeParquetDB:
     def __init__(
         self,
         dataset_dir: str,
-        parallel: int = 1,
         merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
         pseudobulk_ids: list[str] = None,
         resolution: int | dict[int] = None,
@@ -170,14 +197,43 @@ class GenomeParquetDB:
         self.merge_plan: dict[str, dict[int, int]] | None = merge_plan
         self.pseudobulk_ids: pd.Index = pseudobulk_ids
 
-        # create ray actor pools
-        self.parallel = parallel
-        self._actor_pool = self._create_row_actor_pool()
-        self._extractor_pool = self._create_extractor_pool()
-
         # register resolution
         # if not provided, will infer from the dataset
-        self.prefix_resolution: dict[str, int] = self._register_resolution(resolution)
+        self._prefix_resolution: dict[str, int] | None = resolution
+
+        # non-parallel actors
+        self._single_row_actor: RowProcessor | None = None
+        self._single_extractor: _RegionExtractor | None = None
+
+    @property
+    def single_row_actor(self) -> RowProcessor:
+        """
+        Create a single row actor for processing rows.
+        This is used when parallel processing is not enabled.
+        """
+        if self._single_row_actor is None:
+            self._single_row_actor = self._create_row_actor()
+        return self._single_row_actor
+
+    @property
+    def single_extractor(self) -> _RegionExtractor:
+        """
+        Create a single extractor for extracting regions from the cluster data.
+        This is used when parallel processing is not enabled.
+        """
+        if self._single_extractor is None:
+            self._single_extractor = self._create_extractor()
+        return self._single_extractor
+
+    @property
+    def prefix_resolution(self) -> dict[str, int]:
+        """
+        Get the resolution for each prefix in the dataset.
+        The resolution is used to convert the genomic coordinates to the correct resolution.
+        """
+        if self._prefix_resolution is None:
+            self._prefix_resolution = self._register_resolution(self._prefix_resolution)
+        return self._prefix_resolution
 
     def _register_region_lookup(self):
         """
@@ -249,10 +305,9 @@ class GenomeParquetDB:
 
         return resolution
 
-    def _create_row_actor_pool(self) -> ray.util.ActorPool:
+    def _create_row_actor(self) -> RowProcessor:
         """
-        Create a pool of actors for parallel processing of rows.
-        Each actor will handle the conversion of rows to pseudobulk format.
+        The actor will handle the conversion of rows to pseudobulk format.
         """
         n_input: dict[str:int] = {
             prefix: len(row_names) for prefix, row_names in self.row_names.items()
@@ -261,45 +316,24 @@ class GenomeParquetDB:
             prefix: self.pseudobulk_ids.size for prefix in n_input.keys()
         }
 
-        actors = [
-            ParallelRowProcessor.remote(
-                row_merge_plan=self.merge_plan,
-                n_input=n_input,
-                n_output=n_output,
-                tocsc=True,
-            )  # type: ignore[arg-type]
-            for _ in range(self.parallel)
-        ]
-        actor_pool = ray.util.ActorPool(actors)
-        return actor_pool
+        actor = RowProcessor(
+            row_merge_plan=self.merge_plan,
+            n_input=n_input,
+            n_output=n_output,
+            tocsc=True,
+        )
+        return actor
 
-    def _create_extractor_pool(self) -> ray.util.ActorPool:
+    def _create_extractor(self) -> _RegionExtractor:
         """
-        Create a pool of actors for parallel processing of regions.
-        Each actor will handle the extraction of regions from the cluster data.
+        The actor will handle the extraction of regions from the cluster data.
         """
-        actors = [_RegionExtractor.remote() for _ in range(self.parallel)]
-        actor_pool = ray.util.ActorPool(actors)
-        return actor_pool
+        actor = _RegionExtractor()
+        return actor
 
-    def query_parquet_regions(
-        self, regions: list[str], return_ordered=True, pseudobulk_subset_plan=None
-    ) -> Generator:
+    def _get_sql_cursor(self, regions: list[str]) -> duckdb.DuckDBPyConnection:
         """
-        Given a list of regions, find which Parquet file(s) contain any of those regions,
-        read the data from those files, and yield the rows as dictionaries.
-
-        IMPORTANT: the regions will be deduplicated in the SQL query, so if repeated regions
-        are passed in, they will be returned only once.
-
-        Parameters
-        ----------
-        regions: List of genomic regions in the format "chrom:start-end",
-            the region coordinates must be exactly the same as regions in parquet files.
-            for more general region query, use "query_regions" method.
-        return_ordered: If True, the results are returned in the order of the input regions.
-                        If False, the results are returned in an unordered fashion.
-        pseudobulk_subset_plan: A bool array for selecting subset of pseudobulk rows.
+        Get a SQL cursor for querying the Parquet dataset.
         """
         # Build a comma-separated list of quoted region strings for SQL
         regions = list(set(regions))  # Deduplicate regions
@@ -323,46 +357,39 @@ class GenomeParquetDB:
             WHERE region IN ({region_list_sql});
         """
         cursor = self.con.execute(sql)
-        # Get column names from the cursor description
-        cols = [desc[0] for desc in cursor.description]  # type: ignore[union-attr]
+        return cursor
 
-        # --- round‐robin tasks in flight, flush as soon as a batch completes ---
-        actor_pool = self._actor_pool
-        runing_task = 0
+    def query_parquet_regions(
+        self, regions: list[str], pseudobulk_subset_plan=None
+    ) -> Generator:
+        """
+        Given a list of regions, find which Parquet file(s) contain any of those regions,
+        read the data from those files, and yield the rows as dictionaries.
+
+        IMPORTANT: the regions will be deduplicated in the SQL query, so if repeated regions
+        are passed in, they will be returned only once.
+
+        Parameters
+        ----------
+        regions: List of genomic regions in the format "chrom:start-end",
+            the region coordinates must be exactly the same as regions in parquet files.
+            for more general region query, use "query_regions" method.
+        pseudobulk_subset_plan: A bool array for selecting subset of pseudobulk rows.
+        """
+        cursor = self._get_sql_cursor(regions)
+        # Get column names from the cursor description
+        cols = [desc[0] for desc in cursor.description]
+
         while True:
             row = cursor.fetchone()
             if row is None:
                 break
 
             row_dict = dict(zip(cols, row))
-            actor_pool.submit(
-                lambda a, x: a.convert.remote(x, subset_plan=pseudobulk_subset_plan),
-                row_dict,
+            _data = self.single_row_actor.convert(
+                row_dict, subset_plan=pseudobulk_subset_plan
             )
-            runing_task += 1
-
-            # once we've launched at least one task per actor, wait for that many
-            if runing_task >= self.parallel * 4:
-                if return_ordered:
-                    _data = actor_pool.get_next()
-                else:
-                    _data = actor_pool.get_next_unordered()
-                yield _data
-                actor_pool.submit(
-                    lambda a, x: a.convert.remote(
-                        x, subset_plan=pseudobulk_subset_plan
-                    ),
-                    row_dict,
-                )
-
-        while runing_task > 0:
-            if return_ordered:
-                _data = actor_pool.get_next()
-            else:
-                _data = actor_pool.get_next_unordered()
             yield _data
-            runing_task -= 1
-        return
 
     def _get_non_overlap_parquet_clusters(
         self, parquet_regions_bed: pr.PyRanges, pseudobulk_subset_plan=None
@@ -418,12 +445,8 @@ class GenomeParquetDB:
         )
         return parquet_clusters_data, parquet_cluster_bed
 
-    def _extract_region_from_cluster(
-        self,
-        regions_to_get: pr.PyRanges,
-        cluster_data: dict[str, str | csc_matrix],
-        cluster_bed: pr.PyRanges,
-    ) -> Generator:
+    @staticmethod
+    def _prepare_cluster_regions(regions_to_get, cluster_bed):
         # Build a map: cluster_name -> list of (region_name, rel_start, rel_end)
         joined = regions_to_get.join(
             cluster_bed,
@@ -445,30 +468,37 @@ class GenomeParquetDB:
             )
             .to_dict()
         )
+
+        # validate that the regions do not exceed the cluster boundaries
+        end_exceeded = (jdf["End"] > jdf["End_b"]) | (jdf["Start"] < jdf["Start_b"])
+        end_exceeded_region = jdf[end_exceeded]
+        if end_exceeded_region.shape[0] > 0:
+            raise ValueError(
+                f"Some regions exceed the cluster boundaries: {end_exceeded_region}"
+            )
+
         # cluster order
         cluster_order = jdf["Name_b"].unique()
+        return specs_per_cluster, cluster_order
 
-        cluster_data_refs = {
-            cname: ray.put(data) for cname, data in cluster_data.items()
-        }
-        task_inputs = []
+    def _extract_region_from_cluster(
+        self,
+        regions_to_get: pr.PyRanges,
+        cluster_data: dict[str, str | csc_matrix],
+        cluster_bed: pr.PyRanges,
+    ) -> Generator:
+        specs_per_cluster, cluster_order = self._prepare_cluster_regions(
+            regions_to_get, cluster_bed
+        )
+
         for cluster in cluster_order:
             # each tasks in order of cluster
             specs = specs_per_cluster[cluster]
-            chunk_size = 200
-            for i in range(0, len(specs), chunk_size):
-                task_inputs.append(
-                    (
-                        cluster_data_refs[cluster],
-                        specs[i : i + chunk_size],
-                        self.prefix_resolution,
-                    )
-                )
-        # launch all extraction tasks in parallel
-        tasks = self._extractor_pool.map(
-            lambda a, x: a.extract.remote(*x), task_inputs
-        )  # result should be ordered as the input
-        for result in tasks:
+            result = self.single_extractor.extract(
+                cluster_data=cluster_data[cluster],
+                specs=specs,
+                resolutions=self.prefix_resolution,
+            )
             yield from result
 
     def _query_regions_iter(self, regions, pseudobulk_subset_plan=None):
@@ -530,10 +560,19 @@ class GenomeParquetDB:
                 batch_data[k].append(v)
             counter += 1
             if counter % batch_size == 0:
-                batch_data = {
-                    k: np.stack(v) if isinstance(v[0], np.ndarray) else np.array(v)
-                    for k, v in batch_data.items()
-                }
+                try:
+                    batch_data = {
+                        k: np.stack(v) if isinstance(v[0], np.ndarray) else np.array(v)
+                        for k, v in batch_data.items()
+                    }
+                except ValueError as e:
+                    for k, v in batch_data.items():
+                        print(k)
+                        if isinstance(v[0], np.ndarray):
+                            print([x.shape for x in v])
+                        else:
+                            print(v)
+                    raise e
                 yield batch_data
                 batch_data = defaultdict(list)
 
@@ -544,3 +583,161 @@ class GenomeParquetDB:
                 for k, v in batch_data.items()
             }
             yield batch_data
+
+
+class GenomeParquetDB(GenomeParquetDBNoParallel):
+    """
+    A DuckDB-based interface for querying genomic regions from a Parquet dataset.
+
+    This class extends the GenomeParquetDBNoParallel class to support parallel processing
+    """
+
+    def __init__(
+        self,
+        dataset_dir: str,
+        parallel: int = 1,
+        merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
+        pseudobulk_ids: list[str] = None,
+        resolution: int | dict[int] = None,
+    ):
+        """
+        dataset_dir: path to the dataset directory containing the Parquet files and the region lookup table.
+        """
+        super().__init__(
+            dataset_dir=dataset_dir,
+            merge_plan=merge_plan,
+            pseudobulk_ids=pseudobulk_ids,
+            resolution=resolution,
+        )
+
+        # create ray actor pools
+        self.parallel = parallel
+        self._actor_pool = self._create_row_actor_pool()
+        self._extractor_pool = self._create_extractor_pool()
+
+    def _create_row_actor_pool(self) -> ray.util.ActorPool:
+        """
+        Create a pool of actors for parallel processing of rows.
+        Each actor will handle the conversion of rows to pseudobulk format.
+        """
+        n_input: dict[str:int] = {
+            prefix: len(row_names) for prefix, row_names in self.row_names.items()
+        }
+        n_output: dict[str, int] = {
+            prefix: self.pseudobulk_ids.size for prefix in n_input.keys()
+        }
+
+        actors = [
+            ParallelRowProcessor.remote(
+                row_merge_plan=self.merge_plan,
+                n_input=n_input,
+                n_output=n_output,
+                tocsc=True,
+            )  # type: ignore[arg-type]
+            for _ in range(self.parallel)
+        ]
+        actor_pool = ray.util.ActorPool(actors)
+        return actor_pool
+
+    def _create_extractor_pool(self) -> ray.util.ActorPool:
+        """
+        Create a pool of actors for parallel processing of regions.
+        Each actor will handle the extraction of regions from the cluster data.
+        """
+        actors = [_ParallelRegionExtractor.remote() for _ in range(self.parallel)]
+        actor_pool = ray.util.ActorPool(actors)
+        return actor_pool
+
+    def query_parquet_regions(
+        self, regions: list[str], return_ordered=True, pseudobulk_subset_plan=None
+    ) -> Generator:
+        """
+        Given a list of regions, find which Parquet file(s) contain any of those regions,
+        read the data from those files, and yield the rows as dictionaries.
+
+        IMPORTANT: the regions will be deduplicated in the SQL query, so if repeated regions
+        are passed in, they will be returned only once.
+
+        Parameters
+        ----------
+        regions: List of genomic regions in the format "chrom:start-end",
+            the region coordinates must be exactly the same as regions in parquet files.
+            for more general region query, use "query_regions" method.
+        return_ordered: If True, the results are returned in the order of the input regions.
+                        If False, the results are returned in an unordered fashion.
+        pseudobulk_subset_plan: A bool array for selecting subset of pseudobulk rows.
+        """
+        cursor = self._get_sql_cursor(regions)
+        # Get column names from the cursor description
+        cols = [desc[0] for desc in cursor.description]
+
+        # --- round‐robin tasks in flight, flush as soon as a batch completes ---
+        actor_pool = self._actor_pool
+        runing_task = 0
+        while True:
+            row = cursor.fetchone()
+            if row is None:
+                break
+
+            row_dict = dict(zip(cols, row))
+            actor_pool.submit(
+                lambda a, x: a.convert.remote(x, subset_plan=pseudobulk_subset_plan),
+                row_dict,
+            )
+            runing_task += 1
+
+            # once we've launched at least one task per actor, wait for that many
+            if runing_task >= self.parallel * 4:
+                if return_ordered:
+                    _data = actor_pool.get_next()
+                else:
+                    _data = actor_pool.get_next_unordered()
+                yield _data
+                actor_pool.submit(
+                    lambda a, x: a.convert.remote(
+                        x, subset_plan=pseudobulk_subset_plan
+                    ),
+                    row_dict,
+                )
+
+        while runing_task > 0:
+            if return_ordered:
+                _data = actor_pool.get_next()
+            else:
+                _data = actor_pool.get_next_unordered()
+            yield _data
+            runing_task -= 1
+        return
+
+    def _extract_region_from_cluster(
+        self,
+        regions_to_get: pr.PyRanges,
+        cluster_data: dict[str, str | csc_matrix],
+        cluster_bed: pr.PyRanges,
+    ) -> Generator:
+        specs_per_cluster, cluster_order = self._prepare_cluster_regions(
+            regions_to_get, cluster_bed
+        )
+
+        cluster_data_refs = {
+            cname: ray.put(data) for cname, data in cluster_data.items()
+        }
+        task_inputs = []
+        for cluster in cluster_order:
+            # each tasks in order of cluster
+            specs = specs_per_cluster[cluster]
+            chunk_size = 200
+            for i in range(0, len(specs), chunk_size):
+                task_inputs.append(
+                    (
+                        cluster_data_refs[cluster],
+                        specs[i : i + chunk_size],
+                        self.prefix_resolution,
+                    )
+                )
+        # launch all extraction tasks in parallel
+        tasks = self._extractor_pool.map(
+            lambda a, x: a.extract.remote(*x), task_inputs
+        )  # result should be ordered as the input
+        for result in tasks:
+            yield from result

@@ -824,6 +824,21 @@ class BorzoiPredictor(GenericPredictor):
             print(f"Removed temporary files in {stats_tmpdir}")
         return
 
+    def _filter_valid_qtl_regions(self):
+        db = self.datamanager.datasets["parquet"]
+        regions = self.qtl_manager.regions
+        regions_bed = pr.PyRanges(regions.reset_index().iloc[:, [1, 2, 3, 0]])
+        valid_regions_bed = regions_bed.overlap(
+            db.region_lookup_bed.merge(), how="containment"
+        )
+        new_regions = regions.reindex(valid_regions_bed.df["Name"].values)
+        if new_regions.shape[0] != regions.shape[0]:
+            print(
+                f"Filtered {regions.shape[0] - new_regions.shape[0]} invalid regions "
+                "from QTL table that are not fully overlapped with the parquet dataset."
+            )
+        return new_regions
+
     def qtl_task(
         self,
         output_dir,
@@ -866,7 +881,7 @@ class BorzoiPredictor(GenericPredictor):
 
         # add qtl manager and get regions from the qtl manager
         self.register_qtl_manager(qtl_table)
-        regions = self.qtl_manager.regions.copy()
+        regions = self._filter_valid_qtl_regions()
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
