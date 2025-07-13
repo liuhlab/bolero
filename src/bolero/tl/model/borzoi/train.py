@@ -10,6 +10,7 @@ from bolero.pl.borzoi import BorzoiExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
 from bolero.tl.generic.train_helper import CumulativeCounter
 from bolero.tl.model.borzoi.dataset import BorzoiDataset
+from bolero.tl.model.borzoi.dataset_multi import BorzoiMultiDataset
 from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
@@ -694,6 +695,25 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             optimizer = torch.optim.Adam(parameter_groups)
         return optimizer
 
+    def _example_step(self, batch):
+        if self.prefix in self.dataset.name_to_pseudobulker:
+            # this part is for mouse pseudobulk dataset
+            try:
+                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+            except KeyError:
+                batch["sample_id"] = None
+        else:
+            batch["sample_id"] = batch.get("cell_type_id", None)
+        log_dict = {}
+        train_wandb_images = self._plot_example([batch])
+        for channel, channel_imgs in train_wandb_images.items():
+            name = self.channel_order[channel]
+            log_dict[f"train_example/example_tracks_{name}"] = channel_imgs
+        wandb.log(log_dict)
+        return
+
     def _fit(self, max_epochs=None):
         if max_epochs is None:
             max_epochs = self.max_epochs
@@ -864,45 +884,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         batch["pred_data"] = y_pred
                         batch["true_data"] = y_true
                         batch.update(additional_results)
-
-                        if self.prefix in self.dataset.name_to_pseudobulker:
-                            # this part is for mouse pseudobulk dataset
-                            try:
-                                id_array = (
-                                    batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                                )
-                                pseudobulker = self.dataset.name_to_pseudobulker[
-                                    self.prefix
-                                ]
-                                batch["sample_id"] = pseudobulker.pseudobulk_ids[
-                                    id_array
-                                ]
-                            except KeyError:
-                                batch["sample_id"] = None
-                        else:
-                            batch["sample_id"] = batch.get("cell_type_id", None)
-                        log_dict = {}
-                        train_wandb_images = self._plot_example([batch])
-                        for channel, channel_imgs in train_wandb_images.items():
-                            name = self.channel_order[channel]
-                            log_dict[f"train_example/example_tracks_{name}"] = (
-                                channel_imgs
-                            )
-
-                        for plot_name in ("upper_bound", "p"):
-                            if f"true_{plot_name}" in batch:
-                                this_imgs = self._plot_example(
-                                    [batch],
-                                    true_key=f"true_{plot_name}",
-                                    pred_key=f"pred_{plot_name}",
-                                )
-                                for channel, channel_imgs in this_imgs.items():
-                                    name = self.channel_order[channel]
-                                    log_dict[
-                                        f"train_example/example_tracks_{name}_{plot_name}"
-                                    ] = channel_imgs
-
-                        wandb.log(log_dict)
+                        self._example_step(batch)
 
             # end of epoch clear any remaining gradients
             optimizer.zero_grad()
@@ -1107,6 +1089,23 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
         return batch
 
+    def _cond_flow_module_forward_pass(self, module, batch: dict):
+        """
+        Forward pass for the conditional flow module.
+        This is used in the BorzoiLoRA model to predict velocity.
+        """
+        cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
+        time = batch["__t__"]
+        cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
+
+        # 3. aggregate all conditional input
+        cond_ensemble = module(
+            cell_emb=cell_emb_0,
+            time=time,
+            cond_emb=cond_emb,
+        )
+        return cond_ensemble
+
     def _model_forward_pass_flow(self, model: BorzoiLoRA, batch: dict):
         batch = self._split_cond_emb_to_terms(batch)
 
@@ -1129,23 +1128,16 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
                 signal += 1
         signal = torch.log1p(signal)
 
-        # 2. conditional input
-        cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
-        time = batch["__t__"]
-        cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
-
-        # 3. aggregate all conditional input
-        cond_ensemble = model.cond_flow_module(
-            cell_emb=cell_emb_0,
-            time=time,
-            cond_emb=cond_emb,
+        # 2. aggregate all conditional input
+        cond_ensemble = self._cond_flow_module_forward_pass(
+            model.cond_flow_module, batch
         )
 
-        # 4. predict velocity
+        # 3. predict velocity
         vt = model(dna_one_hot, embedding=cond_ensemble, signal=signal)
         batch["__vt__"] = vt
 
-        # 5. loss on velocity
+        # 4. loss on velocity
         ut = batch["__ut__"]
         loss, ut = model.flow_model_loss(v_t=vt, u_t=ut)
         loss_breakdown = {}
@@ -1183,6 +1175,216 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             wandb.finish()
         flag.touch()
         return
+
+
+class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
+    dataset_class = BorzoiMultiDataset
+
+    trainer_config = BorzoiTrainerMixin.trainer_config.copy()
+    trainer_config.update(
+        {
+            "mode": "lora",
+            "lr": 5e-5,
+            "warmup_steps": 10000,
+            "scheduler": True,
+        }
+    )
+
+    def _get_dataset(self):
+        dataset = self.dataset_class.create_from_config(self.config)
+        return dataset
+
+    def _cond_flow_module_forward_pass(self, module, batch: dict):
+        """
+        Forward pass for the conditional flow module.
+        This is used in the BorzoiLoRA model to predict velocity.
+        """
+        cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
+        time = batch["__t__"]
+        cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
+        dataset_keys = batch["__dataset_keys__"]
+
+        # 3. aggregate all conditional input
+        cond_ensemble = module(
+            cell_emb=cell_emb_0,
+            time=time,
+            cond_emb=cond_emb,
+            dataset_keys=dataset_keys,
+        )
+        return cond_ensemble
+
+    def _split_cond_emb_to_terms(self, batch):
+        # split the cond_emb into dict of terms using cond_encoder in pseudobulker
+        multi_pm = self.dataset.dm.pseudobulker
+        dataset_pm = list(multi_pm.pseudobulker_dict.values())[0]
+        condition_encoder = dataset_pm.condition_encoder
+        if condition_encoder is not None:
+            cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+            cond_emb_terms = condition_encoder.split_cond_emb(cond_emb)
+            batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
+        return batch
+
+    def _plot_example(
+        self, example_batches, true_key="true_data", pred_key="pred_data", y_sync=False
+    ):
+        epoch = self.cur_epoch + 1
+        wandb_images = defaultdict(list)
+
+        for idx, batch in enumerate(example_batches):
+            if idx >= self.plot_example_per_epoch:
+                break
+
+            self._maybe_modify_sample_name(batch)
+
+            try:
+                plotter = BorzoiExamplePlotter(
+                    genome=None,
+                    true_key=true_key,
+                    pred_key=pred_key,
+                    id_key="sample_id",
+                    plot_mode=(
+                        "atac"
+                        if self.model.loss_type == "poisson_multinomial"
+                        else "mc"
+                    ),
+                )
+                fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
+
+                if self.dataset.paired_data:
+                    nrows = [0, 2]
+                else:
+                    nrows = 2
+
+                for channel in range(min(batch[true_key].shape[1], 3)):
+                    fig = plotter.plot(
+                        batch,
+                        channel=channel,
+                        nrows=nrows,
+                        return_array=True,
+                        y_sync=y_sync,
+                    )
+
+                    wandb_images[channel].append(
+                        wandb.Image(
+                            fig,
+                            mode="RGB",
+                            caption=f"Epoch {epoch} Example {idx}",
+                            grouping=epoch,
+                            file_type="jpg",  # reduce file size
+                        )
+                    )
+            except ValueError as e:
+                print(f"Error in plotting example: {e}")
+                print(batch)
+                for k, v in batch.items():
+                    print(k, v.shape)
+                continue
+        return wandb_images
+
+    def _example_step(self, batch):
+        batch["sample_id"] = None
+        log_dict = {}
+        train_wandb_images = self._plot_example([batch])
+        for channel, channel_imgs in train_wandb_images.items():
+            log_dict[f"train_example/example_tracks_{channel}"] = channel_imgs
+        wandb.log(log_dict)
+        return
+
+    @torch.no_grad()
+    def _model_validation_step(
+        self,
+        model,
+        dataloader,
+        val_batches,
+        collect_data=False,
+    ):
+        if val_batches is None:
+            print_step = 100
+            example_step = 100
+        else:
+            print_step = max(5, val_batches // 10)
+            example_step = max(5, val_batches // (self.plot_example_per_epoch + 1))
+        # if val batches is None, use all batches in the dataset
+        size = 0
+        mean_val_loss = CumulativeCounter()
+
+        mean_loss_breakdown = {}
+
+        if isinstance(model.final_output_head, DualOutputHead):
+            num_channels = len(self.config["data_key"])
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
+                self.device
+            )
+        else:
+            mean_val_corr = MeanPearsonCorrCoefPerChannel(
+                n_channels=model.out_channels
+            ).to(self.device)
+
+        example_batches = []  # collect example batches for making images
+        data_collector = []  # collect data for further analysis
+
+        for batch_id, batch in enumerate(dataloader):
+            with self._autocast_context():
+                y_true, y_pred, loss, loss_breakdown, *additional_results = (
+                    self._model_forward_pass(model, batch)
+                )
+
+            if len(additional_results) > 0:
+                additional_results = additional_results[0]
+            else:
+                additional_results = {}
+
+            mean_val_corr.update(target=y_true, preds=y_pred)
+            for k, v in loss_breakdown.items():
+                try:
+                    mean_loss_breakdown[k].update(v)
+                except KeyError:
+                    mean_loss_breakdown[k] = CumulativeCounter()
+                    mean_loss_breakdown[k].update(v)
+            mean_val_loss.update(loss)
+
+            # add additional data into batch dict
+            batch["true_data"] = y_true
+            batch["pred_data"] = y_pred
+            batch.update(loss_breakdown)
+            if collect_data:
+                data_collector.append(
+                    {
+                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()
+                    }
+                )
+
+            size += 1
+            if batch_id % example_step == 0:
+                example_batches.append(batch)
+
+            if ((batch_id + 1) % print_step) == 0:
+                desc_str = (
+                    f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
+                    f"Mean Loss: {mean_val_loss.mean():.3f}; "
+                    f"Mean Track Corr: {mean_val_corr.get_corr_str()}; "
+                )
+                print(desc_str)
+
+        del dataloader
+        self._cleanup_env()
+
+        wandb_images = self._plot_example(example_batches, y_sync=False)
+        # channel to name
+        wandb_images = {self.channel_order[k]: v for k, v in wandb_images.items()}
+
+        # ==========
+        # Final metrics
+        # ==========
+        val_loss = mean_val_loss.mean()
+        val_loss_breakdown = {k: v.mean() for k, v in mean_loss_breakdown.items()}
+        val_corr = mean_val_corr
+
+        if collect_data:
+            return val_loss, val_loss_breakdown, val_corr, wandb_images, data_collector
+        else:
+            return val_loss, val_loss_breakdown, val_corr, wandb_images
 
 
 class BorzoiArchTrainer(BorzoiLoRATrainer):

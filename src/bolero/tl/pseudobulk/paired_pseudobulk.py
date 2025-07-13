@@ -1057,7 +1057,7 @@ class GeneratePairedPseudobulk:
 
                     _bulk_values = (
                         row_by_base[prefix_rows].sum(axis=0).A1
-                    )  # (1, region_length)
+                    )  # (region_length, )
 
                     if self.normalize_cov:
                         prefix_cov_logfc = cov_logfc[prefix]

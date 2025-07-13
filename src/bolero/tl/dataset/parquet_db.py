@@ -20,6 +20,7 @@ def pseudobulk_to_merge_plan(
     row_names,
     merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None,
     pseudobulk_ids: list[str] | None = None,
+    convert_row_name=True,
 ) -> tuple[dict[str, dict[int, int]] | None, pd.Index]:
     """
     Register the merge plan from {pseudobulk_id: [row_names]} to {row_id: pseudobulk_row_id}
@@ -53,14 +54,19 @@ def pseudobulk_to_merge_plan(
                 # each prefix has its own pseudobulk row names
                 pseudobulk_row_names = pseudobulk_row_names[prefix]
             pseudobulk_idx = pseudobulk_ids.index(pseudobulk_id)
-            cell_row_indices = sorted(cell_row_names.get_indexer(pseudobulk_row_names))
-            if -1 in cell_row_indices:
-                # -1 means the row name is not found in the cell row names
-                raise ValueError(
-                    f"Some pseudobulk row names {pseudobulk_row_names} are not "
-                    f"found in the cell row names for prefix {prefix}."
-                    f"Make sure you used the right parquet dataset and pseudobulk file."
-                )
+            if convert_row_name:
+                cell_row_indices = cell_row_names.get_indexer(pseudobulk_row_names)
+                if -1 in cell_row_indices:
+                    # -1 means the row name is not found in the cell row names
+                    raise ValueError(
+                        f"Some pseudobulk row names {pseudobulk_row_names} are not "
+                        f"found in the cell row names for prefix {prefix}."
+                        f"Make sure you used the right parquet dataset and pseudobulk file."
+                    )
+                cell_row_indices = sorted(cell_row_indices)
+            else:
+                cell_row_indices = pseudobulk_row_names
+
             for cell_row_idx in cell_row_indices:
                 prefix_plan[cell_row_idx].append(pseudobulk_idx)
         all_merge_plan[prefix] = prefix_plan
@@ -189,10 +195,9 @@ class GenomeParquetDBNoParallel:
         self.prefix_names = list(self.row_names.keys())
 
         self.original_merge_plan = merge_plan
-        merge_plan, pseudobulk_ids = self._register_merge_plan(
+        merge_plan, pseudobulk_ids = self.pseudobulk_to_merge_plan(
             merge_plan, pseudobulk_ids
         )
-
         # merge_plan is a dict of {prefix: {row_idx: [pseudobulk_row_idices]}}
         self.merge_plan: dict[str, dict[int, int]] | None = merge_plan
         self.pseudobulk_ids: pd.Index = pseudobulk_ids
@@ -255,10 +260,11 @@ class GenomeParquetDBNoParallel:
         self.con.register("region_lookup", region_lookup)
         return region_lookup
 
-    def _register_merge_plan(
+    def pseudobulk_to_merge_plan(
         self,
         merge_plan: dict[str, list[str]] | dict[str, dict[str, list[str]]] | None,
         pseudobulk_ids: list[str] | None = None,
+        convert_row_name=True,
     ) -> tuple[dict[str, dict[int, int]] | None, pd.Index]:
         """
         Register the merge plan from {pseudobulk_id: [row_names]} to {row_id: pseudobulk_row_id}
@@ -271,6 +277,7 @@ class GenomeParquetDBNoParallel:
             self.row_names,
             merge_plan=merge_plan,
             pseudobulk_ids=pseudobulk_ids,
+            convert_row_name=convert_row_name,
         )
         return all_merge_plan, pseudobulk_ids
 
@@ -323,6 +330,18 @@ class GenomeParquetDBNoParallel:
             tocsc=True,
         )
         return actor
+
+    def update_row_actor(self, new_merge_plan, convert_row_name=True):
+        """Create a new row actor with the updated merge plan."""
+        merge_plan, pseudobulk_ids = self.pseudobulk_to_merge_plan(
+            new_merge_plan, None, convert_row_name=convert_row_name
+        )
+        # merge_plan is a dict of {prefix: {row_idx: [pseudobulk_row_idices]}}
+        self.merge_plan: dict[str, dict[int, int]] | None = merge_plan
+        self.pseudobulk_ids: pd.Index = pseudobulk_ids
+
+        self._single_row_actor = self._create_row_actor()
+        return
 
     def _create_extractor(self) -> _RegionExtractor:
         """

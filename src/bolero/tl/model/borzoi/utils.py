@@ -8,6 +8,30 @@ from bolero.utils import get_package_dir
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
 BORZOI_REGION_SIZE = 524288
 
+# as said by the author: https://github.com/calico/borzoi/issues/11
+FOLD_SPLITS = [
+    {
+        "train": [2, 3, 4, 5, 6, 7],
+        "valid": [0],
+        "test": [1],
+    },
+    {
+        "train": [0, 3, 4, 5, 6, 7],
+        "valid": [1],
+        "test": [2],
+    },
+    {
+        "train": [0, 1, 4, 5, 6, 7],
+        "valid": [2],
+        "test": [3],
+    },
+    {
+        "train": [0, 1, 2, 5, 6, 7],
+        "valid": [3],
+        "test": [4],
+    },
+]
+
 
 class BorzoiRegions:
     """
@@ -15,29 +39,7 @@ class BorzoiRegions:
     https://github.com/calico/baskerville/blob/main/src/baskerville/bed.py
     """
 
-    # as said by the author: https://github.com/calico/borzoi/issues/11
-    fold_splits = [
-        {
-            "train": [2, 3, 4, 5, 6, 7],
-            "valid": [0],
-            "test": [1],
-        },
-        {
-            "train": [0, 3, 4, 5, 6, 7],
-            "valid": [1],
-            "test": [2],
-        },
-        {
-            "train": [0, 1, 4, 5, 6, 7],
-            "valid": [2],
-            "test": [3],
-        },
-        {
-            "train": [0, 1, 2, 5, 6, 7],
-            "valid": [3],
-            "test": [4],
-        },
-    ]
+    fold_splits = FOLD_SPLITS
 
     def __init__(self, genome):
         if isinstance(genome, Genome):
@@ -217,6 +219,8 @@ class MultiBorzoiRegions:
     """
     A class to handle multiple BorzoiRegions for different keys.
     """
+
+    fold_splits = FOLD_SPLITS
 
     def __init__(self, key_to_genome):
         self.key_to_genome = key_to_genome

@@ -675,6 +675,51 @@ class _SimpleEncoder(nn.Module):
         return x
 
 
+class _MultiSimpleEncoder(nn.Module):
+    def __init__(
+        self,
+        input_dim: int | list[int],
+        n_datasets: int,
+        encoder_cls: type,
+        **encoder_kwargs,
+    ):
+        super().__init__()
+
+        modules = []
+        if isinstance(input_dim, int):
+            input_dim = [input_dim] * n_datasets
+        assert (
+            len(input_dim) == n_datasets
+        ), "input_dim must be a list of length n_datasets"
+        for _dim in input_dim:
+            modules.append(
+                encoder_cls(
+                    input_dim=_dim,
+                    **encoder_kwargs,
+                )
+            )
+        self.encoders = nn.ModuleList(modules)
+        self.output_dim = self.encoders[0].encoder_dims[-1]
+
+    def forward(
+        self, embedding: torch.Tensor, dataset_keys: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        embedding: (bs, input_dim)
+        dataset_keys: (bs,) int tensor in range [0, num_datasets)
+        Returns: (bs, hidden_dim)
+        """
+        bs = embedding.shape[0]
+        outputs = embedding.new_zeros(bs, self.output_dim)
+
+        for i, encoder in enumerate(self.encoders):
+            idx = (dataset_keys == i).nonzero(as_tuple=True)[0]
+            if idx.numel() > 0:
+                encoded = encoder(embedding[idx])
+                outputs[idx] = encoded.to(outputs.dtype)
+        return outputs
+
+
 class CondFlowModule(nn.Module):
     """
     CondFlowModule is a module that process condtional input
@@ -694,6 +739,7 @@ class CondFlowModule(nn.Module):
         cond_encoder_dims: list[int] = (128, 128),
         cond_encoder_dropout: float = 0.1,
         cond_attn_pooling: bool = True,
+        n_cell_encoder: int = 1,
     ):
         super().__init__()
 
@@ -702,12 +748,23 @@ class CondFlowModule(nn.Module):
         cond_encoder_dims = list(cond_encoder_dims)
 
         # cell embedding encoder
-        self.cell_encoder = _SimpleEncoder(
-            input_dim=cell_emb_dim,
-            encoder_dims=cell_encoder_dims,
-            encoder_dropout=cell_encoder_dropout,
-            attn_pooling=cell_attn_pooling,
-        )
+        self.n_cell_encoder = n_cell_encoder
+        if n_cell_encoder == 1:
+            self.cell_encoder = _SimpleEncoder(
+                input_dim=cell_emb_dim,
+                encoder_dims=cell_encoder_dims,
+                encoder_dropout=cell_encoder_dropout,
+                attn_pooling=cell_attn_pooling,
+            )
+        else:
+            self.cell_encoder = _MultiSimpleEncoder(
+                input_dim=cell_emb_dim,
+                n_datasets=n_cell_encoder,
+                encoder_cls=_SimpleEncoder,
+                encoder_dims=cell_encoder_dims,
+                encoder_dropout=cell_encoder_dropout,
+                attn_pooling=cell_attn_pooling,
+            )
 
         # time encoder
         self.time_encoder = _TimeEncoder(
@@ -755,6 +812,7 @@ class CondFlowModule(nn.Module):
         cell_emb: torch.Tensor,
         time: torch.Tensor,
         cond_emb: torch.Tensor | dict[str, torch.Tensor],
+        dataset_keys: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         cell_emb: (bs, d_e) or (bs, n, d_e)
@@ -766,7 +824,13 @@ class CondFlowModule(nn.Module):
         to_cat = []
 
         # encode cell embedding
-        cell_emb = self.cell_encoder(cell_emb)
+        if self.n_cell_encoder > 1:
+            assert (
+                dataset_keys is not None
+            ), "dataset_key must be provided for multi-dataset case"
+            cell_emb = self.cell_encoder(cell_emb, dataset_keys)
+        else:
+            cell_emb = self.cell_encoder(cell_emb)
         if cell_emb.ndim == 3:
             # if not attn_pooling in encoder,
             # here just perform mean pooling on the cell embedding

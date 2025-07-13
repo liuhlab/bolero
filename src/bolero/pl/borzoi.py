@@ -9,7 +9,7 @@ from bolero.pl.utils import figure_to_array
 class BorzoiExamplePlotter:
     def __init__(
         self,
-        genome: Genome,
+        genome: Genome | None,
         zoomin_radius: int = 500,
         true_key="true_data",
         pred_key="pred_data",
@@ -26,6 +26,8 @@ class BorzoiExamplePlotter:
 
     def parse_region_coords(self, batch):
         """Parse the region coordinates from a batch of examples"""
+        if self.genome is None:
+            return None
         regions = batch["region"]
         if isinstance(regions, torch.Tensor):
             regions = regions.cpu().numpy()
@@ -91,8 +93,11 @@ class BorzoiExamplePlotter:
             pred_data = y_pred[row_id, channel, :]
             sample_id = sample_ids[row_id]
 
-            chrom, start, end, *_ = regions.iloc[row_id]
-            region = f"{chrom}:{start}-{end}"
+            if regions is not None:
+                chrom, start, end, *_ = regions.iloc[row_id]
+                region = f"{chrom}:{start}-{end}"
+            else:
+                region = "chrUnknown:0-524288"
 
             if region_names is not None:
                 gene_name = gene_names[row_id]

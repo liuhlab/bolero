@@ -57,8 +57,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "freeze_signal_encoder": False,  # only for ablation studies
             "cond_emb_dim": None,
             "cond_flow_kwargs": None,
-            "signal_norm": False,
-            "nosignal_prob": 0.0,
+            "nosignal_prob": 0.2,
             # benchmark parameters
             "_multihead_model": False,
         }
@@ -100,7 +99,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         freeze_signal_encoder=False,  # only for ablation studies
         cond_emb_dim=None,
         cond_flow_kwargs=None,
-        signal_norm=False,
         nosignal_prob=0.0,
         # benchmark parameters
         _multihead_model=False,
@@ -247,7 +245,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # setup flow model
         if flow_model:
             cond_flow_kwargs = cond_flow_kwargs or {}
-            self.signal_norm = signal_norm
             self.nosignal_prob = nosignal_prob
 
             self.signal_encoder, self.cond_flow_module = self.setup_flow_model(
@@ -380,25 +377,17 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         Setup special modules for a flow model
         """
         # 1. put out_channels also in the DNA conv layer, model takes dna_and_At as input
-        if self.signal_norm:
-            signal_encoder = nn.Sequential(
-                nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
-                nn.GroupNorm(4, 128),
-                nn.SiLU(),
-                nn.Conv1d(128, 512, kernel_size=3, padding=1),
-                nn.GroupNorm(16, 512),
-                nn.SiLU(),
-                nn.Conv1d(512, 1280, kernel_size=3, padding=1),
-                nn.GroupNorm(40, 1280),
-            )
-        else:
-            signal_encoder = nn.Sequential(
-                nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
-                nn.SiLU(),
-                nn.Conv1d(128, 512, kernel_size=3, padding=1),
-                nn.SiLU(),
-                nn.Conv1d(512, 1280, kernel_size=3, padding=1),
-            )
+        signal_encoder = nn.Sequential(
+            nn.Conv1d(out_channels, 128, kernel_size=3, padding=1),
+            nn.GroupNorm(4, 128),
+            nn.SiLU(),
+            nn.Conv1d(128, 512, kernel_size=3, padding=1),
+            nn.GroupNorm(16, 512),
+            nn.SiLU(),
+            nn.Conv1d(512, 1280, kernel_size=3, padding=1),
+            nn.GroupNorm(40, 1280),
+        )
+
         # zero init last layer so that it doesn't affect the model initially
         signal_encoder[-1].weight.data.zero_()
         signal_encoder[-1].bias.data.zero_()
