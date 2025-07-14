@@ -1101,6 +1101,35 @@ class BorzoiPredictor(GenericPredictor):
         return
 
 
+class BorzoiMultiHeadPredictor(BorzoiPredictor):
+    def _model_prediction_step(
+        self,
+        batch,
+        dna_key="__dna__",
+        ypred_key="__ypred__",
+        batch_size=16,
+    ):
+        """
+        Forward pass through the model.
+        """
+        # prepare data
+        dna = batch[dna_key]  # (n_region, 4, seq_len)
+
+        n_region = dna.shape[0]
+        pred_col = []
+        for i in range(0, n_region, batch_size):
+            dna_mini_batch = dna[i : i + batch_size]
+
+            with self._autocast_context():
+                y_pred_mini_batch = self.model(dna_mini_batch)
+                pred_col.append(y_pred_mini_batch)
+        y_pred = torch.cat(pred_col, dim=0)
+        # y_pred shape (n_region, n_emb, seq_len)
+
+        batch[ypred_key] = y_pred.detach()
+        return batch
+
+
 class BorzoiPairPredictor(BorzoiPredictor):
     def __init__(self, config):
         paired_pseudobulker, config = self._create_pseudobulk_records_from_design(
