@@ -1124,7 +1124,7 @@ class BorzoiMultiHeadPredictor(BorzoiPredictor):
                 y_pred_mini_batch = self.model(dna_mini_batch)
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
-        # y_pred shape (n_region, n_emb, seq_len)
+        # y_pred shape (n_region, n_emb/n_pseudobulks, seq_len)
 
         batch[ypred_key] = y_pred.detach()
         return batch

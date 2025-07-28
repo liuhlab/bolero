@@ -4,6 +4,7 @@ from typing import Any, Iterable
 import joblib
 import numpy as np
 import pandas as pd
+import pyranges as pr
 import ray
 
 from bolero import Genome
@@ -13,6 +14,7 @@ from bolero.tl.dataset.transforms import FetchRegionOneHot, ReverseComplement
 from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.model.borzoi.utils import MultiBorzoiRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import MultiPairedPseudobulker
+from bolero.utils import understand_regions
 
 DNA_NAME = "dna_one_hot"
 
@@ -186,6 +188,23 @@ class DatasetRecordManager:
             use_regions.append(use_key_regions)
         return pd.concat(use_regions, ignore_index=True)
 
+    def _select_full_overlap_regions(self, regions: pd.DataFrame) -> pd.DataFrame:
+        # Select regions that fully overlap with the parquet bed files.
+        parquet_bed_dict = {}
+        for k, p in self._data_paths.items():
+            parquet_bed = pd.read_feather(f"{p}/parquet_row_regions.feather")
+            parquet_bed = pr.PyRanges(understand_regions(parquet_bed["region"])).merge()
+            parquet_bed_dict[k] = parquet_bed
+
+        full_overlap_regions = []
+        for key, key_regions in regions.groupby("key"):
+            key_regions = pr.PyRanges(key_regions).overlap(
+                parquet_bed_dict[key], how="containment"
+            )
+            full_overlap_regions.append(key_regions.df)
+        regions = pd.concat(full_overlap_regions)
+        return regions.reset_index(drop=True)
+
     def get_train_valid_test_regions(
         self, split_id: int, seed: int, **kwargs
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -193,9 +212,13 @@ class DatasetRecordManager:
         Get the train, valid, and test folds and regions for the given split_id.
         Then sample the regions for each dataset key based on the sample_region_fracs.
         """
-        return self.borzoi_regions.get_train_valid_test_regions(
+        train_df, valid_df, test_df = self.borzoi_regions.get_train_valid_test_regions(
             split_id=split_id, **kwargs
         )
+        train_df = self._select_full_overlap_regions(train_df)
+        valid_df = self._select_full_overlap_regions(valid_df)
+        test_df = self._select_full_overlap_regions(test_df)
+        return train_df, valid_df, test_df
 
     def get_fasta_dict(self) -> dict[str, str]:
         """
@@ -450,6 +473,8 @@ class BorzoiMultiDataset(GenericDataset):
         self.signal_columns = [
             f"{self.output_prefix}:bulk_data_0",
             f"{self.output_prefix}:bulk_data_1",
+            "__ut__",
+            # "__xt__",
         ]
         return
 

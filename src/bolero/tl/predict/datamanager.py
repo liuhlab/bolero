@@ -544,9 +544,6 @@ class GenericGenomeDataManager:
             if pseudobulk_info_keys is not None:
                 batch_data.update(pseudobulk_info)
 
-            # add mutation information
-            # TODO: add mutation information with dna_mut key
-
             yield batch_data
 
     def _iter_batches(

@@ -410,7 +410,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         validate_config(config, cls.get_default_config(), allow_extra_keys=True)
         return config
 
-    def _setup_wandb(self, use_wandb: bool = True):
+    def __setup_wandb(self, use_wandb: bool = True):
         """
         Set up Weights and Biases for logging.
 
@@ -509,6 +509,24 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             json.dump(wandb_run_info, f, indent=4)
 
         self.wandb_run_name = wandb.run.name
+        return wandb_run
+
+    def _setup_wandb(self, use_wandb: bool = True):
+        """
+        Set up Weights and Biases for logging.
+
+        Args:
+            use_wandb (bool): Whether to use Weights and Biases for logging.
+
+        Returns
+        -------
+            wandb_run: Weights and Biases run context or FakeWandb if not using W & B.
+        """
+        try:
+            wandb_run = self.__setup_wandb(use_wandb)
+        except wandb.errors.CommError:
+            print("W & B communication error. Using FakeWandb.")
+            wandb_run = FakeWandb()
         return wandb_run
 
     def _has_last_checkpoint(self):
