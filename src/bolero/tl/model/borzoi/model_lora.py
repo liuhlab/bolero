@@ -392,6 +392,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # IMPORTANT: Conv1d is the -2 layer in the signal_encoder
         signal_encoder[-2].weight.data.zero_()
         signal_encoder[-2].bias.data.zero_()
+        # and GroupNorm bias is also zero
+        signal_encoder[-1].weight.data.one_()
+        signal_encoder[-1].bias.data.zero_()
 
         from bolero.tl.generic.module_embedding import CondFlowModule
 
