@@ -392,7 +392,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # IMPORTANT: Conv1d is the -2 layer in the signal_encoder
         signal_encoder[-2].weight.data.zero_()
         signal_encoder[-2].bias.data.zero_()
-        # and GroupNorm bias is also zero
+        # and GroupNorm bias is also init as no effect
         signal_encoder[-1].weight.data.one_()
         signal_encoder[-1].bias.data.zero_()
 
@@ -408,6 +408,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # For example:
         # emb = self.cond_flow_module(
         #     cell_emb, time, cond_emb
+        # )
+        # cell_emb = self.cond_flow_module(
+        #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
         # )
         return signal_encoder, cond_flow_module
 

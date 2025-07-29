@@ -1126,6 +1126,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             if self.config.get("use_xt", False):
                 # xt is added by one, make signal consistent as well
                 signal += 1
+            batch["__t__"] = torch.zeros_like(batch["__t__"])
         signal = torch.log1p(signal)
 
         # 2. aggregate all conditional input
