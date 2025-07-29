@@ -388,9 +388,10 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             nn.GroupNorm(40, 1280),
         )
 
-        # zero init last layer so that it doesn't affect the model initially
-        signal_encoder[-1].weight.data.zero_()
-        signal_encoder[-1].bias.data.zero_()
+        # zero init last Conv1d layer so that it doesn't affect the model initially
+        # IMPORTANT: Conv1d is the -2 layer in the signal_encoder
+        signal_encoder[-2].weight.data.zero_()
+        signal_encoder[-2].bias.data.zero_()
 
         from bolero.tl.generic.module_embedding import CondFlowModule
 
