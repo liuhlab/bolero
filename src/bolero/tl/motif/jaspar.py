@@ -32,6 +32,10 @@ JASPAR_MTOFI_DBS = {
     for p in pathlib.Path(PKG_DATA_PATH).glob("jaspar/*dict*")
 }
 
+JASPAR_VERTEBRATES_CLUSTER_PATH = (
+    PKG_DATA_PATH / "jaspar/JASPAR2024_CORE_vertebrates.motif_cluster.joblib"
+)
+
 # The above motif_pwm.dict files are generated from the JASPAR 2024 CORE motif database using dump_jaspar_motif_pwm_dict
 # JASPAR 2024 CORE motif database
 _JASPAR_URL_BASE = "https://jaspar.elixir.no/download/data/2024/CORE"
@@ -367,6 +371,12 @@ class JASPARMotifDatabase:
         self.motif_dict = {motif.name: motif for motif in self.motifs}
         self.motif_name_to_id = {k: v.motif_id for k, v in self.motif_dict.items()}
         self._motif_tensor_dict = None
+
+        if db == "JASPAR2024_CORE_vertebrates":
+            # load the motif cluster
+            self.motif_cluster = joblib.load(JASPAR_VERTEBRATES_CLUSTER_PATH)
+        else:
+            self.motif_cluster = None
         return
 
     def __len__(self):

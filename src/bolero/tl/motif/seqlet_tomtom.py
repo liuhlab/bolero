@@ -156,6 +156,7 @@ class SeqletTomtom:
 
     def _annotate_regions(self, chunk_ds, chunk_start, regions):
         seqlet_regions = []
+        attr_region_pos = chunk_ds["seqlet"].values.copy()
         for seqlet_name in chunk_ds["seqlet"].values:
             seq_id, qstart, qend = map(int, seqlet_name.split("_"))
             seq_id = seq_id + chunk_start
@@ -165,6 +166,9 @@ class SeqletTomtom:
             seqlet_region = f"{chrom}:{gstart}-{gend}"
             seqlet_regions.append(seqlet_region)
         chunk_ds = chunk_ds.assign_coords(seqlet=pd.Index(seqlet_regions))
+
+        attr_region_pos = pd.Series(attr_region_pos, index=chunk_ds.get_index("seqlet"))
+        chunk_ds["attr_region"] = attr_region_pos
         return chunk_ds
 
     def _run_chunk(
