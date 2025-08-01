@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from memelite import tomtom
-from modiscolite.core import TrackSet
+from modiscolite.core import Seqlet, TrackSet
 from modiscolite.extract_seqlets import extract_seqlets
 
 
@@ -118,7 +118,16 @@ class SeqletTomtom:
                 use_seqlets.append(seqlet)
         return use_seqlets, seqlet_signs
 
-    def _tomtom(self, seqlets: list) -> xr.DataArray:
+    def adjust_seqlets_idx_(self, seqlets: list[Seqlet], chunk_start: int):
+        """
+        Adjust seqlet indices to account for the chunk start.
+        This is necessary to maintain global indexing across chunks.
+        """
+        for seqlet in seqlets:
+            seqlet.example_idx += chunk_start
+        return
+
+    def _tomtom(self, seqlets: list[Seqlet]) -> xr.DataArray:
         pwms = [m.pwm.values.T.astype("float32") for m in self.motif_db.motifs]
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         score_names = [seqlet.string for seqlet in seqlets]
@@ -154,12 +163,11 @@ class SeqletTomtom:
         seq = xr.DataArray(seq, dims=["seqlet", "base", "position"], coords=coords)
         return score, seq
 
-    def _annotate_regions(self, chunk_ds, chunk_start, regions):
+    def _annotate_regions(self, chunk_ds, regions):
         seqlet_regions = []
         attr_region_pos = chunk_ds["seqlet"].values.copy()
         for seqlet_name in chunk_ds["seqlet"].values:
             seq_id, qstart, qend = map(int, seqlet_name.split("_"))
-            seq_id = seq_id + chunk_start
             chrom, rstart, *_ = regions.iloc[seq_id]
             gstart = rstart + qstart
             gend = rstart + qend
@@ -182,6 +190,7 @@ class SeqletTomtom:
         use_seqlets, seqlet_signs = self._extract_seqlets(
             one_hot, hypothetical_contribs
         )
+        use_seqlets = self.adjust_seqlets_idx_(use_seqlets, chunk_start)
         if self.verbose:
             print(f"Extracted {len(use_seqlets)} seqlets from chunk {chunk_start}.")
 
@@ -201,7 +210,7 @@ class SeqletTomtom:
 
         if regions is not None:
             # Annotate seqlets with genomic regions
-            ds = self._annotate_regions(ds, chunk_start, regions)
+            ds = self._annotate_regions(ds, regions)
 
         # save temporarily
         with warnings.catch_warnings():

@@ -605,6 +605,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             kwargs.setdefault("pseudobulk_records", pseudobulker.pseudobulk_records)
             kwargs.setdefault("row_names", self.barcode_order)
             kwargs.setdefault("prefix_name", prefix)
+            concurrency = 1  # use single concurrency for multi-head
         else:
             fn = GenerateBorzoiPseudobulk
 
