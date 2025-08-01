@@ -60,6 +60,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "nosignal_prob": 0.2,
             # benchmark parameters
             "_multihead_model": False,
+            #hack
+            "hacked_mode": False,
         }
     )
 
@@ -102,6 +104,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         nosignal_prob=0.0,
         # benchmark parameters
         _multihead_model=False,
+        #hacked
+        hacked_mode= False,
         # base model
         **base_model_kwargs,
     ):
@@ -135,6 +139,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             Number of additional embeddings to be concatenated with the memory embeddings.
         """
         super().__init__(**base_model_kwargs)
+        self.hacked_mode = hacked_mode
         self.lora_preset = lora_preset
         self.out_channels = out_channels
         self.flow_model = flow_model
@@ -253,7 +258,14 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                 cond_emb_dim=cond_emb_dim,
                 **cond_flow_kwargs,
             )
-            emb_input_features = self.cond_flow_module.output_dim
+            if self.hacked_mode:
+                print('Hacked mode enabled')
+                # emb_input_features = self.cond_flow_module.output_dim
+                print(f'Embedding input features is {emb_input_features}')
+                
+            else:
+                emb_input_features = self.cond_flow_module.output_dim
+                print(f'Embedding input features will become {emb_input_features}')
         else:
             self.signal_encoder = None
             self.cond_flow_module = None
@@ -390,29 +402,48 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # zero init last Conv1d layer so that it doesn't affect the model initially
         # IMPORTANT: Conv1d is the -2 layer in the signal_encoder
-        signal_encoder[-2].weight.data.zero_()
-        signal_encoder[-2].bias.data.zero_()
+        # signal_encoder[-2].weight.data.zero_()
+        signal_encoder[-2].weight.data.fill_(0.0)
+        # signal_encoder[-2].bias.data.zero_()
+        signal_encoder[-2].bias.data.fill_(0.0)
         # and GroupNorm bias is also init as no effect
-        signal_encoder[-1].weight.data.one_()
-        signal_encoder[-1].bias.data.zero_()
+        # signal_encoder[-1].weight.data.one_()
+        signal_encoder[-1].weight.data.fill_(1.0)
+        # signal_encoder[-1].bias.data.zero_()
+        signal_encoder[-1].bias.data.fill_(0.0)
 
-        from bolero.tl.generic.module_embedding import CondFlowModule
+        if self.hacked_mode:
 
-        # 2. cond_flow_module combines cell, time, and condition emb
-        # LoRA embedding module will then take emb as input
-        cond_flow_module = CondFlowModule(
-            cell_emb_dim=cell_emb_dim,
-            cond_emb_dim=cond_emb_dim,
-            **cond_flow_kwargs,
-        )
-        # For example:
-        # emb = self.cond_flow_module(
-        #     cell_emb, time, cond_emb
-        # )
-        # cell_emb = self.cond_flow_module(
-        #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
-        # )
-        return signal_encoder, cond_flow_module
+            from bolero.tl.generic.module_embedding import IdentityCondFlow 
+            cond_flow_module = IdentityCondFlow()
+            # cond_flow_module = IdentityCondFlow(cell_emb_dim)
+
+            # give the trainer the encoder + *instance* of the identity module
+            return signal_encoder, cond_flow_module
+                
+        else:
+            from bolero.tl.generic.module_embedding import CondFlowModule
+
+            # 2. cond_flow_module combines cell, time, and condition emb
+            # LoRA embedding module will then take emb as input
+            cond_flow_module = CondFlowModule(
+                cell_emb_dim=cell_emb_dim,
+                cond_emb_dim=cond_emb_dim,
+                **cond_flow_kwargs,
+            )
+            # For example:
+            # emb = self.cond_flow_module(
+            #     cell_emb, time, cond_emb
+            # )
+            # cell_emb = self.cond_flow_module(
+            #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
+            # )
+
+            return signal_encoder, cond_flow_module
+
+    # def cond_flow_module(cell_emb, time, cond_emb):
+
+    #     return cell_emb
 
     def _setup_channel_loss_weights(
         self, channel_loss_weight, learnable_channel_loss_weight

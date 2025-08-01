@@ -867,3 +867,29 @@ class CondFlowModule(nn.Module):
         # combine all embeddings
         emb = torch.cat(to_cat, dim=-1)
         return emb
+
+
+class IdentityCondFlow(nn.Module):
+    def forward(self, *, cell_emb, **kwargs):
+        # ignore time / cond_emb / anything else
+        return cell_emb
+    
+
+# # class IdentityCondFlow(nn.Module):
+# #     def __init__(self, emb_dim: int):
+# #         super().__init__()
+# #         # expose the size exactly like CondFlowModule does
+# #         self.output_dim = emb_dim
+
+# #     def forward(self, *, cell_emb, **kwargs):
+# #         return cell_emb
+
+
+# class IdentityCondFlow(nn.Module):
+#     def __init__(self, emb_dim: int):
+#         super().__init__()
+#         # expose the size exactly like CondFlowModule does
+#         self.output_dim = emb_dim
+
+#     def forward(self, *, cell_emb, **kwargs):
+#         return cell_emb[:, -self.output_dim:]  # ensure the output is of the right size
