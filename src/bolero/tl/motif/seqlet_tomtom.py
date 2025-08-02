@@ -1,12 +1,18 @@
 import pathlib
+import time
 import warnings
 
 import numpy as np
 import pandas as pd
+import ray
 import xarray as xr
 from memelite import tomtom
 from modiscolite.core import Seqlet, TrackSet
 from modiscolite.extract_seqlets import extract_seqlets
+from modiscolite.io import save_hdf5
+from modiscolite.tfmodisco import seqlets_to_patterns
+
+from bolero.pp.genome import Genome
 
 
 def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
@@ -84,9 +90,9 @@ class SeqletTomtom:
         contrib_scores = np.multiply(one_hot, hypothetical_contribs)
 
         track_set = TrackSet(
-            one_hot=one_hot,
-            contrib_scores=contrib_scores,
-            hypothetical_contribs=hypothetical_contribs,
+            one_hot=one_hot,  # shape (n, seq_len, 4)
+            contrib_scores=contrib_scores,  # shape (n, seq_len, 4)
+            hypothetical_contribs=hypothetical_contribs,  # shape (n, seq_len, 4)
         )
 
         seqlet_coords, threshold = extract_seqlets(
@@ -190,7 +196,7 @@ class SeqletTomtom:
         use_seqlets, seqlet_signs = self._extract_seqlets(
             one_hot, hypothetical_contribs
         )
-        use_seqlets = self.adjust_seqlets_idx_(use_seqlets, chunk_start)
+        self.adjust_seqlets_idx_(use_seqlets, chunk_start)
         if self.verbose:
             print(f"Extracted {len(use_seqlets)} seqlets from chunk {chunk_start}.")
 
@@ -270,4 +276,300 @@ class SeqletTomtom:
 
         # Create a success flag file
         success_flag.touch()
+        return
+
+
+@ray.remote
+def _dump_seqlets_per_cluster(
+    tomtom_dir, attr_zarr_dir, save_name, output_dir, motif_cluster
+):
+    output_dir = pathlib.Path(output_dir)
+    flag_path = pathlib.Path(f"{output_dir}/_finished/{save_name}")
+    if flag_path.exists():
+        return
+
+    tomtom_dir = pathlib.Path(tomtom_dir)
+    attr_zarr_dir = pathlib.Path(attr_zarr_dir)
+
+    zarr_paths = list(tomtom_dir.glob("chunk_*.zarr"))
+    dataset = xr.open_mfdataset(
+        zarr_paths,
+        concat_dim="seqlet",
+        combine="nested",
+        engine="zarr",
+        data_vars="minimal",
+    )
+
+    # assign seqlet to cluster based on top TOMTOM hit
+    top_motif = (
+        dataset["seqlets_tomtom"]
+        .sel(value_type="idxs", motif_rank=0)
+        .to_pandas()
+        .astype(int)
+    )
+    motif_ids = dataset.get_index("motif_id").tolist()
+    top_motif_cluster = top_motif.map(lambda idx: motif_ids[idx]).map(motif_cluster)
+
+    # group seqlets by motif cluster and save to each dir
+    dataset = dataset.drop_duplicates(dim="seqlet")
+
+    score_da = dataset["seqlets_score"].load()
+    seq_da = dataset["seqlets_seq"].load()
+    attr_region = dataset["attr_region"].load()
+    seqlet_sign = dataset["seqlets_sign"].load()
+
+    for cluster, seqlets in top_motif_cluster.groupby(top_motif_cluster):
+        seqlets = seqlets.index
+        seq = seq_da.sel(seqlet=seqlets).values
+        attr = score_da.sel(seqlet=seqlets).values
+        attr_regions = attr_region.sel(seqlet=seqlets).values
+        signs = seqlet_sign.sel(seqlet=seqlets).values
+        for sign in [-1, 1]:
+            sign_sel = signs == sign
+            _seq = seq[sign_sel]
+            _attr = attr[sign_sel] * sign
+            _attr_regions = attr_regions[sign_sel]
+            np.savez_compressed(
+                f"{output_dir}/{cluster}/{save_name}_{sign}",
+                seq=_seq,
+                attr=_attr,
+                attr_region=_attr_regions,
+                attr_zarr_dir=np.array([str(attr_zarr_dir)]),
+            )
+    flag_path.touch()
+    return
+
+
+class _Seqlet(Seqlet):
+    def __init__(self, name, sequence, contrib_scores, hypothetical_contribs):
+        self.sequence = sequence
+        self.contrib_scores = contrib_scores
+        self.hypothetical_contribs = hypothetical_contribs
+
+        example_idx, start, end = map(int, name.split("_"))
+        self.example_idx = example_idx
+        self.start = start
+        self.end = end
+        self.is_revcomp = False
+
+
+@ray.remote
+def _sample_seqlets_from_npz(npz_path, sample_prob, sign):
+    seqlets = []
+    seqs = np.load(npz_path)["seq"]
+    seqs = seqs.transpose(0, 2, 1)  # shape (n, seq_len, 4)
+    attrs = np.load(npz_path)["attr"] * sign
+    attrs = attrs.astype(np.float32).transpose(0, 2, 1)  # shape (n, seq_len, 4)
+    names = np.load(npz_path, allow_pickle=True)["attr_region"]
+    use_rows = (
+        pd.Series(names).sample(frac=sample_prob, replace=True).sort_index().index
+    )
+
+    for row_idx in use_rows:
+        seq = seqs[row_idx]
+        attr = attrs[row_idx]
+        name = names[row_idx]
+        seqlet = _Seqlet(name, seq, attr, attr)
+        seqlets.append(seqlet)
+
+    attr_zarr_dir = np.load(npz_path, allow_pickle=True)["attr_zarr_dir"][0]
+    attr_dataset = xr.open_zarr(attr_zarr_dir)
+
+    use_attr_rows = pd.Index({int(n.split("_")[0]) for n in names[use_rows]})
+    idx_remap = {old_row: idx for idx, old_row in enumerate(use_attr_rows)}
+    for seqlet in seqlets:
+        seqlet.example_idx = idx_remap[seqlet.example_idx]
+
+    use_attr_dataset = attr_dataset.isel(region=use_attr_rows)
+    use_attr = use_attr_dataset["__dna__:attr"].values
+    use_attr_regions = use_attr_dataset.get_index("region")
+    return seqlets, use_attr, use_attr_regions
+
+
+class TFModiscoOnMotifCluster:
+    @classmethod
+    def dump_seqlets_by_motif_cluster(
+        cls,
+        attr_prefix_dict: dict[str, str],
+        output_dir: str,
+        motif_cluster: pd.Series,
+    ):
+        """
+        Dump seqlets by motif cluster.
+
+        This function will read the Tomtom results, assign seqlets to motif clusters,
+        and save the seqlets and their attributes to separate directories for each cluster.
+
+        Parameters
+        ----------
+        attr_prefix_dict : dict[str, str]
+            Dictionary mapping dataset keys to path prefix of the attribute zarr files.
+            tomtom_dir = "{dir_prefix}.seqlet_tomtom.zarr"
+            attr_zarr_dir = "{dir_prefix}.attr.zarr"
+        output_dir : str
+            Directory where the seqlets will be saved.
+        motif_cluster : pd.Series
+            Series mapping motif IDs to their respective clusters.
+        """
+        output_dir = pathlib.Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for c in motif_cluster.unique():
+            pathlib.Path(f"{output_dir}/{c}").mkdir(exist_ok=True)
+        flag_dir = f"{output_dir}/_finished"
+        flag_dir = pathlib.Path(flag_dir)
+        flag_dir.mkdir(exist_ok=True)
+
+        tasks = []
+        for save_name, dir_prefix in attr_prefix_dict.items():
+            tomtom_dir = f"{dir_prefix}.seqlet_tomtom.zarr"
+            attr_zarr_dir = f"{dir_prefix}.attr.zarr"
+            t = _dump_seqlets_per_cluster.remote(
+                tomtom_dir, attr_zarr_dir, save_name, output_dir, motif_cluster
+            )
+            tasks.append(t)
+        _ = ray.get(tasks)
+        return
+
+    def __init__(
+        self,
+        genome,
+        seqlet_dir: str,
+        max_seqlets: int = 10000,
+        pos_only: bool = True,
+        n_leiden_runs: int = 24,
+        verbose: bool = False,
+    ):
+        self.seqlet_dir = pathlib.Path(seqlet_dir)
+        self.max_seqlets = max_seqlets
+        self.genome = Genome(genome) if isinstance(genome, str) else genome
+        _ = self.genome.genome_one_hot  # trigger genome loading
+
+        self.cluster_dir_dict = {
+            p.name: p for p in self.seqlet_dir.glob("MotifCluster*")
+        }
+        self.pos_only = pos_only
+
+        self.verbose = verbose
+        self.modisco_kwargs = {
+            "min_overlap_while_sliding": 0.7,
+            "nearest_neighbors_to_compute": 500,
+            "affmat_correlation_threshold": 0.15,
+            "tsne_perplexity": 10.0,
+            "n_leiden_iterations": 2,
+            "n_leiden_runs": n_leiden_runs,
+            "frac_support_to_trim_to": 0.2,
+            "min_num_to_trim_to": 30,
+            "trim_to_window_size": 30,
+            "initial_flank_to_add": 10,
+            "final_flank_to_add": 0,
+            "prob_and_pertrack_sim_merge_thresholds": [
+                (0.8, 0.8),
+                (0.5, 0.85),
+                (0.2, 0.9),
+            ],
+            "prob_and_pertrack_sim_dealbreaker_thresholds": [
+                (0.4, 0.75),
+                (0.2, 0.8),
+                (0.1, 0.85),
+                (0.0, 0.9),
+            ],
+            "subcluster_perplexity": 50,
+            "merging_max_seqlets_subsample": 200,
+            "final_min_cluster_size": 20,
+            "min_ic_in_window": 0.6,
+            "min_ic_windowsize": 6,
+            "ppm_pseudocount": 0.001,
+            "skip_subpattern": True,
+            "verbose": verbose,
+        }
+        return
+
+    def _get_seqlet_sample_prob(self, motif_cluster, sign):
+        cluster_dir = self.cluster_dir_dict[motif_cluster]
+        npz_paths = list(cluster_dir.glob(f"*_{sign}.npz"))
+        all_regions = []
+        for npz_path in npz_paths:
+            attr_regions = np.load(npz_path, allow_pickle=True)["attr_region"]
+            all_regions.extend(attr_regions)
+        total_seqlets = len(all_regions)
+        sample_prob = min(self.max_seqlets / total_seqlets, 1)
+        return sample_prob
+
+    def _prepare_cluster(self, cluster_name: str, sign):
+        sample_prob = self._get_seqlet_sample_prob(cluster_name, sign)
+        cluster_dir = self.cluster_dir_dict[cluster_name]
+        npz_paths = list(cluster_dir.glob(f"*_{sign}.npz"))
+
+        tasks = []
+        for npz_path in npz_paths:
+            task = _sample_seqlets_from_npz.remote(npz_path, sample_prob, sign)
+            tasks.append(task)
+
+        all_seqlets = []
+        all_attr = []
+        all_dna = []
+        cur_idx = 0
+        for seqlets, use_attr, use_attr_regions in ray.get(tasks):
+            all_attr.append(use_attr)
+            use_dna_onehot = self.genome.get_regions_one_hot(use_attr_regions)
+            all_dna.append(use_dna_onehot)
+
+            # update seqlets idx
+            for seqlet in seqlets:
+                seqlet.example_idx += cur_idx
+            cur_idx += use_attr.shape[0]
+
+            all_seqlets.extend(seqlets)
+
+        all_attr = np.concatenate(all_attr).astype(np.float32).transpose(0, 2, 1)
+        all_dna = np.concatenate(all_dna).transpose(0, 2, 1)
+        all_dna = all_dna.transpose(0, 2, 1)
+        track_set = TrackSet(
+            one_hot=all_dna, contrib_scores=all_attr, hypothetical_contribs=all_attr
+        )
+        return track_set, all_seqlets
+
+    def _single_cluster_patterns(self, cluster_name: str, sign: int):
+        track_set, all_seqlets = self._prepare_cluster(cluster_name, sign)
+        if len(all_seqlets) == 0:
+            return []
+
+        patterns = seqlets_to_patterns(
+            seqlets=all_seqlets,
+            track_set=track_set,
+            track_signs=sign,
+            **self.modisco_kwargs,
+        )
+        return patterns
+
+    def run(self, cluster_sel=None):
+        """Get patterns for all motif clusters."""
+        print(f"Running TFModisco on {len(self.cluster_dir_dict)} motif clusters.")
+        print(f"Sampling {self.max_seqlets} per motif cluster")
+        for cluster_name, cluster_dir in self.cluster_dir_dict.items():
+            if cluster_sel is not None and cluster_name not in cluster_sel:
+                continue
+
+            for sign in [-1, 1]:
+                if self.pos_only and sign == -1:
+                    continue
+
+            sign_name = "pos" if sign == 1 else "neg"
+            save_path = f"{cluster_dir}/patterns_{sign_name}.h5"
+            if pathlib.Path(save_path).exists():
+                continue
+
+            print(f"Processing cluster {cluster_name} with sign {sign}")
+            time_start = time.time()
+            patterns = self._single_cluster_patterns(cluster_name, sign)
+            save_hdf5(
+                filename=save_path,
+                pos_patterns=patterns,
+                neg_patterns=None,
+                window_size=400,
+            )
+            time_end = time.time()
+            used_min = int((time_end - time_start) / 60)
+            print(f"Found {len(patterns)} patterns in {used_min} minutes")
         return
