@@ -60,6 +60,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             "nosignal_prob": 0.2,
             # benchmark parameters
             "_multihead_model": False,
+            "_disable_condflow_module": False,
         }
     )
 
@@ -102,6 +103,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         nosignal_prob=0.0,
         # benchmark parameters
         _multihead_model=False,
+        _disable_condflow_module=False,
         # base model
         **base_model_kwargs,
     ):
@@ -134,6 +136,9 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         additional_embs : int
             Number of additional embeddings to be concatenated with the memory embeddings.
         """
+        self._multihead_model = _multihead_model
+        self._disable_condflow_module = _disable_condflow_module
+
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
         self.out_channels = out_channels
@@ -291,8 +296,6 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         # for collaps
         self.collapsed = False
-
-        self._multihead_model = _multihead_model
         return
 
     def setup_rna_head(self, rna_channels, freeze_other_modules=True):
@@ -396,22 +399,32 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         nn.init.constant_(signal_encoder[-1].weight, 1.0)
         nn.init.constant_(signal_encoder[-1].bias, 0.0)
 
-        from bolero.tl.generic.module_embedding import CondFlowModule
+        if self._disable_condflow_module:
+            from bolero.tl.generic.module_embedding import CondFlowModuleNoEffect
 
-        # 2. cond_flow_module combines cell, time, and condition emb
-        # LoRA embedding module will then take emb as input
-        cond_flow_module = CondFlowModule(
-            cell_emb_dim=cell_emb_dim,
-            cond_emb_dim=cond_emb_dim,
-            **cond_flow_kwargs,
-        )
-        # For example:
-        # emb = self.cond_flow_module(
-        #     cell_emb, time, cond_emb
-        # )
-        # cell_emb = self.cond_flow_module(
-        #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
-        # )
+            cond_flow_module = CondFlowModuleNoEffect(
+                cell_emb_dim=cell_emb_dim,
+                cond_emb_dim=cond_emb_dim,
+                **cond_flow_kwargs,
+            )
+            # This module will have no effect and just return the cell embedding
+        else:
+            from bolero.tl.generic.module_embedding import CondFlowModule
+
+            # 2. cond_flow_module combines cell, time, and condition emb
+            # LoRA embedding module will then take emb as input
+            cond_flow_module = CondFlowModule(
+                cell_emb_dim=cell_emb_dim,
+                cond_emb_dim=cond_emb_dim,
+                **cond_flow_kwargs,
+            )
+            # For example:
+            # emb = self.cond_flow_module(
+            #     cell_emb, time, cond_emb
+            # )
+            # cell_emb = self.cond_flow_module(
+            #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
+            # )
         return signal_encoder, cond_flow_module
 
     def _setup_channel_loss_weights(
@@ -568,6 +581,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             for module_name in module_names:
                 if "cond_flow_module" in module_name:
                     # don't convert the cond flow module
+                    continue
+                elif "scooby" in module_name:
                     continue
                 self._convert_single_module(module_name, config)
 

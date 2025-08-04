@@ -494,6 +494,32 @@ class ModiscoPattern:
         )
 
 
+def _get_patterns_from_h5(
+    h5_path, tomtom_path=None, load_subpatterns=False, load_seqlets=False
+):
+    with h5py.File(h5_path, "r") as h5:
+        pos_patterns = []
+        neg_patterns = []
+        for type_name, type_group in h5.items():
+            _patterns = []
+            for name, pattern_group in type_group.items():
+                if name.startswith("pattern_"):
+                    _patterns.append(
+                        ModiscoPattern.from_modisco_group(
+                            name,
+                            pattern_group,
+                            tomtom_path=tomtom_path,
+                            load_subpatterns=load_subpatterns,
+                            load_seqlets=load_seqlets,
+                        )
+                    )
+            if type_name == "pos_patterns":
+                pos_patterns = _patterns
+            elif type_name == "neg_patterns":
+                neg_patterns = _patterns
+    return pos_patterns, neg_patterns
+
+
 class ModiscoResults:
     """
     Represents the results of a Modisco analysis.
@@ -534,35 +560,11 @@ class ModiscoResults:
         return
 
     def _get_patterns_from_h5(self):
-        output_dir = pathlib.Path(self.output_dir)
-        h5_path = output_dir / "modisco.h5"
-        report_dir = output_dir / "modisco_report"
-
-        with h5py.File(h5_path, "r") as h5:
-            pos_patterns = []
-            neg_patterns = []
-            for type_name, type_group in h5.items():
-                _patterns = []
-                for name, pattern_group in type_group.items():
-                    if name.startswith("pattern_"):
-                        tomtom_path = (
-                            report_dir / f"tomtom/{type_name}.{name}.tomtom.tsv"
-                        )
-                        tomtom_path = tomtom_path if tomtom_path.exists() else None
-
-                        _patterns.append(
-                            ModiscoPattern.from_modisco_group(
-                                name,
-                                pattern_group,
-                                tomtom_path,
-                                self._load_h5_subpatterns,
-                                self._load_h5_seqlets,
-                            )
-                        )
-                if type_name == "pos_patterns":
-                    pos_patterns = _patterns
-                elif type_name == "neg_patterns":
-                    neg_patterns = _patterns
+        pos_patterns, neg_patterns = _get_patterns_from_h5(
+            self.output_dir / "modisco.h5",
+            load_subpatterns=self._load_h5_subpatterns,
+            load_seqlets=self._load_h5_seqlets,
+        )
         return pos_patterns, neg_patterns
 
     @property
@@ -694,3 +696,30 @@ class ModiscoResults:
             motif_score_col.append(motif_scores)
         self._hits[f"motif_{score}_{reduce}"] = motif_score_col
         return
+
+
+class ModiscoHDF:
+    def __init__(self, hdf5_path):
+        """
+        Initialize ModiscoHDF.
+
+        Args:
+            hdf5_path (str): The path to the HDF5 file.
+        """
+        self.hdf5_path = hdf5_path
+        self.pos_patterns, self.neg_patterns = self._get_patterns_from_h5()
+
+    def _get_patterns_from_h5(self):
+        """
+        Get patterns from the HDF5 file.
+
+        Returns
+        -------
+            tuple: A tuple containing positive and negative patterns.
+        """
+        pos_patterns, neg_patterns = _get_patterns_from_h5(
+            self.hdf5_path,
+            load_subpatterns=False,
+            load_seqlets=False,
+        )
+        return pos_patterns, neg_patterns

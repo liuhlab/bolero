@@ -117,6 +117,54 @@ def make_classic_lora_config(
     return lora_config
 
 
+def make_scooby_lora_config(
+    *args,
+    lora_dropout=0.0,
+    lora_scale=1,
+    **kwargs,
+):
+    """
+    All layers using simple LoRA, except the final output head which uses conditional LoRA.
+    """
+    shared_config = {
+        "emb_input_features": 10,  # not really used
+        "lora_dropout": lora_dropout,
+        "lora_scale": lora_scale,
+        "default_conditional": False,
+        "convert_conv": True,
+        "convert_linear": True,
+    }
+
+    lora_config = {
+        # Normal LoRA
+        "conv_dna": {
+            **shared_config,
+            "lora_rank": 8,  # total lora_rank 8 * 15
+        },
+        (
+            "res_tower",
+            "unet1",
+        ): {
+            **shared_config,
+            "lora_rank": 8,  # total lora_rank 8 * 5
+        },
+        (
+            "transformer",
+            "horizontal_conv0",
+            "horizontal_conv1",
+            "upsampling_unet0",
+            "upsampling_unet1",
+            "separable0",
+            "separable1",
+            "final_joined_convs",
+        ): {
+            **shared_config,
+            "lora_rank": 8,  # total lora_rank 8 * 1
+        },
+    }
+    return lora_config
+
+
 def make_all_conditional_lora_config(
     emb_input_features,
     hidden_dim=256,
@@ -275,6 +323,7 @@ def make_original_lora_config(
 LORA_CONFIG_FUNCTIONS = {
     "output_conditional": make_output_conditional_lora_config,
     "classic": make_classic_lora_config,
+    "scooby": make_scooby_lora_config,
     "all_conditional": make_all_conditional_lora_config,  # DEFAULT
     "all_condittional_except_output_head": partial(
         make_all_conditional_lora_config, except_output_head=True

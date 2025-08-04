@@ -867,3 +867,17 @@ class CondFlowModule(nn.Module):
         # combine all embeddings
         emb = torch.cat(to_cat, dim=-1)
         return emb
+
+
+class CondFlowModuleNoEffect(CondFlowModule):
+    """
+    Only return unchanged cell embedding, this is for ablation study.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.output_dim = kwargs["cell_emb_dim"]
+
+    def forward(self, cell_emb: torch.Tensor, *args, **kwargs):
+        """Do nothing and return the cell embedding."""
+        return cell_emb
