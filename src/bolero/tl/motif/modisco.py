@@ -395,6 +395,8 @@ class ModiscoPattern:
         self.seqlets: dict[np.ndarray] = seqlets
         self.subpatterns: list["ModiscoPattern"] = subpatterns
         self.tomtom_df: pd.DataFrame = tomtom_df
+        self.subclusters = None
+        return
 
     def to_seqlet(self):
         """Return a modisco compatible seqlet object"""

@@ -14,6 +14,8 @@ from modiscolite.tfmodisco import seqlets_to_patterns
 
 from bolero.pp.genome import Genome
 
+from .modisco import ModiscoHDF
+
 
 def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
     """Read a .npz file and return the data as a dictionary."""
@@ -444,6 +446,7 @@ class TFModiscoOnMotifCluster:
         self.max_seqlets = max_seqlets
         self.genome = Genome(genome) if isinstance(genome, str) else genome
         _ = self.genome.genome_one_hot  # trigger genome loading
+        self.motif_db = self.genome.get_motif_db()
 
         self.cluster_dir_dict = {
             p.name: p for p in self.seqlet_dir.glob("MotifCluster*")
@@ -573,3 +576,172 @@ class TFModiscoOnMotifCluster:
             used_min = int((time_end - time_start) / 60)
             print(f"Found {len(patterns)} patterns in {used_min} minutes")
         return
+
+    def annotate_and_aggregate(self, p_value_cutoff=1e-4, corrcoef_cutoff=0.5):
+        """
+        Annotate and aggregate patterns from all motif clusters.
+        This will run TOMTOM on the patterns and return a DataFrame with annotations.
+        """
+        aggregator = AggregateModiscoResults(
+            modisco_dir=self.seqlet_dir,
+            motif_db=self.motif_db,
+            n_jobs=16,
+            p_value_cutoff=p_value_cutoff,
+            corrcoef_cutoff=corrcoef_cutoff,
+        )
+        pattern_annot = aggregator.run()
+        print(f"Annotated {len(pattern_annot)} patterns after filtering.")
+        return pattern_annot
+
+
+# These motifs contain base pairs with low IC, which induce large number of
+# FP hits in TOMTOM with very low p-value but visually unmatched hits.
+# If these motifs are included, they will dominate most of top 1st hit.
+# There is an issue about this: https://github.com/jmschrei/tangermeme/issues/28
+MOTIF_BLACKLIST = ["MA1929.2", "MA1930.2", "MA1978.2"]
+
+
+class AggregateModiscoResults:
+    def __init__(
+        self,
+        modisco_dir: str,
+        motif_db,
+        n_jobs=16,
+        p_value_cutoff=1e-4,
+        corrcoef_cutoff=0.5,
+    ):
+        self.modisco_dir = pathlib.Path(modisco_dir)
+        self.motif_db = motif_db
+        self.n_jobs = n_jobs
+        self.p_value_cutoff = p_value_cutoff
+        self.corrcoef_cutoff = corrcoef_cutoff
+
+        self.patterns = self._aggregate_patterns()
+
+    def _aggregate_patterns(self):
+        patterns = []
+        h5_path_dict = {
+            p.parent.name: p for p in self.modisco_dir.glob("MotifCluster*/pattern*.h5")
+        }
+        for key, path in h5_path_dict.items():
+            modisco_hdf = ModiscoHDF(path)
+            for pattern in modisco_hdf.pos_patterns:
+                pattern.name = f"{key}.pos.{pattern.name}"
+                pattern.sign = 1
+                patterns.append(pattern)
+            for pattern in modisco_hdf.neg_patterns:
+                pattern.name = f"{key}.neg.{pattern.name}"
+                pattern.sign = -1
+                patterns.append(pattern)
+        return patterns
+
+    def annotate_patterns(self):
+        """Annotate patterns using TOMTOM."""
+        patterns = self.patterns
+        use_motifs = [
+            m for m in self.motif_db.motifs if m.motif_id not in MOTIF_BLACKLIST
+        ]
+        pwms = [m.pwm.values.T.astype("float32") for m in use_motifs]
+        seqlets = [p.to_seqlet() for p in patterns]
+        pattern_names = [p.name for p in patterns]
+        scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
+        scores = [s if s.sum() > 0 else s * -1 for s in scores]
+
+        results = tomtom(Qs=scores, Ts=pwms, n_nearest=10, n_jobs=self.n_jobs)
+        value_type = ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"]
+        results = xr.DataArray(
+            results.transpose(1, 2, 0).astype("float32"),
+            dims=["seqlet", "motif_rank", "value_type"],
+            coords={"value_type": value_type, "seqlet": pattern_names},
+        )
+
+        pattern_to_tf = (
+            results.sel(value_type="idxs", motif_rank=0).to_pandas().astype(int)
+        )
+        pattern_annot = pd.DataFrame(
+            {
+                "motif_id": pattern_to_tf.map(lambda idx: use_motifs[idx].motif_id),
+                "motif_name": pattern_to_tf.map(lambda idx: use_motifs[idx].motif_name),
+                "p_values": results.sel(
+                    value_type="p_values", motif_rank=0
+                ).to_pandas(),
+                "scores": results.sel(value_type="scores", motif_rank=0).to_pandas(),
+                "offsets": results.sel(value_type="offsets", motif_rank=0)
+                .to_pandas()
+                .astype("int16"),
+                "overlaps": results.sel(value_type="overlaps", motif_rank=0)
+                .to_pandas()
+                .astype("int16"),
+                "strands": results.sel(value_type="strands", motif_rank=0)
+                .to_pandas()
+                .astype("int16"),
+            }
+        )
+        pattern_annot["motif_cluster"] = pattern_annot["motif_id"].map(
+            self.motif_db.motif_cluster
+        )
+        pattern_annot["p_values"] = pattern_annot["p_values"].clip(lower=0)
+        pattern_annot["-lgp"] = -np.log10(pattern_annot["p_values"] + 1e-10)
+        pattern_annot["origin_cluster"] = pattern_annot.index.map(
+            lambda i: i.split(".")[0]
+        )
+        pattern_annot = pattern_annot[
+            (pattern_annot["offsets"] < 0)
+            & (pattern_annot["p_values"] < self.p_value_cutoff)
+            & (pattern_annot["motif_cluster"] == pattern_annot["origin_cluster"])
+        ].copy()
+        del pattern_annot["origin_cluster"]
+
+        pattern_annot = self.add_pattern_corr(pattern_annot)
+        return pattern_annot
+
+    def add_pattern_corr(self, pattern_annot):
+        """
+        For each TOMTOM hits, further calculate correlation with motif PWM.
+        tomtom implementation doesn't support corr, so calculate it here as a post filtering step.
+        """
+        pattern_dict = {p.name: p for p in self.patterns}
+        corr_col = {}
+        for pattern_name, info in pattern_annot.iterrows():
+            pattern = pattern_dict[pattern_name]
+            ms = -info["offsets"]
+            motif = self.motif_db.motif_id_dict[info["motif_id"]]
+            motif_pwm = motif.pwm.values
+            if info["strands"] == 1:
+                motif_pwm = motif_pwm[::-1, ::-1]
+            motif_len = motif_pwm.shape[0]
+            me = ms + motif_len
+            pattern_hit_scores = pattern.contrib_scores[ms:me]
+            hit_len = pattern_hit_scores.shape[0]
+
+            # in case hit is partial, pad even base to the hit to match motif size
+            if hit_len < motif_len:
+                to_pad = np.zeros((motif_len - hit_len, 4))
+                pattern_hit_scores = np.concatenate([pattern_hit_scores, to_pad])
+            if pattern_hit_scores.sum() < 0:
+                pattern_hit_scores *= -1
+            corr = np.corrcoef(motif_pwm.ravel(), pattern_hit_scores.ravel())[0, 1]
+            corr_col[pattern_name] = corr
+        pattern_annot["corrcoef"] = pd.Series(corr_col)
+        pattern_annot = pattern_annot[
+            pattern_annot["corrcoef"] > self.corrcoef_cutoff
+        ].copy()
+        return pattern_annot
+
+    def run(self):
+        """
+        Run the aggregation and save the results to a file.
+        """
+        pattern_annot = self.annotate_patterns()
+        annot_path = self.modisco_dir / "all_patterns_annot.filtered.feather"
+        pattern_annot.to_feather(annot_path)
+
+        remain_patterns = [p for p in self.patterns if p.name in pattern_annot.index]
+        save_path = self.modisco_dir / "all_patterns.filtered.h5"
+        save_hdf5(
+            filename=save_path,
+            pos_patterns=[p for p in remain_patterns if p.sign == 1],
+            neg_patterns=[p for p in remain_patterns if p.sign == -1],
+            window_size=400,
+        )
+        return pattern_annot
