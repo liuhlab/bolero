@@ -61,6 +61,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             # benchmark parameters
             "_multihead_model": False,
             "_disable_condflow_module": False,
+            "_predict_x1": False,
         }
     )
 
@@ -104,6 +105,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         # benchmark parameters
         _multihead_model=False,
         _disable_condflow_module=False,
+        _predict_x1=False,
         # base model
         **base_model_kwargs,
     ):
@@ -138,6 +140,7 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
         """
         self._multihead_model = _multihead_model
         self._disable_condflow_module = _disable_condflow_module
+        self._predict_x1 = _predict_x1
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -425,6 +428,13 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
             # cell_emb = self.cond_flow_module(
             #     cell_emb=cell_emb, time=t, cond_emb=cond_emb
             # )
+
+        if self._predict_x1:
+            self.x1_output_head = OutputHead(
+                in_channels=1920,
+                out_channels=out_channels,
+                activation="softplus",
+            )
         return signal_encoder, cond_flow_module
 
     def _setup_channel_loss_weights(
@@ -730,6 +740,26 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
 
         if return_dna_embedding:
             return output, x
+        return output
+
+    def forward_flow_model_and_x1_head(
+        self, x, signal, embedding, crop=True, return_dna_embedding=False
+    ):
+        """
+        Forward pass for the flow model with x1 head.
+
+        The return value is x1 prediction
+        """
+        delta_output, dna_embedding = self.forward_flow_model(
+            x=x,
+            signal=signal,
+            embedding=embedding,
+            crop=crop,
+            return_dna_embedding=True,
+        )
+        x1_output = self.x1_output_head(dna_embedding, embedding=embedding)
+        # concat two output on the channel dimension
+        output = x1_output
         return output
 
     def weighted_loss_per_channel(self, loss_tensor):

@@ -1541,8 +1541,11 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         # batch["__ypred__:cond1"] = torch.expm1(x1).clamp(min=0.0)
 
         if self._prediction_mode == "velocity":
-            # y_pred is the velocity, we need to add it to the initial condition
-            batch[ypred_key] = x0 + y_pred.detach()
+            if self.model._predict_x1:
+                batch[ypred_key] = y_pred.detach()
+            else:
+                # y_pred is the velocity, we need to add it to the initial condition
+                batch[ypred_key] = x0 + y_pred.detach()
         else:
             batch[ypred_key] = y_pred.detach()
 

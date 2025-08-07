@@ -271,6 +271,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "save_state_every_n_epoch": None,
         "validation_batch_fold": 3,
         "use_xt": False,
+        "_exp_forward_fn": None,
     }
 
     def __init__(self, config):
@@ -1144,11 +1145,83 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         loss_breakdown = {}
         return ut, vt, loss, loss_breakdown
 
+    def _model_forward_pass_flow_count_loss(self, model: BorzoiLoRA, batch: dict):
+        batch = self._split_cond_emb_to_terms(batch)
+
+        # 1. sequence input
+        dna_one_hot = batch["dna_one_hot"]  # (bs, 4, seq_len)
+
+        signal = batch[f"{self.prefix}:bulk_data_0"]
+        batch["__t__"] = torch.zeros_like(batch["__t__"])
+        signal = torch.log1p(signal)
+
+        # 2. aggregate all conditional input
+        cond_ensemble = self._cond_flow_module_forward_pass(
+            model.cond_flow_module, batch
+        )
+
+        # 3. predict velocity
+        x1_pred = model.forward_flow_model_and_x1_head(
+            dna_one_hot, embedding=cond_ensemble, signal=signal
+        )
+        batch["x1_pred"] = x1_pred
+
+        # 4. loss on velocity
+        y_true = batch[f"{self.prefix}:bulk_data_1"]
+        loss, loss_breakdown, y_true = model.loss(y_pred=x1_pred, y_true=y_true)
+        return y_true, x1_pred, loss, loss_breakdown
+
+    def _model_forward_pass_flow_count_and_delta_loss(
+        self, model: BorzoiLoRA, batch: dict
+    ):
+        batch = self._split_cond_emb_to_terms(batch)
+
+        # 1. sequence input
+        dna_one_hot = batch["dna_one_hot"]  # (bs, 4, seq_len)
+
+        signal = batch[f"{self.prefix}:bulk_data_0"]
+        batch["__t__"] = torch.zeros_like(batch["__t__"])
+        signal = torch.log1p(signal)
+
+        # 2. aggregate all conditional input
+        cond_ensemble = self._cond_flow_module_forward_pass(
+            model.cond_flow_module, batch
+        )
+
+        # 3. predict velocity
+        y_delta_pred, dna_embedding = model(
+            dna_one_hot,
+            embedding=cond_ensemble,
+            signal=signal,
+            return_dna_embedding=True,
+        )
+        x1_pred = model.x1_output_head(dna_embedding, embedding=cond_ensemble)
+        batch["__vt__"] = y_delta_pred
+        batch["x1_pred"] = x1_pred
+
+        x1_true = batch[f"{self.prefix}:bulk_data_1"]
+        loss_count, loss_breakdown, x1_true = model.loss(y_pred=x1_pred, y_true=x1_true)
+        ut = batch["__ut__"]
+        loss_delta, ut = model.flow_model_loss(v_t=y_delta_pred, u_t=ut)
+
+        loss = loss_count + loss_delta
+        loss_breakdown_final = {**loss_breakdown, "delta_loss": loss_delta}
+        return x1_true, x1_pred, loss, loss_breakdown_final
+
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        if self.dataset.paired_data:
-            return self._model_forward_pass_flow(model, batch)
+        _exp_forward_fn = self.config.get("_exp_forward_fn", None)
+        if _exp_forward_fn is not None:
+            if _exp_forward_fn == "flow_count_loss":
+                return self._model_forward_pass_flow_count_loss(model, batch)
+            elif _exp_forward_fn == "flow_count_and_delta_loss":
+                return self._model_forward_pass_flow_count_and_delta_loss(model, batch)
+            else:
+                raise ValueError(f"Unknown _exp_forward_fn: {_exp_forward_fn}")
         else:
-            return self._model_forward_pass_single(model, batch)
+            if self.dataset.paired_data:
+                return self._model_forward_pass_flow(model, batch)
+            else:
+                return self._model_forward_pass_single(model, batch)
 
     def _print_banner(self, text):
         print("=" * len(text) + "\n" + text + "\n" + "=" * len(text))

@@ -35,8 +35,15 @@ class BorzoiLoRAFlowWrapperForODE(nn.Module):
             x_t = torch.log1p(x_t)
 
         # Compute the velocity field
-        vt = self.model(x=self.dna_one_hot, signal=x_t, embedding=emb, crop=False)
-        return vt
+        if self.model._predict_x1:
+            # This vt is vt_and_x1 concat on the channel dimension
+            x1 = self.model.forward_flow_model_and_x1_head(
+                x=self.dna_one_hot, signal=x_t, embedding=emb, crop=False
+            )
+            return x1
+        else:
+            vt = self.model(x=self.dna_one_hot, signal=x_t, embedding=emb, crop=False)
+            return vt
 
 
 class BorzoiLoRAFlowPredictor:

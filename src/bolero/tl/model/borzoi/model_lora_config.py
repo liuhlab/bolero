@@ -241,6 +241,11 @@ def make_all_conditional_lora_config(
             "output_layer_groups": 1,
             "lora_rank": 1,
         },
+        "x1_output_head": {
+            **shared_config,
+            "output_layer_groups": 1,
+            "lora_rank": 1,
+        },
     }
 
     if except_output_head:
