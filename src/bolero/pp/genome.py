@@ -1,4 +1,5 @@
 import pathlib
+import re
 import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -61,9 +62,8 @@ def _read_chrom_sizes(chrom_sizes_path, main=True):
 
     if main:
         # only keep main chromosomes
-        chrom_sizes = chrom_sizes[
-            ~chrom_sizes.index.str.contains("_|random|chrUn|chrEBV|chrM|chrU|hap")
-        ]
+        main_pat = re.compile(r"^(chr)?([0-9]+|X|Y|M)$")
+        chrom_sizes = chrom_sizes[chrom_sizes.index.str.match(main_pat)].copy()
 
     return chrom_sizes
 
