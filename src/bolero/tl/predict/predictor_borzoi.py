@@ -769,6 +769,8 @@ class BorzoiPredictor(GenericPredictor):
         for idx, batch in enumerate(dataloader):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
+                # save the first complete batch into output dir
+                joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = {}
@@ -916,6 +918,8 @@ class BorzoiPredictor(GenericPredictor):
         for idx, batch in enumerate(dataloader):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
+                # save the first complete batch into output dir
+                joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = {}
@@ -1079,6 +1083,8 @@ class BorzoiPredictor(GenericPredictor):
                 idx = idx + cur_bid
                 if idx == 0 and verbose:
                     self._print_batch(batch, prefix="Dataloader")
+                    # save the first complete batch into output dir
+                    joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
 
                 # save the batch to a file
                 save_batch = {}
