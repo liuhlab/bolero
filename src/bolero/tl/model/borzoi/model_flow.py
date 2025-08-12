@@ -25,9 +25,16 @@ class BorzoiLoRAFlowWrapperForODE(nn.Module):
         Forward pass for the ODE wrapper.
         """
         # Aggregate cell, condition and time embeddings
-        emb = self.cond_flow_module(
-            cell_emb=self.cell_emb, time=t, cond_emb=self.cond_emb
-        )
+        if self.cond_flow_module is None:
+            # for model without cond flow module, cell_emb passed in is (bs, dim * 2)
+            # which is x0 and x1 concat
+            # here we take (bs, dim) from the x1 part
+            dims = self.cell_emb.shape[1] // 2
+            emb = self.cell_emb[:, dims:]
+        else:
+            emb = self.cond_flow_module(
+                cell_emb=self.cell_emb, time=t, cond_emb=self.cond_emb
+            )
 
         # Data loader provides coverage count scale
         # model takes log1p scale as input
