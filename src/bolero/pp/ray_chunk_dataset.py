@@ -256,51 +256,49 @@ class GenomeChunkDatasetGenerator:
         return
 
     def _process_each_prefix(self):
-        prefix_tasks = []
         for prefix, info_dict in self.uniform_dataset_dict.items():
+            # check success flag
+            success_flag_path = self.output_dir / f"{prefix}.success.flag"
+            if success_flag_path.exists():
+                continue
             _ds_class = info_dict["ds_class"]
             _ds_kwargs = info_dict["ds_kwargs"]
             _remote_kwargs = info_dict["remote_kwargs"]
 
             @ray.remote(**_remote_kwargs)
-            def _process_worker(prefix, ds_class, ds_kwargs, output_dir, regions_df):
-                print("Processing", prefix, ds_class)
-                # check success flag
-                success_flag_path = output_dir / f"{prefix}.success.flag"
-                if success_flag_path.exists():
-                    return
-
+            def _process_worker(
+                prefix, ds_class, ds_kwargs, output_dir, chrom, chrom_regions_df
+            ):
                 ds = ds_class(**ds_kwargs)
-                list_of_dicts = ds.get_regions_data(regions_df)
+                list_of_dicts = ds.get_regions_data(chrom_regions_df)
 
-                chromosomes = regions_df["Chromosome"].unique()
-                for chrom in chromosomes:
-                    chrom_dir = output_dir / chrom
-                    chrom_list_of_dicts = [
-                        d for d in list_of_dicts if d["region"].split(":")[0] == chrom
-                    ]
-                    joblib.dump(
-                        chrom_list_of_dicts,
-                        chrom_dir / f"{prefix}.list_of_dicts.joblib",
-                    )
-
-                # dump row names
-                row_names = ds.get_row_names()
-                joblib.dump(row_names, output_dir / f"{prefix}.row_names.joblib")
-
-                # create a success flag
-                pathlib.Path(success_flag_path).touch()
+                joblib.dump(
+                    list_of_dicts,
+                    output_dir / chrom / f"{prefix}.list_of_dicts.joblib",
+                )
                 return
 
-            task = _process_worker.remote(
-                prefix=prefix,
-                ds_class=_ds_class,
-                ds_kwargs=_ds_kwargs,
-                output_dir=self.output_dir,
-                regions_df=self.genome_chunk_df,
-            )
-            prefix_tasks.append(task)
-        ray.get(prefix_tasks)
+            for chrom, chrom_regions_df in self.genome_chunk_df.groupby("Chromosome"):
+                print(f"Processing {prefix} {chrom}")
+                prefix_tasks = []
+                task = _process_worker.remote(
+                    prefix=prefix,
+                    ds_class=_ds_class,
+                    ds_kwargs=_ds_kwargs,
+                    output_dir=self.output_dir,
+                    chrom=chrom,
+                    chrom_regions_df=chrom_regions_df,
+                )
+                prefix_tasks.append(task)
+                ray.get(prefix_tasks)
+
+            # dump row names
+            ds = _ds_class(**_ds_kwargs)
+            row_names = ds.get_row_names()
+            joblib.dump(row_names, self.output_dir / f"{prefix}.row_names.joblib")
+
+            # create a success flag
+            pathlib.Path(success_flag_path).touch()
         return
 
     def _prepare_single_chrom(self, chrom: str) -> None:
