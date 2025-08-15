@@ -174,7 +174,16 @@ def select_smat_region(
     if resolution > 1:
         # reduce the region csc matrix by sum
         # shape (n_batch, n_pos) -> (n_batch, n_pos // resolution)
-        region_csc_mat = reduce_csc_matrix_by_sum(region_csc_mat.tocsc(), resolution)
+        try:
+            region_csc_mat = reduce_csc_matrix_by_sum(
+                region_csc_mat.tocsc(), resolution
+            )
+        except AssertionError:
+            print(
+                f"Failed to reduce region matrix, smat.shape {smat.shape}, "
+                f"region {chrom}:{start}-{end}, {gstart}-{gend}, "
+                f"resolution {resolution}, region_csc_mat.shape {region_csc_mat.shape}"
+            )
 
     data_dict = csr_matrix_to_compressed_bytes_dict(
         prefix=prefix, matrix=region_csc_mat.tocsr(), level=5

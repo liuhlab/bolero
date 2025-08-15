@@ -31,6 +31,8 @@ def _dump_grouped_csr(
         for cell_row, bulk_row in enumerate(cell_row_to_bulk_row)
         if bulk_row != -1
     }
+    if len(merge_plan) == 0:
+        raise ValueError(f"Merge plan is empty for adata path: {adata_path}")
 
     merger = CSRRowMerge(
         merge_plan,
@@ -107,6 +109,7 @@ class AdataPseudobulkMerger:
         adata_path_dict,
         output_dir,
         sparse_format="csc",
+        use_chroms=None,
     ):
         """
         Merge pseudobulk data from multiple samples/adata_files and groups into a single directory.
@@ -160,6 +163,10 @@ class AdataPseudobulkMerger:
 
         adata = snap.read(list(adata_path_dict.values())[0], backed="r")
         self.chrom_keys = [k for k in adata.obsm.keys() if k.startswith("insertion_")]
+        if use_chroms is not None:
+            use_chrom_keys = [f"insertion_{c}" for c in use_chroms]
+            self.chrom_keys = [k for k in self.chrom_keys if k in use_chrom_keys]
+            print(f"Using chrom_keys: {self.chrom_keys}")
         adata.close()
 
         self.sparse_format = sparse_format
