@@ -147,6 +147,7 @@ class QTLManager:
         batch_peaks = self.peaks.loc[list(zip(batch["region"], batch["mutation_id"]))]
         ypred = batch[ypred_key]
         peak_sum = []
+        ypred = ypred.clamp(min=0.0)  # Ensure non-negative predictions
         for rid, (bs, be) in enumerate(batch_peaks[["bin_start", "bin_end"]].values):
             r_peak_sum = ypred[rid, :, bs:be].sum(axis=-1)
             peak_sum.append(r_peak_sum)

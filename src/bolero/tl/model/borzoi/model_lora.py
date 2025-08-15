@@ -594,6 +594,8 @@ class BorzoiLoRA(Borzoi, KVBottleNeckMixin):
                     continue
                 elif "scooby" in module_name:
                     continue
+                elif "x1_output_head" in module_name and not self._predict_x1:
+                    continue
                 self._convert_single_module(module_name, config)
 
         # also make sure some part of the model is trainable
