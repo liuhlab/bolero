@@ -128,11 +128,13 @@ class _RegionExtractor:
         cluster_data: dict[str, str | csc_matrix],
         specs: list[tuple[str, int, int]],
         resolutions: dict[str, int],
+        reduce=False,
     ) -> list[dict[str, str | csc_matrix]]:
         """
         cluster_data: { key: sparse_matrix or array, ... }
         specs: List of (region_name, rel_start, region_size)
         resolutions: { key: resolution, ... }
+        reduce: Whether to reduce the value's bin dim and only return (n, ) shape
         """
         out = []
         for region_name, rel_start, region_size in specs:
@@ -148,7 +150,11 @@ class _RegionExtractor:
                         f"Region {region_name} ({rel_start_bin}-{rel_end_bin}) "
                         f"exceeds the data size for {key} ({value.shape} value shape)."
                     )
-                    rd[key] = value[:, rel_start_bin:rel_end_bin].copy()
+                    _data = value[:, rel_start_bin:rel_end_bin].copy()
+                    if reduce:
+                        # sum bins and return 1d np.array
+                        _data = _data.sum(axis=1).A1
+                    rd[key] = _data
             rd["region"] = region_name
             out.append(rd)
         return out
@@ -178,9 +184,18 @@ class GenomeParquetDBNoParallel:
         merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
         pseudobulk_ids: list[str] = None,
         resolution: int | dict[int] = None,
+        reduce_region: bool = False,
     ):
         """
-        dataset_dir: path to the dataset directory containing the Parquet files and the region lookup table.
+        Initialize the GenomeParquetDBNoParallel class.
+
+        Parameters
+        ----------
+            dataset_dir: path to the dataset directory containing the Parquet files and the region lookup table.
+            merge_plan: A dictionary mapping prefixes to lists of pseudobulk row names or a pseudobulk records structure.
+            pseudobulk_ids: If provided, only these pseudobulk IDs will be used.
+            resolution: The resolution to use for the dataset, if None, will infer from the dataset
+            reduce_region: Whether to reduce the value's bin dim and only return (n, ) shape
         """
         self.con = duckdb.connect(database=":memory:")
         self.dataset_dir = pathlib.Path(dataset_dir)
@@ -209,6 +224,9 @@ class GenomeParquetDBNoParallel:
         # non-parallel actors
         self._single_row_actor: RowProcessor | None = None
         self._single_extractor: _RegionExtractor | None = None
+        self.reduce_region: bool = (
+            reduce_region  # whether to sum up bins when extract region
+        )
 
     @property
     def single_row_actor(self) -> RowProcessor:
@@ -517,6 +535,7 @@ class GenomeParquetDBNoParallel:
                 cluster_data=cluster_data[cluster],
                 specs=specs,
                 resolutions=self.prefix_resolution,
+                reduce=self.reduce_region,
             )
             yield from result
 
@@ -618,6 +637,7 @@ class GenomeParquetDB(GenomeParquetDBNoParallel):
         merge_plan: dict[str, list] | dict[str, dict[str, list[str]]] = None,
         pseudobulk_ids: list[str] = None,
         resolution: int | dict[int] = None,
+        reduce_region: bool = False,
     ):
         """
         dataset_dir: path to the dataset directory containing the Parquet files and the region lookup table.
@@ -627,6 +647,7 @@ class GenomeParquetDB(GenomeParquetDBNoParallel):
             merge_plan=merge_plan,
             pseudobulk_ids=pseudobulk_ids,
             resolution=resolution,
+            reduce_region=reduce_region,
         )
 
         # create ray actor pools
@@ -749,9 +770,11 @@ class GenomeParquetDB(GenomeParquetDBNoParallel):
             for i in range(0, len(specs), chunk_size):
                 task_inputs.append(
                     (
+                        # parameters for the _RegionExtractor.extract
                         cluster_data_refs[cluster],
                         specs[i : i + chunk_size],
                         self.prefix_resolution,
+                        self.reduce_region,
                     )
                 )
         # launch all extraction tasks in parallel
