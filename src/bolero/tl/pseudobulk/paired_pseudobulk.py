@@ -9,12 +9,6 @@ import torch
 from scipy.sparse import csr_matrix
 from sklearn.preprocessing import OneHotEncoder
 
-from bolero.tl.model.flow.matcher import (
-    ConditionalFlowMatcher,
-    ConstantFlowMatcher,
-    FollmerProcessFlowMatcher,
-    SchrodingerBridgeConditionalFlowMatcher,
-)
 from bolero.utils import validate_config
 
 # pseudobulk_records schema:
@@ -470,11 +464,10 @@ class PairedPseudobulker(PseudobulkerMixin):
         Parameters
         ----------
         pseudobulk_records (dict[str, dict]):
-            The prefix name (in ray dataset) to VQ records file path mapping.
+            The prefix name (in ray dataset) to pseudobulk records file path mapping.
         emb_key (str): The key to use for the embedding.
         downsample_pseudobulk (int): The number of pseudobulks to downsample to.
         barcode_order (dict): The order of barcodes for each prefix.
-        flow_match_sigma (float): The sigma for the flow matcher.
         seed (int): The random seed for sampling.
         """
         # 1. pseudobulk dict records and meta cell information
@@ -555,7 +548,6 @@ class PairedPseudobulker(PseudobulkerMixin):
                 related_pseudobulks, 1, replace=False, p=related_sample_weights.values
             )[0]
         sel_pseudobulk = deepcopy(self.pseudobulk_records[pid_choice])
-        sel_pseudobulk.setdefault("__t__", p_sample)
         cond_pair_pseudobulks[p_sample] = sel_pseudobulk
 
         # 3. sample a matched meta cell list from the OT transition matrix
@@ -582,7 +574,6 @@ class PairedPseudobulker(PseudobulkerMixin):
             ),
             "sample_weight": sel_pseudobulk["sample_weight"],
         }
-        ot_pseudobulk.setdefault("__t__", p_ot)
         cond_pair_pseudobulks[p_ot] = ot_pseudobulk
 
         # Following code is for generator to handle the pseudobulk records
@@ -667,14 +658,12 @@ class PairedPseudobulker(PseudobulkerMixin):
                 assert (
                     p0_key not in pseudobulk_col
                 ), f"Duplicate key {p0_key} found in pseudobulk_col."
-                p0.setdefault("__t__", 0)
                 pseudobulk_col[p0_key] = p0
 
                 p1_key = f"{name0}|{name1}:{name1}-{idx}"
                 assert (
                     p1_key not in pseudobulk_col
                 ), f"Duplicate key {p1_key} found in pseudobulk_col."
-                p1.setdefault("__t__", 1)
                 pseudobulk_col[p1_key] = p1
         return pseudobulk_col
 
@@ -700,11 +689,10 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         Parameters
         ----------
         pseudobulk_records (dict[str, dict]):
-            The prefix name (in ray dataset) to VQ records file path mapping.
+            The prefix name (in ray dataset) to pseudobulk records file path mapping.
         emb_key (str): The key to use for the embedding.
         downsample_pseudobulk (int): The number of pseudobulks to downsample to.
         barcode_order (dict): The order of barcodes for each prefix.
-        flow_match_sigma (float): The sigma for the flow matcher.
         seed (int): The random seed for sampling.
         p0_n_meta_cells (int): The number of meta cells to sample for p0 pseudobulk.
             If fix_p0_meta_cells is provided, this will be ignored.
@@ -763,7 +751,6 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             pid_choice = self.local_rng.choice(list(use_pids))
 
         p1_pseudobulk = self.take_by_name(pid_choice)
-        p1_pseudobulk.setdefault("__t__", 1)
         p1_cell_emb = p1_pseudobulk[self.emb_key]
 
         if hasattr(self, "condition_encoder"):
@@ -786,7 +773,7 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
         # use mean emb as p0 cell emb
         p0_embedding = self.meta_cell_emb.loc[p0_meta_cells].mean().values
         p0_p1_embedding = np.concatenate([p0_embedding, p1_cell_emb], axis=-1)
-        # IMPORTANT: flow model use embedding of p0, and condition embedding of p1
+        # IMPORTANT: signal model use embedding of p0, and condition embedding of p1
         # Here we concat p0 and p1 embeddings as final embedding
         # we put p0_p1_embedding into both p0 and p1 to make sure they are in the same shape
         p1_pseudobulk[self.emb_key] = p0_p1_embedding
@@ -801,8 +788,6 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             # copy p1 condition embedding to p0
             p0_pseudobulk["__conditionemb__"] = p1_pseudobulk["__conditionemb__"]
             p0_pseudobulk["__conditionterms__"] = p1_pseudobulk["__conditionterms__"]
-
-        p0_pseudobulk.setdefault("__t__", 0)
 
         cond_pair_pseudobulks = [p0_pseudobulk, p1_pseudobulk]
         for d in cond_pair_pseudobulks:
@@ -842,7 +827,6 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             assert (
                 p0_key not in pseudobulk_col
             ), f"Duplicate key {p0_key} found in pseudobulk_col."
-            p0.setdefault("__t__", 0)
             p0["__pid__"] = pid
             pseudobulk_col[p0_key] = p0
 
@@ -850,7 +834,6 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             assert (
                 p1_key not in pseudobulk_col
             ), f"Duplicate key {p1_key} found in pseudobulk_col."
-            p1.setdefault("__t__", 1)
             p1["__pid__"] = pid
             pseudobulk_col[p1_key] = p1
 
@@ -944,30 +927,12 @@ class GeneratePairedPseudobulk:
         bypass_keys=None,
         normalize_cov=None,
         reduce_resolution=None,
-        flow_matcher_class="cfm",
-        flow_matcher_kwargs=None,
         **name_to_pseudobulker,
     ):
         self.name_to_pseudobulker = name_to_pseudobulker
         self.n_pseudobulks = n_pseudobulks
         self.return_rows = return_rows
         self.inplace = inplace
-
-        flow_matcher_kwargs = {} if flow_matcher_kwargs is None else flow_matcher_kwargs
-        if flow_matcher_class == "cfm":
-            cfm_cls = ConditionalFlowMatcher
-        elif flow_matcher_class == "sb":
-            cfm_cls = SchrodingerBridgeConditionalFlowMatcher
-        elif flow_matcher_class == "fp":
-            cfm_cls = FollmerProcessFlowMatcher
-        elif flow_matcher_class == "constant":
-            cfm_cls = ConstantFlowMatcher
-        else:
-            raise ValueError(
-                f"Unknown flow_matcher_class: {flow_matcher_class}. "
-                "Supported classes are 'cfm', 'sb', 'fp', and 'constant'."
-            )
-        self.flow_matcher = cfm_cls(**flow_matcher_kwargs)
 
         self.bypass_keys = ["region"]
         if bypass_keys is not None:
@@ -988,25 +953,14 @@ class GeneratePairedPseudobulk:
         data = data.reshape(1, -1, resolution).sum(axis=-1)
         return data
 
-    def _sample_location_and_conditional_flow(self, data_dict, output_prefix):
+    def _add_delta(self, data_dict, output_prefix):
         x0 = data_dict[f"{output_prefix}:bulk_data_0"]
         x1 = data_dict[f"{output_prefix}:bulk_data_1"]
-        t_start = data_dict.get("__t_0", 0)
-        t_end = data_dict.get("__t_1", 1)
 
         x0 = torch.from_numpy(x0)
         x1 = torch.from_numpy(x1)
 
-        t, xt, ut = self.flow_matcher.sample_location_and_conditional_flow(
-            x0=x0, x1=x1, t=None, return_noise=False
-        )
-        # scale t to the range [t_start, t_end]
-        # default trange is [0, 1], so t is unchanged
-        t = t_start + t * (t_end - t_start)
-
-        data_dict["__t__"] = t.numpy()
-        data_dict["__xt__"] = xt.numpy()
-        data_dict["__ut__"] = ut.numpy()
+        data_dict[f"{output_prefix}:bulk_data_delta"] = x1 - x0
         return data_dict
 
     def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
@@ -1034,10 +988,7 @@ class GeneratePairedPseudobulk:
                     row_embedding
                 )
 
-                # 3. add trange if available
-                this_bulk_dict[f"__t{suffix}"] = pseudobulk["__t__"]
-
-                # 4. add pseudobulk data with optional
+                # 3. add pseudobulk data with optional
                 # coverage normalization and resolution reduction
                 prefix_to_rows = pseudobulk["cluster_ids"]
                 cov_logfc = pseudobulk["__covlogfc__"]
@@ -1071,15 +1022,13 @@ class GeneratePairedPseudobulk:
                     combined_bulk_data
                 )
 
-                # 5. copy shared information to the bulk dict
+                # 4. copy shared information to the bulk dict
                 for key in self.bypass_keys:
                     if key in data_dict:
                         this_bulk_dict[key] = deepcopy(data_dict[key])
 
-            # 6. add flow match sampling
-            this_bulk_dict = self._sample_location_and_conditional_flow(
-                this_bulk_dict, output_prefix
-            )
+            # 5. add delta between pairs
+            this_bulk_dict = self._add_delta(this_bulk_dict, output_prefix)
 
             list_of_dicts.append(this_bulk_dict)
         return list_of_dicts

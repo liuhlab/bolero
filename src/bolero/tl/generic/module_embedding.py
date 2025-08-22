@@ -1,14 +1,11 @@
-from functools import partial
 from typing import Union
 
-import numpy as np
 import torch
-from einops import einsum, rearrange, reduce, repeat
+from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
-from vector_quantize_pytorch import VectorQuantize
 
-from bolero.tl.generic.module import GroupedLinear, Residual
+from bolero.tl.generic.module import Residual
 from bolero.tl.model.flow._utils import cyclical_time_encoder
 
 from .module_lora import set_submodule_by_name
@@ -102,6 +99,9 @@ class ArchLinear(nn.Linear):
         return linear_out + arch_out
 
 
+# TODO: ArchEmbedding maybe redundant to ConditionEmbeddingModule
+# Main difference is that ArchEmbedding takes additional dims in embedding input
+# and maintain separate encoder and added to each layer of EmbeddingMLP
 class ArchEmbeddingMixin:
     """
     Mixin class to add Arch Embedding to MLP-like modules.
@@ -130,237 +130,7 @@ class ArchEmbeddingMixin:
         return
 
 
-# CODE BELOW IS FROM
-# https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/tree/main
-# LICENSE: MIT https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/blob/main/LICENSE
-class DiscreteKeyValueBottleneck(nn.Module):
-    def __init__(
-        self,
-        dim=50,
-        *,
-        dim_embed=None,
-        num_memories=256,
-        num_memory_codebooks=2,
-        dim_memory=256,
-        encoder=None,
-        average_pool_memories=True,
-        **kwargs,
-    ):
-        super().__init__()
-        self.encoder = encoder
-        if dim_embed is None:
-            dim_embed = dim
-        self.dim_embed = dim_embed
-
-        self.vq = VectorQuantize(
-            dim=dim * num_memory_codebooks,
-            codebook_size=num_memories,
-            heads=num_memory_codebooks,
-            separate_codebook_per_head=True,
-            **kwargs,
-        )
-
-        if dim_memory is None:
-            dim_memory = dim
-        # self.values.shape (h, n, d), leanable memory vectors for decoder input
-        self.values = nn.Parameter(
-            torch.randn(num_memory_codebooks, num_memories, dim_memory)
-        )
-
-        rand_proj = torch.empty(num_memory_codebooks, dim_embed, dim)
-        nn.init.xavier_normal_(rand_proj)
-
-        self.register_buffer("rand_proj", rand_proj)
-        self.average_pool_memories = average_pool_memories
-
-    def forward(self, x, return_intermediates=False, **kwargs):
-        """Get the memory embeddings from the input embeddings."""
-        if self.encoder is not None:
-            self.encoder.eval()
-            with torch.no_grad():
-                x = self.encoder(x, **kwargs)
-                x.detach_()
-
-        # add n dim if not exist, but remember to convert back to 2D after forward
-        if x.ndim == 2:
-            x = rearrange(x, "b d -> b 1 d")
-            has_n_dim = False
-
-        assert (
-            x.shape[-1] == self.dim_embed
-        ), f"encoding has a dimension of {x.shape[-1]} but dim_embed (defaults to dim) is set to {self.dim_embed} on init"
-
-        x = einsum(x, self.rand_proj, "b n d, c d e -> b n c e")
-        x = rearrange(x, "b n c e -> b n (c e)")
-
-        vq_out = self.vq(x)
-
-        _, memory_indices, _ = vq_out
-
-        if memory_indices.ndim == 2:
-            memory_indices = rearrange(memory_indices, "... -> ... 1")
-
-        memory_indices = rearrange(memory_indices, "b n h -> b h n")
-
-        values = repeat(self.values, "h n d -> b h n d", b=memory_indices.shape[0])
-        memory_indices = repeat(memory_indices, "b h n -> b h n d", d=values.shape[-1])
-
-        memories = values.gather(2, memory_indices)
-
-        if self.average_pool_memories:
-            memories = reduce(memories, "b h n d -> b n d", "mean")
-
-        if not has_n_dim:
-            memories = rearrange(memories, "b 1 d -> b d")
-
-        if return_intermediates:
-            return memories, vq_out
-
-        return memories
-
-
-class DiscreteKeyValueBottleneckNoVQ(nn.Module):
-    def __init__(
-        self,
-        num_memories=256,
-        dim_memory=64,
-        num_memory_codebooks=2,
-        average_pool_memories=False,
-    ):
-        """
-        A simple implementation of a discrete key-value bottleneck without VQ part.
-
-        Adapted from https://github.com/lucidrains/discrete-key-value-bottleneck-pytorch/tree/main
-
-        Parameters
-        ----------
-        num_memories: int
-            number of memories, which is the codebook size in VQ
-        dim_memory: int
-            dimension of memory vector in each codebook
-        num_memory_codebooks: int
-            number of codebooks, which is the number of heads in multi-head VQ
-        """
-        super().__init__()
-        self.values = nn.Parameter(
-            torch.clamp(
-                torch.randn(num_memory_codebooks, num_memories, dim_memory),
-                min=-3,
-                max=3,
-            ),
-        )
-        # self.values.shape (h, n, d)
-
-        self.num_memory_codebooks = num_memory_codebooks
-        self.dim_memory = dim_memory
-        self.num_memories = num_memories
-
-        self.average_pool_memories = average_pool_memories
-
-    def forward(
-        self,
-        vq_indices,
-    ):
-        """Turn vq indices into memory embeddings."""
-        vq_indices = vq_indices.long()
-        input_shape = vq_indices.shape
-        if vq_indices.ndim == 2:
-            vq_indices = rearrange(vq_indices, "bs h -> bs 1 h")
-        vq_indices = rearrange(vq_indices, "b n h -> b h n")
-
-        values = repeat(self.values, "h n d -> b h n d", b=input_shape[0])
-        vq_indices = repeat(vq_indices, "b h n -> b h n d", d=values.shape[-1])
-        memories = values.gather(2, vq_indices)
-
-        if self.average_pool_memories:
-            memories = memories.mean(dim=1)
-        else:
-            memories = rearrange(memories, "b h n d -> b n (h d)")
-
-        if len(input_shape) == 2:
-            memories = memories.squeeze(1)
-        return memories
-
-
-class KVBottleNeckMixin:
-    kv_bottleneck: Union[DiscreteKeyValueBottleneckNoVQ, DiscreteKeyValueBottleneck]
-
-    def setup_kv_bottleneck(
-        self,
-        num_memory_codebooks,
-        num_memories,
-        dim_memory,
-        additional_embs,
-        emb_input=False,
-        emb_input_dims=None,
-        average_pool_memories=False,
-    ):
-        """
-        Setup the key-value bottleneck for converting indices to embeddings.
-
-        Parameters
-        ----------
-        num_memory_codebooks: int
-            number of codebooks
-        num_memories: int
-            number of memories in each codebook
-        dim_memory: int
-            dimension of memory vector in each codebook
-        additional_embs: int
-            number of additional embeddings to be concatenated with the memory embeddings
-
-        Returns
-        -------
-        kv_bottleneck: nn.Module
-            key-value bottleneck module
-        emb_input_features: int
-            number of input features for the embeddings after concatenating the additional embeddings
-        """
-        # key-value bottleneck for converting indices to embeddings
-        self.additional_embs = additional_embs
-        self.num_memory_codebooks = num_memory_codebooks
-        self.num_memories = num_memories
-        self.dim_memory = dim_memory
-        self.emb_input = emb_input
-
-        if self.emb_input:
-            assert (
-                emb_input_dims is not None
-            ), "emb_input_dims must be provided if emb_input is True"
-            kv_bottleneck = DiscreteKeyValueBottleneck(
-                dim=emb_input_dims,
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                num_memory_codebooks=num_memory_codebooks,
-                average_pool_memories=True,
-            )
-            self.input_dims_for_kv = emb_input_dims
-        else:
-            kv_bottleneck = DiscreteKeyValueBottleneckNoVQ(
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                num_memory_codebooks=num_memory_codebooks,
-                average_pool_memories=average_pool_memories,
-            )
-            self.input_dims_for_kv = num_memory_codebooks
-
-        emb_input_features = num_memory_codebooks * dim_memory + additional_embs
-        return kv_bottleneck, emb_input_features
-
-    def vq_ind_to_emb(self, emb_data):
-        """
-        VQ index to embedding.
-
-        (bs, n_cbs + additional_embs) -> (bs, n_cbs * dim_memory + additional_embs).
-        """
-        kv_input = emb_data[:, : self.input_dims_for_kv]
-        other_emb_data = emb_data[:, self.input_dims_for_kv :]
-        emb_data = self.kv_bottleneck(kv_input)
-        emb_data = torch.cat((emb_data, other_emb_data), dim=-1)
-        return emb_data
-
-
-class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
+class EmbeddingMLP(nn.Module, ArchEmbeddingMixin):
     """
     This class turn the input embedding into one of the LoRA low-rank weight matrix (A or B) through a simple MLP.
     """
@@ -372,20 +142,10 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         output_shape: torch.Size,
         hidden_dim: Union[int, list],
         hidden_layers: int = 0,
-        output_layer_groups: int = 1,
-        bias=True,
-        kv_bottleneck=False,
-        num_memory_codebooks=2,
-        num_memories=256,
-        dim_memory=20,
-        additional_embs=1,
-        emb_input=False,
-        emb_input_dims=None,
-        norm_type="batch",
+        norm_type="layer",
         batchnorm_momentum=0.1,
         dropout=0.0,
         residual=False,
-        rescale_factor=1,
         attn_pooling=False,
     ) -> None:
         """
@@ -396,8 +156,6 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             output_features (int): The number of output features, usually the number of parameters in the LoRA A or B matrix.
             hidden_dim (int): The number of hidden dimensions in the MLP.
             hidden_layers (int): The number of hidden layers in the MLP. Default is 0.
-            output_layer_groups (int): The number of groups in the output layer. Default is 1.
-                If set to more than 1, the output layer will be a GroupedLinear layer to reduce the number of parameters.
         """
         super().__init__()
 
@@ -415,34 +173,8 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         self.output_shape = output_shape
         self.norm_type = norm_type
         self.batchnorm_momentum = batchnorm_momentum
-        self.bias = bias
         self.residual = residual
         self.dropout = dropout
-
-        # Output layer
-        if output_layer_groups > 1:
-            if self.out_feathres > 8:
-                # Grouped Linear has smaller number of parameters
-                output_module = partial(
-                    GroupedLinear, groups=output_layer_groups, bias=bias
-                )
-            else:
-                output_module = partial(nn.Linear, bias=bias)
-        else:
-            output_module = partial(nn.Linear, bias=bias)
-
-        # Key-Value Bottleneck for converting indices to embeddings
-        if kv_bottleneck:
-            self.kv_bottleneck, _ = self.setup_kv_bottleneck(
-                num_memory_codebooks=num_memory_codebooks,
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                additional_embs=additional_embs,
-                emb_input=emb_input,
-                emb_input_dims=emb_input_dims,
-            )
-        else:
-            self.kv_bottleneck = None
 
         # MLP layers
         layers = [self._generate_linear_module(self.input_features, self.hidden_dim[0])]
@@ -456,14 +188,9 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
                 )
             )
         layers.append(
-            output_module(
-                in_features=self.hidden_dim[-1], out_features=self.out_feathres
-            )
+            nn.Linear(in_features=self.hidden_dim[-1], out_features=self.out_feathres)
         )
         self.mlp = nn.Sequential(*layers)
-        self.rescale_factor = nn.Parameter(
-            torch.tensor(float(rescale_factor)).float(), requires_grad=False
-        )
 
         self.arch_features = 0
 
@@ -484,9 +211,7 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
             raise ValueError(f"Unknown norm type {self.norm_type}")
 
         layers = nn.Sequential(
-            nn.Linear(
-                in_features=in_features, out_features=out_features, bias=self.bias
-            ),
+            nn.Linear(in_features=in_features, out_features=out_features, bias=True),
             norm,
             nn.GELU(),
         )
@@ -533,16 +258,12 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         -------
             torch.Tensor: The output tensor after passing through the MLP layers.
         """
-        if self.kv_bottleneck is not None:
-            embedding = self.vq_ind_to_emb(embedding)
-
         if embedding.ndim == 3:
             # expect input embedding shape (bs, l, d)
             if self.attn_pooling is not None:
                 embedding = self.attn_pooling(embedding)  # (bs, l, d) -> (bs, d)
             else:
                 embedding = embedding.mean(dim=1)
-        embedding = embedding * self.rescale_factor
 
         if self.arch_features > 0:
             x = self.forward_mlp_with_arch(embedding)
@@ -560,33 +281,11 @@ class EmbeddingMLP(nn.Module, KVBottleNeckMixin, ArchEmbeddingMixin):
         last_layer = self.mlp[-1]
 
         assert isinstance(
-            last_layer, (nn.Linear, GroupedLinear)
-        ), f"Last layer is {type(last_layer)}, expected nn.Linear or GroupedLinear"
+            last_layer, nn.Linear
+        ), f"Last layer is {type(last_layer)}, expected nn.Linear"
         if last_layer.bias is not None:
             last_layer.bias.data[...] = 0
         last_layer.weight.data[...] = 0
-        return
-
-    def scale_weights(self, example_embedding: np.ndarray):
-        """
-        Scale the weights of the MLP's first layer based on the example embedding, use this in A embedding.
-        """
-        with torch.no_grad():
-            self.eval()
-            try:
-                self.cuda()
-            except AssertionError:
-                pass
-
-            example_embedding = example_embedding.to(self.mlp[0].weight.device)
-            example_output = self(example_embedding)
-            mean, std = example_output.mean(), example_output.std()
-            print(f"Embedding example mean: {mean}, std: {std}")
-            rescale_factor = 1 / (std)
-            self.rescale_factor = nn.Parameter(
-                rescale_factor.clone().detach(), requires_grad=False
-            )
-            # rescale the embedding matrix
         return
 
     def fix_parameters(self):
@@ -720,9 +419,133 @@ class _MultiSimpleEncoder(nn.Module):
         return outputs
 
 
+class ConditionEmbeddingModule(nn.Module):
+    """
+    ConditionEmbeddingModule is a module that combines multiple embedding sources
+    (cell emb, cond emb) into single hidden embedding.
+    """
+
+    def __init__(
+        self,
+        cell_emb_dim: int,
+        cond_emb_dim: int | dict[int],
+        cell_encoder_dims: list[int] = (256, 256),
+        cell_encoder_dropout: float = 0.1,
+        cell_attn_pooling: bool = True,
+        cond_encoder_dims: list[int] = (256, 256),
+        cond_encoder_dropout: float = 0.1,
+        cond_attn_pooling: bool = True,
+        n_cell_encoder: int = 1,
+    ):
+        super().__init__()
+
+        cell_encoder_dims = list(cell_encoder_dims)
+        cond_encoder_dims = list(cond_encoder_dims)
+
+        # cell embedding encoder
+        self.n_cell_encoder = n_cell_encoder
+        if n_cell_encoder == 1:
+            self.cell_encoder = _SimpleEncoder(
+                input_dim=cell_emb_dim,
+                encoder_dims=cell_encoder_dims,
+                encoder_dropout=cell_encoder_dropout,
+                attn_pooling=cell_attn_pooling,
+            )
+        else:
+            self.cell_encoder = _MultiSimpleEncoder(
+                input_dim=cell_emb_dim,
+                n_datasets=n_cell_encoder,
+                encoder_cls=_SimpleEncoder,
+                encoder_dims=cell_encoder_dims,
+                encoder_dropout=cell_encoder_dropout,
+                attn_pooling=cell_attn_pooling,
+            )
+
+        # condition encoder
+        if isinstance(cond_emb_dim, int):
+            self.cond_encoder = _SimpleEncoder(
+                input_dim=cond_emb_dim,
+                encoder_dims=cond_encoder_dims,
+                encoder_dropout=cond_encoder_dropout,
+                attn_pooling=cond_attn_pooling,
+            )
+            cond_enc_output_dim = cond_encoder_dims[-1]
+        elif isinstance(cond_emb_dim, dict):
+            self.cond_encoder = nn.ModuleDict()
+            for k, v in cond_emb_dim.items():
+                self.cond_encoder[k] = _SimpleEncoder(
+                    input_dim=v,
+                    encoder_dims=cond_encoder_dims,
+                    encoder_dropout=cond_encoder_dropout,
+                    attn_pooling=cond_attn_pooling,
+                )
+            cond_enc_output_dim = len(self.cond_encoder) * cond_encoder_dims[-1]
+        else:
+            self.cond_encoder = None
+            print(
+                f"cond_emb_dim is not int nor dict, no cond_encoder for the model. "
+                f"Make sure this looks intended: {cond_emb_dim}."
+            )
+            cond_enc_output_dim = 0
+
+        self.output_dim = cell_encoder_dims[-1] + cond_enc_output_dim
+        return
+
+    def forward(
+        self,
+        cell_emb: torch.Tensor,
+        cond_emb: torch.Tensor | dict[str, torch.Tensor],
+        dataset_keys: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        cell_emb: (bs, d_e) or (bs, n, d_e)
+        cond_emb: (bs, d_c) or (bs, n, d_c)
+
+        return: (bs, h_e + h_t + h_c)
+        """
+        to_cat = []
+
+        # encode cell embedding
+        if self.n_cell_encoder > 1:
+            assert (
+                dataset_keys is not None
+            ), "dataset_key must be provided for multi-dataset case"
+            cell_emb = self.cell_encoder(cell_emb, dataset_keys)
+        else:
+            cell_emb = self.cell_encoder(cell_emb)
+        if cell_emb.ndim == 3:
+            # if not attn_pooling in encoder,
+            # here just perform mean pooling on the cell embedding
+            cell_emb = cell_emb.mean(dim=1)
+        to_cat.append(cell_emb)
+
+        # encode condition embedding
+        if self.cond_encoder is not None:
+            if isinstance(self.cond_encoder, nn.ModuleDict):
+                assert isinstance(
+                    cond_emb, dict
+                ), f"cond_emb must be dict, but got {type(cond_emb)}"
+                cond_emb = [
+                    encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
+                ]
+                cond_emb = torch.cat(cond_emb, dim=-1)
+            else:
+                cond_emb = self.cond_encoder(cond_emb)
+
+            if cond_emb.ndim == 3:
+                # if not attn_pooling in encoder,
+                # here just perform mean pooling on the condition embedding
+                cond_emb = cond_emb.mean(dim=1)
+            to_cat.append(cond_emb)
+
+        # combine all embeddings
+        emb = torch.cat(to_cat, dim=-1)
+        return emb
+
+
 class CondFlowModule(nn.Module):
     """
-    CondFlowModule is a module that process condtional input
+    CondFlowModule is a module that process condtional input (cell emb, cond emb, time)
     and combine them into single embedding for flow model.
     """
 
@@ -869,7 +692,7 @@ class CondFlowModule(nn.Module):
         return emb
 
 
-class CondFlowModuleNoEffect(CondFlowModule):
+class ConditionEmbeddingModuleNoEffect(ConditionEmbeddingModule):
     """
     Only return unchanged cell embedding, this is for ablation study.
     """

@@ -230,7 +230,7 @@ def compute_deviations(adata, chunk_size: int = 10000, device="cuda"):
     dev = np.nan_to_num(dev, nan=0.0)
 
     dev = AnnData(
-        dev, dtype="float32", obs=adata.obs.copy()
+        dev.astype("float32"), obs=adata.obs.copy()
     )  # Convert back to CPU for AnnData compatibility
     dev.var_names = adata.uns["motif_name"]
     return dev

@@ -1,9 +1,11 @@
+import functools
 import itertools
 import math
 import os
 import pathlib
 import shutil
 import subprocess
+import warnings
 from typing import Tuple, Union
 
 import numpy as np
@@ -560,3 +562,39 @@ def minimize_overlap_regions(
 
     use_regions = pd.concat(use_regions)
     return use_regions
+
+
+def deprecated(reason: str = ""):
+    """
+    Decorate class or function as deprecated.
+    """
+
+    def decorator(obj):
+        if isinstance(obj, type):  # decorating a class
+            orig_init = obj.__init__
+
+            @functools.wraps(orig_init)
+            def new_init(self, *args, **kwargs):
+                warnings.warn(
+                    f"Class {obj.__name__} is deprecated: {reason}",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return orig_init(self, *args, **kwargs)
+
+            obj.__init__ = new_init
+            return obj
+        else:  # decorating a function/method
+
+            @functools.wraps(obj)
+            def wrapper(*args, **kwargs):
+                warnings.warn(
+                    f"Function {obj.__name__} is deprecated: {reason}",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return obj(*args, **kwargs)
+
+            return wrapper
+
+    return decorator

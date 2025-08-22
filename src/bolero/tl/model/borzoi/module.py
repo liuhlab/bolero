@@ -8,7 +8,7 @@ enformer pytorch: https://github.com/lucidrains/enformer-pytorch/blob/main/LICEN
 import math
 
 import torch
-from einops import rearrange, repeat
+from einops import rearrange
 from torch import einsum, nn
 from torch.nn import functional as F
 
@@ -458,95 +458,3 @@ class TransformerLayer(nn.Module):
     def forward(self, x, *args, **kwargs):
         """TransformerLayer forward pass."""
         return self.layers(x, *args, **kwargs)
-
-
-class ContextCrossAttention(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        context_dim,
-        heads=8,
-        dim_head=64,
-    ):
-        super().__init__()
-        self.query_norm = nn.LayerNorm(in_channels)
-        self.key_values_norm = nn.LayerNorm(context_dim)
-
-        self.scale = dim_head**-0.5
-        self.heads = heads
-        inner_dim = heads * dim_head
-        self.to_queries = nn.Linear(in_channels, inner_dim, bias=False)
-
-        self.null_key = nn.Parameter(torch.randn(inner_dim))
-        self.null_value = nn.Parameter(torch.randn(inner_dim))
-
-        self.to_key_values = nn.Linear(context_dim, inner_dim * 2, bias=False)
-        self.to_out = nn.Linear(inner_dim, in_channels)
-
-    def forward(self, x, embedding):
-        """
-        b - batch
-        e - borzoi embedding dim, 1920
-        c - context dim, 41
-        d - inner dimension
-        i - sequence length (query embeddings), 16352
-        j - sequence length (keys / values contexts)
-        h - attention heads
-
-        x: torch.Tensor, shape (batch, seq_len, dim)
-        """
-        h = self.heads
-
-        # perform cross attention from dna -> context
-        if embedding.ndim == 2:
-            embedding = rearrange(embedding, "b c -> b 1 c")
-
-        # (b, 16352, 1920) -> (b, 16352, 512)
-        q = self.to_queries(self.query_norm(x))
-        # (b, 1, 41) -> (b, 1, 512), (b, 1, 512)
-        k, v = self.to_key_values(self.key_values_norm(embedding)).chunk(2, dim=-1)
-        null_k = repeat(self.null_key, "d -> b 1 d", b=embedding.shape[0])
-        null_v = repeat(self.null_value, "d -> b 1 d", b=embedding.shape[0])
-        # (b, 1, 512), (b, 1, 512) -> (b, 2, 512)
-        k = torch.cat((null_k, k), dim=1)
-        v = torch.cat((null_v, v), dim=1)
-
-        # split out head
-        # (b, 16352, 512) -> (b, 8, 16352, 64)
-        q = rearrange(q, "b n (h d) -> b h n d", h=h)
-        # (b, 2, 512) -> (b, 8, 2, 64)
-        k = rearrange(k, "b j (h d) -> b h j d", h=h)
-        v = rearrange(v, "b j (h d) -> b h j d", h=h)
-        # (b, 8, 16352, 64), (b, 8, 2, 64) -> (b, 8, 16352, 2)
-        sim = einsum("b h i d, b h j d -> b h i j", q, k) * self.scale
-
-        # attention
-        attn = sim.softmax(dim=-1)
-
-        # aggregate
-        # (b, 8, 16352, 2), (b, 8, 2, 64) -> (b, 8, 16352, 64)
-        out = einsum("b h i j, b h j d -> b h i d", attn, v)
-        # (b, 8, 16352, 64) -> (b, 16352, 512)
-        out = rearrange(out, "b h i d -> b i (h d)", h=h)
-
-        # combine heads
-        # (b, 16352, 512) -> (b, 16352, 1920)
-        out = self.to_out(out)
-        return out
-
-
-class GEGLUFeedForward(nn.Module):
-    def __init__(self, dim, dropout=0.05, mult=2):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim * mult * 2),
-            nn.Dropout(dropout),
-            GEGLU(),
-            nn.Linear(dim * mult, dim),
-        )
-
-    def forward(self, x, *args, **kwargs):
-        """GEGLUFeedForward forward pass."""
-        # placeholder args and kwargs, but not used
-        return self.net(x)

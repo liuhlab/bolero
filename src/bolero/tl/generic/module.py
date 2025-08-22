@@ -1,5 +1,8 @@
+"""
+TODO: class in this file is mainly used in seq2PRINT type models, relocate it to seq2PRINT
+"""
+
 import copy
-import math
 
 import torch
 from torch import nn
@@ -80,40 +83,8 @@ class GenericModule(nn.Module):
         raise NotImplementedError
 
 
-class GroupedLinear(nn.Module):
-    """Use nn.Conv1D with kernel_size=1 to simulate nn.Linear,
-    and utilize its groups parameter to simulate grouped linear layer.
-
-    The input and output dimensions are the same as nn.Linear.
-    """
-
-    def __init__(self, in_features, out_features, groups=1, bias=True):
-        super().__init__()
-
-        self.internal_out_features = int(math.ceil(out_features / groups) * groups)
-        self.out_feathers = out_features
-        self.conv = nn.Conv1d(
-            in_channels=in_features,
-            out_channels=self.internal_out_features,
-            kernel_size=1,
-            groups=groups,
-            bias=bias,
-        )
-        self.weight = self.conv.weight
-        self.bias = self.conv.bias
-
-    def forward(self, x):
-        """Forward pass of the GroupedLinear module."""
-        x.unsqueeze_(2)  # add the length dimension
-        x = self.conv(x)
-        x.squeeze_(2)  # remove the length dimension
-        if self.internal_out_features != self.out_feathers:
-            x = x[:, : self.out_feathers]
-        return x
-
-
 class Conv1dWrapper(nn.Conv1d):
-    """Conv1d Layer Wrapper that support modes."""
+    """Conv1d Layer Wrapper that support arbitrary inputs."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -370,6 +370,7 @@ class JASPARMotifDatabase:
         self.motif_names = [motif.name for motif in self.motifs]
         self.motif_dict = {motif.name: motif for motif in self.motifs}
         self.motif_name_to_id = {k: v.motif_id for k, v in self.motif_dict.items()}
+        self.motif_id_to_name = {v: k for k, v in self.motif_id_dict.items()}
         self._motif_tensor_dict = None
 
         if db == "JASPAR2024_CORE_vertebrates":
@@ -392,18 +393,21 @@ class JASPARMotifDatabase:
 
     def __getitem__(self, key):
         """
-        Get a motif by name.
+        Get a motif by name OR ID
 
         Parameters
         ----------
-        - key (str): The name of the motif.
+        - key (str): The name or ID of the motif.
 
         Returns
         -------
-        - JASPARMotif: The motif with the specified name.
+        - JASPARMotif: The motif with the specified name or ID.
 
         """
-        return self.motif_dict[key]
+        try:
+            return self.motif_dict[key]
+        except KeyError:
+            return self.motif_id_dict[key]
 
     def __iter__(self):
         """

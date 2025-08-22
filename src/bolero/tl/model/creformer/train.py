@@ -173,7 +173,6 @@ class CREFormerTrainerMixin(
         "global_clipnorm": 1,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
-        "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         "accumulate_grad": 4,
         "shuffle_rows": 300,
@@ -183,8 +182,8 @@ class CREFormerTrainerMixin(
         "downsample_test_region": None,
         "grad_norm_collector": False,
         "save_state_every_n_epoch": None,
-        "vq_records": "REQUIRED",
-        "downsample_vq": None,
+        "pseudobulk_records": "REQUIRED",
+        "downsample_pseudobulk": None,
         "emb_key": "embedding",
     }
 
@@ -193,10 +192,9 @@ class CREFormerTrainerMixin(
 
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
-            "vq_records": self.config["vq_records"],
-            "use_vq_emb": False,
+            "pseudobulk_records": self.config["pseudobulk_records"],
             "prefix_name": "pseudobulk",
-            "downsample_vq": self.config["downsample_vq"],
+            "downsample_pseudobulk": self.config["downsample_pseudobulk"],
             "emb_key": self.config["emb_key"],
         }
 

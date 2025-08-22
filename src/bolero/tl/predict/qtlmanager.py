@@ -36,7 +36,10 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     assert region_and_mut["id"].duplicated().sum() == 0
     assert region_and_mut["name"].duplicated().sum() == 0
     region_to_mutation = region_and_mut.set_index("name")["id"].to_dict()
+
     mutations = table[["ref", "alt", "pos2start", "id"]].set_index("id")
+    # mutation pos2start is 1 based (VCF), adjust to 0 based
+    mutations["pos2start"] -= 1
 
     peak_cols = ["chr", "peak-end", "peak-start", "name", "id"] + [
         c for c in stats_cols if c in table.columns
@@ -57,10 +60,11 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
         + "-"
         + peaks["End"].astype(str)
     )
-    # peaks["bin_start"] = (peaks["Start"] - table["524k-start"].values) / resolution
-    # peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
-    peaks["bin_start"] = ((peaks["Start"] - table["524k-start"].values) - 512) / resolution #TODO TG: Cleaner clipping
-    peaks["bin_end"] = ((peaks["End"] - table["524k-start"].values) - 512) / resolution #TODO TG: Cleaner clipping
+    # Here we don't do any coordinates adjustment,
+    # assuming the borzoi region should always be uncliped and
+    # at length 524288 (1bp res) OR 16384 (32bp res)
+    peaks["bin_start"] = (peaks["Start"] - table["524k-start"].values) / resolution
+    peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
     peaks["bin_start"] = peaks["bin_start"].round().astype(int)
     peaks["bin_end"] = peaks["bin_end"].round().astype(int)
     return regions, region_to_mutation, mutations, peaks
@@ -81,7 +85,13 @@ def dna_substitution_(
 
 
 class QTLManager:
-    def __init__(self, qtl_table: str, resolution: int = 32, qtl_stats_cols=None):
+    def __init__(
+        self,
+        qtl_table: str,
+        resolution: int = 32,
+        qtl_stats_cols=None,
+        ypred_seq_len=16384,
+    ):
         if qtl_stats_cols is None:
             qtl_stats_cols = ["beta", "PIP"]
 
@@ -89,6 +99,7 @@ class QTLManager:
             qtl_table, resolution=resolution, stats_cols=qtl_stats_cols
         )
         self.resolution: int = resolution
+        self.ypred_seq_len: int = ypred_seq_len
         # columns: ["Chromosome", "Start", "End"], index by region id
         self.regions: pd.DataFrame = regions
         self.region_ids = regions.index.tolist()
@@ -129,8 +140,7 @@ class QTLManager:
                 pos2start = mutation["pos2start"]
                 # make substitution for both ref and alt,
                 # because some times ref and alt are swapped
-                # region_dna = dna_substitution_(region_dna.clone(), pos2start, mut_seq)
-                region_dna = dna_substitution_(region_dna.clone(), pos2start-1, mut_seq)
+                region_dna = dna_substitution_(region_dna.clone(), pos2start, mut_seq)
                 mut_dna_col[f"{dna_key}:{mutation_col}"].append(region_dna)
 
         for mutation_col in mutation_cols:
@@ -145,9 +155,15 @@ class QTLManager:
         Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.
         """
         batch_peaks = self.peaks.loc[list(zip(batch["region"], batch["mutation_id"]))]
+
         ypred = batch[ypred_key]
-        peak_sum = []
+        assert ypred.shape[-1] == self.ypred_seq_len, (
+            f"Expected ypred to have last dimension of {self.ypred_seq_len}, "
+            f"but got {ypred.shape[-1]}"
+        )
         ypred = ypred.clamp(min=0.0)  # Ensure non-negative predictions
+
+        peak_sum = []
         for rid, (bs, be) in enumerate(batch_peaks[["bin_start", "bin_end"]].values):
             r_peak_sum = ypred[rid, :, bs:be].sum(axis=-1)
             peak_sum.append(r_peak_sum)

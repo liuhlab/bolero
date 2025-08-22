@@ -60,7 +60,7 @@ class Borzoi(nn.Module):
         # borzoi crop to 6144 for loss
         # But I found 16352 or 6144 doesn't has impact on cell-type-specific model
         "crop_to_length": 16352,
-        "flash_attn": False,
+        "flash_attn": True,
     }
 
     @classmethod
@@ -83,7 +83,7 @@ class Borzoi(nn.Module):
         soft_clamp=None,
         soft_clamp_bool=None,
         crop_to_length=16352,
-        flash_attn=False,
+        flash_attn=True,
     ):
         """Initialize Borzoi model."""
         super().__init__()
@@ -306,19 +306,6 @@ class Borzoi(nn.Module):
 
     def __repr__(self):
         return self._model_summary()
-
-    def get_global_clipnorm_params(self):
-        """Get parameters to be included for global clipnorm."""
-        params = []
-        upper_bound_params = []
-        for n, p in self.named_parameters():
-            if "log_var_weight" in n:
-                continue
-            if "upper_bound" in n:
-                upper_bound_params.append(p)
-                continue
-            params.append(p)
-        return params, upper_bound_params
 
     def _separate_bce_poisson_multinomial_loss(self, y_true: dict, y_pred: dict):
         """Separate loss for ATAC and methylation."""

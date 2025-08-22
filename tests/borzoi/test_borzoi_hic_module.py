@@ -10,7 +10,6 @@ fold_id = 0
 config = {
     "emb_input_features": 50,
     "base_checkpoint_path": f"/home/hanliu/data/240729-WMBRNAModel/05.borzoi/borzoi_pretrain/torch_checkpoints/borzoi.human.f{fold_id}.pt",
-    "kv_bottleneck": None
 }
 
 borzoi = BorzoiLoRA.create_from_config(config).to("cuda")

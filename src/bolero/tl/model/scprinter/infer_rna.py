@@ -3,7 +3,7 @@ from typing import Union
 
 import torch
 
-from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
+from bolero.tl.pseudobulk.single_pseudobulk import SinglePseudobulker
 
 from .infer import BaseFootprintInferencer, scPrinterPseudobulkInferencer
 
@@ -15,12 +15,12 @@ class TrainedRNALoraModel:
     Parameters
     ----------
         model (Union[str, pathlib.Path, torch.nn.Module]): The trained Lora model.
-        pseudobulker (RNAVQPseudobulker): The pseudobulk data handler.
+        pseudobulker (SinglePseudobulker): The pseudobulk data handler.
 
     Attributes
     ----------
         model (torch.nn.Module): The trained Lora model.
-        pseudobulker (RNAVQPseudobulker): The pseudobulk data handler.
+        pseudobulker (SinglePseudobulker): The pseudobulk data handler.
 
     Methods
     -------
@@ -30,24 +30,22 @@ class TrainedRNALoraModel:
 
     default_config: dict = {
         "model": "REQUIRED",
-        "vq_records": "REQUIRED",
-        "use_vq_emb": False,
+        "pseudobulk_records": "REQUIRED",
         "emb_key": "embedding",
     }
 
     def __init__(
         self,
         model: Union[str, pathlib.Path, torch.nn.Module],
-        vq_records,
-        use_vq_emb=True,
+        pseudobulk_records,
         emb_key="embedding",
     ) -> None:
         if isinstance(model, (str, pathlib.Path)):
             model = torch.load(model, map_location="cpu", weights_only=False).eval()
         print(type(model), "model loaded")
         self.model: torch.nn.Module = model
-        self.pseudobulker: RNAVQPseudobulker = RNAVQPseudobulker.create_from_config(
-            vq_records=vq_records, use_vq_emb=use_vq_emb, emb_key=emb_key
+        self.pseudobulker: SinglePseudobulker = SinglePseudobulker.create_from_config(
+            pseudobulk_records=pseudobulk_records, emb_key=emb_key
         )
 
     @torch.no_grad()
@@ -80,7 +78,7 @@ class TrainedRNALoraModel:
 
 class scPrinterRNAPseudobulkInferencer(scPrinterPseudobulkInferencer):
     """
-    Class for performing pseudobulk inference using scPrinter model and RNA VQ pseudobulk.
+    Class for performing pseudobulk inference using scPrinter model and RNA pseudobulk.
     """
 
     model_class: type = TrainedRNALoraModel

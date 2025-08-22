@@ -35,7 +35,6 @@ from torch.nn import functional as F
 from torchinfo import summary
 
 from bolero.tl.generic.module import DNA_CNN, DilatedCNN
-from bolero.tl.generic.module_embedding import KVBottleNeckMixin
 from bolero.tl.generic.module_lora_cond import (
     collapse_lora_model_,
     convert_to_conditional_lora_model,
@@ -297,7 +296,6 @@ def make_lora_config(
         "emb_input_features": emb_input_features,
         "hidden_dim": hidden_dim,
         "hidden_layers": hidden_layers,
-        "output_layer_groups": 1,
         "convert_conv": True,
         "lora_dropout": lora_dropout,
         "emb_attn_pooling": emb_attn_pooling,
@@ -327,7 +325,7 @@ def make_lora_config(
     return lora_config
 
 
-class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
+class seq2PRINTLoRA(seq2PRINT):
     """scFootprintBPNetLoRA model."""
 
     default_config = seq2PRINT.get_default_config()
@@ -340,13 +338,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             "n_lora_layers": 1,
             "lora_hidden_dim": 384,
             "lora_dropout": 0,
-            # KV Bottleneck
-            "kv_bottleneck": None,
-            "num_memories": 256,
-            "dim_memory": 50,
-            "num_memory_codebooks": 2,
-            "additional_embs": 1,
-            "emb_input": False,
             "emb_attn_pooling": False,
         }
     )
@@ -371,13 +362,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         n_lora_layers: int = 1,
         lora_hidden_dim: Optional[int] = 384,
         lora_dropout: float = 0,
-        # KV Bottleneck
-        kv_bottleneck: str = "local",
-        num_memories: int = 256,
-        dim_memory: int = 50,
-        num_memory_codebooks: int = 2,
-        additional_embs: int = 1,
-        emb_input: bool = True,
         emb_attn_pooling: bool = False,
         **base_kwargs,
     ):
@@ -398,44 +382,10 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
             else:
                 self.load_state_dict(checkpoint.state_dict())
 
-        # key-value bottleneck for converting indices to embeddings
-        if kv_bottleneck == "local":
-            self.kv_bottleneck_mode = "local"
-            lora_input_features = emb_input_features
-        elif kv_bottleneck == "global":
-            self.kv_bottleneck_mode = "global"
-        elif kv_bottleneck is None:
-            self.kv_bottleneck_mode = None
-            lora_input_features = emb_input_features
-        else:
-            raise ValueError(
-                f"kv_bottleneck value: {kv_bottleneck} is invalid, setting to None"
-            )
         self.emb_input_features = emb_input_features
-        self.num_memories = num_memories
-        self.dim_memory = dim_memory
-        self.num_memory_codebooks = num_memory_codebooks
-        self.additional_embs = additional_embs
-        self.emb_input = emb_input
-        self.emb_input_dims = emb_input_features
-        if self.kv_bottleneck_mode == "global":
-            self.kv_bottleneck, lora_input_features = self.setup_kv_bottleneck(
-                num_memory_codebooks=num_memory_codebooks,
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                additional_embs=additional_embs,
-                emb_input=emb_input,
-                emb_input_dims=emb_input_features,
-            )
-            print(
-                "Using global shared key-value bottleneck for converting indices to embeddings."
-            )
-        else:
-            self.kv_bottleneck = None
-
         # LoRA configuration
         self.convert_to_lora(
-            emb_input_features=lora_input_features,
+            emb_input_features=emb_input_features,
             lora_hidden_dim=lora_hidden_dim,
             n_lora_layers=n_lora_layers,
             lora_dropout=lora_dropout,
@@ -469,26 +419,12 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
 
             # use layer norm
             config["norm_type"] = "layer"
-            if self.kv_bottleneck_mode == "local":
-                config["kv_bottleneck"] = True
-                config["num_memories"] = self.num_memories
-                config["dim_memory"] = self.dim_memory
-                config["num_memory_codebooks"] = self.num_memory_codebooks
-                config["additional_embs"] = self.additional_embs
-                config["emb_input"] = self.emb_input
-                config["emb_input_dims"] = self.emb_input_dims
-
             for module_name in module_names:
                 module = getattr(self, module_name)
                 if module is None:
                     continue
                 module = convert_to_conditional_lora_model(module, **config)
                 setattr(self, module_name, module)
-
-        # also make sure kv_bottleneck is trainable
-        for name, param in self.named_parameters():
-            if "kv_bottleneck" in name:
-                param.requires_grad = True
         return
 
     def collapse(self, embedding=None, requires_grad=True):
@@ -505,10 +441,6 @@ class seq2PRINTLoRA(seq2PRINT, KVBottleNeckMixin):
         -------
             scFootprintBPNet: A clone of the model with collapsed layers.
         """
-        # process the embeddings if kv_bottleneck is used
-        if self.kv_bottleneck is not None:
-            embedding = self.vq_ind_to_emb(embedding)
-
         model_clone = deepcopy(self)
         model_clone = collapse_lora_model_(model_clone, embedding=embedding)
 

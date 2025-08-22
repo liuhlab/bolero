@@ -13,7 +13,6 @@ from torch.nn import functional as F
 from .module import Conv1dWrapper
 from .module_embedding import EmbeddingMLP
 from .module_lora import (
-    DoRAMixin,
     LoRAConv,
     LoRAEmbedding,
     LoRALinear,
@@ -21,25 +20,6 @@ from .module_lora import (
     name_in_patterns,
     set_submodule_by_name,
 )
-
-
-class UnconditionalParameters(nn.Module):
-    def __init__(self, shape):
-        super().__init__()
-        self.shape = shape
-        self.output_shape = shape
-        self.values = nn.Parameter(torch.randn(shape), requires_grad=True)
-
-    def forward(self, embedding, *args, **kwargs):
-        """Forward"""
-        bs = embedding.shape[0]
-        values = repeat(self.values, "a b -> bs a b", bs=bs)
-        return values
-
-    def zero_weights_and_bias(self):
-        """Make the values zero."""
-        self.values.data[...] = 0
-        return
 
 
 class ConditionalLoRALayer:
@@ -53,16 +33,7 @@ class ConditionalLoRALayer:
         emb_input_features: int,
         hidden_dim: int,
         hidden_layers: int,
-        output_layer_groups: int,
-        conditional_b: bool = True,
-        kv_bottleneck: bool = False,
-        num_memory_codebooks: int = 2,
-        num_memories: int = 256,
-        dim_memory: int = 20,
-        additional_embs: int = 1,
-        emb_input=False,
-        emb_input_dims=None,
-        norm_type: str = "batch",
+        norm_type: str = "layer",
         batchnorm_momentum: float = 0.1,
         embedding_dropout: float = 0.0,
         emb_attn_pooling: bool = False,
@@ -95,41 +66,22 @@ class ConditionalLoRALayer:
             output_shape=(self.r, in_features),
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
-            kv_bottleneck=kv_bottleneck,
-            num_memory_codebooks=num_memory_codebooks,
-            num_memories=num_memories,
-            dim_memory=dim_memory,
-            additional_embs=additional_embs,
-            emb_input=emb_input,
-            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             dropout=embedding_dropout,
             attn_pooling=emb_attn_pooling,
         )
-        if conditional_b:
-            self.lora_B_module = EmbeddingMLP(
-                input_features=emb_input_features,
-                output_features=out_features * self.r,
-                output_shape=(out_features, self.r),
-                hidden_dim=hidden_dim,
-                hidden_layers=hidden_layers,
-                output_layer_groups=output_layer_groups,
-                kv_bottleneck=kv_bottleneck,
-                num_memory_codebooks=num_memory_codebooks,
-                num_memories=num_memories,
-                dim_memory=dim_memory,
-                additional_embs=additional_embs,
-                emb_input=emb_input,
-                emb_input_dims=emb_input_dims,
-                norm_type=norm_type,
-                batchnorm_momentum=batchnorm_momentum,
-                dropout=embedding_dropout,
-                attn_pooling=emb_attn_pooling,
-            )
-        else:
-            self.lora_B_module = UnconditionalParameters(shape=(out_features, self.r))
+        self.lora_B_module = EmbeddingMLP(
+            input_features=emb_input_features,
+            output_features=out_features * self.r,
+            output_shape=(out_features, self.r),
+            hidden_dim=hidden_dim,
+            hidden_layers=hidden_layers,
+            norm_type=norm_type,
+            batchnorm_momentum=batchnorm_momentum,
+            dropout=embedding_dropout,
+            attn_pooling=emb_attn_pooling,
+        )
         self.scaling = self.lora_alpha / self.r
 
     def lora_A(self, *args, **kwargs) -> torch.Tensor:
@@ -148,12 +100,11 @@ class ConditionalLoRALayer:
 
     def reset_lora_parameters(self):
         """Reset the parameters of the LoRA layer."""
-        # TODO: Initialize the weights of the A module
+        # TODO: Maybe initialize the weights of the A module
         # Original LoRA uses kaiming_uniform initialization
         # nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
         # Our lora_A is an MLP, this line below is used to scale the weights with the example embedding
         # self.lora_A_module.scale_weights(example_embedding)
-        # not sure how to initialize the weights here
 
         # Initialize the weights of the B module to zero
         self.lora_B_module.zero_weights_and_bias()
@@ -163,7 +114,7 @@ class ConditionalLoRALayer:
         self.base_class.train(self, mode)
 
 
-class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
+class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer):
     # LoRA implemented in a dense layer
     def __init__(
         self,
@@ -172,23 +123,13 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         emb_input_features: int,
         hidden_dim: int,
         hidden_layers: int = 0,
-        output_layer_groups: int = 1,
         lora_rank: int = 1,
         lora_alpha: int = None,
         lora_scale: int = 1,
         lora_dropout: float = 0.0,
-        conditional_b=True,
-        kv_bottleneck=False,
-        num_memory_codebooks=2,
-        num_memories=256,
-        dim_memory=20,
-        additional_embs=1,
-        emb_input=False,
-        emb_input_dims=None,
-        norm_type="batch",
+        norm_type="layer",
         batchnorm_momentum=0.1,
         embedding_dropout=0.0,
-        use_dora=False,
         reset_lora_in_init=True,
         emb_attn_pooling=False,
         **kwargs,
@@ -205,15 +146,6 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
             shape_b=torch.Size([out_features, lora_rank]),
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
-            conditional_b=conditional_b,
-            kv_bottleneck=kv_bottleneck,
-            num_memory_codebooks=num_memory_codebooks,
-            num_memories=num_memories,
-            dim_memory=dim_memory,
-            additional_embs=additional_embs,
-            emb_input=emb_input,
-            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
@@ -228,10 +160,6 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         if reset_lora_in_init:
             self.reset_lora_parameters()
 
-        self.use_dora = use_dora
-        if self.use_dora:
-            self._prepare_dora_magnitude()
-
     def _lora_adaptive_weight(self, *args, **kwargs):
         # (bs, i, o) -> (bs, o, i)
         lora_weight = self._lora_ab(*args, **kwargs).transpose(1, 2)
@@ -242,8 +170,6 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
 
     def _adaptive_weight(self, *args, **kwargs):
         weight = self._lora_adaptive_weight(*args, **kwargs)
-        if self.use_dora:
-            weight = self._dora_adaptive_weight(weight, has_bs_dim=True)
         return weight  # (bs, o, i)
 
     def collapse(self, *args, **kwargs) -> nn.Linear:
@@ -300,7 +226,7 @@ class ConditionalLoRALinear(nn.Linear, ConditionalLoRALayer, DoRAMixin):
         return lora_linear
 
 
-class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
+class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
     def __init__(
         self,
         conv_class,
@@ -315,19 +241,9 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         lora_scale=1,
         lora_dropout=0.0,
         hidden_layers: int = 0,
-        output_layer_groups: int = 1,
-        conditional_b=True,
-        kv_bottleneck=False,
-        num_memory_codebooks=2,
-        num_memories=256,
-        dim_memory=20,
-        additional_embs=1,
-        emb_input=False,
-        emb_input_dims=None,
-        norm_type="batch",
+        norm_type="layer",
         batchnorm_momentum=0.1,
         embedding_dropout=0.0,
-        use_dora=False,
         reset_lora_in_init=True,
         emb_attn_pooling=False,
         **kwargs,
@@ -379,15 +295,6 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
             emb_input_features=emb_input_features,
             hidden_dim=hidden_dim,
             hidden_layers=hidden_layers,
-            output_layer_groups=output_layer_groups,
-            conditional_b=conditional_b,
-            kv_bottleneck=kv_bottleneck,
-            num_memory_codebooks=num_memory_codebooks,
-            num_memories=num_memories,
-            dim_memory=dim_memory,
-            additional_embs=additional_embs,
-            emb_input=emb_input,
-            emb_input_dims=emb_input_dims,
             norm_type=norm_type,
             batchnorm_momentum=batchnorm_momentum,
             embedding_dropout=embedding_dropout,
@@ -402,10 +309,6 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         if reset_lora_in_init:
             self.reset_lora_parameters()
 
-        self.use_dora = use_dora
-        if use_dora:
-            self._prepare_dora_magnitude()
-
     def _gen_conv1d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
         shape_a = (r * kernel_size, in_channels // groups * kernel_size)
         shape_b = (out_channels, r * kernel_size)
@@ -418,14 +321,6 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
 
     def _gen_conv3d_lora_shape(self, in_channels, out_channels, groups, kernel_size, r):
         raise NotImplementedError
-
-    def _maybe_to_dora_weights(self, lora_weights):
-        if self.use_dora:
-            # lora_weights: (b o i k)
-            weight = self._dora_adaptive_weight(lora_weights, has_bs_dim=True)
-        else:
-            weight = lora_weights
-        return weight
 
     def _lora_ab(self, *args, **kwargs):
         lora_weights = super()._lora_ab(*args, **kwargs)
@@ -453,7 +348,6 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         lora_weights = self._lora_ab(*args, **kwargs)
         base_weights = rearrange(self.conv.weight, "o i k -> 1 o i k")
         weights = base_weights + lora_weights
-        weights = self._maybe_to_dora_weights(weights)
         weights = rearrange(weights, "b o i k -> (b o) i k")
 
         b = x.shape[0]
@@ -474,7 +368,6 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer, DoRAMixin):
         lora_weights = self._lora_ab(*args, **kwargs)
         base_weights = rearrange(self.conv.weight, "o i k1 k2 -> 1 o i k1 k2")
         weights = rearrange(base_weights + lora_weights, "b o i k1 k2 -> (b o) i k1 k2")
-        weights = self._maybe_to_dora_weights(weights)
 
         b = x.shape[0]
         x = rearrange(x, "b i h w -> 1 (b i) h w")
@@ -582,7 +475,6 @@ def convert_to_conditional_lora_model(
     emb_input_features: int,
     hidden_dim: int = 256,
     hidden_layers: int = 0,
-    output_layer_groups: int = 1,
     convert_linear=False,
     convert_conv=False,
     convert_embedding=False,
@@ -609,7 +501,6 @@ def convert_to_conditional_lora_model(
         emb_input_features (int): The number of input features for the embedding.
         hidden_dim (int): The number of hidden dimensions in the MLP.
         hidden_layers (int): The number of hidden layers in the MLP. Default is 0.
-        output_layer_groups (int): The number of groups in the output layer. Default is 1.
         convert_linear (bool): If set to True, nn.Linear modules are replaced.
             Default is False.
         convert_conv (bool): If set to True, nn.Conv1d, nn.Conv2d, and nn.Conv3d
@@ -704,7 +595,6 @@ def convert_to_conditional_lora_model(
                 emb_input_features=emb_input_features,
                 hidden_dim=hidden_dim,
                 hidden_layers=hidden_layers,
-                output_layer_groups=output_layer_groups,
                 **kwargs,
             )
         else:

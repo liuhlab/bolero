@@ -49,7 +49,7 @@ config = {
     "lora_scale": lora_scale,
     "warmup_steps": warmup_steps,
     "weight_decay": 1e-8,
-    "global_clipnorm": 0.1,
+    "global_clipnorm": 0.5,
     # dataset
     "fold_split_id": 0,
     "cell_types": cell_types,
@@ -66,7 +66,6 @@ config = {
     "out_channels": 1,
     "hidden_dim": 256,
     "hidden_layers": 1,
-    "output_layer_groups": 4,
     "lora_dropout": 0.01,
     "loss_total_weight": loss_total_weight,
     "lora_preset": lora_preset,
@@ -75,7 +74,6 @@ config = {
     "transformer_pos_dropout": 0.0,
     "transformer_ff_dropout": 0.0,
     "final_conv_dropout": 0.0,
-    "final_output_dropout": 0.01,
     # pseudobulk and embedding
     "kv_bottleneck": kv_bottleneck,
     "num_memories": 256,

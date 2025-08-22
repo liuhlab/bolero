@@ -15,6 +15,10 @@ from bolero import Genome
 def _dump_grouped_csr(
     sample, adata_path, key, pseudobulk_order, groupping, output_path
 ):
+    """
+    This function sum up single cell csr_matrix into pseudobulk csr_matrix
+    It is a worker function that only handles one chromosome (key) in one adata_path
+    """
     adata = snap.read(adata_path, backed="r")
     adata_bcs = pd.Index(adata.obs_names)
 
@@ -112,7 +116,12 @@ class AdataPseudobulkMerger:
         use_chroms=None,
     ):
         """
-        Merge pseudobulk data from multiple samples/adata_files and groups into a single directory.
+        Merge single-cell by genome sparse matrix into pseudobulk by genome sparse matrix.
+        This is a preparing step for generating parquet dataset with GenomeChunkDatasetGenerator class.
+
+        single-cell matrix stored in snapatac2 adata files provided in adata_path_dict.
+        single-cell to pseudobulk mapping stored in pseudobulk_meta.
+        Output data are organized by chromosomes and stored in a single directory.
 
         It took ~30min to merge 173k cell into 1.3k unbalanced pseudobulks, using 60 cpus, memory max < 30GB.
         The last csc step is slow and unparalleled, can parallel if memory is enough.
@@ -131,7 +140,9 @@ class AdataPseudobulkMerger:
             Directory to save the merged pseudobulk data. Final file will be:
         sparse_format : str
             The sparse format to save the merged data. Options are 'csr' or 'csc'.
-
+        use_chroms : list, optional
+            List of chromosome names to use for merging.
+            If None, all chromosomes in snap file will be used.
         """
         self.output_dir = pathlib.Path(output_dir)
 
@@ -183,9 +194,11 @@ class AdataPseudobulkMerger:
         joblib.dump(self.chrom_keys, self.output_dir / "chrom_keys.list.joblib")
         self.pseudobulk_meta.to_feather(self.output_dir / "pseudobulk_metadata.feather")
 
-    def _extract_by_group(self, temp_dir, chrom_key):
-        # select rows for each sample and each group,
-        # save into group:csr_mat dict for each sample.
+    def _extract_group_sum_for_single_adata(self, temp_dir, chrom_key):
+        """
+        Sum up cells into pseudobulks for a single chrom and adata_path,
+        save into group:csr_mat dict for each adata_path.
+        """
         fs = []
         for sample, adata_path in self.adata_path_dict.items():
             output_path = temp_dir / f"{sample}_{chrom_key}"
@@ -201,8 +214,11 @@ class AdataPseudobulkMerger:
         _ = ray.get(fs)
         return
 
-    def _merge_single_chrom(self, temp_dir, chrom_key):
-        # merge samples for each chrom and each group
+    def _merge_adata_for_single_chrom(self, temp_dir, chrom_key):
+        """
+        After each adata's pseudobulk-by-chromosome is calculated separately
+        we sum up all adata into final pseudobulk-by-chromosome matrix
+        """
         print(f"dump {chrom_key} groups merge")
         to_del = []
         group_datas = []
@@ -253,8 +269,8 @@ class AdataPseudobulkMerger:
                     print(f"{chrom_key} already exists, skip")
                     continue
 
-                self._extract_by_group(temp_dir, chrom_key)
-                self._merge_single_chrom(temp_dir, chrom_key)
+                self._extract_group_sum_for_single_adata(temp_dir, chrom_key)
+                self._merge_adata_for_single_chrom(temp_dir, chrom_key)
         return
 
 

@@ -40,7 +40,6 @@ class mCTrainerMixin(GenericTrainer):
         "accumulate_grad": 1,
         "train_batches": 2000,
         "val_batches": 300,
-        "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         # region file
         "region_bed_path": "REQUIRED",
@@ -252,7 +251,7 @@ class mCTrainerMixin(GenericTrainer):
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
-        if val_loss < self.best_val_loss - self.loss_tolerance:
+        if val_loss < self.best_val_loss:
             self.early_stopping_counter = 0
         else:
             self.early_stopping_counter += 1

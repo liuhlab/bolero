@@ -367,7 +367,6 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                 )
 
                 # 3. add trange if available
-                this_bulk_dict[f"__t{suffix}"] = pseudobulk["__t__"]
                 _bulk_values = all_pseudobulk_data[
                     None, 2 * pair_idx + idx_in_pair
                 ]  # (1, region_length)
@@ -378,10 +377,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                 this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = _bulk_values
 
             # TODO: temporary solution to mimic matcher
-            this_bulk_dict["__t__"] = np.random.rand(1).astype(
-                "float32"
-            )  # random time for now
-            this_bulk_dict["__ut__"] = (
+            this_bulk_dict[f"{output_prefix}:bulk_data_delta"] = (
                 this_bulk_dict[f"{output_prefix}:bulk_data_1"]
                 - this_bulk_dict[f"{output_prefix}:bulk_data_0"]
             )
@@ -473,8 +469,7 @@ class BorzoiMultiDataset(GenericDataset):
         self.signal_columns = [
             f"{self.output_prefix}:bulk_data_0",
             f"{self.output_prefix}:bulk_data_1",
-            "__ut__",
-            # "__xt__",
+            f"{self.output_prefix}:bulk_data_delta",
         ]
         return
 

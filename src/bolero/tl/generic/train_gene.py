@@ -123,7 +123,6 @@ class GenericGeneModelTrainer(TrainerGeneDatasetMixin, GenericTrainer):
         "weight_decay": 0.001,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
-        "loss_tolerance": 0.0,
         "accumulate_grad": 1,
     }
 

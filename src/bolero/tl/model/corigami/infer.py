@@ -35,7 +35,6 @@ class CorigamiInferencer(CorigamiLoraTrainer):
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
         "batch_size": "REQUIRED",
-        "loss_tolerance": 0.0,
         "pretrained_model": "REQUIRED",
         "plot_vmin": -2,
         "plot_vmax": 2,

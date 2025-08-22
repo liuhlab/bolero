@@ -45,7 +45,6 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "val_batches": 1000,
         "warmup_steps": 1000,
         "weight_decay": 1e-4,
-        "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         "accumulate_grad": 4,
         "dataloader_concurrency": 16,
@@ -298,7 +297,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # determine early stop based on footprint loss
         previous_best = self.best_val_loss
         val_fp_loss = self.val_loss["footprint"]
-        if val_fp_loss < self.best_val_loss - self.loss_tolerance:
+        if val_fp_loss < self.best_val_loss:
             self.early_stopping_counter = 0
         else:
             if epoch >= self.start_early_stop_after_epoch:

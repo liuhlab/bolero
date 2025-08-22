@@ -309,7 +309,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "weight_decay": 0.001,
         "train_batches": "REQUIRED",
         "val_batches": "REQUIRED",
-        "loss_tolerance": 0.0,
         "plot_example_per_epoch": 9,
         "accumulate_grad": 1,
         "grad_norm_collector": False,
@@ -701,7 +700,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         # epochs
         self.max_epochs = config["max_epochs"]
         self.patience = config["patience"]
-        self.loss_tolerance = config["loss_tolerance"]
         self.train_batches = config["train_batches"]
         self.val_batches = config["val_batches"]
         self.early_stopping_counter = 0
@@ -727,7 +725,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             self.scheduler = None
 
         # EMA model
-        self.use_ema = config["use_ema"]
+        self.use_ema = config.get("use_ema", False)
         if self.use_ema:
             self.ema = self._get_ema()
         else:
@@ -799,7 +797,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
             safe_save(checkpoint, self.best_checkpoint_path)
 
             # save best model in a separate file
-            if self.config["use_ema"]:
+            if self.config.get("use_ema", False):
                 safe_save(self.ema.ema_model, self.best_model_path)
             else:
                 safe_save(self.model, self.best_model_path)
@@ -812,7 +810,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         return
 
     def _save_epoch_model_state(self):
-        if self.config["use_ema"]:
+        if self.config.get("use_ema", False):
             state_dict = self.ema.ema_model.state_dict()
         else:
             state_dict = self.model.state_dict()

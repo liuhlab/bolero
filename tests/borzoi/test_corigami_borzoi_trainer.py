@@ -68,7 +68,6 @@ config = {
     "base_checkpoint_path": base_checkpoint_path,
     "emb_input_features": emb_input_features,
     "kv_bottleneck": kv_bottleneck,
-    "output_layer_groups": 1,
     "lora_scale": 0.02,
     "lora_norm": "layer",
 }

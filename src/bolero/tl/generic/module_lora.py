@@ -17,44 +17,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
-class DoRAMixin:
-    """
-    Mixin class to add DoRA to LoRA layers.
-
-    Weight-Decomposed Low-Rank Adaptation (DoRA) is an potential improvment to LoRA.
-    https://github.com/NVlabs/DoRA
-
-    This class should work for both linear and conv layers.
-    It should also work for both conditional and unconditional LoRA layers.
-    When weight comes in with bs dimension, set has_bs_dim to True.
-    """
-
-    def _prepare_dora_magnitude(self):
-        # record the base magnitude of the output dim of the weight matrix
-        self.base_m = nn.Parameter(
-            self.weight.norm(p=2, dim=0, keepdim=False), requires_grad=False
-        )  # (i, ...)
-        # learnable adaptive magnitude, initialized to 0
-        self.dora_m = nn.Parameter(torch.zeros_like(self.base_m))  # (i, ...)
-
-    def _dora_adaptive_weight(self, lora_adaptive_weight, has_bs_dim=False):
-        """
-        lora_adaptive_weight: (bs, o, i, ...) or (o, i, ...)
-        """
-        output_dim = 1 if has_bs_dim else 0
-        output_norm = lora_adaptive_weight.norm(
-            p=2, dim=output_dim, keepdim=True
-        )  # (bs, 1, i, ...) or (1, i, ...)
-        normed_weight = (
-            lora_adaptive_weight / output_norm
-        )  # (bs, o, i, ...) or (o, i, ...)
-
-        dora_weight = normed_weight * (
-            self.base_m + self.dora_m
-        )  # (bs, o, i, ...) or (o, i, ...)
-        return dora_weight
-
-
 class LoRALayer:
     def __init__(
         self,
@@ -178,7 +140,7 @@ class LoRAEmbedding(nn.Embedding, LoRALayer):
         return lora_embed
 
 
-class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
+class LoRALinear(nn.Linear, LoRALayer):
     # LoRA implemented in a dense layer
     def __init__(
         self,
@@ -188,7 +150,6 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         lora_alpha: int = None,
         lora_scale: int = 1,
         lora_dropout: float = 0.0,
-        use_dora: bool = False,
         **kwargs,
     ):
         nn.Linear.__init__(self, in_features, out_features, **kwargs)
@@ -209,10 +170,6 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         self.weight.requires_grad = False
         self.reset_parameters()
 
-        self.use_dora = use_dora
-        if use_dora:
-            self._prepare_dora_magnitude()
-
     def reset_parameters(self):
         """Reset the parameters of the LoRA layer."""
         nn.Linear.reset_parameters(self)
@@ -227,8 +184,6 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
 
     def _adaptive_weight(self):
         lora_weight = self.weight + self._lora_ab()
-        if self.use_dora:
-            lora_weight = self._dora_adaptive_weight(lora_weight, has_bs_dim=False)
         return lora_weight
 
     def collapse(self, *args, **kwargs) -> nn.Linear:
@@ -285,7 +240,7 @@ class LoRALinear(nn.Linear, LoRALayer, DoRAMixin):
         return lora_linear
 
 
-class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
+class LoRAConv(nn.Module, LoRALayer):
     def __init__(
         self,
         conv_class,
@@ -296,7 +251,6 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
         lora_alpha=None,
         lora_scale=1,
         lora_dropout=0.0,
-        use_dora=False,
         **kwargs,
     ):
         if conv_class == nn.Conv1d:
@@ -343,10 +297,6 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
         self.conv.weight.requires_grad = False
         self.reset_parameters()
 
-        self.use_dora = use_dora
-        if use_dora:
-            self._prepare_dora_magnitude()
-
     def _gen_conv_1d_lora_parameter(
         self, in_channels, out_channels, groups, kernel_size, r
     ):
@@ -392,8 +342,6 @@ class LoRAConv(nn.Module, LoRALayer, DoRAMixin):
 
     def _adaptive_weight(self):
         lora_weight = self.conv.weight + self._lora_ab()
-        if self.use_dora:
-            lora_weight = self._dora_adaptive_weight(lora_weight, has_bs_dim=False)
         return lora_weight
 
     def collapse(self, *args, **kwargs) -> nn.modules.conv._ConvNd:

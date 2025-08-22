@@ -7,7 +7,7 @@ from bolero.tl.model.scprinter.dataset import scPrinterDataset
 from bolero.tl.model.scprinter.dataset_online import scPrinterOnlineDataset
 from bolero.tl.model.scprinter.model import seq2PRINTLoRA
 from bolero.tl.model.scprinter.train_base import scFootprintTrainerMixin
-from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
+from bolero.tl.pseudobulk.single_pseudobulk import SinglePseudobulker
 
 
 class scFootprintLoRATrainer(scFootprintTrainerMixin):
@@ -21,17 +21,16 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
             "lr": 0.0005,
             # Lora related files
             "accumulate_grad": 4,
-            "vq_records_path": "REQUIRED",
-            "use_vq_emb": False,
+            "pseudobulk_records": "REQUIRED",
             "prefix": "pseudobulk",
-            "downsample_vq": None,
+            "downsample_pseudobulks": None,
             "emb_key": "embedding",
         }
     )
 
     dataset_class = scPrinterDataset
     model_class = seq2PRINTLoRA
-    pseudobulk_class = RNAVQPseudobulker
+    pseudobulk_class = SinglePseudobulker
 
     def _setup_model(self):
         config_for_lora = {
@@ -46,9 +45,8 @@ class scFootprintLoRATrainer(scFootprintTrainerMixin):
         dataset = super()._get_dataset()
         # setup pseudobulker params for sc dataset
         pseudobulker_params = {
-            "vq_records": self.config["vq_records_path"],
-            "use_vq_emb": self.config["use_vq_emb"],
-            "downsample_vq": self.config["downsample_vq"],
+            "pseudobulk_records": self.config["pseudobulk_records"],
+            "downsample_pseudobulks": self.config["downsample_pseudobulks"],
             "prefix_name": self.config["prefix"],
             "add_cov_to_emb": False,
             "emb_key": self.config["emb_key"],

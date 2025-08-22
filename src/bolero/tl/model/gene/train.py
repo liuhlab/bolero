@@ -124,7 +124,7 @@ class GeneModelTrainer(GenericGeneModelTrainer):
 
         # only clear the early stopping counter if the loss improvement is better than tolerance
         previous_best = self.best_val_loss
-        if val_loss < self.best_val_loss - self.loss_tolerance:
+        if val_loss < self.best_val_loss:
             self.early_stopping_counter = 0
         else:
             self.early_stopping_counter += 1

@@ -15,7 +15,7 @@ from bolero.pp.genome_chunk_dataset import (
     csr_matrix_to_compressed_bytes_dict,
 )
 from bolero.tl.dataset.ray_dataset import RayGenomeChunkDataset
-from bolero.utils import understand_regions
+from bolero.utils import deprecated, understand_regions
 
 
 class PseudobulkMerge:
@@ -87,6 +87,7 @@ class PseudobulkMerge:
         return final_dict
 
 
+@deprecated
 class RayGenomeChunkDatasetPseudobulkMerge(RayGenomeChunkDataset):
     def _merge_pseudobulk(self, dataset, cell_to_cluster, concurrency):
         fn = PseudobulkMerge
@@ -220,6 +221,7 @@ def _merge_bp_to_bins(window_data, merge_resolution):
     return final_data
 
 
+@deprecated
 class MergeGenomeChunkDatasetByBins:
     """
     This generator takes in pseudobulk-by-bases RayGenomeChunkDataset and merge them into pseudobulk-by-bins per chromosome.

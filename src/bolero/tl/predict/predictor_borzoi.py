@@ -15,12 +15,6 @@ import xarray as xr
 from einops import rearrange
 
 from bolero.tl.model.borzoi.model import Borzoi
-from bolero.tl.model.borzoi.model_flow import (
-    BorzoiLoRAFlowPredictor as _BorzoiFlowModelWithODESolver,
-)
-from bolero.tl.model.borzoi.model_flow import (
-    BorzoiLoRAFlowPredictorFP as _BorzoiFlowModelWithSDESolverFP,
-)
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import understand_regions
@@ -55,10 +49,12 @@ class BorzoiInputXGradient:
         model,
         peak_length=512,
         attr_length=1024,
+        model_dna_length=524288,
+        model_resolution=32,
     ):
         self.model = model
-        self.model_dna_length = 524288
-        self.model_resolution = 32
+        self.model_dna_length = model_dna_length
+        self.model_resolution = model_resolution
         self.peak_length = peak_length
         self.peak_bins = peak_length // self.model_resolution
         self.attr_length = attr_length
@@ -161,6 +157,7 @@ class BorzoiPredictor(GenericPredictor):
         embedding_key="__embedding__",
         ypred_key="__ypred__",
         batch_size=16,
+        crop=True,
     ):
         """
         Forward pass through the model.
@@ -183,7 +180,9 @@ class BorzoiPredictor(GenericPredictor):
             dna_mini_batch = dna[region_idx[i : i + batch_size]]
 
             with self._autocast_context():
-                y_pred_mini_batch = self.model(dna_mini_batch, embedding=emb_mini_batch)
+                y_pred_mini_batch = self.model(
+                    dna_mini_batch, embedding=emb_mini_batch, crop=crop
+                )
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
         # reshape to (n_region, n_emb, seq_len)
@@ -212,6 +211,8 @@ class BorzoiPredictor(GenericPredictor):
                     dna_key=f"__dna__:{mutation_col}",
                     batch_size=batch_size,
                     ypred_key=f"__ypred__:{mutation_col}",
+                    # QTL manager takes full borzoi region
+                    crop=False,
                 )
                 batch = qtl.get_peak_sum(
                     batch,
@@ -227,6 +228,8 @@ class BorzoiPredictor(GenericPredictor):
     def _get_post_prediction_callbacks(self):
         callbacks = [
             # calc pearsonr on last dim (seq_len)
+            # the metrics callback class always calculate on the first dim
+            # permute parameter puts seq_len to first
             (
                 "pearsonr",
                 {
@@ -248,7 +251,6 @@ class BorzoiPredictor(GenericPredictor):
                 ("extract_peak", {"peak_bed": self.peak_df}),
                 # this step adds the peak data to the batch:
                 # "__ytrue__:peak" and "__ypred__:peak"
-                #
                 # calculate peak cumulative profile correlation
                 (
                     "pearsonr",
@@ -305,7 +307,7 @@ class BorzoiPredictor(GenericPredictor):
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
-                "Must be one of 'prediction' or 'attribution'."
+                "Must be one of 'prediction', 'qtl' or 'attribution'."
             )
 
     def _create_fn_and_dataloader(
@@ -497,7 +499,6 @@ class BorzoiPredictor(GenericPredictor):
 
     def _collapse_model(self, emb):
         """Collapse model for inference given an embedding vector."""
-        # TODO: get pseudobulk information and collapse model
         if isinstance(emb, pd.Series):
             emb = torch.from_numpy(emb.values)
         elif isinstance(emb, np.ndarray):
@@ -667,7 +668,6 @@ class BorzoiPredictor(GenericPredictor):
                 f"{timer['callback']/timer['counter']:.3f}s per batch\n"
                 f"(total {timer['counter']} batches)\n"
             )
-        # TODO: clean up memory during batches
 
     def _get_default_stats_keys(self):
         STATS_KEYS = [
@@ -705,7 +705,8 @@ class BorzoiPredictor(GenericPredictor):
         output_dir: str
             The output directory to save the results.
         regions: str or pd.DataFrame or list[str]
-            The regions to predict. If "test_regions", use the test regions.
+            The regions to predict. If "test_regions",
+            use the borzoi test regions based on fold in config.
         downsample_regions: int
             The number of regions to downsample. If None, use all regions.
         downsample_seed: int
@@ -770,7 +771,7 @@ class BorzoiPredictor(GenericPredictor):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 # save the first complete batch into output dir
-                joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
+                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = {}
@@ -919,7 +920,7 @@ class BorzoiPredictor(GenericPredictor):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 # save the first complete batch into output dir
-                joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
+                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = {}
@@ -1084,7 +1085,7 @@ class BorzoiPredictor(GenericPredictor):
                 if idx == 0 and verbose:
                     self._print_batch(batch, prefix="Dataloader")
                     # save the first complete batch into output dir
-                    joblib.dump(batch, batch_dir / "first_batch.joblib.gz")
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
                 # save the batch to a file
                 save_batch = {}
@@ -1109,11 +1110,7 @@ class BorzoiPredictor(GenericPredictor):
 
 class BorzoiMultiHeadPredictor(BorzoiPredictor):
     def _model_prediction_step(
-        self,
-        batch,
-        dna_key="__dna__",
-        ypred_key="__ypred__",
-        batch_size=16,
+        self, batch, dna_key="__dna__", ypred_key="__ypred__", batch_size=16, crop=True
     ):
         """
         Forward pass through the model.
@@ -1127,7 +1124,7 @@ class BorzoiMultiHeadPredictor(BorzoiPredictor):
             dna_mini_batch = dna[i : i + batch_size]
 
             with self._autocast_context():
-                y_pred_mini_batch = self.model(dna_mini_batch)
+                y_pred_mini_batch = self.model(dna_mini_batch, crop=crop)
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
         # y_pred shape (n_region, n_emb/n_pseudobulks, seq_len)
@@ -1150,7 +1147,7 @@ class BorzoiPairPredictor(BorzoiPredictor):
         Create paired pseudobulk records from the design.
         """
         _train_config = load_config(config["train_config"])
-        paired_mode = _train_config.get("paired_mode", "condition")
+        paired_mode = _train_config.get("paired_mode", "ensemble")
         pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[paired_mode]
         paired_pseudobulker = pseudobulker_cls(
             pseudobulk_and_ot_info=config["pseudobulk_records_path"],
@@ -1159,7 +1156,8 @@ class BorzoiPairPredictor(BorzoiPredictor):
             barcode_order=None,
             seed=42,
         )
-        designs = config["designs"]
+        # if designs is None, will use all pids in the pseudobulk records
+        designs = config.get("designs", None)
         config["pseudobulk_records_path"] = (
             paired_pseudobulker.create_pseudobulk_records_from_design(designs)
         )
@@ -1181,20 +1179,20 @@ class BorzoiPairPredictor(BorzoiPredictor):
             (
                 "pearsonr",
                 {
-                    "ytrue_key": "__ytrue__:peak:delta",
-                    "ypred_key": "__ypred__:peak:delta",
+                    "ytrue_key": "__ytrue__:peak:cond1",
+                    "ypred_key": "__ypred__:peak:cond1",
                     "permute": (1, 0),  # (sample, peak) -> (peak, sample)
-                    "output_key": "peak_delta_pearsonr",
+                    "output_key": "peak_pearsonr",
                     "cumulative": True,
                 },
             ),
             (
                 "r2_score",
                 {
-                    "ytrue_key": "__ytrue__:peak:delta",
-                    "ypred_key": "__ypred__:peak:delta",
+                    "ytrue_key": "__ytrue__:peak:cond1",
+                    "ypred_key": "__ypred__:peak:cond1",
                     "permute": (1, 0),
-                    "output_key": "peak_delta_r2",
+                    "output_key": "peak_r2",
                     "cumulative": True,
                 },
             ),
@@ -1206,58 +1204,23 @@ class BorzoiPairPredictor(BorzoiPredictor):
     def _get_default_stats_keys(self):
         STATS_KEYS = super()._get_default_stats_keys()
         STATS_KEYS += [
-            "peak_delta_pearsonr",
-            "peak_delta_r2",
+            "peak_pearsonr",
+            "peak_r2",
         ]
         return STATS_KEYS
 
 
-class BorzoiFlowPredictor(BorzoiPairPredictor):
+class BorzoiSignalPredictor(BorzoiPairPredictor):
     """
-    BorzoiFlowPredictor is a predictor for Borzoi models that uses ODEs to predict
+    BorzoiSignalPredictor is a predictor for Borzoi models that uses ODEs to predict
     the trajectory of the model given an initial condition.
-    It is used for flow-based models.
+    It is used for signal-based models.
     """
 
     def __init__(self, config):
         super().__init__(config)
-        self._ode_solver = None
-
         self.has_cond_emb = self.config.get("cond_emb_dim") is not None
-
-        # prediction mode can be "ode" or "velocity"
-        # "ode" means using the ODE solver to predict the trajectory
-        # "velocity" means using the model to predict the velocity field
-        self._prediction_mode = self.config.get("prediction_mode", "ode")
-        assert self._prediction_mode in ("ode", "velocity"), (
-            f"Invalid prediction mode: {self._prediction_mode}. "
-            "Must be one of 'ode' or 'velocity'."
-        )
-        self._model_without_signal = self.config.get("_nosignal", False)
-
-    def _create_solver(self) -> _BorzoiFlowModelWithODESolver:
-        cfm_class = self.config.get("cfm_class", "cfm")
-        if cfm_class == "fp":
-            solver = _BorzoiFlowModelWithSDESolverFP(
-                model=self.model,
-                **self.config.get("solver_kwargs", {}),
-            )
-        else:
-            solver = _BorzoiFlowModelWithODESolver(
-                model=self.model,
-                **self.config.get("solver_kwargs", {}),
-            )
-        return solver
-
-    @property
-    def ode_solver(self) -> _BorzoiFlowModelWithODESolver:
-        """
-        Get the ODE solver for the model.
-        If not set, create a new one.
-        """
-        if self._ode_solver is None:
-            self._ode_solver = self._create_solver()
-        return self._ode_solver
+        self._forward_without_signal = self.config.get("nosignal", False)
 
     def _get_pre_prediction_callbacks(self):
         _data_keys = ["__ytrue__", "__embedding__"]
@@ -1299,7 +1262,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
     def _get_post_attribution_callbacks(self):
         return []
 
-    def _get_post_prediction_callbacks(self, prediction_mode="prediction"):
+    def _get_post_prediction_callbacks(self):
         # add paired task callbacks
         callbacks = [
             (
@@ -1309,9 +1272,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                     "data_keys": [
                         "__ytrue__:cond0",
                         "__ytrue__:cond1",
-                        "__ytrue__:delta",
                         "__ypred__:cond1",
-                        "__ypred__:delta",
                     ],
                 },
             ),
@@ -1321,9 +1282,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
                     "name_map": {
                         "__ytrue__:cond0:peak": "__ytrue__:peak:cond0",
                         "__ytrue__:cond1:peak": "__ytrue__:peak:cond1",
-                        "__ytrue__:delta:peak": "__ytrue__:peak:delta",
                         "__ypred__:cond1:peak": "__ypred__:peak:cond1",
-                        "__ypred__:delta:peak": "__ypred__:peak:delta",
                     }
                 },
             ),
@@ -1331,20 +1290,20 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             (
                 "pearsonr",
                 {
-                    "ytrue_key": "__ytrue__:peak:delta",
-                    "ypred_key": "__ypred__:peak:delta",
+                    "ytrue_key": "__ytrue__:peak:cond1",
+                    "ypred_key": "__ypred__:peak:cond1",
                     "permute": (1, 0),  # (sample, peak) -> (peak, sample)
-                    "output_key": "peak_delta_pearsonr",
+                    "output_key": "peak_pearsonr",
                     "cumulative": True,
                 },
             ),
             (
                 "r2_score",
                 {
-                    "ytrue_key": "__ytrue__:peak:delta",
-                    "ypred_key": "__ypred__:peak:delta",
+                    "ytrue_key": "__ytrue__:peak:cond1",
+                    "ypred_key": "__ypred__:peak:cond1",
                     "permute": (1, 0),
-                    "output_key": "peak_delta_r2",
+                    "output_key": "peak_r2",
                     "cumulative": True,
                 },
             ),
@@ -1388,12 +1347,8 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             cond_emb = self._split_cond_emb_to_terms(cond_emb)
         else:
             cond_emb = None
-        time = torch.zeros([embedding.shape[0], 1])
-        time = time.type_as(embedding).to(embedding.device)
 
-        agg_emb = self.model.cond_flow_module(
-            cell_emb=embedding, cond_emb=cond_emb, time=time
-        )
+        agg_emb = self.model.cond_emb_module(cell_emb=embedding, cond_emb=cond_emb)
         model = self._collapse_model(agg_emb)
         attr_model = BorzoiInputXGradient(model=model)
         return attr_model
@@ -1444,7 +1399,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         """
         Forward pass through the model to get the attribution.
         """
-        if self._model_without_signal:
+        if self._forward_without_signal:
             batch = self._dna_attr_step(model, batch, attr_batch_size)
         else:
             batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
@@ -1461,9 +1416,9 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         x0_key="__ytrue__:cond0",
         cell_embedding_key="__embedding__:cond0",
         cond_embedding_key="__conditionemb__:cond1",
-        time_range_key="__timerange__",
         batch_size=16,
         ypred_key="__ypred__:cond1",
+        crop=True,
     ):
         """
         Forward pass through the model.
@@ -1475,10 +1430,10 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             cond_emb = batch[cond_embedding_key]
         else:
             cond_emb = None
-        x0 = batch[x0_key]
-        t_range = batch[time_range_key]
 
-        # x0 = torch.log1p(x0)
+        # take reference signal and log1p scale
+        x0 = batch[x0_key]
+        x0 = torch.log1p(x0)
 
         n_emb = cell_emb.shape[0]
         n_region = dna.shape[0]
@@ -1505,29 +1460,22 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             dna_mini_batch = dna[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
             # we need to select the paired region and embedding and get (bs, 1, seq_len)
-            if self._model_without_signal:
+            if self._forward_without_signal:
                 x0_mini_batch = None
             else:
                 x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
-                if self._prediction_mode == "velocity":
-                    y_pred_mini_batch = self.ode_solver.predict_vt(
-                        x_0=x0_mini_batch,
-                        cell_emb=cell_emb_mini_batch,
-                        cond_emb=cond_emb_mini_batch,
-                        dna_one_hot=dna_mini_batch,
-                    )
-                    # This is equivalent to single step ODE approximation
-                    # y_pred_mini_batch here is actual y_pred delta
-                else:
-                    y_pred_mini_batch = self.ode_solver.predict(
-                        x_0=x0_mini_batch,
-                        t_range=t_range,
-                        cell_emb=cell_emb_mini_batch,
-                        cond_emb=cond_emb_mini_batch,
-                        dna_one_hot=dna_mini_batch,
-                    )
+                cond_ensemble = self.model.cond_emb_module(
+                    cell_emb=cell_emb_mini_batch,
+                    cond_emb=cond_emb_mini_batch,
+                )
+                y_pred_mini_batch = self.model(
+                    dna_mini_batch,
+                    embedding=cond_ensemble,
+                    signal=x0_mini_batch,
+                    crop=crop,
+                )
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
         # reshape to (n_region, n_emb, seq_len)
@@ -1539,29 +1487,14 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             n_emb=n_emb,
         )
 
-        # if self._prediction_mode == "velocity":
-        #     # y_pred is the velocity, we need to add it to the initial condition
-        #     x1 = x0 + y_pred.detach()
-        # else:
-        #     x1 = y_pred.detach()
-        # batch["__ypred__:cond1"] = torch.expm1(x1).clamp(min=0.0)
+        if crop:
+            # also crop ytrue to allow metric calculation
+            for key in ["__ytrue__:cond0", "__ytrue__:cond1"]:
+                _data = batch[key]
+                crop_radius = (_data.shape[-1] - self.model.crop_to_length) // 2
+                batch[key] = _data[..., crop_radius:-crop_radius]
 
-        if self._prediction_mode == "velocity":
-            if self.model._predict_x1:
-                batch[ypred_key] = y_pred.detach()
-            else:
-                # y_pred is the velocity, we need to add it to the initial condition
-                batch[ypred_key] = x0 + y_pred.detach()
-        else:
-            batch[ypred_key] = y_pred.detach()
-
-        try:
-            batch["__ypred__:delta"] = (
-                batch["__ypred__:cond1"] - batch["__ytrue__:cond0"]
-            )
-        except KeyError:
-            pass
-        # joblib.dump(batch, "debug_batch.joblib.gz")
+        batch[ypred_key] = y_pred.detach()
         return batch
 
     def _create_fn_and_dataloader(
@@ -1578,7 +1511,6 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             # rename keys
             batch["__dna__"] = batch.pop(dna_key)
             batch["__embedding__"] = batch.pop(embedding_key)
-            batch["__timerange__"] = [0, 1]
 
             if add_data:
                 # coverage normalize true data
@@ -1610,8 +1542,8 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
             "peak",
             "pseudobulk_ids",
             "condition_pairs",
-            "peak_delta_pearsonr",
-            "peak_delta_r2",
+            "peak_pearsonr",
+            "peak_r2",
         ]
         return STATS_KEYS
 
@@ -1625,7 +1557,7 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         verbose=True,
     ):
         """
-        Attribution task for BorzoiFlowPredictor.
+        Attribution task for BorzoiSignalPredictor.
         Compute the attribution on a set of regions and pseudobulk records.
         Then save the results to a file.
         """
@@ -1668,7 +1600,10 @@ class BorzoiFlowPredictor(BorzoiPairPredictor):
         verbose=True,
     ):
         """
-        QTL task for BorzoiFlowPredictor.
+        QTL task for BorzoiSignalPredictor.
+
+        # TODO: since we do not use signal input for QTL task, we can disable add_true_data
+        # this need later code assume x0 key can be missing
         """
         # change add_true_data default to True
         return super().qtl_task(

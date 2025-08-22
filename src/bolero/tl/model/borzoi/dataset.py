@@ -20,7 +20,7 @@ from bolero.tl.pseudobulk.paired_pseudobulk import (
     PAIRED_PSEUDOBULKER_CLS_DICT,
     GeneratePairedPseudobulk,
 )
-from bolero.tl.pseudobulk.rna_atac_pseudobulk import RNAVQPseudobulker
+from bolero.tl.pseudobulk.single_pseudobulk import SinglePseudobulker
 
 from .utils import BorzoiRegions
 
@@ -145,7 +145,7 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
         return_rows=False,
         inplace=False,
         bypass_keys=None,
-        normalize_cov=None,
+        normalize_cov=True,
         reduce_resolution=None,
         **name_to_pseudobulker,
     ):
@@ -251,27 +251,30 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
     default_config = {
         "dataset_path": "REQUIRED",
-        "batch_size": 2,
+        # regions
         "dna_window": 524288,
         "pos_resolution": 32,
+        "use_regions": "borzoi",
+        "train_region_step_sample": True,
+        # pseudobulks
+        "n_pseudobulks": 10,
+        "paired_data": True,
+        "paired_mode": "ensemble",
+        # argumentation
         "reverse_complement": True,
         "rc_mode": "random",
         "max_jitter": 3,
-        "n_pseudobulks": 10,
         "shuffle_files": True,
-        "read_parquet_kwargs": None,
+        # data loader
+        "batch_size": 4,
         "min_cov": 0,
-        "paired_data": False,
-        "paired_mode": "condition",
-        "cfm_class": "cfm",
-        "cfm_kwargs": None,
-        "normalize_cov": None,
-        "deg_list": None,
+        "normalize_cov": True,
         "reduce_resolution": False,
-        "use_regions": "borzoi",
+        "read_parquet_kwargs": None,
+        # gene related options
+        "deg_list": None,
         "gene_data_path": None,
         "tss_bed_path": None,
-        "train_region_step_sample": True,
         # benchmark options
         "_multihead": False,
     }
@@ -279,28 +282,32 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def __init__(
         self,
         dataset_path: str,
-        batch_size: int = 2,
+        # regions
         dna_window: int = 524288,
         pos_resolution: int = 32,
+        use_regions="borzoi",
+        train_region_step_sample=True,
+        # pseudobulks
+        n_pseudobulks: int = 10,
+        paired_data=True,
+        paired_mode="ensemble",
+        # argumentation
         reverse_complement: bool = True,
         rc_mode: str = "random",
         max_jitter: int = 3,
-        n_pseudobulks: int = 10,
-        cov_filter_name: str = None,
-        shuffle_files=False,
-        read_parquet_kwargs=None,
+        shuffle_files=True,
+        # data loader
+        batch_size: int = 4,
         min_cov: int = 0,
-        paired_data=False,
-        paired_mode="condition",
-        cfm_class="cfm",
-        cfm_kwargs=None,
-        normalize_cov=None,
-        deg_list=None,
+        cov_filter_name: str = None,
+        normalize_cov=True,
         reduce_resolution=False,
-        use_regions="borzoi",
+        read_parquet_kwargs=None,
+        # gene related options
+        deg_list=None,
         gene_data_path=None,
         tss_bed_path=None,
-        train_region_step_sample=True,
+        # benchmark options
         _multihead=False,
     ):
         super().__init__(
@@ -324,8 +331,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         self.paired_data = paired_data
         self.paired_mode = paired_mode
-        self.cfm_class = cfm_class
-        self.cfm_kwargs = cfm_kwargs
 
         self.normalize_cov = normalize_cov
         self.deg_list = deg_list
@@ -470,7 +475,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         if self.paired_data:
             pseudobulker_cls = PAIRED_PSEUDOBULKER_CLS_DICT[self.paired_mode]
         else:
-            pseudobulker_cls = RNAVQPseudobulker
+            pseudobulker_cls = SinglePseudobulker
         generator = pseudobulker_cls.create_from_config(**pseudobulker_kwargs)
         self.name_to_pseudobulker[name] = generator
         return
@@ -548,7 +553,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def data_keys(self):
         """Return the data keys in batch dict."""
         if self.paired_data:
-            suffixes = ["_0", "_1"]
+            suffixes = ["_0", "_1", "_delta"]
         else:
             suffixes = [""]
         data_keys = [
@@ -556,11 +561,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
             for name in self.name_to_pseudobulker.keys()
             for suffix in suffixes
         ]
-
-        if self.paired_data:
-            # the flow matcher result is also in the shape of region data
-            data_keys.extend(["__xt__", "__ut__"])
-
         return data_keys
 
     def _mask_blacklist_and_clamp(self, dataset, concurrency=(1, 2), batch_size=16):
@@ -593,8 +593,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
     ):
         if self.paired_data:
             fn = GeneratePairedPseudobulk
-            kwargs.setdefault("flow_matcher_class", self.cfm_class)
-            kwargs.setdefault("flow_matcher_kwargs", self.cfm_kwargs)
         elif getattr(self, "_multihead", False):
             print("Using multi-head mode for Borzoi dataset")
             fn = GenerateBorzoiPseudobulkMultiHead
