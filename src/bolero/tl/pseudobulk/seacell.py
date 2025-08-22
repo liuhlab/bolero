@@ -33,17 +33,32 @@ def calc_meta_cells(
     n_meta_cells = max(n_cells // meta_fold, min_seacells)
     if verbose:
         print(f"Group {n_cells} cells to {n_meta_cells} meta cells")
-    model = SEACells.core.SEACells(
-        adata,
-        build_kernel_on=obsm,
-        n_SEACells=n_meta_cells,
-        n_waypoint_eigs=n_waypoint_eigs,
-        use_gpu=False,
-        convergence_epsilon=1e-5,
-        verbose=False,
-    )
-    model.construct_kernel_matrix()
-    model.initialize_archetypes()
+    try:
+        model = SEACells.core.SEACells(
+            adata,
+            build_kernel_on=obsm,
+            n_SEACells=n_meta_cells,
+            n_waypoint_eigs=n_waypoint_eigs,
+            use_gpu=False,
+            convergence_epsilon=1e-5,
+            verbose=False,
+        )
+        model.construct_kernel_matrix()
+        model.initialize_archetypes()
+    except IndexError:
+        # an IndexError maybe raised when n_waypoint_eigs is small (e.g., 5)
+        # increase n_waypoint_eigs make the error disappear. happen very rarely.
+        model = SEACells.core.SEACells(
+            adata,
+            build_kernel_on=obsm,
+            n_SEACells=n_meta_cells,
+            n_waypoint_eigs=10,
+            use_gpu=False,
+            convergence_epsilon=1e-5,
+            verbose=False,
+        )
+        model.construct_kernel_matrix()
+        model.initialize_archetypes()
     try:
         model.fit(min_iter=10, max_iter=80)
     except RuntimeWarning:
