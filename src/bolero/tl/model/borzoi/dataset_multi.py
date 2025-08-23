@@ -12,6 +12,7 @@ from bolero.tl.dataset.parquet_db import GenomeParquetDBNoParallel
 from bolero.tl.dataset.ray_dataset import _IterableFromIterator
 from bolero.tl.dataset.transforms import FetchRegionOneHot, ReverseComplement
 from bolero.tl.generic.dataset import GenericDataset
+from bolero.tl.model.borzoi.dataset import MaskBlacklistAndClamp
 from bolero.tl.model.borzoi.utils import MultiBorzoiRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import MultiPairedPseudobulker
 from bolero.utils import understand_regions
@@ -19,48 +20,12 @@ from bolero.utils import understand_regions
 DNA_NAME = "dna_one_hot"
 
 
-class _MaskBlacklistAndClamp:
-    def __init__(
-        self,
-        blacklist_global_coords,
-        chrom_offsets,
-        region_key,
-        data_keys,
-        as_nan,
-        resolution,
-    ):
-        self.blacklist_global_coords = blacklist_global_coords
-        self.chrom_offsets = chrom_offsets
-        self.region_key = region_key
-        self.data_keys = data_keys
-        self.as_nan = as_nan
-        self.resolution = resolution
-        self._mask_value = np.nan if as_nan else 0
-
-    def _get_region_chrom(self, region):
-        chrom, coords = region.split(":")
-        start, end = map(int, coords.split("-"))
-        chrom_start = self.chrom_offsets.loc[chrom, "global_start"]
-        global_coords = (chrom_start + start, chrom_start + end)
-        return global_coords
-
+class _MaskBlacklistAndClamp(MaskBlacklistAndClamp):
     def __call__(self, region, data):
         """
         data.shape = (n_pseudobulks, region_length), it should belong to the same region.
         """
-        r_gstart, r_gend = self._get_region_chrom(region)
-        bl_coords = self.blacklist_global_coords
-        overlap_bl_regions = bl_coords[
-            (bl_coords[:, 0] < r_gend) & (bl_coords[:, 1] > r_gstart)
-        ].copy()
-        overlap_bl_regions -= r_gstart
-        region_length = r_gend - r_gstart
-        overlap_bl_regions[:, 0] -= 3 * self.resolution
-        overlap_bl_regions[:, 1] += 3 * self.resolution
-        overlap_bl_regions = np.clip(overlap_bl_regions, 0, region_length)
-
-        # convert base coords to resolution coords
-        overlap_bl_regions //= self.resolution
+        overlap_bl_regions, region_length = self.calculate_overlaps(region)
 
         for bl_start, bl_end in overlap_bl_regions:
             if bl_start >= region_length:
@@ -103,23 +68,31 @@ class MultiMaskBlacklistAndClamp:
 
 class DatasetRecordManager:
     """
-    Manages dataset records for Borzoi multi-dataset.
+    Manages multiple dataset records for Borzoi multi-dataset.
 
-    This class handles loading dataset records of multiple datasets,
-    each record follows the schema:
+    The dataset_records contains all information for each dataset,
+    the schema:
     {
-        "data_path": str,  # Path to the dataset file
-        "pseudobulk_path": str,  # Path to the pseudobulk file
+        "data_path": str,  # Path to the parquet dataset dir
+        "pseudobulk_path": str,  # Path to the pseudobulk records file
         "genome": str,  # Genome name
-        "dataset_sample_weights": int | float,  # Optional, Sample weights for pseudobulk
+        "dataset_sample_weight": int | float,
+        # Optional, Sampling weight for this dataset, default is 1;
+        # This weight will be normalized across dataset via weight / max(weight),
+        # and apply in norm_weight * n_pseudobulks during data loader.
     }
+
+    The instance of DatasetRecordManager maintains dataset information,
+    create a MultiBorzoiRegions object to get dataset (genome) specific regions
+    and a MultiPairedPseudobulker object to sample dataset specific pseudobulk records.
     """
 
     # data
     dataset_records: dict[str, dict]
-    _data_paths: dict[str, str]
-    sample_region_fracs: pd.Series
-    _barcode_orders: dict[str, dict]
+    dataset_orders: list[str]
+    data_paths: dict[str, str]
+    dataset_sample_weights: dict[str, float]
+    _barcode_orders: dict[str, dict[str, pd.Index]]
     # genome
     _shared_genome_obj: dict[str, Genome]
     genomes: dict[str, Genome]
@@ -139,28 +112,29 @@ class DatasetRecordManager:
         self._init_pseudobulker(pseudobulker_cls)
 
     def _init_data(self):
-        self._data_paths = {k: v["data_path"] for k, v in self.dataset_records.items()}
-        self.data_keys = list(self._data_paths.keys())
-        self.dataset_sample_weights = pd.Series(
-            {
-                k: v.get("dataset_sample_weights", 1)
-                for k, v in self.dataset_records.items()
-            }
-        )
+        self.data_paths: dict[str, str] = {
+            k: v["data_path"] for k, v in self.dataset_records.items()
+        }
+        self.data_keys: list[str] = list(self.data_paths.keys())
         # sample weights are used to balance n_pseudobulks across datasets,
         # for each region, n_pseudobulks * weight will be sampled for the corresponding dataset
         # max sample weight is 1, values are between 0 and 1
+        dataset_sample_weights = pd.Series(
+            {
+                k: v.get("dataset_sample_weight", 1)
+                for k, v in self.dataset_records.items()
+            }
+        )
         self.dataset_sample_weights: dict[str, float] = (
-            self.dataset_sample_weights / self.dataset_sample_weights.max()
+            dataset_sample_weights / dataset_sample_weights.max()
         ).to_dict()
-
-        self._barcode_orders = {
-            k: joblib.load(f"{v}/row_names.joblib") for k, v in self._data_paths.items()
+        self._barcode_orders: dict[str, dict[str, pd.Index]] = {
+            k: joblib.load(f"{v}/row_names.joblib") for k, v in self.data_paths.items()
         }
 
     def _init_genome(self):
-        self._shared_genome_obj = {}
-        self.genomes = {}
+        self._shared_genome_obj: dict[str, Genome] = {}
+        self.genomes: dict[str, Genome] = {}
         for k, v in self.dataset_records.items():
             _g = v["genome"]
             if _g not in self._shared_genome_obj:
@@ -178,20 +152,10 @@ class DatasetRecordManager:
             pseudobulker_cls=pseudobulker_cls,
         )
 
-    def _sample_regions(self, regions, seed):
-        use_regions = []
-        for key, key_regions in regions.groupby("key"):
-            frac = self.dataset_sample_weights[key]
-            use_key_regions = key_regions.sample(
-                frac=frac, random_state=seed, replace=False
-            )
-            use_regions.append(use_key_regions)
-        return pd.concat(use_regions, ignore_index=True)
-
     def _select_full_overlap_regions(self, regions: pd.DataFrame) -> pd.DataFrame:
         # Select regions that fully overlap with the parquet bed files.
         parquet_bed_dict = {}
-        for k, p in self._data_paths.items():
+        for k, p in self.data_paths.items():
             parquet_bed = pd.read_feather(f"{p}/parquet_row_regions.feather")
             parquet_bed = pr.PyRanges(understand_regions(parquet_bed["region"])).merge()
             parquet_bed_dict[k] = parquet_bed
@@ -305,6 +269,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
 
     def _sample_pseudobulks_and_get_data(self, key: str, region: str) -> list[dict]:
         """
+        For the given dataset key and region, do the following steps:
         1. Sample N pseudobulk records from the pseudobulker.
         2. Create a merge plan for the sampled pseudobulks.
         3. Update the parquet DB with the merge plan.
@@ -376,7 +341,6 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                     _bulk_values /= 2**prefix_cov_logfc
                 this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = _bulk_values
 
-            # TODO: temporary solution to mimic matcher
             this_bulk_dict[f"{output_prefix}:bulk_data_delta"] = (
                 this_bulk_dict[f"{output_prefix}:bulk_data_1"]
                 - this_bulk_dict[f"{output_prefix}:bulk_data_0"]
@@ -419,31 +383,43 @@ class GenerateMultiGenomeParquetAndPseudobulk:
 
 
 class BorzoiMultiDataset(GenericDataset):
-    """Single cell pseudobulk dataset for Borzoi model."""
+    """
+    Single cell pseudobulk dataset for Borzoi model.
+
+    Compare to BorzoiDataset class, this class simutaneously handle multiple parquet datasets;
+    it uses duckdb to efficiently query and manipulate the datasets;
+    remaining dataloader preprocess steps should be similar to BorzoiDataset class
+
+    TODO: gene related options are not implemented
+    """
 
     default_config = {
         "dataset_records": "REQUIRED",
-        "paired_mode": "ensemble",
-        "batch_size": 4,
+        # regions:
         "dna_window": 524288,
-        "max_jitter": 3,
-        "reverse_complement": True,
-        "n_pseudobulks": 10,
-        "output_prefix": "pseudobulk",
         "train_region_step_sample": True,
+        # pseudobulks
+        "n_pseudobulks": 10,
+        "paired_mode": "ensemble",
+        # argumentation
+        "reverse_complement": True,
+        "max_jitter": 3,
+        # data loader
+        "batch_size": 4,
+        "output_prefix": "pseudobulk",
     }
 
     def __init__(
         self,
         dataset_records: str | dict,
-        paired_mode: str = "ensemble",
-        batch_size: int = 4,
         dna_window: int = 524288,
-        max_jitter: int = 3,
-        reverse_complement: bool = True,
-        n_pseudobulks: int = 10,
-        output_prefix: str = "pseudobulk",
         train_region_step_sample=True,
+        n_pseudobulks: int = 10,
+        paired_mode: str = "ensemble",
+        reverse_complement: bool = True,
+        max_jitter: int = 3,
+        batch_size: int = 4,
+        output_prefix: str = "pseudobulk",
     ):
         self.dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
@@ -462,7 +438,7 @@ class BorzoiMultiDataset(GenericDataset):
 
         self._block_size = 20
         self._max_blocks = 200
-        self.paired_data = True
+        self.paired_data = True  # currently only paired_data is supported
 
         self.output_prefix = output_prefix
         self.dna_column = DNA_NAME
@@ -518,7 +494,7 @@ class BorzoiMultiDataset(GenericDataset):
         """
         fn = GenerateMultiGenomeParquetAndPseudobulk
         fn_constructor_kwargs = {
-            "parquet_paths": self.dm._data_paths,
+            "parquet_paths": self.dm.data_paths,
             "pseudobulker": self.dm.pseudobulker,
             "dataset_orders": self.dm.dataset_orders,
             "n_pseudobulks": self.n_pseudobulks,
@@ -615,6 +591,8 @@ class BorzoiMultiDataset(GenericDataset):
         # this is adapted from the ray.data.iterator.DataIterator.iter_batches
         # https://github.com/ray-project/ray/blob/master/python/ray/data/iterator.py#L106
         def _create_iterator():
+            print(f"Get dataloader with {self.dataset_mode} mode")
+
             work_ds = self.get_processed_dataset(**dataset_kwargs)
 
             if n_batches is not None:

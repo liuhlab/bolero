@@ -888,14 +888,16 @@ class MultiPairedPseudobulker:
                 v, barcode_order=barcode_order, **pseudobulker_kwargs
             )
 
-    def take(self, n, key):
+    def take(self, n: int, key: str):
         """
-        Take n pseudobulks from the random pool.
+        Take n pseudobulks from a specific pseudobulker.
 
         Parameters
         ----------
         n : int
             The number of pseudobulks to sample.
+        key : str
+            The key of the pseudobulker to sample from.
 
         Returns
         -------

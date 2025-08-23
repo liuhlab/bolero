@@ -48,27 +48,34 @@ class MaskBlacklistAndClamp:
     def _get_region_chrom(self, region):
         chrom, coords = region.split(":")
         start, end = map(int, coords.split("-"))
-        chorm_start = self.chrom_offsets.loc[chrom, "global_start"]
-        global_coords = (chorm_start + start, chorm_start + end)
+        chrom_start = self.chrom_offsets.loc[chrom, "global_start"]
+        global_coords = (chrom_start + start, chrom_start + end)
         return global_coords
+
+    def calculate_overlaps(self, region):
+        """
+        data.shape = (n_pseudobulks, region_length), it should belong to the same region.
+        """
+        r_gstart, r_gend = self._get_region_chrom(region)
+        bl_coords = self.blacklist_global_coords
+        overlap_bl_regions = bl_coords[
+            (bl_coords[:, 0] < r_gend) & (bl_coords[:, 1] > r_gstart)
+        ].copy()
+        overlap_bl_regions -= r_gstart
+        region_length = r_gend - r_gstart
+        overlap_bl_regions[:, 0] -= 3 * self.resolution
+        overlap_bl_regions[:, 1] += 3 * self.resolution
+        overlap_bl_regions = np.clip(overlap_bl_regions, 0, region_length)
+
+        # convert base coords to resolution coords
+        overlap_bl_regions //= self.resolution
+
+        return overlap_bl_regions, region_length
 
     def __call__(self, batch):
         """Mask the blacklist regions in the dataset."""
-        bl_coords = self.blacklist_global_coords
-
         for region_id, region in enumerate(batch[self.region_key]):
-            r_gstart, r_gend = self._get_region_chrom(region)
-            overlap_bl_regions = bl_coords[
-                (bl_coords[:, 0] < r_gend) & (bl_coords[:, 1] > r_gstart)
-            ].copy()
-            overlap_bl_regions -= r_gstart
-            region_length = r_gend - r_gstart
-            overlap_bl_regions[:, 0] -= 3 * self.resolution
-            overlap_bl_regions[:, 1] += 3 * self.resolution
-            overlap_bl_regions = np.clip(overlap_bl_regions, 0, region_length)
-
-            # convert base coords to resolution coords
-            overlap_bl_regions //= self.resolution
+            overlap_bl_regions, region_length = self.calculate_overlaps(region)
 
             for bl_start, bl_end in overlap_bl_regions:
                 if bl_start >= region_length:
