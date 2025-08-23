@@ -300,7 +300,8 @@ class BorzoiLoRA(Borzoi):
 
         self.signal_encoder = signal_encoder
 
-        if self._disable_cond_module:
+        if self._disable_cond_module or cond_emb_dim is None or len(cond_emb_dim) == 0:
+            print("Condition embedding is not used.")
             from bolero.tl.generic.module_embedding import (
                 ConditionEmbeddingModuleNoEffect,
             )

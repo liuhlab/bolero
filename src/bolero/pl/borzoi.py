@@ -64,7 +64,13 @@ class BorzoiExamplePlotter:
 
         regions = self.parse_region_coords(batch)
 
+        bs = y_true.shape[0]
+        if isinstance(nrows, int):
+            nrows = min(bs, nrows)
+        else:
+            nrows = [min(bs - 1, n) for n in nrows]
         row_ids = list(range(nrows)) if isinstance(nrows, int) else nrows
+
         fig, axes = plt.subplots(
             figsize=(8, 2.25 * len(row_ids)),
             dpi=150,

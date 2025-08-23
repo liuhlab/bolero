@@ -168,6 +168,10 @@ class PredefinedCondEncoder:
 
         When condition has multiple terms, the result will be concatenated.
         """
+        if len(self.encoder_dict) == 0:
+            # no encoder, no cond
+            return np.array([]).reshape(1, -1).astype("float32")
+
         if not isinstance(cond, dict):
             # single condition, using default key
             cond = {"DEFAULT": cond}
@@ -216,6 +220,9 @@ class PredefinedCondEncoder:
         if (len(self.cond_emb_dims) == 1) and ("DEFAULT" in self.cond_emb_dims):
             # single condition term, return as is
             return cond_emb
+        if len(self.cond_emb_dims) == 0:
+            # no cond encoder
+            return {}
 
         # multiple condition terms, split and return as dict
         cond_dict = {}
