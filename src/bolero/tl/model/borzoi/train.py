@@ -305,6 +305,27 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             )
         return auto_cast_context
 
+    def _add_sample_and_region_info_to_batch(self, batch):
+        if self.prefix in self.dataset.name_to_pseudobulker:
+            # this part is for mouse pseudobulk dataset
+            pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
+        else:
+            pseudobulker = None
+
+        if pseudobulker is not None:
+            try:
+                id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
+                batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
+            except KeyError:
+                batch["sample_id"] = None
+        else:
+            batch["sample_id"] = batch.get("cell_type_id", None)
+        # region to region name
+        idmap = self.dataset.borzoi_regions.cur_idmap
+        region_name = np.array([idmap[i] for i in batch["Original_Name"].cpu().numpy()])
+        batch["region_name"] = region_name
+        return batch
+
     @torch.no_grad()
     def _model_validation_step(
         self,
@@ -312,6 +333,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         dataloader,
         val_batches,
         collect_data=False,
+        _add_sample_and_region_info=True,
     ):
         if val_batches is None:
             print_step = 100
@@ -334,12 +356,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             mean_val_corr = MeanPearsonCorrCoefPerChannel(
                 n_channels=model.out_channels
             ).to(self.device)
-
-        if self.prefix in self.dataset.name_to_pseudobulker:
-            # this part is for mouse pseudobulk dataset
-            pseudobulker = self.dataset.name_to_pseudobulker[self.prefix]
-        else:
-            pseudobulker = None
 
         example_batches = []  # collect example batches for making images
         data_collector = []  # collect data for further analysis
@@ -367,20 +383,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             # add additional data into batch dict
             batch["true_data"] = y_true
             batch["pred_data"] = y_pred
-            if pseudobulker is not None:
-                try:
-                    id_array = batch[f"{self.prefix}:pseudobulk_ids"].cpu().numpy()
-                    batch["sample_id"] = pseudobulker.pseudobulk_ids[id_array]
-                except KeyError:
-                    batch["sample_id"] = None
-            else:
-                batch["sample_id"] = batch.get("cell_type_id", None)
-            # region to region name
-            idmap = self.dataset.borzoi_regions.cur_idmap
-            region_name = np.array(
-                [idmap[i] for i in batch["Original_Name"].cpu().numpy()]
-            )
-            batch["region_name"] = region_name
+
+            if _add_sample_and_region_info:
+                batch = self._add_sample_and_region_info_to_batch(batch)
 
             batch.update(loss_breakdown)
             if collect_data:
@@ -410,19 +415,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # channel to name
         wandb_images = {self.channel_order[k]: v for k, v in wandb_images.items()}
 
-        # conditional plotting for upper bound and p
-        for plot_name in ("upper_bound", "p"):
-            if f"true_{plot_name}" in example_batches[0]:
-                this_imgs = self._plot_example(
-                    example_batches,
-                    true_key=f"true_{plot_name}",
-                    pred_key=f"pred_{plot_name}",
-                    y_sync=False,
-                )
-                for channel, channel_imgs in this_imgs.items():
-                    name = self.channel_order[channel]
-                    wandb_images[f"{name}_{plot_name}"] = channel_imgs
-
         # ==========
         # Final metrics
         # ==========
@@ -439,7 +431,12 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         raise NotImplementedError
 
     def _plot_example(
-        self, example_batches, true_key="true_data", pred_key="pred_data", y_sync=False
+        self,
+        example_batches,
+        true_key="true_data",
+        pred_key="pred_data",
+        y_sync=False,
+        _no_genome=False,
     ):
         epoch = self.cur_epoch + 1
         wandb_images = defaultdict(list)
@@ -450,7 +447,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
             try:
                 plotter = BorzoiExamplePlotter(
-                    genome=self.dataset.genome,
+                    genome=None if _no_genome else self.dataset.genome,
                     true_key=true_key,
                     pred_key=pred_key,
                     id_key="sample_id",
@@ -982,7 +979,6 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     def _cond_emb_module_forward_pass(self, module, batch: dict):
         """
         Forward pass for the conditional embedding module.
-        This is used in the BorzoiLoRA model to predict velocity.
         """
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
         cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
@@ -1085,7 +1081,6 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     def _cond_emb_module_forward_pass(self, module, batch: dict):
         """
         Forward pass for the conditional embedding module.
-        This is used in the BorzoiLoRA model to predict velocity.
         """
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
         cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
@@ -1102,6 +1097,7 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     def _split_cond_emb_to_terms(self, batch):
         # split the cond_emb into dict of terms using cond_encoder in pseudobulker
         multi_pm = self.dataset.dm.pseudobulker
+        # TODO: use dataset specific cond emb split
         dataset_pm = list(multi_pm.pseudobulker_dict.values())[0]
         condition_encoder = dataset_pm.condition_encoder
         if condition_encoder is not None:
@@ -1113,56 +1109,15 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     def _plot_example(
         self, example_batches, true_key="true_data", pred_key="pred_data", y_sync=False
     ):
-        epoch = self.cur_epoch + 1
-        wandb_images = defaultdict(list)
-
-        for idx, batch in enumerate(example_batches):
-            if idx >= self.plot_example_per_epoch:
-                break
-
-            try:
-                plotter = BorzoiExamplePlotter(
-                    genome=None,
-                    true_key=true_key,
-                    pred_key=pred_key,
-                    id_key="sample_id",
-                    plot_mode=(
-                        "atac"
-                        if self.model.loss_type == "poisson_multinomial"
-                        else "mc"
-                    ),
-                )
-                fig = plotter.plot(batch, channel=0, nrows=2, return_array=True)
-
-                if self.dataset.paired_data:
-                    nrows = [0, 2]
-                else:
-                    nrows = 2
-
-                for channel in range(min(batch[true_key].shape[1], 3)):
-                    fig = plotter.plot(
-                        batch,
-                        channel=channel,
-                        nrows=nrows,
-                        return_array=True,
-                        y_sync=y_sync,
-                    )
-
-                    wandb_images[channel].append(
-                        wandb.Image(
-                            fig,
-                            mode="RGB",
-                            caption=f"Epoch {epoch} Example {idx}",
-                            grouping=epoch,
-                            file_type="jpg",  # reduce file size
-                        )
-                    )
-            except ValueError as e:
-                print(f"Error in plotting example: {e}")
-                print(batch)
-                for k, v in batch.items():
-                    print(k, v.shape)
-                continue
+        wandb_images = super()._plot_example(
+            example_batches,
+            true_key=true_key,
+            pred_key=pred_key,
+            y_sync=y_sync,
+            # due to potentially multi genome training,
+            # here we do not display genome info in example plot
+            _no_genome=True,
+        )
         return wandb_images
 
     def _example_step(self, batch):
@@ -1182,93 +1137,14 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         val_batches,
         collect_data=False,
     ):
-        if val_batches is None:
-            print_step = 100
-            example_step = 100
-        else:
-            print_step = max(5, val_batches // 10)
-            example_step = max(5, val_batches // (self.plot_example_per_epoch + 1))
-        # if val batches is None, use all batches in the dataset
-        size = 0
-        mean_val_loss = CumulativeCounter()
-
-        mean_loss_breakdown = {}
-
-        if isinstance(model.final_output_head, DualOutputHead):
-            num_channels = len(self.config["data_key"])
-            mean_val_corr = MeanPearsonCorrCoefPerChannel(n_channels=num_channels).to(
-                self.device
-            )
-        else:
-            mean_val_corr = MeanPearsonCorrCoefPerChannel(
-                n_channels=model.out_channels
-            ).to(self.device)
-
-        example_batches = []  # collect example batches for making images
-        data_collector = []  # collect data for further analysis
-
-        for batch_id, batch in enumerate(dataloader):
-            with self._autocast_context():
-                y_true, y_pred, loss, loss_breakdown, *additional_results = (
-                    self._model_forward_pass(model, batch)
-                )
-
-            if len(additional_results) > 0:
-                additional_results = additional_results[0]
-            else:
-                additional_results = {}
-
-            mean_val_corr.update(target=y_true, preds=y_pred)
-            for k, v in loss_breakdown.items():
-                try:
-                    mean_loss_breakdown[k].update(v)
-                except KeyError:
-                    mean_loss_breakdown[k] = CumulativeCounter()
-                    mean_loss_breakdown[k].update(v)
-            mean_val_loss.update(loss)
-
-            # add additional data into batch dict
-            batch["true_data"] = y_true
-            batch["pred_data"] = y_pred
-            batch.update(loss_breakdown)
-            if collect_data:
-                data_collector.append(
-                    {
-                        k: v.cpu().numpy() if isinstance(v, torch.Tensor) else v
-                        for k, v in batch.items()
-                    }
-                )
-
-            size += 1
-            if batch_id % example_step == 0:
-                example_batches.append(batch)
-
-            if ((batch_id + 1) % print_step) == 0:
-                desc_str = (
-                    f" - (Validation) {self.cur_epoch} [{batch_id}/{val_batches}] "
-                    f"Mean Loss: {mean_val_loss.mean():.3f}; "
-                    f"Mean Track Corr: {mean_val_corr.get_corr_str()}; "
-                )
-                print(desc_str)
-
-        del dataloader
-        self._cleanup_env()
-
-        wandb_images = self._plot_example(example_batches, y_sync=False)
-        # channel to name
-        wandb_images = {self.channel_order[k]: v for k, v in wandb_images.items()}
-
-        # ==========
-        # Final metrics
-        # ==========
-        val_loss = mean_val_loss.mean()
-        val_loss_breakdown = {k: v.mean() for k, v in mean_loss_breakdown.items()}
-        val_corr = mean_val_corr
-
-        if collect_data:
-            return val_loss, val_loss_breakdown, val_corr, wandb_images, data_collector
-        else:
-            return val_loss, val_loss_breakdown, val_corr, wandb_images
+        results = super()._model_validation_step(
+            model=model,
+            dataloader=dataloader,
+            val_batches=val_batches,
+            collect_data=collect_data,
+            _add_sample_and_region_info=False,
+        )
+        return results
 
 
 class BorzoiArchTrainer(BorzoiLoRATrainer):
