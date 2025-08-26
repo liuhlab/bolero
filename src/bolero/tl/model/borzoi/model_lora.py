@@ -268,6 +268,31 @@ class BorzoiLoRA(Borzoi):
         # activation: softplus
         return
 
+    def _setup_cond_emb_module(self, cell_emb_dim, cond_emb_dim, **cond_emb_kwargs):
+        if self._disable_cond_module or cond_emb_dim is None or len(cond_emb_dim) == 0:
+            print("Condition embedding is not used.")
+            from bolero.tl.generic.module_embedding import (
+                ConditionEmbeddingModuleNoEffect,
+            )
+
+            cond_emb_module = ConditionEmbeddingModuleNoEffect(
+                cell_emb_dim=cell_emb_dim,
+                cond_emb_dim=cond_emb_dim,
+                **cond_emb_kwargs,
+            )
+            # This module will have no effect and just return the cell embedding
+        else:
+            from bolero.tl.generic.module_embedding import ConditionEmbeddingModule
+
+            # 2. cond_emb_module combines cell and condition emb
+            # LoRA embedding module will then take the combined emb as input
+            cond_emb_module = ConditionEmbeddingModule(
+                cell_emb_dim=cell_emb_dim,
+                cond_emb_dim=cond_emb_dim,
+                **cond_emb_kwargs,
+            )
+        return cond_emb_module
+
     def setup_signal_model(
         self,
         out_channels,
@@ -300,29 +325,9 @@ class BorzoiLoRA(Borzoi):
 
         self.signal_encoder = signal_encoder
 
-        if self._disable_cond_module or cond_emb_dim is None or len(cond_emb_dim) == 0:
-            print("Condition embedding is not used.")
-            from bolero.tl.generic.module_embedding import (
-                ConditionEmbeddingModuleNoEffect,
-            )
-
-            cond_emb_module = ConditionEmbeddingModuleNoEffect(
-                cell_emb_dim=cell_emb_dim,
-                cond_emb_dim=cond_emb_dim,
-                **cond_emb_kwargs,
-            )
-            # This module will have no effect and just return the cell embedding
-        else:
-            from bolero.tl.generic.module_embedding import ConditionEmbeddingModule
-
-            # 2. cond_emb_module combines cell and condition emb
-            # LoRA embedding module will then take the combined emb as input
-            cond_emb_module = ConditionEmbeddingModule(
-                cell_emb_dim=cell_emb_dim,
-                cond_emb_dim=cond_emb_dim,
-                **cond_emb_kwargs,
-            )
-        self.cond_emb_module = cond_emb_module
+        self.cond_emb_module = self._setup_cond_emb_module(
+            cell_emb_dim=cell_emb_dim, cond_emb_dim=cond_emb_dim, **cond_emb_kwargs
+        )
 
         if self._predict_delta:
             # optional output head predicting delta signal between x0 and x1
@@ -641,6 +646,40 @@ class BorzoiLoRA(Borzoi):
         if reduce:
             loss = loss.mean()
         return loss
+
+
+class BorzoiLoRAMulti(BorzoiLoRA):
+    default_config = BorzoiLoRA.default_config.copy()
+    default_config.update(
+        {
+            # BorzoiLoRAMulti does not requires emb_input_features and cond_emb_dim
+            "emb_input_features": None,
+            "cond_emb_dim": None,
+            # it will be set during _setup_cond_emb
+        }
+    )
+
+    def _setup_cond_emb_module(
+        self,
+        dataset_order: list[str],
+        dataset_specific_dims: dict[str, int | dict[int]],
+        dataset_shared_dims: int | dict[int],
+        encoder_dims: list[int] = (256, 256),
+        encoder_dropout: float = 0.1,
+        attn_pooling: bool = True,
+        **kwargs,
+    ):
+        from bolero.tl.generic.module_embedding import ConditionEmbeddingModuleMulti
+
+        cond_emb_module = ConditionEmbeddingModuleMulti(
+            dataset_order=dataset_order,
+            dataset_specific_dims=dataset_specific_dims,
+            dataset_shared_dims=dataset_shared_dims,
+            encoder_dims=encoder_dims,
+            encoder_dropout=encoder_dropout,
+            attn_pooling=attn_pooling,
+        )
+        return cond_emb_module
 
 
 class BorzoiLoRAwithArches(BorzoiLoRA):

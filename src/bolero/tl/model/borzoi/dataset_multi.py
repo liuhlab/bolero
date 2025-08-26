@@ -1,6 +1,7 @@
 import pickle
 import re
 from collections import OrderedDict
+from copy import deepcopy
 from typing import Any, Iterable
 
 import joblib
@@ -9,6 +10,7 @@ import pandas as pd
 import pyranges as pr
 import ray
 import torch
+from sklearn.preprocessing import OneHotEncoder
 
 from bolero import Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDBNoParallel
@@ -131,12 +133,13 @@ class DatasetRecordManager:
     dataset_records: dict[str, dict]
     dataset_orders: list[str]
     data_paths: dict[str, str]
-    dataset_sample_weights: dict[str, float]
+    dataset_sample_weight: dict[str, float]
     _barcode_orders: dict[str, dict[str, pd.Index]]
     # genome
     _shared_genome_obj: dict[str, Genome]
     genomes: dict[str, Genome]
     borzoi_regions: MultiBorzoiRegions
+    dataset_idx_to_genome_emb: dict[int, np.ndarray]
     # pseudobulker
     _pseudobulk_paths: dict[str, str]
     pseudobulker: MultiPairedPseudobulker
@@ -159,18 +162,35 @@ class DatasetRecordManager:
         # sample weights are used to balance n_pseudobulks across datasets,
         # for each region, n_pseudobulks * weight will be sampled for the corresponding dataset
         # max sample weight is 1, values are between 0 and 1
-        dataset_sample_weights = pd.Series(
+        dataset_sample_weight = pd.Series(
             {
                 k: v.get("dataset_sample_weight", 1)
                 for k, v in self.dataset_records.items()
             }
         )
-        self.dataset_sample_weights: dict[str, float] = (
-            dataset_sample_weights / dataset_sample_weights.max()
+        self.dataset_sample_weight: dict[str, float] = (
+            dataset_sample_weight / dataset_sample_weight.max()
         ).to_dict()
         self._barcode_orders: dict[str, dict[str, pd.Index]] = {
             k: joblib.load(f"{v}/row_names.joblib") for k, v in self.data_paths.items()
         }
+
+    def _create_genome_embedding(self):
+        dataset_to_genome = {k: g.name for k, g in self.genomes.items()}
+        genomes = sorted(set(dataset_to_genome.values()))
+
+        encoder = OneHotEncoder(sparse_output=False)
+        genome_to_emb = dict(
+            zip(
+                genomes, encoder.fit_transform([[x] for x in genomes]).astype("float32")
+            )
+        )
+        # add channel dim to be consistent with other cond emb
+        dataset_to_genome_emb: dict[int, np.ndarray] = {
+            self.dataset_orders.index(ds): genome_to_emb[g][None, :]
+            for ds, g in dataset_to_genome.items()
+        }  # genome embedding shape (1, n_genomes)
+        return dataset_to_genome_emb
 
     def _init_genome(self):
         self._shared_genome_obj: dict[str, Genome] = {}
@@ -181,6 +201,7 @@ class DatasetRecordManager:
                 self._shared_genome_obj[_g] = Genome(_g)
             self.genomes[k] = self._shared_genome_obj[_g]
         self.borzoi_regions = MultiBorzoiRegions(self.genomes)
+        self.dataset_idx_to_genome_emb = self._create_genome_embedding()
 
     def _init_pseudobulker(self, pseudobulker_cls: str | type):
         self._pseudobulk_paths = {
@@ -246,6 +267,38 @@ class DatasetRecordManager:
         """
         return {k: g.chrom_offsets for k, g in self.genomes.items()}
 
+    def make_cond_module_kwargs(self):
+        """
+        Prepare kwargs for the ConditionEmbeddingModuleMulti class in BorzoiLoRAMulti model.
+
+        This include preparing three parameters related to the dataset:
+        dataset_order: list[str]
+        dataset_specific_dims: dict[str, int | dict[int]]
+        dataset_shared_dims: dict[str, int]
+
+        Other parameter of the ConditionEmbeddingModuleMulti class will be default
+        or pass in through "cond_module_kwargs" key in train config
+        """
+        multi_pm = self.pseudobulker
+
+        dataset_specific_dims = {}
+        for ds_name, pseudobulker in multi_pm.pseudobulker_dict.items():
+            dims = deepcopy(pseudobulker.cond_emb_dims)
+            # drop species embedding as it will be replaced in dataset_shared_dims
+            dims.pop("Species", None)
+            dims["cell"] = pseudobulker.meta_cell_emb.shape[1] * 2
+            dataset_specific_dims[ds_name] = dims
+
+        genome_dim = self.dataset_idx_to_genome_emb[0].shape[-1]
+        dataset_shared_dims = {"__genome__": genome_dim}
+
+        cond_module_kwargs = {
+            "dataset_order": multi_pm.keys,
+            "dataset_specific_dims": dataset_specific_dims,
+            "dataset_shared_dims": dataset_shared_dims,
+        }
+        return cond_module_kwargs
+
 
 class GenerateMultiGenomeParquetAndPseudobulk:
     """
@@ -269,6 +322,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         blacklist_global_coords: dict[str, np.ndarray] = None,
         chrom_offsets: dict[str, pd.Series] = None,
         dataset_sample_weight: dict[str, float] = None,
+        genome_embedding: dict[str, np.ndarray] = None,
     ):
         self.pseudobulker = pseudobulker
         self.n_pseudobulks = n_pseudobulks
@@ -306,6 +360,8 @@ class GenerateMultiGenomeParquetAndPseudobulk:
             as_nan=False,
             resolution=32,
         )
+
+        self.genome_embedding = genome_embedding
 
     def _sample_pseudobulks_and_get_data(self, key: str, region: str) -> list[dict]:
         """
@@ -405,6 +461,8 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         region_coords = self._region_to_global_coords(key, region)
         for batch in list_of_batches:
             batch[self.dataset_key] = key_int
+            if self.genome_embedding is not None:
+                batch["__genome__"] = self.genome_embedding[key_int]
             batch[self.region_key] = region_coords
         return list_of_batches
 
@@ -547,7 +605,8 @@ class BorzoiMultiDataset(GenericDataset):
             "output_prefix": "pseudobulk",
             "blacklist_global_coords": self.dm.get_blacklist_global_coords(),
             "chrom_offsets": self.dm.get_chrom_offsets(),
-            "dataset_sample_weight": self.dm.dataset_sample_weights,
+            "dataset_sample_weight": self.dm.dataset_sample_weight,
+            "genome_embedding": self.dm.dataset_idx_to_genome_emb,
         }
 
         dataset = dataset.flat_map(

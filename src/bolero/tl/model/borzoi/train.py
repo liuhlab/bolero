@@ -13,7 +13,11 @@ from bolero.tl.model.borzoi.dataset_multi import BorzoiMultiDataset
 from bolero.tl.model.borzoi.metrics import (
     MeanPearsonCorrCoefPerChannel,
 )
-from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAwithArches
+from bolero.tl.model.borzoi.model_lora import (
+    BorzoiLoRA,
+    BorzoiLoRAMulti,
+    BorzoiLoRAwithArches,
+)
 from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 from .utils import MovingMetric
@@ -1063,6 +1067,7 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     """Borzoi trainer for training on multiple datasets"""
 
     dataset_class = BorzoiMultiDataset
+    model_class = BorzoiLoRAMulti
 
     trainer_config = BorzoiTrainerMixin.trainer_config.copy()
     trainer_config.update(
@@ -1076,6 +1081,13 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
 
     def _get_dataset(self):
         dataset = self.dataset_class.create_from_config(self.config)
+
+        # update cond_module_kwargs with dataset specific keys
+        cond_module_kwargs = dataset.dm.make_cond_module_kwargs()
+        cur_kwargs = self.config["cond_module_kwargs"] or {}
+        cur_kwargs.update(cond_module_kwargs)
+        self.config["cond_module_kwargs"] = cur_kwargs
+        print("Updated cond_module_kwargs in config with dataset specific information.")
         return dataset
 
     def _cond_emb_module_forward_pass(self, module, batch: dict):
@@ -1083,13 +1095,15 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         Forward pass for the conditional embedding module.
         """
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
-        cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
+        cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+        shared_emb = {"__genome__": batch["__genome__"].float()}
         dataset_keys = batch["__dataset_keys__"]
 
         # 3. aggregate all conditional input
         cond_ensemble = module(
             cell_emb=cell_emb_0,
             cond_emb=cond_emb,
+            shared_emb=shared_emb,
             dataset_keys=dataset_keys,
         )
         return cond_ensemble

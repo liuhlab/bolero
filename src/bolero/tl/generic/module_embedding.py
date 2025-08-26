@@ -347,7 +347,7 @@ class _SimpleEncoder(nn.Module):
                 # if not attn_pooling in encoder,
                 # here just perform mean pooling on the condition embedding
                 x = x.mean(dim=1)
-        return x
+        return x  # shape (bs, d)
 
 
 class _SimpleEncoderDict(nn.ModuleDict):
@@ -534,6 +534,7 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         encoder_dims: list[int] = (256, 256),
         encoder_dropout: float = 0.1,
         attn_pooling: bool = True,
+        **kwargs,
     ):
         super().__init__()
 
@@ -625,11 +626,17 @@ class ConditionEmbeddingModuleMulti(nn.Module):
             dataset_name = self.dataset_order[dataset_idx]
             cell_encoder = self.cell_encoder_dict[dataset_name]
             cond_encoder = self.cond_encoder_dict[dataset_name]
+
             _cell_emb = cell_encoder(_cell_emb)
+            if _cell_emb.ndim == 2:
+                _cell_emb.unsqueeze_(0)
+
             if cond_encoder is None:
                 combine_emb = _cell_emb
             else:
                 _cond_emb = cond_encoder(_cond_emb)
+                if _cond_emb.ndim == 2:
+                    _cond_emb.squeeze_(0)
                 combine_emb = torch.cat([_cell_emb, _cond_emb], dim=-1)
             dataset_specific_emb.append(combine_emb)
         dataset_specific_emb = torch.stack(dataset_specific_emb)
@@ -651,15 +658,28 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         cell_encoder = self.cell_encoder_dict[dataset_name]
         cond_encoder = self.cond_encoder_dict[dataset_name]
 
-        cell_emb = cell_encoder(torch.stack(cell_emb))
+        if cell_emb[0].ndim == 1:
+            cell_emb = torch.stack(cell_emb)
+        else:
+            cell_emb = torch.concat(cell_emb)
+        # (bs, cell) -> (bs, cell_hidden)
+        cell_emb = cell_encoder(cell_emb)
+
         if cond_encoder is None:
             combine_emb = cell_emb
         else:
-            cond_emb = cond_encoder(torch.stack(cond_emb))
+            concat_cond_emb = {}
+            for cond_dict in cond_emb:
+                for k, v in cond_dict.items():
+                    if k in concat_cond_emb:
+                        concat_cond_emb[k].append(v)
+                    else:
+                        concat_cond_emb[k] = [v]
+            concat_cond_emb = {k: torch.concat(v) for k, v in concat_cond_emb.items()}
+            cond_emb = cond_encoder(concat_cond_emb)
             combine_emb = torch.cat([cell_emb, cond_emb], dim=-1)
 
         dataset_shared_emb = self.shared_encoder(shared_emb)
-
         final_emb = torch.cat([combine_emb, dataset_shared_emb], dim=-1)
         return final_emb
 
