@@ -52,7 +52,7 @@ class BorzoiLoRA(Borzoi):
             # benchmark and experimental parameters
             "_multihead_model": False,
             "_disable_cond_module": False,
-            "_predict_delta": False,
+            "_predict_delta": True,
         }
     )
 
@@ -82,7 +82,7 @@ class BorzoiLoRA(Borzoi):
         # benchmark and experimental parameters
         _multihead_model=False,
         _disable_cond_module=False,
-        _predict_delta=False,
+        _predict_delta=True,
         # base model
         **base_model_kwargs,
     ):
