@@ -1,3 +1,5 @@
+import pickle
+import re
 from collections import OrderedDict
 from typing import Any, Iterable
 
@@ -6,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pyranges as pr
 import ray
+import torch
 
 from bolero import Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDBNoParallel
@@ -15,9 +18,46 @@ from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.model.borzoi.dataset import MaskBlacklistAndClamp
 from bolero.tl.model.borzoi.utils import MultiBorzoiRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import MultiPairedPseudobulker
-from bolero.utils import understand_regions
+from bolero.utils import try_gpu, understand_regions
 
 DNA_NAME = "dna_one_hot"
+BYTES_PATTERN = re.compile(".+(condition_emb|embedding_data).+")
+
+
+def _serialize(d: Any) -> bytes:
+    return pickle.dumps(d)
+
+
+def _deserialize(b: bytes) -> Any:
+    return pickle.loads(b)
+
+
+def _try_arr_to_tensor(a, device):
+    if isinstance(a, np.ndarray):
+        try:
+            t = torch.from_numpy(a.copy()).to(device)
+        except TypeError:
+            t = a
+    else:
+        t = a
+    return t
+
+
+def _make_torch_batch(batch):
+    device = try_gpu()
+
+    torch_batch = {}
+    for k, v in batch.items():
+        if BYTES_PATTERN.match(k):
+            tensor_list = []
+            for b in v:
+                a = _deserialize(b)
+                t = _try_arr_to_tensor(a, device)
+                tensor_list.append(t)
+            torch_batch[k] = tensor_list
+        else:
+            torch_batch[k] = _try_arr_to_tensor(v, device)
+    return torch_batch
 
 
 class _MaskBlacklistAndClamp(MaskBlacklistAndClamp):
@@ -275,7 +315,8 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         3. Update the parquet DB with the merge plan.
         4. Return the list of dict contain data and pseudobulk records.
         """
-        dataset_prefix = f"{key}.MetaCell"
+        _dataset_name = key.split("+")[0]
+        dataset_prefix = f"{_dataset_name}.MetaCell"
 
         # sample pseudobulk, weights are applied to the number of pseudobulks
         ds_weight = self.dataset_sample_weight.get(key, 1)
@@ -321,13 +362,15 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                 suffix = suffix_list[idx_in_pair]
                 # 1. add condition embedding
                 if "__conditionemb__" in pseudobulk:
+                    # serialize as the shape might be variable across datasets
                     this_bulk_dict[f"{output_prefix}:condition_emb{suffix}"] = (
-                        pseudobulk["__conditionemb__"]
+                        _serialize(pseudobulk["__conditionemb__"])
                     )
 
                 # 2. add pseudobulk embedding
                 row_embedding = pseudobulk["__embedding__"]
-                this_bulk_dict[f"{output_prefix}:embedding_data{suffix}"] = (
+                # serialize as the shape might be variable across datasets
+                this_bulk_dict[f"{output_prefix}:embedding_data{suffix}"] = _serialize(
                     row_embedding
                 )
 
@@ -608,12 +651,14 @@ class BorzoiMultiDataset(GenericDataset):
             _kwargs.pop("folds", None)
             print("Data loader kwargs", _kwargs)
 
-            if as_torch:
-                loader = work_ds.iter_torch_batches(**_kwargs)
-            else:
-                loader = work_ds.iter_batches(**_kwargs)
+            loader = work_ds.iter_batches(**_kwargs)
 
-            yield from loader
+            for batch in loader:
+                if as_torch:
+                    torch_batch = _make_torch_batch(batch)
+                    yield torch_batch
+                else:
+                    yield batch
 
         # the dataset and dataloader are created lazily, until __iter__ is called
         return _IterableFromIterator(_create_iterator)

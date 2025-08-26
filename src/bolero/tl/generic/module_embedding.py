@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Union
 
 import torch
@@ -6,7 +7,6 @@ from torch import nn
 from torch.nn import functional as F
 
 from bolero.tl.generic.module import Residual
-from bolero.tl.model.flow._utils import cyclical_time_encoder
 
 from .module_lora import set_submodule_by_name
 
@@ -297,42 +297,11 @@ class EmbeddingMLP(nn.Module, ArchEmbeddingMixin):
         return
 
 
-class _TimeEncoder(nn.Module):
-    """
-    TimeEncoder is a module that encodes the time information into a vector.
-    """
-
-    def __init__(
-        self, time_freqs: int, time_encoder_dims: list[int], time_encoder_dropout: float
-    ):
-        super().__init__()
-        self.time_freqs = time_freqs
-        self.encoder_dims = time_encoder_dims
-        self.encoder_dropout = time_encoder_dropout
-
-        layers = []
-        _dims = [self.time_freqs * 2] + self.encoder_dims
-        for i in range(len(_dims) - 1):
-            layers.append(nn.Linear(_dims[i], _dims[i + 1]))
-            layers.append(nn.SiLU())
-            if self.encoder_dropout > 0:
-                layers.append(nn.Dropout(self.encoder_dropout))
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: (bs, 1)
-
-        return: (bs, d_out)
-        """
-        while x.ndim < 2:
-            x = x.unsqueeze(0)
-
-        x = cyclical_time_encoder(x, self.time_freqs)
-        return self.layers(x)
-
-
 class _SimpleEncoder(nn.Module):
+    """
+    _SimpleEncoder class handles encoder network for single datasets.
+    """
+
     def __init__(
         self,
         input_dim: int,
@@ -358,6 +327,8 @@ class _SimpleEncoder(nn.Module):
         else:
             self.attn_pooling = None
 
+        self.output_dim = _dims[-1]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         x: (bs, ..., d_in) or (bs, ..., d_in)
@@ -368,55 +339,82 @@ class _SimpleEncoder(nn.Module):
             attn_mask = self.attn_pooling._make_all_zero_mask(x)
         x = self.layers(x)
 
-        if x.ndim == 3 and self.attn_pooling is not None:
-            # expect input embedding shape (bs, l, d)
-            x = self.attn_pooling(x, attn_mask)
+        if x.ndim == 3:
+            if self.attn_pooling is not None:
+                # expect input embedding shape (bs, l, d)
+                x = self.attn_pooling(x, attn_mask)
+            else:
+                # if not attn_pooling in encoder,
+                # here just perform mean pooling on the condition embedding
+                x = x.mean(dim=1)
         return x
 
 
-class _MultiSimpleEncoder(nn.Module):
+class _SimpleEncoderDict(nn.ModuleDict):
     def __init__(
         self,
-        input_dim: int | list[int],
-        n_datasets: int,
-        encoder_cls: type,
-        **encoder_kwargs,
+        input_dims: dict[str:int],
+        encoder_dims: list[int],
+        encoder_dropout: float,
+        attn_pooling: bool = False,
+        pool_mode="concat",
     ):
-        super().__init__()
-
-        modules = []
-        if isinstance(input_dim, int):
-            input_dim = [input_dim] * n_datasets
-        assert (
-            len(input_dim) == n_datasets
-        ), "input_dim must be a list of length n_datasets"
-        for _dim in input_dim:
-            modules.append(
-                encoder_cls(
-                    input_dim=_dim,
-                    **encoder_kwargs,
-                )
+        _dict = {
+            key: _SimpleEncoder(
+                input_dim,
+                encoder_dims=encoder_dims,
+                encoder_dropout=encoder_dropout,
+                attn_pooling=attn_pooling,
             )
-        self.encoders = nn.ModuleList(modules)
-        self.output_dim = self.encoders[0].encoder_dims[-1]
+            for key, input_dim in input_dims.items()
+        }
+        self.pool_mode = pool_mode
+        super().__init__(_dict)
 
-    def forward(
-        self, embedding: torch.Tensor, dataset_keys: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        embedding: (bs, input_dim)
-        dataset_keys: (bs,) int tensor in range [0, num_datasets)
-        Returns: (bs, hidden_dim)
-        """
-        bs = embedding.shape[0]
-        outputs = embedding.new_zeros(bs, self.output_dim)
+        if pool_mode == "concat":
+            self.output_dim = encoder_dims[-1] * len(_dict)
+        else:
+            self.output_dim = encoder_dims[-1]
 
-        for i, encoder in enumerate(self.encoders):
-            idx = (dataset_keys == i).nonzero(as_tuple=True)[0]
-            if idx.numel() > 0:
-                encoded = encoder(embedding[idx])
-                outputs[idx] = encoded.to(outputs.dtype)
-        return outputs
+    def forward(self, input_emb: dict[str, torch.Tensor]):
+        assert isinstance(
+            input_emb, dict
+        ), f"input_emb must be dict, but got {type(input_emb)}"
+        out_emb = [_encoder(input_emb[k]) for k, _encoder in self.items()]
+        if self.pool_mode == "concat":
+            out_emb = torch.cat(out_emb, dim=-1)
+        else:
+            # sum out emb
+            out_emb = torch.stack(out_emb).mean(dim=0)
+        return out_emb
+
+
+def _create_encoder(
+    emb_dim: int | dict[int],
+    encoder_dims: list[int],
+    encoder_dropout: float,
+    attn_pooling: bool,
+    pool_mode: str = "concat",
+) -> tuple[nn.Module | nn.ModuleDict, int]:
+    encoder_kwargs = {
+        "encoder_dims": encoder_dims,
+        "encoder_dropout": encoder_dropout,
+        "attn_pooling": attn_pooling,
+    }
+
+    # condition encoder
+    if isinstance(emb_dim, int):
+        encoder = _SimpleEncoder(input_dim=emb_dim, **encoder_kwargs)
+        enc_output_dim = encoder.output_dim
+    elif isinstance(emb_dim, dict):
+        encoder = _SimpleEncoderDict(
+            input_dims=emb_dim, pool_mode=pool_mode, **encoder_kwargs
+        )
+        enc_output_dim = encoder.output_dim
+    else:
+        encoder = None
+        enc_output_dim = 0
+    return encoder, enc_output_dim
 
 
 class ConditionEmbeddingModule(nn.Module):
@@ -428,14 +426,13 @@ class ConditionEmbeddingModule(nn.Module):
     def __init__(
         self,
         cell_emb_dim: int,
-        cond_emb_dim: int | dict[int],
+        cond_emb_dim: int | dict[int] | None,
         cell_encoder_dims: list[int] = (256, 256),
         cell_encoder_dropout: float = 0.1,
         cell_attn_pooling: bool = True,
         cond_encoder_dims: list[int] = (256, 256),
         cond_encoder_dropout: float = 0.1,
         cond_attn_pooling: bool = True,
-        n_cell_encoder: int = 1,
     ):
         super().__init__()
 
@@ -443,253 +440,228 @@ class ConditionEmbeddingModule(nn.Module):
         cond_encoder_dims = list(cond_encoder_dims)
 
         # cell embedding encoder
-        self.n_cell_encoder = n_cell_encoder
-        if n_cell_encoder == 1:
-            self.cell_encoder = _SimpleEncoder(
-                input_dim=cell_emb_dim,
-                encoder_dims=cell_encoder_dims,
-                encoder_dropout=cell_encoder_dropout,
-                attn_pooling=cell_attn_pooling,
-            )
-        else:
-            self.cell_encoder = _MultiSimpleEncoder(
-                input_dim=cell_emb_dim,
-                n_datasets=n_cell_encoder,
-                encoder_cls=_SimpleEncoder,
-                encoder_dims=cell_encoder_dims,
-                encoder_dropout=cell_encoder_dropout,
-                attn_pooling=cell_attn_pooling,
-            )
+        self.cell_encoder, cell_out_dim = _create_encoder(
+            emb_dim=cell_emb_dim,
+            encoder_dims=cell_encoder_dims,
+            encoder_dropout=cell_encoder_dropout,
+            attn_pooling=cell_attn_pooling,
+        )
 
-        # condition encoder
-        if isinstance(cond_emb_dim, int):
-            self.cond_encoder = _SimpleEncoder(
-                input_dim=cond_emb_dim,
-                encoder_dims=cond_encoder_dims,
-                encoder_dropout=cond_encoder_dropout,
-                attn_pooling=cond_attn_pooling,
-            )
-            cond_enc_output_dim = cond_encoder_dims[-1]
-        elif isinstance(cond_emb_dim, dict):
-            self.cond_encoder = nn.ModuleDict()
-            for k, v in cond_emb_dim.items():
-                self.cond_encoder[k] = _SimpleEncoder(
-                    input_dim=v,
-                    encoder_dims=cond_encoder_dims,
-                    encoder_dropout=cond_encoder_dropout,
-                    attn_pooling=cond_attn_pooling,
-                )
-            cond_enc_output_dim = len(self.cond_encoder) * cond_encoder_dims[-1]
-        else:
-            self.cond_encoder = None
+        self.cond_encoder, cond_out_dim = _create_encoder(
+            emb_dim=cond_emb_dim,
+            encoder_dims=cond_encoder_dims,
+            encoder_dropout=cond_encoder_dropout,
+            attn_pooling=cond_attn_pooling,
+        )
+        if self.cond_encoder is None:
             print(
-                f"cond_emb_dim is not int nor dict, no cond_encoder for the model. "
-                f"Make sure this looks intended: {cond_emb_dim}."
+                f"cond_emb_dim ({cond_emb_dim}) is not int nor dict, no cond_encoder for the model."
             )
-            cond_enc_output_dim = 0
 
-        self.output_dim = cell_encoder_dims[-1] + cond_enc_output_dim
+        self.output_dim = cell_out_dim + cond_out_dim
         return
 
     def forward(
         self,
         cell_emb: torch.Tensor,
         cond_emb: torch.Tensor | dict[str, torch.Tensor],
-        dataset_keys: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         cell_emb: (bs, d_e) or (bs, n, d_e)
         cond_emb: (bs, d_c) or (bs, n, d_c)
 
-        return: (bs, h_e + h_t + h_c)
+        return: (bs, h_e + h_c)
         """
-        to_cat = []
-
         # encode cell embedding
-        if self.n_cell_encoder > 1:
-            assert (
-                dataset_keys is not None
-            ), "dataset_key must be provided for multi-dataset case"
-            cell_emb = self.cell_encoder(cell_emb, dataset_keys)
+        cell_emb = self.cell_encoder(cell_emb)
+
+        if self.cond_encoder is None:
+            final_emb = cell_emb
         else:
-            cell_emb = self.cell_encoder(cell_emb)
-        if cell_emb.ndim == 3:
-            # if not attn_pooling in encoder,
-            # here just perform mean pooling on the cell embedding
-            cell_emb = cell_emb.mean(dim=1)
-        to_cat.append(cell_emb)
+            cond_emb = self.cond_encoder(cond_emb)
+            final_emb = torch.cat([cell_emb, cond_emb], dim=-1)
+        return final_emb
 
-        # encode condition embedding
-        if self.cond_encoder is not None:
-            if isinstance(self.cond_encoder, nn.ModuleDict):
-                assert isinstance(
-                    cond_emb, dict
-                ), f"cond_emb must be dict, but got {type(cond_emb)}"
-                cond_emb = [
-                    encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
-                ]
-                cond_emb = torch.cat(cond_emb, dim=-1)
+
+class ConditionEmbeddingModuleMulti(nn.Module):
+    """
+    ConditionEmbeddingModuleMulti is a module that combines multiple embedding sources
+    (cell emb, cond emb) into single hidden embedding.
+
+    Comparing from ConditionEmbeddingModule, this module supports dataset specific
+    cell and condition encoders and also a shared condition encoder.
+    """
+
+    def _validate_dataset_info(self):
+        assert (
+            len(self.dataset_specific_dims) == self.n_datasets
+        ), "dataset_specific_dims must have the same length as n_datasets."
+
+        dataset_dims = {}
+        for dataset_name, dims in self.dataset_specific_dims.items():
+            dims_dict = {}
+            if isinstance(dims, int):
+                # if only a number is provided, assume this number is cell emb dim,
+                # and this dataset has no cond emb.
+                dims_dict["cell"] = dims
+                dims_dict["cond"] = None
             else:
-                cond_emb = self.cond_encoder(cond_emb)
-
-            if cond_emb.ndim == 3:
-                # if not attn_pooling in encoder,
-                # here just perform mean pooling on the condition embedding
-                cond_emb = cond_emb.mean(dim=1)
-            to_cat.append(cond_emb)
-
-        # combine all embeddings
-        emb = torch.cat(to_cat, dim=-1)
-        return emb
-
-
-class CondFlowModule(nn.Module):
-    """
-    CondFlowModule is a module that process condtional input (cell emb, cond emb, time)
-    and combine them into single embedding for flow model.
-    """
+                try:
+                    dims_dict["cell"] = dims.pop("cell")
+                except KeyError:
+                    raise KeyError(
+                        f"dataset {dataset_name} must have 'cell' key, "
+                        f"got {dims.keys()}"
+                    ) from None
+                # remaining parts are cond emb
+                dims_dict["cond"] = dims if len(dims) > 0 else None
+            dataset_dims[dataset_name] = dims_dict
+        self.dataset_specific_dims = dataset_dims
+        # schema of dataset_specific_dims:
+        # {
+        #     dataset_name: {
+        #         "cell": int,
+        #         "cond": dict[int] | None
+        #     }
+        # }
+        return
 
     def __init__(
         self,
-        cell_emb_dim: int,
-        cond_emb_dim: int | dict[int],
-        cell_encoder_dims: list[int] = (256, 256),
-        cell_encoder_dropout: float = 0.1,
-        cell_attn_pooling: bool = True,
-        time_freqs: int = 128,
-        time_encoder_dims: list[int] = (128, 128),
-        time_encoder_dropout: float = 0.1,
-        cond_encoder_dims: list[int] = (128, 128),
-        cond_encoder_dropout: float = 0.1,
-        cond_attn_pooling: bool = True,
-        n_cell_encoder: int = 1,
+        dataset_order: list[str],
+        dataset_specific_dims: dict[str, int | dict[int]],
+        dataset_shared_dims: int | dict[int],
+        encoder_dims: list[int] = (256, 256),
+        encoder_dropout: float = 0.1,
+        attn_pooling: bool = True,
     ):
         super().__init__()
 
-        cell_encoder_dims = list(cell_encoder_dims)
-        time_encoder_dims = list(time_encoder_dims)
-        cond_encoder_dims = list(cond_encoder_dims)
+        # prepare basic info
+        self.n_datasets = len(dataset_order)
+        self.dataset_order = dataset_order
+        self.dataset_specific_dims = dataset_specific_dims
+        self.dataset_shared_dims = dataset_shared_dims
+        encoder_dims = list(encoder_dims)
+        self.encoder_kwargs = {
+            "encoder_dims": encoder_dims,
+            "encoder_dropout": encoder_dropout,
+            "attn_pooling": attn_pooling,
+        }
+        self._validate_dataset_info()
 
-        # cell embedding encoder
-        self.n_cell_encoder = n_cell_encoder
-        if n_cell_encoder == 1:
-            self.cell_encoder = _SimpleEncoder(
-                input_dim=cell_emb_dim,
-                encoder_dims=cell_encoder_dims,
-                encoder_dropout=cell_encoder_dropout,
-                attn_pooling=cell_attn_pooling,
-            )
-        else:
-            self.cell_encoder = _MultiSimpleEncoder(
-                input_dim=cell_emb_dim,
-                n_datasets=n_cell_encoder,
-                encoder_cls=_SimpleEncoder,
-                encoder_dims=cell_encoder_dims,
-                encoder_dropout=cell_encoder_dropout,
-                attn_pooling=cell_attn_pooling,
-            )
+        # dataset specific cell encoder
+        self._setup_dataset_specific_encoder()
+        self._setup_dataset_shared_encoder()
 
-        # time encoder
-        self.time_encoder = _TimeEncoder(
-            time_freqs=time_freqs,
-            time_encoder_dims=time_encoder_dims,
-            time_encoder_dropout=time_encoder_dropout,
-        )
+        self.output_dim = encoder_dims[-1] * 3
+        return
 
-        # condition encoder
-        # TODO: this condition encoder only consider the most simple case,
-        # need to change to cellflow's condition encoder for more complex case
-        if isinstance(cond_emb_dim, int):
-            self.cond_encoder = _SimpleEncoder(
-                input_dim=cond_emb_dim,
-                encoder_dims=cond_encoder_dims,
-                encoder_dropout=cond_encoder_dropout,
-                attn_pooling=cond_attn_pooling,
-            )
-            cond_enc_output_dim = cond_encoder_dims[-1]
-        elif isinstance(cond_emb_dim, dict):
-            self.cond_encoder = nn.ModuleDict()
-            for k, v in cond_emb_dim.items():
-                self.cond_encoder[k] = _SimpleEncoder(
-                    input_dim=v,
-                    encoder_dims=cond_encoder_dims,
-                    encoder_dropout=cond_encoder_dropout,
-                    attn_pooling=cond_attn_pooling,
+    def _setup_dataset_specific_encoder(self):
+        self.cell_encoder_dict = nn.ModuleDict()
+        self.cond_encoder_dict = nn.ModuleDict()
+
+        for dataset, dims in self.dataset_specific_dims.items():
+            cell_dim = dims["cell"]
+            cond_dim = dims["cond"]
+            encoder_kwargs = deepcopy(self.encoder_kwargs)
+
+            if cond_dim is None:
+                # no cond encoder, increase encoder dim to keep final shape the same
+                encoder_kwargs["encoder_dims"] = [
+                    d * 2 for d in encoder_kwargs["encoder_dims"]
+                ]
+                cell_encoder, _ = _create_encoder(
+                    emb_dim=cell_dim,
+                    **encoder_kwargs,
                 )
-            cond_enc_output_dim = len(self.cond_encoder) * cond_encoder_dims[-1]
-        else:
-            self.cond_encoder = None
-            print(
-                f"cond_emb_dim is not int nor dict, no cond_encoder for the model. "
-                f"Make sure this looks intended: {cond_emb_dim}."
-            )
-            cond_enc_output_dim = 0
+                self.cell_encoder_dict[dataset] = cell_encoder
+                self.cond_encoder_dict[dataset] = None
+            else:
+                cell_encoder, _ = _create_encoder(
+                    emb_dim=cell_dim,
+                    **encoder_kwargs,
+                )
+                cond_encoder, _ = _create_encoder(
+                    emb_dim=cond_dim,
+                    # pool_mode mean makes output dim constant
+                    pool_mode="mean",
+                    **encoder_kwargs,
+                )
+                self.cell_encoder_dict[dataset] = cell_encoder
+                self.cond_encoder_dict[dataset] = cond_encoder
+        return
 
-        self.output_dim = (
-            cell_encoder_dims[-1] + time_encoder_dims[-1] + cond_enc_output_dim
+    def _setup_dataset_shared_encoder(self):
+        self.shared_encoder, _ = _create_encoder(
+            emb_dim=self.dataset_shared_dims,
+            pool_mode="mean",
+            **self.encoder_kwargs,
         )
         return
 
     def forward(
         self,
-        cell_emb: torch.Tensor,
-        time: torch.Tensor,
-        cond_emb: torch.Tensor | dict[str, torch.Tensor],
-        dataset_keys: torch.Tensor | None = None,
+        cell_emb: list[torch.Tensor],
+        cond_emb: list[torch.Tensor | dict[str, torch.Tensor]],
+        shared_emb: torch.Tensor,
+        dataset_keys: torch.Tensor,
     ) -> torch.Tensor:
         """
         cell_emb: (bs, d_e) or (bs, n, d_e)
-        time: (bs, 1) or (1,)
         cond_emb: (bs, d_c) or (bs, n, d_c)
 
-        return: (bs, h_e + h_t + h_c)
+        return: (bs, h_e + h_c + h_shared)
         """
-        to_cat = []
+        if dataset_keys.unique().numel() == 1:
+            return self.forward_single_dataset(
+                cell_emb, cond_emb, shared_emb, dataset_keys.unique().item()
+            )
 
-        # encode cell embedding
-        if self.n_cell_encoder > 1:
-            assert (
-                dataset_keys is not None
-            ), "dataset_key must be provided for multi-dataset case"
-            cell_emb = self.cell_encoder(cell_emb, dataset_keys)
-        else:
-            cell_emb = self.cell_encoder(cell_emb)
-        if cell_emb.ndim == 3:
-            # if not attn_pooling in encoder,
-            # here just perform mean pooling on the cell embedding
-            cell_emb = cell_emb.mean(dim=1)
-        to_cat.append(cell_emb)
+        dataset_keys = dataset_keys.cpu().numpy()
 
-        # encode time embedding
-        time_emb: torch.Tensor = self.time_encoder(time)
-        if time_emb.shape[0] == 1:
-            # if the input is a single time step, repeat it to match the batch size
-            bs = cell_emb.shape[0]
-            time_emb = time_emb.repeat(bs, 1)
-        to_cat.append(time_emb)
-
-        # encode condition embedding
-        if self.cond_encoder is not None:
-            if isinstance(self.cond_encoder, nn.ModuleDict):
-                assert isinstance(
-                    cond_emb, dict
-                ), f"cond_emb must be dict, but got {type(cond_emb)}"
-                cond_emb = [
-                    encoder(cond_emb[k]) for k, encoder in self.cond_encoder.items()
-                ]
-                cond_emb = torch.cat(cond_emb, dim=-1)
+        dataset_specific_emb = []
+        for _cell_emb, _cond_emb, dataset_idx in zip(cell_emb, cond_emb, dataset_keys):
+            dataset_name = self.dataset_order[dataset_idx]
+            cell_encoder = self.cell_encoder_dict[dataset_name]
+            cond_encoder = self.cond_encoder_dict[dataset_name]
+            _cell_emb = cell_encoder(_cell_emb)
+            if cond_encoder is None:
+                combine_emb = _cell_emb
             else:
-                cond_emb = self.cond_encoder(cond_emb)
+                _cond_emb = cond_encoder(_cond_emb)
+                combine_emb = torch.cat([_cell_emb, _cond_emb], dim=-1)
+            dataset_specific_emb.append(combine_emb)
+        dataset_specific_emb = torch.stack(dataset_specific_emb)
 
-            if cond_emb.ndim == 3:
-                # if not attn_pooling in encoder,
-                # here just perform mean pooling on the condition embedding
-                cond_emb = cond_emb.mean(dim=1)
-            to_cat.append(cond_emb)
+        dataset_shared_emb = self.shared_encoder(shared_emb)
 
-        # combine all embeddings
-        emb = torch.cat(to_cat, dim=-1)
-        return emb
+        final_emb = torch.cat([dataset_specific_emb, dataset_shared_emb], dim=-1)
+        return final_emb
+
+    def forward_single_dataset(
+        self,
+        cell_emb: list[torch.Tensor],
+        cond_emb: list[torch.Tensor | dict[str, torch.Tensor]],
+        shared_emb: torch.Tensor,
+        dataset_key: int,
+    ):
+        """Forward pass for a single dataset."""
+        dataset_name = self.dataset_order[dataset_key]
+        cell_encoder = self.cell_encoder_dict[dataset_name]
+        cond_encoder = self.cond_encoder_dict[dataset_name]
+
+        cell_emb = cell_encoder(torch.stack(cell_emb))
+        if cond_encoder is None:
+            combine_emb = cell_emb
+        else:
+            cond_emb = cond_encoder(torch.stack(cond_emb))
+            combine_emb = torch.cat([cell_emb, cond_emb], dim=-1)
+
+        dataset_shared_emb = self.shared_encoder(shared_emb)
+
+        final_emb = torch.cat([combine_emb, dataset_shared_emb], dim=-1)
+        return final_emb
 
 
 class ConditionEmbeddingModuleNoEffect(ConditionEmbeddingModule):

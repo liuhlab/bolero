@@ -1097,13 +1097,19 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     def _split_cond_emb_to_terms(self, batch):
         # split the cond_emb into dict of terms using cond_encoder in pseudobulker
         multi_pm = self.dataset.dm.pseudobulker
-        # TODO: use dataset specific cond emb split
-        dataset_pm = list(multi_pm.pseudobulker_dict.values())[0]
-        condition_encoder = dataset_pm.condition_encoder
-        if condition_encoder is not None:
-            cond_emb = batch[f"{self.prefix}:condition_emb_1"]
-            cond_emb_terms = condition_encoder.split_cond_emb(cond_emb)
-            batch[f"{self.prefix}:condition_emb_1"] = cond_emb_terms
+        dataset_keys = batch["__dataset_keys__"]
+        condition_emb_data = batch[f"{self.prefix}:condition_emb_1"]
+        split_condition_emb_data: list[dict[str, torch.Tensor]] = []
+
+        for dataset_idx, cond_emb in zip(dataset_keys, condition_emb_data):
+            dataset_pm = multi_pm.pseudobulker_dict[multi_pm.keys[dataset_idx]]
+            condition_encoder = dataset_pm.condition_encoder
+            if condition_encoder is not None:
+                cond_emb_terms = condition_encoder.split_cond_emb(cond_emb.unsqueeze(0))
+                split_condition_emb_data.append(cond_emb_terms)
+            else:
+                split_condition_emb_data.append(None)
+        batch[f"{self.prefix}:condition_emb_1"] = split_condition_emb_data
         return batch
 
     def _plot_example(
