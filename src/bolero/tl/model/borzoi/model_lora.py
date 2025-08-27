@@ -457,8 +457,13 @@ class BorzoiLoRA(Borzoi):
                         skip = True
                 if skip:
                     continue
-
-                self._convert_single_module(module_name, config)
+                try:
+                    self._convert_single_module(module_name, config)
+                except Exception as e:
+                    print(
+                        f"convert_to_lora failed at module {module_name} with config {config}"
+                    )
+                    raise e
 
         # also make sure some part of the model is trainable
         for name, param in self.named_parameters():

@@ -614,11 +614,6 @@ class ConditionEmbeddingModuleMulti(nn.Module):
 
         return: (bs, h_e + h_c + h_shared)
         """
-        if dataset_keys.unique().numel() == 1:
-            return self.forward_single_dataset(
-                cell_emb, cond_emb, shared_emb, dataset_keys.unique().item()
-            )
-
         dataset_keys = dataset_keys.cpu().numpy()
 
         dataset_specific_emb = []
@@ -648,8 +643,8 @@ class ConditionEmbeddingModuleMulti(nn.Module):
 
     def forward_single_dataset(
         self,
-        cell_emb: list[torch.Tensor],
-        cond_emb: list[torch.Tensor | dict[str, torch.Tensor]],
+        cell_emb: torch.Tensor,
+        cond_emb: torch.Tensor | dict[str, torch.Tensor],
         shared_emb: torch.Tensor,
         dataset_key: int,
     ):
@@ -658,25 +653,13 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         cell_encoder = self.cell_encoder_dict[dataset_name]
         cond_encoder = self.cond_encoder_dict[dataset_name]
 
-        if cell_emb[0].ndim == 1:
-            cell_emb = torch.stack(cell_emb)
-        else:
-            cell_emb = torch.concat(cell_emb)
         # (bs, cell) -> (bs, cell_hidden)
         cell_emb = cell_encoder(cell_emb)
 
         if cond_encoder is None:
             combine_emb = cell_emb
         else:
-            concat_cond_emb = {}
-            for cond_dict in cond_emb:
-                for k, v in cond_dict.items():
-                    if k in concat_cond_emb:
-                        concat_cond_emb[k].append(v)
-                    else:
-                        concat_cond_emb[k] = [v]
-            concat_cond_emb = {k: torch.concat(v) for k, v in concat_cond_emb.items()}
-            cond_emb = cond_encoder(concat_cond_emb)
+            cond_emb = cond_encoder(cond_emb)
             combine_emb = torch.cat([cell_emb, cond_emb], dim=-1)
 
         dataset_shared_emb = self.shared_encoder(shared_emb)

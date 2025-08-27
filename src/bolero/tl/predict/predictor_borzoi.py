@@ -1,4 +1,5 @@
 import gc
+import json
 import pathlib
 import tempfile
 import time
@@ -14,8 +15,9 @@ import torch
 import xarray as xr
 from einops import rearrange
 
+from bolero.tl.model.borzoi.dataset_multi import DatasetRecordManager
 from bolero.tl.model.borzoi.model import Borzoi
-from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
+from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAMulti
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import understand_regions
 
@@ -101,8 +103,10 @@ class BorzoiInputXGradient:
 
 
 class BorzoiPredictor(GenericPredictor):
+    model_class = BorzoiLoRA
+
     def __init__(self, config):
-        super().__init__(config, BorzoiLoRA)
+        super().__init__(config, self.model_class)
         self._create_datamanager()
 
         peak_path = self.config.get("peak_path", None)
@@ -1409,6 +1413,10 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         torch.cuda.empty_cache()
         return batch
 
+    def _forward_cond_emb_module(self, cell_emb, cond_emb):
+        cond_ensemble = self.model.cond_emb_module(cell_emb=cell_emb, cond_emb=cond_emb)
+        return cond_ensemble
+
     def _model_prediction_step(
         self,
         batch,
@@ -1466,7 +1474,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                 x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
-                cond_ensemble = self.model.cond_emb_module(
+                cond_ensemble = self._forward_cond_emb_module(
                     cell_emb=cell_emb_mini_batch,
                     cond_emb=cond_emb_mini_batch,
                 )
@@ -1615,3 +1623,81 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             add_true_data=True,
             verbose=verbose,
         )
+
+
+class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
+    """
+    this class handles prediction task for trained BorzoiLoRAMulti model
+
+    Although the model is trained for multi datasets, this class will only handle prediction of one dataset.
+    """
+
+    model_class = BorzoiLoRAMulti
+
+    def __init__(self, dataset_key, config):
+        self.dataset_key = dataset_key
+        config = self._prepare_multi_dataset_manager(config)
+
+        super().__init__(config)
+
+        # overwrite BorzoiSignalPredictor
+        self.has_cond_emb = True  # always set true for Multi model
+
+    def _prepare_multi_dataset_manager(self, config):
+        # extract dataset information and put into config
+        # after this, pass the config to BorzoiSignalPredictor.__init__
+        with open(config["train_config"]) as f:
+            train_config = json.load(f)
+
+        # create the same dataset record manager as BorzoiMultiDataset in training
+        # use this class to retrive dataset shared information, such as genome embedding
+        dataset_records = train_config.pop("dataset_records")
+        self._multi_dataset_record_manager = DatasetRecordManager(
+            dataset_records=dataset_records,
+            pseudobulker_cls=train_config["paired_mode"],
+        )
+
+        # update config with cond_module_kwargs using DatasetRecordManager
+        cond_module_kwargs = (
+            self._multi_dataset_record_manager.make_cond_module_kwargs()
+        )
+        cur_kwargs = train_config["cond_module_kwargs"] or {}
+        cur_kwargs.update(cond_module_kwargs)
+        train_config["cond_module_kwargs"] = cur_kwargs
+
+        dataset_key_info = dataset_records[self.dataset_key]
+        config.setdefault(
+            "pseudobulk_records_path", dataset_key_info["pseudobulk_path"]
+        )
+        config.setdefault("dataset_path", dataset_key_info["data_path"])
+        config.setdefault("genome", dataset_key_info["genome"])
+
+        config["train_config"] = train_config
+        return config
+
+    def _forward_cond_emb_module(self, cell_emb: torch.Tensor, cond_emb: torch.Tensor):
+        """
+        Forward pass for the conditional embedding module.
+        """
+        dataset_idx = self._multi_dataset_record_manager.data_keys.index(
+            self.dataset_key
+        )
+
+        # create shared embedding info
+        dataset_genome_emb = (
+            self._multi_dataset_record_manager.dataset_idx_to_genome_emb[dataset_idx]
+        )
+        bs = cell_emb.shape[0]
+        genome_emb = torch.tensor(
+            dataset_genome_emb, device=cell_emb.device, dtype=torch.float
+        ).repeat(bs, 1)
+        shared_emb = {"__genome__": genome_emb}
+
+        # forward cond emb module using single dataset mode
+        cond_ensemble = self.model.cond_emb_module.forward_single_dataset(
+            cell_emb=cell_emb,
+            cond_emb=cond_emb,
+            shared_emb=shared_emb,
+            dataset_key=dataset_idx,
+        )
+        return cond_ensemble
