@@ -583,7 +583,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             warmup_steps // accumulate_grad + 1
         )  # because we update every accumulate_grad steps
 
-        total_steps = self.max_epochs * self.train_batches
+        # was self.max_epochs * self.train_batches, fixed here so changing max_epochs and train_batches don't impact LR
+        total_steps = 250000  # was 50 * 5000
         total_steps = total_steps // accumulate_grad + 1
 
         scheduler = GenericTrainer._get_scheduler(
