@@ -436,6 +436,14 @@ class BorzoiPredictor(GenericPredictor):
         ), "Currently only one data prefix is supported for prediction."
         data_key = da_prefix[0]
 
+        n_pseudobulks = (
+            len(pseudobulk_ids)
+            if pseudobulk_ids is not None
+            else len(self.pseudobulk_manager.pseudobulk_ids)
+        )
+        dataloader_batch_size = max(2, int(batch_size / n_pseudobulks * 100))
+        dataloader_batch_size = min(16, dataloader_batch_size)
+        print(f"Data loader batch size {dataloader_batch_size}")
         dataloader = self._create_fn_and_dataloader(
             dna_key=dna_key,
             data_key=data_key,
@@ -443,7 +451,7 @@ class BorzoiPredictor(GenericPredictor):
             regions=regions,
             pseudobulk_ids=pseudobulk_ids,
             add_true_data=add_true_data,
-            batch_size=batch_size,
+            batch_size=dataloader_batch_size,
         )
 
         pid_array = (
