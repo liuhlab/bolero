@@ -4,7 +4,6 @@ import pathlib
 import time
 from copy import deepcopy
 
-import numpy as np
 import torch
 import wandb
 from torch import nn
@@ -301,7 +300,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "wandb_group": None,
         "wandb_name": None,
         "max_epochs": "REQUIRED",
-        "patience": "REQUIRED",
         "use_amp": True,
         "use_ema": True,
         "scheduler": False,
@@ -343,8 +341,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         # epoch info
         self.checkpoint: bool = False
         self.cur_epoch: int = 0
-        self.early_stopping_counter: int = 0
-        self.best_val_loss: float = np.Inf
         self.plot_example_per_epoch: int = 0
         self.train_batches: int = self.config["train_batches"]
         self.val_batches: int = self.config["val_batches"]
@@ -589,12 +585,6 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
         # adjust epochs
         self.cur_epoch = checkpoint.get("epoch", 0)
-        self.early_stopping_counter = checkpoint.get("early_stopping_counter", 0)
-        self.best_val_loss = checkpoint.get("best_val_loss", np.Inf)
-        print(
-            f"Best val loss: {self.best_val_loss:.5f}, "
-            f"early stopping counter: {self.early_stopping_counter}."
-        )
 
         # load state dict
         self.model.load_state_dict(checkpoint["state_dict"])
@@ -699,12 +689,8 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
         # epochs
         self.max_epochs = config["max_epochs"]
-        self.patience = config["patience"]
         self.train_batches = config["train_batches"]
         self.val_batches = config["val_batches"]
-        self.early_stopping_counter = 0
-        self.early_stoped = False
-        self.best_val_loss = float("inf")
         self.accumulate_grad = config["accumulate_grad"]
         self.cur_epoch = 0
 
@@ -778,14 +764,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
     def _save_checkpoint(self, update_best: bool):
         epoch_info = {
             "epoch": self.cur_epoch,
-            "early_stopping_counter": self.early_stopping_counter,
         }
         safe_save(epoch_info, self.epoch_info_path)
         if update_best:
             print("Saving best checkpoint...")
             # check point includes model and other training states
             checkpoint = {
-                "best_val_loss": self.best_val_loss,
                 "state_dict": self.model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "scaler": self.scaler.state_dict() if self.scaler is not None else None,
