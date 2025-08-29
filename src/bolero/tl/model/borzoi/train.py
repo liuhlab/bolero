@@ -250,7 +250,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_job_type": "REQUIRED",
         "wandb_group": None,
         "wandb_name": None,
-        "max_epochs": 50,
+        "max_epochs": "REQUIRED",
         "use_amp": True,
         "scheduler": True,
         "lr": 5e-5,
