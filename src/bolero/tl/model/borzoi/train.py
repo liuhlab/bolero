@@ -1,4 +1,5 @@
 import pathlib
+import re
 from collections import defaultdict
 
 import numpy as np
@@ -250,11 +251,10 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_group": None,
         "wandb_name": None,
         "max_epochs": 50,
-        "patience": 3,
-        "start_early_stop_after_epoch": 15,
         "use_amp": True,
         "scheduler": True,
         "lr": 5e-5,
+        "lr_total_steps": 250000,
         "optimizer": "adamw",
         "weight_decay": 1e-8,
         "global_clipnorm": 0.5,
@@ -274,7 +274,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def __init__(self, config):
         super().__init__(config)
-        self.start_early_stop_after_epoch: bool = config["start_early_stop_after_epoch"]
 
         # the prefix of pseudobulk data in the batch dict
         # this is the pseudobulker name passed to dataset
@@ -283,8 +282,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         self.model: torch.nn.Module = None
         self._setup_env()
         self._setup_dataset()
-
-        self.best_val_metric = -1  # corr
         return
 
     # =============================
@@ -494,7 +491,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 continue
         return wandb_images
 
-    def _log_save_and_check_stop(self):
+    def _log_save(self):
         val_imgs = self.val_wandb_images
         epoch = self.cur_epoch
         train_loss = self.train_loss
@@ -512,41 +509,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             f" - (Validation) {epoch} Loss: {val_loss:.3f}; Mean Corr. : {val_corr.get_corr_str()}."
         )
 
-        larger_is_better = True  # use corr as the metric, larger is better
-        metric_to_use = val_corr.compute_tensor().mean().item()
-        previous_best = self.best_val_metric
-        if larger_is_better:
-            improved = metric_to_use > self.best_val_metric
-        else:
-            improved = metric_to_use < self.best_val_metric
-
-        # only clear the early stopping counter if the loss improvement is better than tolerance
-        if improved:
-            self.early_stopping_counter = 0
-        else:
-            if epoch >= self.start_early_stop_after_epoch:
-                self.early_stopping_counter += 1
-            else:
-                print(
-                    f"Early stopping counter is not updated before "
-                    f"start_early_stop_after_epoch {self.start_early_stop_after_epoch}."
-                )
-                self.early_stopping_counter = 0
-        print(
-            f"Previous best metric: {previous_best:.3f}, "
-            f"Metric at epoch {epoch}: {metric_to_use:.3f}; "
-            f"Early stopping counter: {self.early_stopping_counter}"
-        )
-        # save checkpoint if the loss is better
-        if epoch < self.start_early_stop_after_epoch:
-            self.best_val_metric = metric_to_use
-            self._save_checkpoint(update_best=True)
-        else:
-            if improved:
-                self.best_val_metric = metric_to_use
-                self._save_checkpoint(update_best=True)
-            else:
-                self._save_checkpoint(update_best=False)
+        self._save_checkpoint(update_best=True)
 
         # save epoch model state for comparing model over epochs
         save_every_n_epoch = self.config.get("save_state_every_n_epoch", None)
@@ -556,8 +519,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         # construct wandb log dict
         log_dict = {
             "val/val_loss": val_loss,
-            "val/best_val_corr": self.best_val_metric,
-            "val/early_stopping_counter": self.early_stopping_counter,
         }
         for k, v in val_loss_breakdown.items():
             log_dict[f"val/val_loss_{k}"] = v
@@ -572,8 +533,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             log_dict[f"val_example/example_tracks_{channel_name}"] = channel_imgs
         wandb.log(log_dict)
 
-        flag = self.early_stopping_counter >= self.patience
-        return flag
+        return
 
     def _get_scheduler(self, optimizer):
         self.config["scheduler_type"] = "borzoi"
@@ -654,7 +614,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         scheduler = self.scheduler
         self.val_loss = None
 
-        stop_flag = self.early_stopping_counter >= self.patience
         if self.cur_epoch > 0:
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs} epochs in total."
@@ -663,26 +622,8 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         window_size = 6400 // self.accumulate_grad
         moving_norm = MovingMetric(window_size=window_size)
         total_norm = 999
-        while self.cur_epoch < max_epochs and not stop_flag:
-            # one can manually create a stop flag file to stop the training
-            # path: f"{self.savename}.stop.flag"
-            if self._check_stage_flag("stop"):
-                print(
-                    f"Early stopping flag file found, stopping training at {self.cur_epoch}."
-                )
-                self.early_stoped = True
-                break
-
-            print(
-                f"Current epoch: {self.cur_epoch + 1}, max epochs: {max_epochs}, stop flag: {stop_flag}."
-            )
-            # check early stop
-            if self.early_stopping_counter >= self.patience:
-                # early stopping counter could be loaded from the checkpoint
-                # check before starting the for loop
-                print(f"Early stopping at epoch {self.cur_epoch}")
-                self.early_stoped = True
-                break
+        while self.cur_epoch < max_epochs:
+            print(f"Current epoch: {self.cur_epoch + 1}, max epochs: {max_epochs}.")
 
             # get train data loader
             dataloader = self.get_train_dataloader(batches=self.train_batches + 1)
@@ -826,11 +767,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 continue
 
             self.cur_epoch += 1
-            stop_flag = self._log_save_and_check_stop()
-            if stop_flag:
-                print(f"Early stopping at epoch {self.cur_epoch}")
-                self.early_stoped = True
-                break
+            self._log_save()
 
         self._cleanup_env()
         return
@@ -1077,6 +1014,11 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
             "lr": 5e-5,
             "warmup_steps": 500,
             "scheduler": True,
+            # after first round training shared parameter,
+            # further fine tune dataset specific parameters
+            "train_dataset_specific_only": False,
+            # when fine tuning, use this to provide trained lora weights
+            "lora_checkpoint_path": None,
         }
     )
 
@@ -1090,6 +1032,39 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         self.config["cond_module_kwargs"] = cur_kwargs
         print("Updated cond_module_kwargs in config with dataset specific information.")
         return dataset
+
+    def _train_dataset_specific_only(self):
+        """
+        Given a checkpoint path, load the model weights from the checkpoint.
+
+        Then we freeze everything except the dataset specific part of cond_emb_module.
+        """
+        ckpt_path = self.config["lora_checkpoint_path"]
+        assert (
+            ckpt_path is not None
+        ), "Checkpoint path must be specified when training dataset specific only."
+        # TODO: change strict to True after dev
+        self.model.load_checkpoint_from_path(ckpt_path, strict=False)
+
+        name_pattern = re.compile("cond_emb_module.(cell|cond)_encoder_dict")
+        for name, params in self.model.named_parameters():
+            if not name_pattern.match(name):
+                params.requires_grad = False
+        print(
+            "Training dataset specific part of cond_emb_module only. "
+            "Remaining model parameters are frozen."
+        )
+        return
+
+    def _setup_model(self, print_model=True):
+        super()._setup_model(print_model=False)
+
+        if self.config["train_dataset_specific_only"]:
+            self._train_dataset_specific_only()
+
+        if print_model:
+            print(self.model)
+        return
 
     def _cond_emb_module_forward_pass(self, module, batch: dict):
         """
@@ -1163,6 +1138,8 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
             dataloader=dataloader,
             val_batches=val_batches,
             collect_data=collect_data,
+            # main difference is we do not add sample and region info when plotting
+            # because its complecated to gather correct info in multiple datasets
             _add_sample_and_region_info=False,
         )
         return results

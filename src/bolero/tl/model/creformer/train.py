@@ -315,7 +315,7 @@ class CREFormerTrainerMixin(
             )
         return optimizer
 
-    def _log_save_and_check_stop(self):
+    def _log_save(self):
         epoch = self.cur_epoch
         train_loss = self.train_loss
         train_corr = self.train_corr
@@ -544,7 +544,7 @@ class CREFormerTrainerMixin(
                 continue
 
             self.cur_epoch += 1
-            stop_flag = self._log_save_and_check_stop()
+            stop_flag = self._log_save()
             if stop_flag:
                 print(f"Early stopping at epoch {self.cur_epoch}")
                 self.early_stoped = True

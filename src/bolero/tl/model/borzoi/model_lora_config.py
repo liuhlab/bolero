@@ -247,11 +247,97 @@ def make_all_conditional_lora_config(
     return lora_config
 
 
+def make_all_conditional_large_lora_config(
+    emb_input_features,
+    hidden_dim=256,
+    hidden_layers=1,
+    lora_dropout=0.01,
+    lora_scale=1,
+    embedding_dropout=0,
+    except_output_head=False,
+    emb_attn_pooling=False,
+):
+    """Make LoRA configuration for the Borzoi model."""
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "hidden_dim": hidden_dim,
+        "hidden_layers": hidden_layers,
+        "lora_dropout": lora_dropout,
+        "embedding_dropout": embedding_dropout,
+        "lora_scale": lora_scale,
+        "convert_conv": True,
+        "convert_linear": True,
+        "emb_attn_pooling": emb_attn_pooling,
+    }
+    lora_config = {
+        "conv_dna": {
+            **shared_config,
+            "lora_rank": 4,  # total lora_lora_rank 4 * 15
+        },
+        (
+            "res_tower",
+            "unet1",
+        ): {
+            **shared_config,
+            "lora_rank": 10,  # total lora_rank 10 * 5
+        },
+        "transformer": {
+            **shared_config,
+            "lora_rank": 40,
+            "exclude_cond_lora_patterns": [
+                # linear projections inside regular attention
+                "to_q",
+                "to_k",
+                "to_v",
+                "to_out",
+                "to_rel_k",
+                # linear projections inside flash attention
+                "mha.Wqkv",
+                "mha.out_proj",
+            ],
+        },
+        (
+            "horizontal_conv0",
+            "horizontal_conv1",
+            "upsampling_unet0",
+            "upsampling_unet1",
+        ): {
+            **shared_config,
+            "lora_rank": 40,  # total lora_rank 30 * 1
+        },
+        (
+            "separable0",
+            "separable1",
+        ): {
+            **shared_config,
+            "lora_rank": 20,  # total lora_rank 20 * 3
+        },
+        ("final_joined_convs",): {
+            **shared_config,
+            "lora_rank": 100,  # total lora_rank 100 * 1
+        },
+        "final_output_head": {
+            **shared_config,
+            "lora_rank": 10,
+        },
+        "delta_output_head": {
+            **shared_config,
+            "lora_rank": 10,
+        },
+    }
+
+    if except_output_head:
+        del lora_config["final_output_head"]
+
+    return lora_config
+
+
 LORA_CONFIG_FUNCTIONS = {
     "output_conditional": make_output_conditional_lora_config,
     "classic": make_classic_lora_config,
     "scooby": make_scooby_lora_config,
     "all_conditional": make_all_conditional_lora_config,  # DEFAULT
+    "all_conditional_large": make_all_conditional_large_lora_config,
     "all_conditional_except_output_head": partial(
         make_all_conditional_lora_config, except_output_head=True
     ),

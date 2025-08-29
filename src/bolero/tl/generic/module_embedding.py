@@ -609,8 +609,8 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         dataset_keys: torch.Tensor,
     ) -> torch.Tensor:
         """
-        cell_emb: (bs, d_e) or (bs, n, d_e)
-        cond_emb: (bs, d_c) or (bs, n, d_c)
+        cell_emb: list[(d_e,)]
+        cond_emb: list[(d_c,)]
 
         return: (bs, h_e + h_c + h_shared)
         """
@@ -624,7 +624,7 @@ class ConditionEmbeddingModuleMulti(nn.Module):
 
             _cell_emb = cell_encoder(_cell_emb)
             if _cell_emb.ndim == 2:
-                _cell_emb.unsqueeze_(0)
+                _cell_emb.squeeze_(0)
 
             if cond_encoder is None:
                 combine_emb = _cell_emb
