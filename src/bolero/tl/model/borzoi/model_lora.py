@@ -672,6 +672,7 @@ class BorzoiLoRAMulti(BorzoiLoRA):
         encoder_dims: list[int] = (256, 256),
         encoder_dropout: float = 0.1,
         attn_pooling: bool = True,
+        norm_type: str | None = None,
         **kwargs,
     ):
         from bolero.tl.generic.module_embedding import ConditionEmbeddingModuleMulti
@@ -683,6 +684,7 @@ class BorzoiLoRAMulti(BorzoiLoRA):
             encoder_dims=encoder_dims,
             encoder_dropout=encoder_dropout,
             attn_pooling=attn_pooling,
+            norm_type=norm_type,
         )
         return cond_emb_module
 

@@ -832,9 +832,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 5e-5,
             "warmup_steps": 500,
-            "scheduler": True,
             # pseudobulk related
             "pseudobulk_records": "REQUIRED",
             "prefix": "pseudobulk",
@@ -1011,9 +1009,8 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
     trainer_config.update(
         {
             "mode": "lora",
-            "lr": 5e-5,
+            "lr_total_steps": 1000000,
             "warmup_steps": 500,
-            "scheduler": True,
             # after first round training shared parameter,
             # further fine tune dataset specific parameters
             "train_dataset_specific_only": False,

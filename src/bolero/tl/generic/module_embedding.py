@@ -308,6 +308,7 @@ class _SimpleEncoder(nn.Module):
         encoder_dims: list[int],
         encoder_dropout: float,
         attn_pooling: bool = False,
+        norm_type: str | None = None,
     ):
         super().__init__()
         self.input_dim = input_dim
@@ -318,6 +319,12 @@ class _SimpleEncoder(nn.Module):
         _dims = [self.input_dim] + self.encoder_dims
         for i in range(len(_dims) - 1):
             layers.append(nn.Linear(_dims[i], _dims[i + 1]))
+            if norm_type == "layer":
+                layers.append(nn.LayerNorm(_dims[i + 1]))
+            elif norm_type == "batch":
+                layers.append(nn.BatchNorm1d(_dims[i + 1]))
+            else:
+                assert norm_type in (None, "none"), f"Unknown norm type {norm_type}"
             layers.append(nn.SiLU())
             if self.encoder_dropout > 0:
                 layers.append(nn.Dropout(self.encoder_dropout))
@@ -357,6 +364,7 @@ class _SimpleEncoderDict(nn.ModuleDict):
         encoder_dims: list[int],
         encoder_dropout: float,
         attn_pooling: bool = False,
+        norm_type: str | None = None,
         pool_mode="concat",
     ):
         _dict = {
@@ -365,6 +373,7 @@ class _SimpleEncoderDict(nn.ModuleDict):
                 encoder_dims=encoder_dims,
                 encoder_dropout=encoder_dropout,
                 attn_pooling=attn_pooling,
+                norm_type=norm_type,
             )
             for key, input_dim in input_dims.items()
         }
@@ -394,12 +403,14 @@ def _create_encoder(
     encoder_dims: list[int],
     encoder_dropout: float,
     attn_pooling: bool,
+    norm_type: str | None = None,
     pool_mode: str = "concat",
 ) -> tuple[nn.Module | nn.ModuleDict, int]:
     encoder_kwargs = {
         "encoder_dims": encoder_dims,
         "encoder_dropout": encoder_dropout,
         "attn_pooling": attn_pooling,
+        "norm_type": norm_type,
     }
 
     # condition encoder
@@ -534,6 +545,7 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         encoder_dims: list[int] = (256, 256),
         encoder_dropout: float = 0.1,
         attn_pooling: bool = True,
+        norm_type: str | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -548,6 +560,7 @@ class ConditionEmbeddingModuleMulti(nn.Module):
             "encoder_dims": encoder_dims,
             "encoder_dropout": encoder_dropout,
             "attn_pooling": attn_pooling,
+            "norm_type": norm_type,
         }
         self._validate_dataset_info()
 
