@@ -1072,7 +1072,10 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         """
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
         cond_emb = batch[f"{self.prefix}:condition_emb_1"]
+
         shared_emb = {"__genome__": batch["__genome__"].float()}
+        if "__shared_data__" in batch:
+            shared_emb["__shared_data__"] = batch["__shared_data__"]
         dataset_keys = batch["__dataset_keys__"]
 
         # 3. aggregate all conditional input

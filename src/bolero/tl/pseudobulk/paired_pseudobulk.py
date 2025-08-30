@@ -357,7 +357,7 @@ class PseudobulkerMixin:
         data = deepcopy(self.pseudobulk_records[name])
         return data
 
-    def take(self, n):
+    def take(self, n, return_pids=False):
         """Take n pseudobulks from the random pool."""
         if n > self.n_pids:
             raise ValueError(
@@ -365,6 +365,7 @@ class PseudobulkerMixin:
             )
 
         records = []
+        record_pids = []
         used_pids = set()
         for _ in range(n):
             # 1. sample a condition pair
@@ -377,6 +378,9 @@ class PseudobulkerMixin:
             # cond_pair_pseudobulk: list of two pseudobulk records, source and target
             # cond_pair: tuple of two condition names
             records.append(cond_pair_pseudobulks)
+            record_pids.append(pid_choice)
+        if return_pids:
+            return records, record_pids
         return records
 
     def _make_condition_encoder(self, cond_dict):
@@ -856,6 +860,7 @@ class MultiPairedPseudobulker:
         pseudobulk_path_dict: dict[str, str],
         barcode_order_dict: dict[str, dict],
         pseudobulker_cls: str | PseudobulkerMixin = "ensemble",
+        shared_data_paths: dict[str, str] | None = None,
         **pseudobulker_kwargs,
     ):
         """
@@ -888,6 +893,44 @@ class MultiPairedPseudobulker:
                 v, barcode_order=barcode_order, **pseudobulker_kwargs
             )
 
+        if shared_data_paths is not None:
+            shared_data_col, n_dim = self._get_shared_data(shared_data_paths)
+            self.shared_data_col: dict[str, pd.DataFrame] = shared_data_col
+            self.shared_data_dim: int = n_dim
+        else:
+            self.shared_data_col = {}
+            self.shared_data_dim = 0
+
+    def _get_shared_data(self, shared_data_paths):
+        """
+        Load and save shared score data in self.shared_data_col
+
+        shared_data_col schema:
+        {
+            "score_key": {
+                "dataset_key": pd.DataFrame of shape (n_pseudobulks, n_dim)
+            }
+        }
+        """
+        shared_data_col: dict[str, pd.DataFrame] = joblib.load(shared_data_paths)
+        assert all(k in shared_data_col for k in self.pseudobulker_dict.keys())
+        shared_data_col = {
+            k: v for k, v in shared_data_col.items() if k in self.pseudobulker_dict
+        }
+
+        dims = []
+        for score_key in shared_data_col.keys():
+            pseudobulker = self.pseudobulker_dict[score_key]
+            score_data = shared_data_col[score_key].reindex(pseudobulker.pseudobulk_ids)
+            assert (
+                score_data.isna().values.sum() == 0
+            ), "score data has NaN values after reindex by pseudobulk ids."
+            shared_data_col[score_key] = score_data
+            dims.append(score_data.shape[1])
+        assert len(set(dims)) <= 1, "All shared data must have the same dimension."
+        n_dim = dims[0]
+        return shared_data_col, n_dim
+
     def take(self, n: int, key: str):
         """
         Take n pseudobulks from a specific pseudobulker.
@@ -908,11 +951,17 @@ class MultiPairedPseudobulker:
             that indicates which pseudobulker it was sampled from.
         """
         pseudobulker = self.pseudobulker_dict[key]
-        pseudobulks = pseudobulker.take(n)
-        for pair in pseudobulks:
+
+        pseudobulks, record_pids = pseudobulker.take(n, return_pids=True)
+        for pair_idx, pair in enumerate(pseudobulks):
             # add key to each pseudobulk
             for p in pair:
                 p["__pseudobulker_key__"] = key
+                if key in self.shared_data_col:
+                    pid = record_pids[pair_idx]
+                    p["__shared_data__"] = (
+                        self.shared_data_col[key].loc[pid].values[None, :]
+                    )
         return pseudobulks
 
 

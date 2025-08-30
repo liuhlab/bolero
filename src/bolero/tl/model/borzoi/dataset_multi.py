@@ -143,8 +143,15 @@ class DatasetRecordManager:
     # pseudobulker
     _pseudobulk_paths: dict[str, str]
     pseudobulker: MultiPairedPseudobulker
+    # shared score data
+    shared_data_col: dict[str, dict[str, pd.DataFrame]]
 
-    def __init__(self, dataset_records: str | dict, pseudobulker_cls: str | type):
+    def __init__(
+        self,
+        dataset_records: str | dict,
+        pseudobulker_cls: str | type,
+        shared_data_paths: dict[str, str] | None = None,
+    ):
         if isinstance(dataset_records, str):
             dataset_records = joblib.load(dataset_records)
         self.dataset_records = dataset_records
@@ -152,7 +159,7 @@ class DatasetRecordManager:
 
         self._init_data()
         self._init_genome()
-        self._init_pseudobulker(pseudobulker_cls)
+        self._init_pseudobulker(pseudobulker_cls, shared_data_paths=shared_data_paths)
 
     def _init_data(self):
         self.data_paths: dict[str, str] = {
@@ -203,7 +210,9 @@ class DatasetRecordManager:
         self.borzoi_regions = MultiBorzoiRegions(self.genomes)
         self.dataset_idx_to_genome_emb = self._create_genome_embedding()
 
-    def _init_pseudobulker(self, pseudobulker_cls: str | type):
+    def _init_pseudobulker(
+        self, pseudobulker_cls: str | type, shared_data_paths: dict[str, str]
+    ):
         self._pseudobulk_paths = {
             k: v["pseudobulk_path"] for k, v in self.dataset_records.items()
         }
@@ -211,6 +220,7 @@ class DatasetRecordManager:
             pseudobulk_path_dict=self._pseudobulk_paths,
             barcode_order_dict=self._barcode_orders,
             pseudobulker_cls=pseudobulker_cls,
+            shared_data_paths=shared_data_paths,
         )
 
     def _select_full_overlap_regions(self, regions: pd.DataFrame) -> pd.DataFrame:
@@ -291,6 +301,8 @@ class DatasetRecordManager:
 
         genome_dim = self.dataset_idx_to_genome_emb[0].shape[-1]
         dataset_shared_dims = {"__genome__": genome_dim}
+        if multi_pm.shared_data_dim > 0:
+            dataset_shared_dims["__shared_data__"] = multi_pm.shared_data_dim
 
         cond_module_kwargs = {
             "dataset_order": multi_pm.keys,
@@ -430,7 +442,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                     row_embedding
                 )
 
-                # 3. add trange if available
+                # 3. normalize coverage
                 _bulk_values = all_pseudobulk_data[
                     None, 2 * pair_idx + idx_in_pair
                 ]  # (1, region_length)
@@ -439,6 +451,11 @@ class GenerateMultiGenomeParquetAndPseudobulk:
                     prefix_cov_logfc = cov_logfc[dataset_prefix]
                     _bulk_values /= 2**prefix_cov_logfc
                 this_bulk_dict[f"{output_prefix}:bulk_data{suffix}"] = _bulk_values
+
+            if "__shared_data__" in cond_pair_pseudobulks[1]:
+                this_bulk_dict["__shared_data__"] = cond_pair_pseudobulks[1][
+                    "__shared_data__"
+                ]
 
             this_bulk_dict[f"{output_prefix}:bulk_data_delta"] = (
                 this_bulk_dict[f"{output_prefix}:bulk_data_1"]
@@ -508,6 +525,8 @@ class BorzoiMultiDataset(GenericDataset):
         # data loader
         "batch_size": 4,
         "output_prefix": "pseudobulk",
+        # shared data score file
+        "shared_data_paths": None,
     }
 
     def __init__(
@@ -521,10 +540,12 @@ class BorzoiMultiDataset(GenericDataset):
         max_jitter: int = 3,
         batch_size: int = 4,
         output_prefix: str = "pseudobulk",
+        shared_data_paths: str | None = None,
     ):
         self.dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
             pseudobulker_cls=paired_mode,
+            shared_data_paths=shared_data_paths,
         )
         self.dm = self.dataset_record_manager
         self.borzoi_regions = self.dataset_record_manager.borzoi_regions

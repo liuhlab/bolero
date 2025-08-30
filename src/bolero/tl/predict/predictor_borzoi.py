@@ -1699,7 +1699,11 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         genome_emb = torch.tensor(
             dataset_genome_emb, device=cell_emb.device, dtype=torch.float
         ).repeat(bs, 1)
+
         shared_emb = {"__genome__": genome_emb}
+        shared_dim = self._multi_dataset_record_manager.pseudobulker.shared_data_dim
+        if shared_dim > 0:
+            shared_emb = {"__shared_data__": shared_dim}
 
         # forward cond emb module using single dataset mode
         cond_ensemble = self.model.cond_emb_module.forward_single_dataset(
