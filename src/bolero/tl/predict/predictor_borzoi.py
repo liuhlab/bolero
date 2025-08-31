@@ -23,7 +23,7 @@ from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
-from .utils import load_config
+from .utils import gather_peak_data, load_config
 
 
 def _clip(data: torch.Tensor, clip_length: int) -> torch.Tensor:
@@ -706,6 +706,7 @@ class BorzoiPredictor(GenericPredictor):
         save_keys=None,
         stats_keys=None,
         verbose=True,
+        save_first_batch=True,
     ):
         """
         Prediction task for Borzoi.
@@ -731,6 +732,8 @@ class BorzoiPredictor(GenericPredictor):
             The keys to save in the output file. If None, save all keys.
         verbose: bool
             Whether to print the progress.
+        save_first_batch: bool
+            Whether to save the first full batch for debugging purposes.
         """
         if isinstance(regions, str) and regions == "test_regions":
             regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
@@ -782,8 +785,9 @@ class BorzoiPredictor(GenericPredictor):
         for idx, batch in enumerate(dataloader):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
-                # save the first complete batch into output dir
-                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+                if save_first_batch:
+                    # save the first complete batch into output dir
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = {}
@@ -837,7 +841,18 @@ class BorzoiPredictor(GenericPredictor):
         if verbose:
             self._print_batch(total_stats, prefix="Final Stats")
             print(f"Removed temporary files in {stats_tmpdir}")
+
+        # gather peak data into single dataframe
+        self._gather_peak_data(output_dir)
         return
+
+    @staticmethod
+    def _gather_peak_data(output_dir):
+        return gather_peak_data(
+            output_dir,
+            true_peak_key="__ytrue__:peak",
+            pred_peak_key="__ypred__:peak",
+        )
 
     def _filter_valid_qtl_regions(self):
         db = self.datamanager.datasets["parquet"]
@@ -1220,6 +1235,14 @@ class BorzoiPairPredictor(BorzoiPredictor):
             "peak_r2",
         ]
         return STATS_KEYS
+
+    @staticmethod
+    def _gather_peak_data(output_dir):
+        return gather_peak_data(
+            output_dir,
+            true_peak_key="__ytrue__:peak:cond1",
+            pred_peak_key="__ypred__:peak:cond1",
+        )
 
 
 class BorzoiSignalPredictor(BorzoiPairPredictor):

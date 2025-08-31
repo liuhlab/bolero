@@ -4,8 +4,10 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+import pandas as pd
 import pyranges as pr
 import torch
+from torchmetrics.functional import r2_score
 
 
 def validate_region(region_bed: pr.PyRanges, chrom_sizes: dict[str, int]):
@@ -83,3 +85,134 @@ def load_config(config) -> dict:
     else:
         config = deepcopy(config)
     return config
+
+
+def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) -> None:
+    """
+    Gather peak true and prediction data into a single dataframe from all batches in output_dir.
+    """
+    batch_paths = list(Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz"))
+    print(f"{len(batch_paths)} batches in {output_dir}")
+
+    true_peak_data = []
+    pred_peak_data = []
+    peak_bed = []
+    for path in batch_paths:
+        batch = joblib.load(path)
+        true_peak_data.append(batch[true_peak_key])
+        pred_peak_data.append(batch[pred_peak_key])
+        peak_bed.append(batch["peak"])
+
+    true_peak_data = np.concatenate(true_peak_data, axis=1).T.astype("float32")
+    pred_peak_data = np.concatenate(pred_peak_data, axis=1).T.astype("float32")
+    peak_bed = pd.concat(peak_bed)
+
+    pids = pd.Index(batch["pseudobulk_ids"])
+    pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
+    true_peak_data = pd.DataFrame(
+        true_peak_data, index=peak_bed["Name"].values, columns=pids
+    )
+    pred_peak_data = pd.DataFrame(
+        pred_peak_data, index=peak_bed["Name"].values, columns=pids
+    )
+    peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
+    true_peak_data = true_peak_data[~true_peak_data.index.duplicated()].sort_index()
+    pred_peak_data = pred_peak_data[~pred_peak_data.index.duplicated()].sort_index()
+
+    # put back original pid
+    config = joblib.load(f"{output_dir}/config.joblib.gz")
+    prec = config["pseudobulk_records"]
+    original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
+    true_peak_data.columns = true_peak_data.columns.map(original_pid_map)
+    pred_peak_data.columns = pred_peak_data.columns.map(original_pid_map)
+
+    # save peak data
+    true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
+    pred_peak_data.to_feather(f"{output_dir}/pred_peak_data.feather")
+    return
+
+
+def multi_level_peak_stats(output_dir, precomputed_region_group_path=None):
+    """
+    Generate five quantile cutoffs based on true value across sample STD.
+    For each cutoff, select corresponding peaks and calculate profile/sample pearson corr and R2 metrics.
+
+    Parameters
+    ----------
+    output_dir : str
+        The output directory containing the true and predicted peak data.
+    precomputed_region_group_path : str, optional
+        The path to a precomputed region group file, if provided, peak group in this file will be used.
+    """
+    # 1. Load true and pred peaks
+    all_true_peak_data = pd.read_feather(f"{output_dir}/true_peak_data.feather")
+    all_pred_peak_data = pd.read_feather(f"{output_dir}/pred_peak_data.feather")
+    # make sure true and pred has exact order
+    all_pred_peak_data = all_pred_peak_data.reindex(
+        index=all_true_peak_data.index, columns=all_true_peak_data.columns
+    )
+    assert not all_pred_peak_data.isna().values.any()
+
+    # 2. Compute region groups based on true value sample std OR use pre-computed groups
+    # small idx group is lowly variable / accessible regions
+    # large idx group is highly variable / accessible regions
+    if precomputed_region_group_path is None:
+        region_groups = pd.qcut(
+            all_true_peak_data.std(axis=1), [0, 0.2, 0.4, 0.6, 0.8, 1]
+        ).cat.codes
+    else:
+        region_groups = joblib.load(precomputed_region_group_path)["region_groups"]
+
+    # 3. Compute the four metrics
+    keys = ["profile_corr", "sample_corr", "profile_r2", "sample_r2"]
+    region_group_and_stats = {"region_groups": region_groups, **{k: [] for k in keys}}
+    for group in region_groups.unique():
+        regions = region_groups[region_groups >= group]
+        true_peak_data = all_true_peak_data.reindex(regions.index)
+        pred_peak_data = all_pred_peak_data.reindex(regions.index)
+
+        # R2
+        true = torch.as_tensor(true_peak_data.values)
+        pred = torch.as_tensor(pred_peak_data.values)
+        profile_r2 = r2_score(pred, true, multioutput="raw_values").numpy()
+        profile_r2 = pd.Series(profile_r2, index=true_peak_data.columns)
+        sample_r2 = r2_score(pred.T, true.T, multioutput="raw_values").numpy()
+        sample_r2 = pd.Series(sample_r2, index=true_peak_data.index)
+
+        # correlation
+        profile_corr = true_peak_data.corrwith(pred_peak_data)
+        sample_corr = true_peak_data.T.corrwith(pred_peak_data.T)
+
+        # collect
+        region_group_and_stats["profile_corr"].append(
+            pd.DataFrame({"value": profile_corr, "group": group})
+        )
+        region_group_and_stats["sample_corr"].append(
+            pd.DataFrame({"value": sample_corr, "group": group})
+        )
+        region_group_and_stats["profile_r2"].append(
+            pd.DataFrame({"value": profile_r2, "group": group})
+        )
+        region_group_and_stats["sample_r2"].append(
+            pd.DataFrame({"value": sample_r2, "group": group})
+        )
+
+    # 4. Compute metric summary
+    stats_summary = []
+    for k in keys:
+        data = pd.concat(region_group_and_stats[k])
+        region_group_and_stats[k] = data
+
+        value_mean = data.groupby("group")["value"].mean()
+        value_std = data.groupby("group")["value"].std()
+        summary = (
+            pd.DataFrame({"std": value_std, "mean": value_mean}).unstack().reset_index()
+        )
+        summary.columns = ["stat", "group", "value"]
+        summary["metric"] = k
+        stats_summary.append(summary)
+    stats_summary = pd.concat(stats_summary)
+    region_group_and_stats["stats_summary"] = stats_summary
+
+    # 5. save all stats
+    joblib.dump(region_group_and_stats, f"{output_dir}/region_group_and_stats.joblib")
