@@ -436,34 +436,34 @@ class Transcript(Feature, FeatureSharedPropertyMixin):
 
 # Currently gtf path is hard coded
 # look for a remote storage solution
-MM10_GTF_PATH = "/large_storage/zhoulab/hanliu/wmb/ref/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gtf"
-MM10_GTFDB_PATH = "/large_storage/zhoulab/hanliu/wmb/ref/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gffutils.db"
-HG38_GTF_PATH = (
-    "/large_storage/zhoulab/hanliu/wmb/ref/hg38/gtf/gencode.v30.annotation.gtf"
-)
-HG38_GTFDB_PATH = (
-    "/large_storage/zhoulab/hanliu/wmb/ref/hg38/gtf/gencode.v30.annotation.gffutils.db"
-)
+_ref_dir = "/large_storage/zhoulab/hanliu/wmb/ref"
+GTF_PATH = {
+    "mm10": f"{_ref_dir}/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gtf",
+    "hg38": f"{_ref_dir}/hg38/gtf/gencode.v30.annotation.gtf",
+    "calJac4": f"{_ref_dir}/calJac4/ncbiRefSeq.gtf",
+    "mCalJac1.pat.X": f"{_ref_dir}/mCalJac1.pat.X/gtf/Callithrix_jacchus.mCalJac1.pat.X.114.chr.gtf",
+    "monDom5.split": f"{_ref_dir}/monDom5/gtf/monDom5_evodevoCerebellum_extended_codingOverlapsRM.gtf",
+    "panPan3": f"{_ref_dir}/panPan3/gtf/ncbiRefSeq.gtf",
+    "rheMac10": f"{_ref_dir}/rheMac10/rheMac10.ensGene.gtf",
+}
 
 
-def load_gtf(genome: str = "mm10", gtf_path: str = None):
+def load_gtf(genome: str, gtf_path: str = None):
     """Load GTFDB for genome."""
     if gtf_path is None:
-        if genome == "mm10":
-            return GTFDB(MM10_GTFDB_PATH)
-        elif genome == "hg38":
-            return GTFDB(HG38_GTFDB_PATH)
-        else:
-            raise ValueError(
-                f"Please provide gtf_path for custom genome. Unsupported genome: {genome}"
-            )
+        gtf_path = GTF_PATH.get(genome, None)
+
+    if gtf_path is None:
+        raise ValueError(
+            f"Existing gtf_path for genome {genome} not found. Please provide gtf_path explicitly."
+        )
+
+    if str(gtf_path).endswith(".db"):
+        gtfdb_path = gtf_path
     else:
-        if str(gtf_path).endswith(".db"):
-            gtfdb_path = gtf_path
-        else:
-            # try to create GTFDB
-            gtfdb_path = pathlib.Path(gtf_path).with_suffix(".gffutils.db")
-            if not gtfdb_path.exists():
-                print(f"Create GTFDB for {gtf_path}")
-                create_db(str(gtf_path), dbfn=str(gtfdb_path))
-        return GTFDB(gtfdb_path)
+        # try to create GTFDB
+        gtfdb_path = pathlib.Path(gtf_path).with_suffix(".gffutils.db")
+        if not gtfdb_path.exists():
+            print(f"Create GTFDB for {gtf_path}")
+            create_db(str(gtf_path), dbfn=str(gtfdb_path))
+    return GTFDB(gtfdb_path)

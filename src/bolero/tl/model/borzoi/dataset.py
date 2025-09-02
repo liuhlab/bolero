@@ -14,7 +14,7 @@ from bolero.tl.dataset.sc_transforms import GeneratePseudobulk
 from bolero.tl.dataset.transforms import (
     FetchRegionOneHot,
     ReverseComplement,
-    ReverseComplmentMinusStrand,
+    ReverseComplementMinusStrand,
 )
 from bolero.tl.pseudobulk.paired_pseudobulk import (
     PAIRED_PSEUDOBULKER_CLS_DICT,
@@ -22,7 +22,7 @@ from bolero.tl.pseudobulk.paired_pseudobulk import (
 )
 from bolero.tl.pseudobulk.single_pseudobulk import SinglePseudobulker
 
-from .utils import BorzoiRegions
+from .utils import BorzoiGeneRegions, BorzoiRegions
 
 DNA_NAME = "dna_one_hot"
 
@@ -281,7 +281,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # gene related options
         "deg_list": None,
         "gene_data_path": None,
-        "tss_bed_path": None,
         # benchmark options
         "_multihead": False,
     }
@@ -313,7 +312,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # gene related options
         deg_list=None,
         gene_data_path=None,
-        tss_bed_path=None,
         # benchmark options
         _multihead=False,
     ):
@@ -345,11 +343,19 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         self.name_to_pseudobulker = OrderedDict()
 
-        self.borzoi_regions = BorzoiRegions(self.genome)
         self.use_regions = use_regions
         self.gene_data_path = gene_data_path
-        self.tss_bed_path = tss_bed_path
         self.train_region_step_sample = train_region_step_sample
+        if self.use_regions == "borzoi":
+            self.borzoi_regions = BorzoiRegions(self.genome)
+            self.train_region_step_sample = train_region_step_sample
+        elif self.use_regions == "borzoi_gene":
+            self.borzoi_regions = BorzoiGeneRegions(self.genome)
+            self.train_region_step_sample = False  # disable sample for gene region
+        else:
+            raise ValueError(
+                f"Unknown use_regions {self.use_regions}, support 'borzoi' or 'borzoi_gene'."
+            )
 
         # benchmark options
         self._multihead = _multihead
@@ -377,9 +383,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
             self.borzoi_regions.get_train_valid_test_regions(
                 split_id=fold,
                 region_length=region_length,
-                use_regions=getattr(self, "use_regions", "borzoi"),
                 deg_list=deg_list,
-                tss_bed_path=getattr(self, "tss_bed_path", None),
             )
         )
 
@@ -448,9 +452,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
         -------
         None
         """
-        if self.use_regions == "borzoi_tss" and self.rc_mode == "minus_strand":
-            print("Reverse complement minus strand")
-            _rc = ReverseComplmentMinusStrand(
+        if self.use_regions == "borzoi_gene":
+            print("Reverse complement minus strand gene regions")
+            _rc = ReverseComplementMinusStrand(
                 dna_key=self.dna_column,
                 signal_key=self.signal_columns,
                 strand_key="Strand",
@@ -641,8 +645,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         return dataset
 
     def _add_gene_counts(self, dataset, concurrency=1, batch_size=16):
-        if self.use_regions == "borzoi_tss":
-            assert self.gene_data_path is not None, "gene_data_path is required"
+        assert self.gene_data_path is not None, "gene_data_path is required"
 
         import anndata
 
@@ -728,7 +731,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 concurrency=generate_regions_concurrency,
                 pos_resolution=self.pos_resolution,
                 add_original_name=add_original_name,
-                add_strand=self.use_regions == "borzoi_tss",
+                add_strand=self.use_regions == "borzoi_gene",
             )
         return dataset
 
@@ -777,7 +780,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 filter_prefix="pseudobulk",
             )
 
-        if self.use_regions == "borzoi_tss":
+        if self.use_regions == "borzoi_gene":
             work_ds = self._add_gene_counts(
                 dataset=work_ds,
                 concurrency=1,

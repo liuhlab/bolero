@@ -1,3 +1,5 @@
+import pathlib
+
 import pandas as pd
 import pyranges as pr
 import torch
@@ -6,6 +8,10 @@ from bolero.pp.genome import Genome
 from bolero.utils import get_package_dir
 
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
+# TODO: change this dir to pkg dir
+BORZOI_GENE_DIR = pathlib.Path(
+    "/large_storage/zhoulab/hanliu/250901-GeneCountPred/prepare/regions"
+)
 BORZOI_REGION_SIZE = 524288
 
 # as said by the author: https://github.com/calico/borzoi/issues/11
@@ -46,8 +52,6 @@ class BorzoiRegions:
             self.genome = genome
             self.genome_name = genome.name
         else:
-            _path = BORZOI_DATA_DIR / f"{genome}_sequences.bed.gz"
-            assert _path.exists(), f"Genome {genome} does not have borzoi regions file in {BORZOI_DATA_DIR}."
             self.genome = Genome(genome)
             self.genome_name = genome
 
@@ -59,10 +63,10 @@ class BorzoiRegions:
     def borzoi_regions(self):
         """Return borzoi regions."""
         if self._borzoi_regions is None:
-            bed = pr.read_bed(
-                str(BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed.gz"),
-                as_df=True,
-            )
+            _path = BORZOI_DATA_DIR / f"{self.genome_name}_sequences.bed.gz"
+            assert _path.exists(), f"Genome {self.genome_name} does not have borzoi regions file in {BORZOI_DATA_DIR}."
+
+            bed = pr.read_bed(str(_path), as_df=True)
             if self.genome_name not in ["hg38", "mm10"]:
                 # for custom genome, skip first and last region of each chromosome to avoid border issue
                 bed = (
@@ -79,52 +83,6 @@ class BorzoiRegions:
             self.cur_idmap = dict(enumerate(self._borzoi_regions.index))
         return self._borzoi_regions
 
-    def get_tss_center_borzoi_regions(self, tss_bed_path: str):
-        """Return borzoi TSS regions."""
-        if tss_bed_path is None:
-            # prepare TSS bed from gene bed
-            gene_bed = self.genome.gtf_db.gene_bed
-            tss = gene_bed.apply(
-                lambda row: row["Start"] if row["Strand"] == "+" else row["End"], axis=1
-            )
-            gene_bed["tss_start"] = tss
-            gene_bed["tss_end"] = tss + 1
-            tss_bed = gene_bed[
-                ["Chromosome", "tss_start", "tss_end", "Name", "Score", "Strand"]
-            ].rename(columns={"tss_start": "Start", "tss_end": "End"})
-            tss_bed = pr.PyRanges(tss_bed)
-        else:
-            tss_bed = pr.read_bed(tss_bed_path)
-
-        # Assign to fold based on TSS
-        gene_id_to_fold = []
-        for fold, fold_df in self.borzoi_regions.groupby("Fold"):
-            fold_overlap_tss = tss_bed.overlap(pr.PyRanges(fold_df)).df
-            fold_overlap_tss["Fold"] = fold
-            gene_id_to_fold.append(fold_overlap_tss.set_index("Name")["Fold"])
-        gene_id_to_fold = pd.concat(gene_id_to_fold).to_dict()
-        tss_bed = tss_bed.df
-
-        # some gene in the boarder are not in any fold
-        tss_bed["Fold"] = tss_bed["Name"].map(gene_id_to_fold).values
-        tss_bed = tss_bed.dropna().astype({"Fold": int})
-
-        # extend to BORZOI_REGION_SIZE, center at TSS
-        tss_bed = pr.PyRanges(tss_bed).extend(BORZOI_REGION_SIZE // 2).df
-
-        # final filter and use standard regions
-        pass_end = tss_bed["End"] <= tss_bed["Chromosome"].map(
-            self.genome.chrom_sizes
-        ).astype(int)
-        tss_bed = tss_bed[pass_end].copy()
-        tss_bed["End"] = tss_bed["Start"] + BORZOI_REGION_SIZE
-        # get gene id without version
-        tss_bed["Name"] = tss_bed["Name"].str.split(".").str[0]
-        gene_ids = tss_bed["Name"].values
-        self.cur_idmap = dict(enumerate(gene_ids))
-        tss_bed.reset_index(inplace=True, drop=True)
-        return tss_bed
-
     def _remove_overlap(self, bed1, bed2, bed3):
         """Remove overlap region from bed1 that overlaps with bed2 or bed3."""
         to_remove = []
@@ -135,36 +93,11 @@ class BorzoiRegions:
                 to_remove.extend(overlap["Original_Name"].values)
         return bed1.df[~bed1.df["Original_Name"].isin(to_remove)].copy()
 
-    def _filter_gene_regions(self, regions, deg_list):
-        """Filter gene regions by deg_list."""
-        if isinstance(deg_list, str):
-            deg_list = pd.read_csv(deg_list, header=None, index_col=0).index
-        final_regions = regions.loc[regions["Name"].isin(deg_list)].copy()
-        n_genes = final_regions.shape[0]
-        print(f"DEG list provided. Found {n_genes} genes.")
-        return final_regions
-
-    def get_train_valid_test_regions(
-        self,
-        split_id,
-        region_length=524288,
-        use_regions="borzoi",
-        deg_list=None,
-        tss_bed_path=None,
-    ):
+    def get_train_valid_test_regions(self, split_id, region_length=524288, **kwargs):
         """
         Get train, valid, test regions for a given genome and split id.
         """
-        if use_regions == "borzoi":
-            regions = self.borzoi_regions.copy()
-        elif use_regions == "borzoi_tss":
-            regions = self.get_tss_center_borzoi_regions(tss_bed_path)
-            if deg_list is not None:
-                regions = self._filter_gene_regions(regions, deg_list)
-        else:
-            raise ValueError(
-                f'Ivalid use_regions: {use_regions}, choose from ["borzoi", "borzoi_tss"]'
-            )
+        regions = self.borzoi_regions.copy()
 
         id_to_fold = regions["Fold"].to_dict()
         regions["Name"] = regions.index
@@ -177,11 +110,7 @@ class BorzoiRegions:
             keep_original=True,
             boarder_strategy="drop",
         )
-        # add strand info
-        if "Strand" in regions.columns:
-            sized_regions["Strand"] = sized_regions["Original_Name"].map(
-                regions.set_index("Original_Name")["Strand"]
-            )
+
         # remove null regions
         sized_regions_bed = pr.PyRanges(sized_regions)
         null_regions = sized_regions_bed.overlap(null_regions_bed).df
@@ -203,6 +132,71 @@ class BorzoiRegions:
         test_regions = sized_regions[
             sized_regions["fold"].isin(fold_split["test"])
         ].copy()
+
+        # make sure the regions are not overlapping
+        train_bed = pr.PyRanges(train_regions)
+        valid_bed = pr.PyRanges(valid_regions)
+        test_bed = pr.PyRanges(test_regions)
+
+        train_regions = self._remove_overlap(train_bed, valid_bed, test_bed)
+        valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
+        test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
+        return train_regions, valid_regions, test_regions
+
+
+class BorzoiGeneRegions(BorzoiRegions):
+    @property
+    def borzoi_regions(self):
+        """Return borzoi regions."""
+        if self._borzoi_regions is None:
+            _path = BORZOI_GENE_DIR / f"{self.genome_name}.GeneBorzoiRegion.feather"
+            assert _path.exists(), f"Genome {self.genome_name} does not have borzoi regions file in {BORZOI_GENE_DIR}."
+
+            bed = pd.read_feather(_path)
+            # bed.columns: [
+            #     'Chromosome', 'Start', 'End', 'Name',
+            #     'Strand', 'TSS', 'GeneStart', 'GeneEnd', 'Fold'
+            # ]
+            # Start and End are borzoi region coords (524288)
+
+            # skip first and last region of each chromosome to avoid border issue
+            bed = (
+                bed.groupby("Chromosome", observed=True)
+                .apply(lambda df: df.sort_values("Start").iloc[1:-1])
+                .reset_index(drop=True)
+            )
+            self._borzoi_regions = bed.reset_index(drop=True)
+            self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
+        return self._borzoi_regions
+
+    def get_train_valid_test_regions(self, split_id, deg_list=None, **kwargs):
+        """
+        Get train, valid, test regions for a given genome and split id.
+        """
+        regions = self.borzoi_regions[
+            ["Chromosome", "Start", "End", "Name", "Strand", "Fold"]
+        ].copy()
+        regions["Original_Name"] = regions.index
+
+        if deg_list is not None:
+            regions = regions[regions["Name"].isin(deg_list)].copy()
+            fold_count_min = regions["Fold"].value_counts().min()
+            if fold_count_min == 0:
+                raise ValueError(
+                    "Some fold has no gene left after deg_list filter, "
+                    "make sure deg_list are matched with gene ids."
+                )
+            if fold_count_min < 10:
+                print(
+                    "Some fold has < 10 gene regions remain after deg_list filter, "
+                    "consider adjusting your deg_list."
+                )
+
+        # split to folds
+        fold_split = self.fold_splits[split_id]
+        train_regions = regions[regions["Fold"].isin(fold_split["train"])].copy()
+        valid_regions = regions[regions["Fold"].isin(fold_split["valid"])].copy()
+        test_regions = regions[regions["Fold"].isin(fold_split["test"])].copy()
 
         # make sure the regions are not overlapping
         train_bed = pr.PyRanges(train_regions)

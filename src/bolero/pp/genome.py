@@ -277,7 +277,7 @@ class Genome:
     def gtf_db(self):
         """Return the ref id of gtf db object in ray's object store."""
         if self._gtf_db is None:
-            self._gtf_db = load_gtf(self.name, gtf_path=self.user_gtf_path)
+            self._gtf_db = load_gtf(genome=self.name, gtf_path=self.user_gtf_path)
         return self._gtf_db
 
     @property

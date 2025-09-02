@@ -221,10 +221,15 @@ class ReverseComplement:
         return data
 
 
-class ReverseComplmentMinusStrand:
+class ReverseComplementMinusStrand:
     def __init__(
         self, dna_key, signal_key, strand_key="Strand", pos_strand=1, neg_strand=0
     ):
+        """
+        When doing stranded data prediction (e.g., gene expression),
+        instead of doing rc ramdomly as a data argumentation step,
+        we reverse complement DNA of neg strand data sample into positive strand.
+        """
         if isinstance(dna_key, str):
             dna_key = [dna_key]
         if isinstance(signal_key, str):
