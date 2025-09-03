@@ -178,3 +178,107 @@ class QTLManager:
         batch_peaks = self.peaks.loc[list(zip(batch["region"], batch["mutation_id"]))]
         batch["qtl_peaks"] = batch_peaks
         return batch
+
+
+def prepare_peak_table(
+    peak_table: str | pd.DataFrame, resolution: int
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, str]]:
+    """
+    Parse borzoi region and peak region from a predefined peak file.
+
+    This file is expected to contain the following columns:
+    - Chromosome
+    - Start: Borzoi region start, target length 524288
+    - End: Borzoi region end, target length 524288
+    - Name: Borzoi region name
+    - PeakStart: Peak region start, length are variable.
+    - PeakEnd: Peak region end, length are variable.
+    - Original_Name: Peak Name
+    """
+    if isinstance(peak_table, str):
+        peak_table = pd.read_feather(peak_table)
+    # Original_Name should be a unique peak name
+    borzoi_region = peak_table[
+        ["Chromosome", "Start", "End", "Original_Name"]
+    ].reset_index(drop=True)
+    peak_region = peak_table[
+        ["Chromosome", "PeakStart", "PeakEnd", "Original_Name"]
+    ].reset_index(drop=True)
+    peak_region.columns = borzoi_region.columns.copy()
+
+    # Here we don't do any coordinates adjustment,
+    # assuming the borzoi region should always be uncliped and
+    # at length 524288 (1bp res) OR 16384 (32bp res)
+    peak_region["bin_start"] = (
+        peak_region["Start"] - borzoi_region["Start"].values
+    ) / resolution
+    peak_region["bin_end"] = (
+        peak_region["End"] - borzoi_region["Start"].values
+    ) / resolution
+    peak_region["bin_start"] = peak_region["bin_start"].round().astype(int)
+    peak_region["bin_end"] = peak_region["bin_end"].round().astype(int)
+    return borzoi_region, peak_region
+
+
+class PeakManager:
+    def __init__(
+        self,
+        peak_table: str,
+        resolution: int = 32,
+        ypred_seq_len=16384,
+    ):
+        borzoi_region, peak_region = prepare_peak_table(
+            peak_table, resolution=resolution
+        )
+        self.resolution: int = resolution
+        self.ypred_seq_len: int = ypred_seq_len
+        # columns: ["Chromosome", "Start", "End"], index by region id
+        self.regions: pd.DataFrame = borzoi_region
+        self.region_ids = borzoi_region.index.tolist()
+
+        # columns: ["Chromosome", "Start", "End", "Name"], index by region id and mutation id
+        self.peaks: pd.DataFrame = peak_region
+        self.peaks.index = self.peaks["Original_Name"]
+        self.peak_ids = peak_region.index.tolist()
+        return
+
+    # def mutate_dna(
+    #     self,
+    #     batch: dict[str, torch.Tensor],
+    #     *args,
+    #     **kwargs
+    # ) -> dict[str, torch.Tensor]:
+    #     """
+    #     # TODO Substitute DNA sequence with mutated peak sequence
+    #     """
+    #     return batch
+
+    def get_peak_sum(self, batch: dict, ypred_key):
+        """
+        Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.
+        """
+        # region idx should be one-to-one match to peak idx
+        batch_peaks = self.peaks.loc[batch["region_name"]]
+
+        ypred = batch[ypred_key]
+        assert ypred.shape[-1] == self.ypred_seq_len, (
+            f"Expected ypred to have last dimension of {self.ypred_seq_len}, "
+            f"but got {ypred.shape[-1]}"
+        )
+        ypred = ypred.clamp(min=0.0)  # Ensure non-negative predictions
+
+        peak_sum = []
+        for rid, (bs, be) in enumerate(batch_peaks[["bin_start", "bin_end"]].values):
+            r_peak_sum = ypred[rid, :, bs:be].sum(axis=-1)
+            peak_sum.append(r_peak_sum)
+        peak_sum = torch.stack(peak_sum, dim=0)
+        batch[f"{ypred_key}:peak"] = peak_sum
+        return batch
+
+    def add_peak_info(self, batch: dict):
+        """
+        Add peak information to the batch.
+        """
+        batch_peaks = self.peaks.loc[batch["region_name"]]
+        batch["peaks"] = batch_peaks
+        return batch

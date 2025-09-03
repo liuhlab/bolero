@@ -125,9 +125,20 @@ class BorzoiPredictor(GenericPredictor):
 
         This is required in qtl task
         """
-        from .qtlmanager import QTLManager
+        from .task_manager import QTLManager
 
         self.qtl_manager = QTLManager(qtl_table, resolution=32)
+        return
+
+    def register_peak_manager(self, peak_table):
+        """
+        Register the peak manager with the given peak table.
+
+        This is required in peak task
+        """
+        from .task_manager import PeakManager
+
+        self.peak_manager = PeakManager(peak_table, resolution=32)
         return
 
     def _create_datamanager(self):
@@ -226,6 +237,29 @@ class BorzoiPredictor(GenericPredictor):
         batch = qtl.add_peak_info(batch)
         return batch
 
+    def _model_peak_step(self, batch, batch_size):
+        # turn "__dna__" into "__dna__:ref" and "__dna__:alt"
+        peaker = self.peak_manager
+        assert peaker is not None, "Peak manager is not registered."
+
+        with torch.inference_mode():
+            batch = self._model_prediction_step(
+                batch,
+                dna_key="__dna__",
+                batch_size=batch_size,
+                ypred_key="__ypred__",
+                # QTL manager takes full borzoi region
+                crop=False,
+            )
+
+            batch = peaker.get_peak_sum(
+                batch,
+                ypred_key="__ypred__",
+            )
+        # add peak information to the batch
+        batch = peaker.add_peak_info(batch)
+        return batch
+
     def _get_post_attribution_callbacks(self):
         return []
 
@@ -320,6 +354,7 @@ class BorzoiPredictor(GenericPredictor):
         data_key,
         embedding_key,
         regions,
+        region_names,
         pseudobulk_ids,
         add_true_data,
         batch_size,
@@ -343,6 +378,7 @@ class BorzoiPredictor(GenericPredictor):
 
         dataloader = self.datamanager.get_dataloader(
             regions=regions,
+            region_names=region_names,
             batch_size=batch_size,
             add_dna=True,
             add_data=add_true_data,
@@ -367,7 +403,7 @@ class BorzoiPredictor(GenericPredictor):
         # 1. Get regions
         if regions is None:
             regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
-        regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
+        regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
         da_prefix = self.datamanager._get_data_prefixs()
@@ -381,6 +417,7 @@ class BorzoiPredictor(GenericPredictor):
             data_key=data_key,
             embedding_key=embedding_key,
             regions=regions,
+            region_names=region_names,
             pseudobulk_ids=pseudobulk_ids,
             add_true_data=add_true_data,
             batch_size=batch_size,
@@ -423,11 +460,11 @@ class BorzoiPredictor(GenericPredictor):
         """
         Get the dataloader for prediction.
         """
-        assert mode in ["prediction", "qtl"], (
+        assert mode in ["prediction", "qtl", "peak"], (
             f"Invalid mode: {mode}. " "Must be one of 'prediction' or 'qtl'."
         )
         # 1. Get regions
-        regions: list[str] = self._valid_and_sort_regions(regions, return_list=True)
+        regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
         da_prefix = self.datamanager._get_data_prefixs()
@@ -449,6 +486,7 @@ class BorzoiPredictor(GenericPredictor):
             data_key=data_key,
             embedding_key=embedding_key,
             regions=regions,
+            region_names=region_names,
             pseudobulk_ids=pseudobulk_ids,
             add_true_data=add_true_data,
             batch_size=dataloader_batch_size,
@@ -486,6 +524,8 @@ class BorzoiPredictor(GenericPredictor):
                     step_fn = self._model_prediction_step
                 elif mode == "qtl":
                     step_fn = self._model_qtl_step
+                elif mode == "peak":
+                    step_fn = self._model_peak_step
                 else:
                     raise ValueError(f"Bad mode: {mode}.")
                 batch = step_fn(batch, batch_size=batch_size)
@@ -576,12 +616,12 @@ class BorzoiPredictor(GenericPredictor):
                     regions_per_pseudobulk[pid],
                     return_list=True,
                     standard_size=524288,
-                )
+                )[0]  # take regions only
                 for pid in pseudobulk_ids
             }
         else:
             regions = regions_per_pseudobulk
-            regions: list[str] = self._valid_and_sort_regions(
+            regions, _ = self._valid_and_sort_regions(
                 regions, return_list=True, standard_size=524288
             )
             regions_per_pseudobulk = {pid: regions for pid in pseudobulk_ids}
@@ -854,14 +894,20 @@ class BorzoiPredictor(GenericPredictor):
             pred_peak_key="__ypred__:peak",
         )
 
-    def _filter_valid_qtl_regions(self):
+    def _filter_valid_regions(self, mode="qtl"):
         db = self.datamanager.datasets["parquet"]
-        regions = self.qtl_manager.regions
+        if mode == "qtl":
+            regions = self.qtl_manager.regions
+        elif mode == "peak":
+            regions = self.peak_manager.regions
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Must be one of 'qtl' or 'peak'.")
+
         regions_bed = pr.PyRanges(regions.reset_index().iloc[:, [1, 2, 3, 0]])
         valid_regions_bed = regions_bed.overlap(
             db.region_lookup_bed.merge(), how="containment"
         )
-        new_regions = regions.reindex(valid_regions_bed.df["Name"].values)
+        new_regions = regions.reindex(valid_regions_bed.df.iloc[:, 3].values)
         if new_regions.shape[0] != regions.shape[0]:
             print(
                 f"Filtered {regions.shape[0] - new_regions.shape[0]} invalid regions "
@@ -880,8 +926,8 @@ class BorzoiPredictor(GenericPredictor):
         verbose=True,
     ):
         """
-        Prediction task for Borzoi.
-        Compute the prediction on a set of regions and pseudobulk records.
+        QTL Prediction task for Borzoi.
+        Compute the ref and alt prediction of a QTL dataset
         Then compute the stats and save them to a file.
 
         Parameters
@@ -911,7 +957,7 @@ class BorzoiPredictor(GenericPredictor):
 
         # add qtl manager and get regions from the qtl manager
         self.register_qtl_manager(qtl_table)
-        regions = self._filter_valid_qtl_regions()
+        regions = self._filter_valid_regions(mode="qtl")
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
@@ -935,6 +981,98 @@ class BorzoiPredictor(GenericPredictor):
                 "pseudobulk_ids": pseudobulk_ids,
                 "save_keys": save_keys,
                 "qtl_table": qtl_table,
+            },
+            output_path=config_path,
+        )
+
+        # data to save for each batch
+        save_keys = [] if save_keys is None else save_keys
+
+        save_batch = {}
+        for idx, batch in enumerate(dataloader):
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+                # save the first complete batch into output dir
+                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+
+            # save the batch to a file
+            save_batch = {}
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                if k in save_keys:
+                    save_batch[k] = v
+            # data to save for each batch
+            save_path = batch_dir / f"batch_{idx}.joblib.gz"
+            joblib.dump(save_batch, save_path)
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
+        return
+
+    def peak_task(
+        self,
+        output_dir,
+        peak_table,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys="default",
+        add_true_data=True,
+        verbose=True,
+    ):
+        """
+        Prediction task for Borzoi.
+        Compute the prediction on a peak of interests.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        peak_table: str or pd.DataFrame
+            The peak table path to use. Peak table should contain borzoi input regions and peak regions.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output file. If None, save all keys.
+        verbose: bool
+            Whether to print the progress.
+        """
+        if isinstance(save_keys, str) and save_keys == "default":
+            save_keys = [
+                "region",
+                "pseudobulk_ids",
+                "peaks",
+                "__ypred__:peak",
+            ]
+
+        # add peak manager and get regions from the peak manager
+        self.register_peak_manager(peak_table)
+        regions = self._filter_valid_regions(mode="peak")
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            add_true_data=add_true_data,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+            mode="peak",
+        )
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+                "peak_table": peak_table,
             },
             output_path=config_path,
         )
@@ -1288,6 +1426,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         elif mode == "qtl":
             # same as prediction
             return self._get_pre_prediction_callbacks()
+        elif mode == "peak":
+            return self._get_pre_prediction_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -1358,6 +1498,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
         elif mode == "qtl":
+            return self._get_post_qtl_callbacks()
+        elif mode == "peak":
             return self._get_post_qtl_callbacks()
         else:
             raise ValueError(
@@ -1542,6 +1684,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         data_key,
         embedding_key,
         regions,
+        region_names,
         pseudobulk_ids,
         add_true_data,
         batch_size,
@@ -1566,6 +1709,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
         dataloader = self.datamanager.get_dataloader(
             regions=regions,
+            region_names=region_names,
             batch_size=batch_size,
             add_dna=True,
             add_data=add_true_data,

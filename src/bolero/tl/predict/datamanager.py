@@ -476,6 +476,7 @@ class GenericGenomeDataManager:
     def _iter_batches_chunk(
         self,
         regions: list[str],
+        region_names: list[str] = None,
         batch_size: int = 32,
         add_dna: bool = True,
         add_data: bool = True,
@@ -512,6 +513,10 @@ class GenericGenomeDataManager:
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
             batch_data = {"region": regions_ref}
+            if region_names is not None:
+                batch_data["region_name"] = np.array(
+                    region_names[cur_start : cur_start + batch_size]
+                )
 
             # add bigwig data
             for da_name, bw in self.bw_datasets.items():
@@ -549,6 +554,7 @@ class GenericGenomeDataManager:
     def _iter_batches(
         self,
         regions: list[str],
+        region_names: list[str] | None = None,
         batch_size: int = 32,
         add_dna: bool = True,
         add_data: bool = True,
@@ -565,9 +571,13 @@ class GenericGenomeDataManager:
         for cur_start in range(0, len(regions), region_chunk_size):
             cur_end = min(cur_start + region_chunk_size, len(regions))
             regions_chunk = regions[cur_start:cur_end]
+            region_names_chunk = (
+                region_names[cur_start:cur_end] if region_names else None
+            )
 
             iterable = self._iter_batches_chunk(
                 regions=regions_chunk,
+                region_names=region_names_chunk,
                 batch_size=batch_size,
                 add_dna=add_dna,
                 add_data=add_data,
@@ -594,6 +604,7 @@ class GenericGenomeDataManager:
     def get_dataloader(
         self,
         regions: list[str],
+        region_names: list[str] | None = None,
         batch_size: int = 32,
         add_dna: bool = True,
         add_data: bool = True,
@@ -610,6 +621,8 @@ class GenericGenomeDataManager:
         ----------
         regions : list[str], optional
             The regions to query. If None, all regions will be used. Default is None.
+        region_names : list[str], optional
+            The names of the regions to query. If None, all region names will be used. Default is None.
         batch_size : int, optional
             The batch size to use. Default is 32.
         add_dna : bool, optional
@@ -627,6 +640,7 @@ class GenericGenomeDataManager:
         """
         iterable = self._iter_batches(
             regions=regions,
+            region_names=region_names,
             batch_size=batch_size,
             add_dna=add_dna,
             add_data=add_data,

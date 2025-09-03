@@ -177,14 +177,17 @@ class GenericPredictor:
             self.genome.chrom_sizes.to_dict(),
         )
         if return_list:
-            regions = (
+            region_names = regions.df.iloc[:, 3].astype(str).tolist()
+            regions_list = (
                 regions.df["Chromosome"].astype(str)
                 + ":"
                 + regions.df["Start"].astype(str)
                 + "-"
                 + regions.df["End"].astype(str)
             ).tolist()
-        return regions
+            return regions_list, region_names
+        else:
+            return regions
 
     def _prepare_callbacks(self, callbacks: str | list[str] | list[tuple[str, dict]]):
         """
