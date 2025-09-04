@@ -247,7 +247,7 @@ def make_all_conditional_lora_config(
     return lora_config
 
 
-def make_all_conditional_large_lora_config(
+def make_all_conditional_scaling_lora_config(
     emb_input_features,
     hidden_dim=256,
     hidden_layers=1,
@@ -256,6 +256,7 @@ def make_all_conditional_large_lora_config(
     embedding_dropout=0,
     except_output_head=False,
     emb_attn_pooling=False,
+    scaling_factor=1,
 ):
     """Make LoRA configuration for the Borzoi model."""
     shared_config = {
@@ -269,21 +270,27 @@ def make_all_conditional_large_lora_config(
         "convert_linear": True,
         "emb_attn_pooling": emb_attn_pooling,
     }
+
+    scaling_factor = int(scaling_factor)
+    assert scaling_factor > 0, "scaling_factor must be a positive integer"
+
     lora_config = {
         "conv_dna": {
             **shared_config,
-            "lora_rank": 4,  # total lora_lora_rank 4 * 15
+            "lora_rank": scaling_factor,  # total lora_lora_rank scaling_factor * 15
         },
         (
             "res_tower",
             "unet1",
         ): {
             **shared_config,
-            "lora_rank": 10,  # total lora_rank 10 * 5
+            "lora_rank": int(
+                scaling_factor * 3
+            ),  # total lora_rank 3 * scaling_factor * 5
         },
         "transformer": {
             **shared_config,
-            "lora_rank": 40,
+            "lora_rank": scaling_factor * 10,
             "exclude_cond_lora_patterns": [
                 # linear projections inside regular attention
                 "to_q",
@@ -303,26 +310,26 @@ def make_all_conditional_large_lora_config(
             "upsampling_unet1",
         ): {
             **shared_config,
-            "lora_rank": 40,  # total lora_rank 30 * 1
+            "lora_rank": scaling_factor * 10,  # total lora_rank scaling_factor * 1
         },
         (
             "separable0",
             "separable1",
         ): {
             **shared_config,
-            "lora_rank": 20,  # total lora_rank 20 * 3
+            "lora_rank": scaling_factor * 4,  # total lora_rank scaling_factor * 4 * 3
         },
         ("final_joined_convs",): {
             **shared_config,
-            "lora_rank": 100,  # total lora_rank 100 * 1
+            "lora_rank": scaling_factor * 25,  # total lora_rank scaling_factor * 25 * 1
         },
         "final_output_head": {
             **shared_config,
-            "lora_rank": 10,
+            "lora_rank": scaling_factor,
         },
         "delta_output_head": {
             **shared_config,
-            "lora_rank": 10,
+            "lora_rank": scaling_factor,
         },
     }
 
@@ -337,7 +344,7 @@ LORA_CONFIG_FUNCTIONS = {
     "classic": make_classic_lora_config,
     "scooby": make_scooby_lora_config,
     "all_conditional": make_all_conditional_lora_config,  # DEFAULT
-    "all_conditional_large": make_all_conditional_large_lora_config,
+    "all_conditional_scaling": make_all_conditional_scaling_lora_config,
     "all_conditional_except_output_head": partial(
         make_all_conditional_lora_config, except_output_head=True
     ),

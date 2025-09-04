@@ -53,6 +53,7 @@ class BorzoiLoRA(Borzoi):
             "_multihead_model": False,
             "_disable_cond_module": False,
             "_predict_delta": True,
+            "_lora_scaling_factor": 1,
         }
     )
 
@@ -83,6 +84,7 @@ class BorzoiLoRA(Borzoi):
         _multihead_model=False,
         _disable_cond_module=False,
         _predict_delta=True,
+        _lora_scaling_factor=1,
         # base model
         **base_model_kwargs,
     ):
@@ -105,6 +107,7 @@ class BorzoiLoRA(Borzoi):
         self._multihead_model = _multihead_model
         self._disable_cond_module = _disable_cond_module
         self._predict_delta = _predict_delta
+        self._lora_scaling_factor = _lora_scaling_factor
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -402,6 +405,8 @@ class BorzoiLoRA(Borzoi):
             "embedding_dropout": self.embedding_dropout,
             "emb_attn_pooling": self.emb_attn_pooling,
         }
+        if self.lora_preset == "all_conditional_scaling":
+            kwargs["scaling_factor"] = self._lora_scaling_factor
 
         # in case some benchmark models are not using LoRA
         if self.lora_preset is None:
