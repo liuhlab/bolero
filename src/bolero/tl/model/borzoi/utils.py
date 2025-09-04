@@ -1,5 +1,6 @@
 import pathlib
 
+import numpy as np
 import pandas as pd
 import pyranges as pr
 import torch
@@ -145,6 +146,30 @@ class BorzoiRegions:
 
 
 class BorzoiGeneRegions(BorzoiRegions):
+    @staticmethod
+    def _add_mask_bins(regions):
+        records = []
+        for _, row in regions.iterrows():
+            if row["Strand"] == "+":
+                ms = row["GeneStart"] - row["Start"]
+                me = min(row["GeneEnd"] - row["Start"], 524288)
+            else:
+                # for "-" strand gene, we will reverse comp the DNA input
+                # (see the ReverseComplementMinusStrand class),
+                # therefore we take distance to the "End" to calculate mask
+                ms = row["End"] - row["GeneEnd"]
+                me = min(row["End"] - row["GeneStart"], 524288)
+            records.append([ms, me])
+        records = pd.DataFrame(
+            records, index=regions.index, columns=["MaskStart", "MaskEnd"]
+        )
+        records["MaskStart"] -= 1
+        records = np.round(records / 32).astype(int)
+        records["MaskStart"] = records["MaskStart"].map(lambda i: i - 1 if i > 0 else i)
+
+        regions = pd.concat([regions, records], axis=1)
+        return regions
+
     @property
     def borzoi_regions(self):
         """Return borzoi regions."""
@@ -166,6 +191,7 @@ class BorzoiGeneRegions(BorzoiRegions):
                 .reset_index(drop=True)
             )
             self._borzoi_regions = bed.reset_index(drop=True)
+            self._borzoi_regions = self._add_mask_bins(self._borzoi_regions)
             self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
         return self._borzoi_regions
 
@@ -174,8 +200,19 @@ class BorzoiGeneRegions(BorzoiRegions):
         Get train, valid, test regions for a given genome and split id.
         """
         regions = self.borzoi_regions[
-            ["Chromosome", "Start", "End", "Name", "Strand", "Fold"]
+            [
+                "Chromosome",
+                "Start",
+                "End",
+                "Name",
+                "Strand",
+                "Fold",
+                "MaskStart",
+                "MaskEnd",
+            ]
         ].copy()
+        regions = regions[regions["Fold"] != "."].copy()
+        regions["Fold"] = regions["Fold"].astype(int)
         regions["Original_Name"] = regions.index
 
         if deg_list is not None:

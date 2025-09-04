@@ -228,6 +228,7 @@ class GenerateRegions:
         pos_resolution=None,
         add_original_name=False,
         add_strand=False,
+        add_mask=False,
     ):
         self.meta_region_overlap = meta_region_overlap
 
@@ -240,6 +241,7 @@ class GenerateRegions:
         self.pos_resolution = 1 if pos_resolution is None else pos_resolution
         self.add_original_name = add_original_name
         self.add_strand = add_strand
+        self.add_mask = add_mask
         return
 
     def _select_relevant_regions(self, data_dict):
@@ -273,6 +275,8 @@ class GenerateRegions:
                 data_col["Original_Name"] = int(row["Original_Name"])
             if self.add_strand:
                 data_col["Strand"] = 1 if row["Strand"] == "+" else 0
+            if self.add_mask:
+                data_col["MaskCoords"] = np.array([row["MaskStart"], row["MaskEnd"]])
             for key, value in data_dict.items():
                 if key in self.action_keys:
                     rstart = start - offset

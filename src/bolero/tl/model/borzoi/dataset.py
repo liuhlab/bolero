@@ -3,6 +3,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from typing import Any, Iterable
 
+import joblib
 import numpy as np
 import pandas as pd
 import ray
@@ -133,11 +134,6 @@ class GenerateBorzoiPseudobulkMultiHead:
         _bulk_values /= 2 ** self.pseudobulk_cov_scale[:, None]
         data_dict[f"{output_prefix}:bulk_data"] = _bulk_values
         list_of_dicts = [data_dict]
-        # for k, v in data_dict.items():
-        #     if hasattr(v, "shape"):
-        #         print(k, v.shape)
-        #     else:
-        #         print(k, v)
         return list_of_dicts
 
 
@@ -228,28 +224,35 @@ class GenerateBorzoiPseudobulk(GeneratePseudobulk):
 
 
 class GetGeneCountData:
-    def __init__(self, pid_map, gid_map, pid_key, gid_key):
-        self.pid_map = pid_map
-        self.gid_map = gid_map
+    def __init__(
+        self, pid_key, gid_key, gene_data_path, borzoi_gene_regions, pseudobulk_ids
+    ):
         self.pid_key = pid_key
         self.gid_key = gid_key
-        pass
+        self.borzoi_gene_regions = borzoi_gene_regions
+        self.gene_data_path = gene_data_path
+        self.pseudobulk_ids = pseudobulk_ids
+        return
 
-    def __call__(self, batch: dict, remote_gene_df: ray.ObjectRef) -> dict:
+    def __call__(self, batch: dict) -> dict:
         """Get gene count data for the batch."""
-        if self.gid_map is None:
-            gids = [str(gid) for gid in batch[self.gid_key]]
-        else:
-            gids = [str(self.gid_map[gid]) for gid in batch[self.gid_key]]
-        pids = [str(self.pid_map[pid]) for pid in batch[self.pid_key]]
+        gene_idx = batch["Original_Name"]
+        genes_in_batch = self.borzoi_gene_regions.loc[gene_idx, "Name"].tolist()
+        unique_genes = list(set(genes_in_batch))
+        gene_data = pd.read_feather(
+            self.gene_data_path,
+            columns=["__index_level_0__"] + unique_genes,
+        )
 
-        remote_gene_df = ray.get(remote_gene_df)
-
+        pids = batch.pop("__pid__")
         gene_values = []
-        for pid, gid in zip(pids, gids):
-            gene_values.append(remote_gene_df.loc[pid, gid])
-        gene_values = np.array(gene_values)[:, None]
-        batch["gene_count"] = gene_values
+        for gidx, pid in enumerate(pids):
+            pid = self.pseudobulk_ids[pid]
+            gid = genes_in_batch[gidx]
+            value = gene_data.loc[pid, gid]
+            gene_values.append(value)
+        gene_values = np.array(gene_values).astype("float32")
+        batch["__gene_value__"] = gene_values
         return batch
 
 
@@ -377,6 +380,8 @@ class BorzoiDataset(RayGenomeChunkDataset):
         test_folds = fold_split["test"]
 
         deg_list = getattr(self, "deg_list", None)
+        if isinstance(deg_list, str):
+            deg_list = joblib.load(deg_list)
         if region_length is None:
             region_length = self.dna_window
         train_regions, valid_regions, test_regions = (
@@ -604,6 +609,9 @@ class BorzoiDataset(RayGenomeChunkDataset):
     ):
         if self.paired_data:
             fn = GeneratePairedPseudobulk
+            if self.use_regions == "borzoi_gene":
+                kwargs.setdefault("add_pid", True)
+
         elif getattr(self, "_multihead", False):
             print("Using multi-head mode for Borzoi dataset")
             fn = GenerateBorzoiPseudobulkMultiHead
@@ -647,26 +655,19 @@ class BorzoiDataset(RayGenomeChunkDataset):
     def _add_gene_counts(self, dataset, concurrency=1, batch_size=16):
         assert self.gene_data_path is not None, "gene_data_path is required"
 
-        import anndata
-
-        gene_count_df = anndata.read_h5ad(self.gene_data_path).to_df()
-        gene_count_df_remote = ray.put(gene_count_df)
-
         fn = GetGeneCountData
-        assert len(self.name_to_pseudobulker) == 1, "Only one pseudobulker is allowed"
-        prefix, pseudobulker = list(self.name_to_pseudobulker.items())[0]
+        _, pseudobulker = list(self.name_to_pseudobulker.items())[0]
         fn_constructor_kwargs = {
-            "pid_map": pseudobulker.pseudobulk_ids,
-            "gid_map": self.borzoi_regions.cur_idmap,
-            "pid_key": f"{prefix}:pseudobulk_ids",
+            "pid_key": "__pid__",
+            "pseudobulk_ids": pseudobulker.pseudobulk_ids,
             "gid_key": "Original_Name",
+            "gene_data_path": self.gene_data_path,
+            "borzoi_gene_regions": self.borzoi_regions.borzoi_regions.copy(),
         }
-        fn_kwargs = {"remote_gene_df": gene_count_df_remote}
 
         dataset = dataset.map_batches(
             fn=fn,
             fn_constructor_kwargs=fn_constructor_kwargs,
-            fn_kwargs=fn_kwargs,
             concurrency=concurrency,
             batch_size=batch_size,
         )
@@ -732,6 +733,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 pos_resolution=self.pos_resolution,
                 add_original_name=add_original_name,
                 add_strand=self.use_regions == "borzoi_gene",
+                add_mask=self.use_regions == "borzoi_gene",
             )
         return dataset
 

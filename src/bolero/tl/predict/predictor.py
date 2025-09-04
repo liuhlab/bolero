@@ -166,6 +166,7 @@ class GenericPredictor:
                 boarder_strategy="drop",
                 keep_original=True,
             )
+            regions["Name"] = regions["Original_Name"]
 
         if isinstance(regions, pr.PyRanges):
             regions = regions.sort()

@@ -985,6 +985,7 @@ class GeneratePairedPseudobulk:
         bypass_keys=None,
         normalize_cov=None,
         reduce_resolution=None,
+        add_pid=False,
         **name_to_pseudobulker,
     ):
         self.name_to_pseudobulker = name_to_pseudobulker
@@ -1000,6 +1001,7 @@ class GeneratePairedPseudobulk:
                 self.bypass_keys.extend(list(bypass_keys))
         self.normalize_cov = normalize_cov
         self.reduce_resolution = reduce_resolution
+        self.add_pid = add_pid
 
         # suffix for p0 and p1 data keys
         self.suffix = ["_0", "_1"]
@@ -1031,8 +1033,15 @@ class GeneratePairedPseudobulk:
 
         # print("before pseudobulk", data_dict["pseudobulk"].shape)
         # merge rows (cell or sample) to bulk and also get embedding data
-        for cond_pair_pseudobulks in pseudobulker.take(self.n_pseudobulks):
+        pseudobulk_pairs, pid_records = pseudobulker.take(
+            self.n_pseudobulks, return_pids=True
+        )
+        for cond_pair_pseudobulks, pid_record in zip(pseudobulk_pairs, pid_records):
             this_bulk_dict = {}
+            if self.add_pid:
+                this_bulk_dict["__pid__"] = pseudobulker.pseudobulk_ids.get_loc(
+                    pid_record
+                )
             for pseudobulk, suffix in zip(cond_pair_pseudobulks, self.suffix):
                 # 1. add condition embedding
                 if "__conditionemb__" in pseudobulk:

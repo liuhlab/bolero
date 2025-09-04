@@ -616,15 +616,17 @@ class BorzoiPredictor(GenericPredictor):
                     regions_per_pseudobulk[pid],
                     return_list=True,
                     standard_size=524288,
-                )[0]  # take regions only
+                )
                 for pid in pseudobulk_ids
             }
         else:
-            regions = regions_per_pseudobulk
-            regions, _ = self._valid_and_sort_regions(
+            regions = regions_per_pseudobulk.copy()
+            regions, region_names = self._valid_and_sort_regions(
                 regions, return_list=True, standard_size=524288
             )
-            regions_per_pseudobulk = {pid: regions for pid in pseudobulk_ids}
+            regions_per_pseudobulk = {
+                pid: (regions, region_names) for pid in pseudobulk_ids
+            }
         return regions_per_pseudobulk
 
     def get_attribution_dataloader(
@@ -662,15 +664,16 @@ class BorzoiPredictor(GenericPredictor):
         start = time.time()
         for pseudobulk_id in pseudobulk_ids:
             if isinstance(regions_per_pseudobulk, dict):
-                regions = regions_per_pseudobulk[pseudobulk_id]
+                regions, region_names = regions_per_pseudobulk[pseudobulk_id]
             else:
-                regions = regions_per_pseudobulk
+                regions, region_names = regions_per_pseudobulk
 
             dataloader = self._create_fn_and_dataloader(
                 dna_key=dna_key,
                 data_key=data_key,
                 embedding_key=embedding_key,
                 regions=regions,
+                region_names=region_names,
                 # attribution task will iterate one pseudobulk at a time
                 pseudobulk_ids=[pseudobulk_id],
                 # attribution task will not use true data in parquet
@@ -1105,7 +1108,7 @@ class BorzoiPredictor(GenericPredictor):
     def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk):
         # make a pid-by-region bool table
         pid_region_table_log = {}
-        for pid, regions in regions_per_pseudobulk.items():
+        for pid, (regions, _) in regions_per_pseudobulk.items():
             pid_region_table_log[pid] = pd.Series(
                 np.ones(len(regions), dtype=bool), index=regions
             )
@@ -1122,12 +1125,20 @@ class BorzoiPredictor(GenericPredictor):
             pid_region_table_log.loc[regions, pid] = False
 
         # only run unfinished pid and regions
+        def sel_list_with_bool(rl, bool_sel):
+            rl = np.array(rl)[bool_sel]
+            rl = rl.tolist()
+            return rl
+
         cur_bid = max(bids) + 1 if len(bids) > 0 else 0
-        regions_per_pseudobulk_torun = {
-            pid: regions_bool[regions_bool].index.tolist()
-            for pid, regions_bool in pid_region_table_log.items()
-            if regions_bool.any()
-        }
+        regions_per_pseudobulk_torun = {}
+        for pid, (regions, region_names) in regions_per_pseudobulk.items():
+            regions_bool = pid_region_table_log[pid]
+            if regions_bool.any():
+                regions_per_pseudobulk_torun[pid] = (
+                    sel_list_with_bool(regions, regions_bool),
+                    sel_list_with_bool(region_names, regions_bool),
+                )
         return regions_per_pseudobulk_torun, cur_bid
 
     def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
@@ -1181,7 +1192,7 @@ class BorzoiPredictor(GenericPredictor):
         regions_per_pseudobulk,
         pseudobulk_ids=None,
         batch_size=6,
-        save_keys=("__dna__:attr", "region", "pseudobulk_ids"),
+        save_keys=("__dna__:attr", "region", "pseudobulk_id", "region_name"),
         verbose=True,
     ):
         """
@@ -1213,7 +1224,7 @@ class BorzoiPredictor(GenericPredictor):
         if pseudobulk_ids is None:
             pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
         if isinstance(regions_per_pseudobulk, str):
-            regions_per_pseudobulk = understand_regions(regions_per_pseudobulk)
+            regions_per_pseudobulk = pr.read_bed(regions_per_pseudobulk, as_df=True)
         regions_per_pseudobulk = self._prepare_attr_regions(
             pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
         )
@@ -1736,7 +1747,13 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         regions_per_pseudobulk,
         pseudobulk_ids=None,
         batch_size=6,
-        save_keys=("__dna__:attr", "region", "pseudobulk_ids"),
+        save_keys=(
+            "__dna__:attr",
+            "__signal__:attr",
+            "region",
+            "pseudobulk_id",
+            "region_name",
+        ),
         verbose=True,
     ):
         """
@@ -1757,6 +1774,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             pseudobulk_ids = [
                 original_pid_to_pid.get(pid, pid) for pid in pseudobulk_ids
             ]
+        else:
+            pseudobulk_ids = list(original_pid_to_pid.values())
 
         if isinstance(regions_per_pseudobulk, dict):
             regions_per_pseudobulk = {

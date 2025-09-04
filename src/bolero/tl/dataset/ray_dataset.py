@@ -209,6 +209,7 @@ class RayGenomeChunkDataset(GenericDataset):
         pos_resolution=None,
         add_original_name=False,
         add_strand=False,
+        add_mask=False,
     ):
         # generate region from bed file
         fn = GenerateRegions
@@ -220,6 +221,7 @@ class RayGenomeChunkDataset(GenericDataset):
             "pos_resolution": pos_resolution,
             "add_original_name": add_original_name,
             "add_strand": add_strand,
+            "add_mask": add_mask,
         }
         dataset = dataset.flat_map(
             fn=fn,
