@@ -544,7 +544,7 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         )  # because we update every accumulate_grad steps
 
         # was self.max_epochs * self.train_batches, fixed here so changing max_epochs and train_batches don't impact LR
-        total_steps = 250000  # was 50 * 5000
+        total_steps = self.config.get("lr_total_steps", 250000)  # was 50 * 5000
         total_steps = total_steps // accumulate_grad + 1
 
         scheduler = GenericTrainer._get_scheduler(
@@ -881,6 +881,37 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         )
         return dataset
 
+    @staticmethod
+    def _maybe_generate_gene_mask(batch) -> None | torch.Tensor:
+        """
+        If "MaskCoords" is in the batch, generate a gene mask tensor.
+        The gene mask tensor has shape (bs, 1, seq_len) where the gene region is 1, else 0.
+        If "MaskCoords" is not in the batch, return None.
+        """
+        gene_mask = batch.get("MaskCoords", None)
+        dna: torch.Tensor = batch["dna_one_hot"]
+        if gene_mask is not None:
+            # coords (bs, 2) to gene mask (bs, 1, seq_len)
+            bs, _, seq_len = dna.shape
+            gene_mask_tensor = torch.zeros(
+                (bs, 1, seq_len), dtype=dna.dtype, device=dna.device
+            )
+            for i, (start, end) in enumerate(gene_mask.cpu().numpy()):
+                gene_mask_tensor[i, 0, start:end] = 1.0
+            return gene_mask_tensor
+        else:
+            return None
+
+    def _model_forward_pass_gene_count(
+        self, model: BorzoiLoRA, batch: dict, dna_embedding: torch.Tensor
+    ):
+        y_true = batch["__gene_value__"]
+        y_pred = model.gene_count_output_head(dna_embedding)
+        gene_count_loss = model.gene_count_poisson_loss(
+            y_pred=y_pred, y_true=y_true, reduce=True
+        )
+        return gene_count_loss
+
     def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
@@ -897,13 +928,24 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         # Forward and Loss
         # ==========
-        y_pred = model(X, embedding=embedding)
+        gene_mask = self._maybe_generate_gene_mask(batch)
+        y_pred, dna_embedding = model(
+            X, embedding=embedding, gene_mask=gene_mask, return_dna_embedding=True
+        )
 
         loss, loss_breakdown, y_true = model.loss(
             y_true=y_true, y_pred=y_pred, position_weights=position_weights
         )
 
         y_pred = y_pred.detach()
+
+        if hasattr(model, "gene_count_output_head"):
+            # additional gene count loss
+            gene_count_loss = self._model_forward_pass_gene_count(
+                model, batch, dna_embedding=dna_embedding
+            )
+            loss = loss + gene_count_loss
+            loss_breakdown["gene_count_loss"] = gene_count_loss
         return y_true, y_pred, loss, loss_breakdown
 
     def _split_cond_emb_to_terms(self, batch):
@@ -943,11 +985,13 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         cond_ensemble = self._cond_emb_module_forward_pass(model.cond_emb_module, batch)
 
         # 3. predict count and loss
+        gene_mask = self._maybe_generate_gene_mask(batch)
         y_pred_count, dna_emb = model(
             dna_one_hot,
             embedding=cond_ensemble,
             signal=signal,
             return_dna_embedding=True,
+            gene_mask=gene_mask,
         )
         batch["__ypred__:count"] = y_pred_count
         loss, loss_breakdown, y_true_count = model.loss(
@@ -963,6 +1007,14 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             )
             loss = loss + delta_loss
             loss_breakdown["delta_loss"] = delta_loss
+
+        if hasattr(model, "gene_count_output_head"):
+            # additional gene count loss
+            gene_count_loss = self._model_forward_pass_gene_count(
+                model, batch, dna_embedding=dna_emb
+            )
+            loss = loss + gene_count_loss
+            loss_breakdown["gene_count_loss"] = gene_count_loss
         return y_true_count, y_pred_count, loss, loss_breakdown
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
@@ -1160,43 +1212,6 @@ class BorzoiArchTrainer(BorzoiLoRATrainer):
         return
 
 
-class BorzoiLoRATrainerRNA(BorzoiLoRATrainer):
-    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
-    trainer_config["lora_checkpoint_path"] = "REQUIRED"
-
-    def _setup_model(self):
-        super()._setup_model(print_model=False)
-
-        # load the pre-trained LoRA model
-        self.model.load_checkpoint_from_path(self.config["lora_checkpoint_path"])
-
-        print(self.model)
-        return
-
-    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        data_key = f"{self.prefix}:bulk_data"
-        dna_key = "dna_one_hot"
-        embedding_key = f"{self.prefix}:embedding_data"
-
-        # ==========
-        # Get batch data
-        # ==========
-        X = batch.pop(dna_key)
-        embedding = batch.get(embedding_key, None)
-        y_true = batch.pop(data_key)
-
-        # ==========
-        # Forward and Loss
-        # ==========
-        _, dna_embedding = model(X, embedding=embedding, return_dna_embedding=True)
-        y_pred = model.rna_output_head(dna_embedding, embedding=embedding)
-
-        loss, loss_breakdown, y_true = model.loss(y_true=y_true, y_pred=y_pred)
-
-        y_pred = y_pred.detach()
-        return y_true, y_pred, loss, loss_breakdown
-
-
 class BorzoiLoRATrainerWithGeneCount(BorzoiLoRATrainer):
     trainer_config = BorzoiLoRATrainer.trainer_config.copy()
     trainer_config.update(
@@ -1256,7 +1271,7 @@ class BorzoiLoRATrainerWithGeneCount(BorzoiLoRATrainer):
         # ==========
         gene_true = batch["gene_count"]  # (bs, 1)
         gene_pred = model.gene_count_output_head(dna_emb)
-        gene_loss = model.gene_count_loss(y_pred=gene_pred, y_true=gene_true)
+        gene_loss = model.gene_count_poisson_loss(y_pred=gene_pred, y_true=gene_true)
         loss_breakdown["gene_count_mse"] = gene_loss.item()
         loss += gene_loss * self.config["gene_loss_weight"]
 
