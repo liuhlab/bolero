@@ -11,10 +11,8 @@ from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module_output import (
     DualOutputHead,
-    GeneCountAttnOutputHead,
-    GeneCountOutputHead,
+    GeneCountSoftClip,
     OutputHead,
-    RNAOutputHead,
     ScoobyOutputHead,
 )
 
@@ -54,6 +52,7 @@ class BorzoiLoRA(Borzoi):
             "_disable_cond_module": False,
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
+            "_zero_init_gene_mask_conv": False,
         }
     )
 
@@ -85,6 +84,8 @@ class BorzoiLoRA(Borzoi):
         _disable_cond_module=False,
         _predict_delta=True,
         _lora_scaling_factor=1,
+        _zero_init_gene_mask_conv=False,
+        _gene_loss_weight=1,
         # base model
         **base_model_kwargs,
     ):
@@ -107,7 +108,11 @@ class BorzoiLoRA(Borzoi):
         self._multihead_model = _multihead_model
         self._disable_cond_module = _disable_cond_module
         self._predict_delta = _predict_delta
+        # for lora preset "all_conditional_scaling", adjust model size
         self._lora_scaling_factor = _lora_scaling_factor
+        # for gene count head
+        self._zero_init_gene_mask_conv = _zero_init_gene_mask_conv
+        self._gene_loss_weight = _gene_loss_weight
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -140,9 +145,6 @@ class BorzoiLoRA(Borzoi):
             # output logits, loss function will be bce for mC and poisson multinomial for ATAC output (after softplus activation for ATAC)
             self.setup_dual_output_head(**output_head_kwargs)
             self.loss_type = "separate_bce_poisson_multinomial"
-        elif output_head_type == "rna":
-            self.setup_rna_head(rna_channels=out_channels)
-            self.loss_type = "poisson_multinomial"
         elif output_head_type == "scooby":
             self.setup_scooby_head(
                 embedding_dim=emb_input_features,
@@ -150,13 +152,7 @@ class BorzoiLoRA(Borzoi):
             )
             self.loss_type = "poisson_multinomial"
         elif output_head_type == "gene_count":
-            self.setup_gene_count_head(out_channels=out_channels, **output_head_kwargs)
-            # this loss type is still for the tracks, gene count loss is separate
-            self.loss_type = "poisson_multinomial"
-        elif output_head_type == "gene_count_attn":
-            self.setup_gene_count_attn_head(
-                out_channels=out_channels, **output_head_kwargs
-            )
+            self.setup_gene_count(out_channels=out_channels, **output_head_kwargs)
             # this loss type is still for the tracks, gene count loss is separate
             self.loss_type = "poisson_multinomial"
         else:
@@ -202,28 +198,6 @@ class BorzoiLoRA(Borzoi):
         self.collapsed = False
         return
 
-    def setup_rna_head(self, rna_channels, freeze_other_modules=True):
-        """Setup the RNA head for the Borzoi model."""
-        # simple RNA output head
-        self.rna_output_head = RNAOutputHead(
-            output_channels=rna_channels,
-            seq_len=16384,
-            embed_dim=1920,
-            epi_input=False,
-            num_layers=0,
-        )
-
-        # make only the RNA head trainable
-        if freeze_other_modules:
-            for param in self.parameters():
-                param.requires_grad = False
-
-        # use the same lora config as the final output head
-        lora_config = self.lora_config["final_output_head"]
-        lora_config["lora_rank"] = rna_channels
-        self._convert_single_module("rna_output_head", lora_config)
-        return
-
     def setup_output_head(self, out_channels, activation="softplus"):
         """Setup a single output head"""
         self.final_output_head = OutputHead(
@@ -249,26 +223,28 @@ class BorzoiLoRA(Borzoi):
         )
         return
 
-    def setup_gene_count_head(self, out_channels, activation="softplus", n_blocks=8):
+    def setup_gene_count(self, out_channels):
         """Setup a single gene count output head."""
-        self.setup_output_head(out_channels=out_channels, activation=activation)
+        # input shape: (bs, 1920, l)
+        self.setup_output_head(out_channels=out_channels, activation="softplus")
+        # final_output_head output shape: (bs, out_channels, l)
 
-        self.gene_count_output_head = GeneCountOutputHead(
-            embedding_dim=1920, n_blocks=n_blocks
+        self.gene_count_output_head = OutputHead(
+            in_channels=1920,
+            out_channels=1,
+            activation="softplus",
+            avg_pool=True,
         )
-        # input shape: (bs, 1920, 16352)
-        # output shape: (bs, 1)
-        # activation: softplus
-        return
+        # gene_count_output_head output shape: (bs, 1, 1)
 
-    def setup_gene_count_attn_head(self, out_channels, activation="softplus", **kwargs):
-        """Setup a single gene count output head."""
-        self.setup_output_head(out_channels=out_channels, activation=activation)
+        # also need a mask conv layer to take gene mask as input
+        # adapted from genetech/decima: https://github.com/Genentech/decima
+        self.gene_mask_conv = nn.Conv1d(1, 512, kernel_size=15, padding="same")
+        if self._zero_init_gene_mask_conv:
+            nn.init.constant_(self.gene_mask_conv.weight, 0.0)
+            nn.init.constant_(self.gene_mask_conv.bias, 0.0)
 
-        self.gene_count_output_head = GeneCountAttnOutputHead(embed_dim=1920, **kwargs)
-        # input shape: (bs, 1920, 16352)
-        # output shape: (bs, 1)
-        # activation: softplus
+        self.gene_count_softclip = GeneCountSoftClip()
         return
 
     def _setup_cond_emb_module(self, cell_emb_dim, cond_emb_dim, **cond_emb_kwargs):
@@ -443,6 +419,7 @@ class BorzoiLoRA(Borzoi):
             "scooby",
             "delta_output_head",
             "signal_encoder",
+            "gene_mask_conv",
         }
         for module_names, config in self.lora_config.items():
             if isinstance(module_names, str):
@@ -473,6 +450,8 @@ class BorzoiLoRA(Borzoi):
         # also make sure some part of the model is trainable
         for name, param in self.named_parameters():
             if "cond_emb_module" in name:
+                param.requires_grad = True
+            if "gene_mask_conv" in name:
                 param.requires_grad = True
         return
 
@@ -517,13 +496,22 @@ class BorzoiLoRA(Borzoi):
         self, x, embedding=None, crop=True, return_dna_embedding=False, **kwargs
     ):
         """Borzoi forward pass to get final output."""
+        signal = kwargs.get("signal", None)
+        gene_mask = kwargs.get("gene_mask", None)
+
+        if gene_mask is not None:
+            # gene_mask shape: (bs, 1, l) -> (bs, 512, l)
+            gene_mask = self._autocast_dtype(gene_mask)
+            gene_mask = self.gene_mask_conv(gene_mask)
+
         if self.signal_model is not None:
             return self.forward_signal_model(
                 x=x,
-                signal=kwargs.get("signal"),
+                signal=signal,
                 embedding=embedding,
                 crop=crop,
                 return_dna_embedding=return_dna_embedding,
+                gene_mask=gene_mask,
             )
         else:
             return self.forward_dna_only_model(
@@ -531,10 +519,11 @@ class BorzoiLoRA(Borzoi):
                 embedding=embedding,
                 crop=crop,
                 return_dna_embedding=return_dna_embedding,
+                gene_mask=gene_mask,
             )
 
     def forward_dna_only_model(
-        self, x, embedding=None, crop=True, return_dna_embedding=False
+        self, x, embedding=None, crop=True, return_dna_embedding=False, gene_mask=None
     ):
         """Forward pass with DNA input only"""
         if (not getattr(self, "collapsed", False)) and (
@@ -542,7 +531,7 @@ class BorzoiLoRA(Borzoi):
         ):
             assert embedding is not None, "embedding is required for LoRA model"
 
-        x = super().forward(x, embedding=embedding, crop=crop)
+        x = super().forward(x, embedding=embedding, crop=crop, gene_mask=gene_mask)
         output = self.final_output_head(x, embedding=embedding)
 
         if return_dna_embedding:
@@ -551,23 +540,19 @@ class BorzoiLoRA(Borzoi):
         return output
 
     def forward_signal_model(
-        self, x, signal, embedding, crop=True, return_dna_embedding=False
+        self,
+        x,
+        signal,
+        embedding,
+        crop=True,
+        return_dna_embedding=False,
+        gene_mask=None,
     ):
         """Forward pass with DNA and signal input."""
-        if torch.is_autocast_enabled():
-            if x.dtype != torch.float16:
-                x = x.half()
-            if signal is not None:
-                if signal.dtype != torch.float16:
-                    signal = signal.half()
-        else:
-            if x.dtype != torch.float32:
-                x = x.float()
-            if signal is not None:
-                if signal.dtype != torch.float32:
-                    signal = signal.float()
+        x = self._autocast_dtype(x)
+        signal = self._autocast_dtype(signal)
 
-        x = self.conv_dna(x, embedding)
+        x = self.conv_dna(x, embedding=embedding, gene_mask=gene_mask)
 
         x_unet0 = self.res_tower(x, embedding)
 
@@ -646,15 +631,21 @@ class BorzoiLoRA(Borzoi):
             loss = loss.mean()
         return loss, y_true
 
-    def gene_count_loss(self, y_pred, y_true, reduce=True):
+    def gene_count_poisson_loss(self, y_pred, y_true, reduce=True):
         """Compute the gene count loss."""
-        # mse loss on log transformed values
-        # y_pred is from softplus activation, also at count scale
-        y_pred = torch.log1p(y_pred)
-        y_true = torch.log1p(y_true)
-        loss = nn.functional.mse_loss(y_pred, y_true, reduction="none")
+        # assume y_true is log1p transformed
+        # self.gene_count_softclip will do 1) expm1 2) squashing and 3) softclip
+        # after this, y_true is at softclipped count scale
+        y_true = self.gene_count_softclip(y_true)
+
+        # y_pred is after softplus, so not log input
+        loss = nn.functional.poisson_nll_loss(
+            y_pred, y_true, log_input=False, reduction="none"
+        )
         if reduce:
             loss = loss.mean()
+
+        loss = loss * self._gene_loss_weight
         return loss
 
 

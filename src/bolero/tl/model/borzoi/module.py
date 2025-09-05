@@ -318,9 +318,26 @@ class ConvDna(nn.Module):
         )
         self.max_pool = nn.MaxPool1d(kernel_size=2, padding=0)
 
-    def forward(self, x, *args, **kwargs):
-        """ConvDna forward pass."""
-        x = maybe_pass_additional_params(self.conv_layer, x, *args, **kwargs)
+    def forward(self, x: torch.Tensor, gene_mask: torch.Tensor | None = None, **kwargs):
+        """
+        ConvDna forward pass.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input DNA one hot encoding tensor of shape (bs, 4, seq_len)
+        gene_mask : torch.Tensor | None
+            Gene mask tensor of shape (bs, 512, seq_len), indicating the positions of gene body.
+            If provided, it should already be passed through a conv layer and
+            will be added to the conv output.
+            Default is None.
+        *args, **kwargs
+            Additional arguments to be passed to the DNA conv layer.
+        """
+        x = maybe_pass_additional_params(self.conv_layer, x, **kwargs)
+
+        if gene_mask is not None:
+            x = x + gene_mask
 
         bs = x.shape[0]
         if bs <= 8:

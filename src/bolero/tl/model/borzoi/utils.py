@@ -178,6 +178,9 @@ class BorzoiGeneRegions(BorzoiRegions):
             assert _path.exists(), f"Genome {self.genome_name} does not have borzoi regions file in {BORZOI_GENE_DIR}."
 
             bed = pd.read_feather(_path)
+            bed["Name"] = bed["Name"].map(
+                lambda name: name.split(".")[0]
+            )  # remove version number in gene id
             # bed.columns: [
             #     'Chromosome', 'Start', 'End', 'Name',
             #     'Strand', 'TSS', 'GeneStart', 'GeneEnd', 'Fold'
@@ -217,6 +220,7 @@ class BorzoiGeneRegions(BorzoiRegions):
 
         if deg_list is not None:
             regions = regions[regions["Name"].isin(deg_list)].copy()
+            print(f"After deg_list filter, {regions.shape[0]} gene regions remain.")
             fold_count_min = regions["Fold"].value_counts().min()
             if fold_count_min == 0:
                 raise ValueError(

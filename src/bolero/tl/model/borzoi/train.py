@@ -838,6 +838,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "prefix": "pseudobulk",
             "downsample_pseudobulks": None,
             "emb_key": "embedding",
+            # Fine-tuning related
+            "lora_checkpoint_path": None,
         }
     )
 
@@ -855,6 +857,16 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         if print_model:
             print(self.model)
         self._set_total_params()
+
+        if self.config.get("lora_checkpoint_path", None) is not None:
+            # load the pre-trained LoRA model
+            print(
+                f"Loading checkpoint state dict from {self.config['lora_checkpoint_path']} for fine-tuning."
+            )
+            self.model.load_checkpoint_from_path(
+                self.config["lora_checkpoint_path"], strict=False
+            )
+
         return
 
     def _get_dataset(self):

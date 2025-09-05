@@ -289,7 +289,9 @@ class PreemptibleManager:
             if is_path:
                 command_list = pathlib.Path(command_list)
                 with open(command_list) as f:
-                    command_list = [l.strip() for l in f.readlines()]
+                    command_list = [
+                        l.strip() for l in f.readlines() if not l.startswith("#")
+                    ]
             else:
                 command_list = command_list.split("\n")
 

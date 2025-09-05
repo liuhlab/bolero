@@ -785,7 +785,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         if self.use_regions == "borzoi_gene":
             work_ds = self._add_gene_counts(
                 dataset=work_ds,
-                concurrency=1,
+                concurrency=(1, concurrency // 4 + 1),
                 batch_size=batch_size,
             )
 

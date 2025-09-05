@@ -207,15 +207,22 @@ class Borzoi(nn.Module):
             model.load_state_dict(model_weights)
         return model
 
-    def forward(self, x, crop=True, *args, **kwargs):
-        """Borzoi forward pass."""
-        # change dtype to half if not already
+    def _autocast_dtype(self, x):
+        if x is None:
+            return x
+
         if torch.is_autocast_enabled():
             if x.dtype != torch.float16:
                 x = x.half()
         else:
             if x.dtype != torch.float32:
                 x = x.float()
+        return x
+
+    def forward(self, x, crop=True, *args, **kwargs):
+        """Borzoi forward pass."""
+        # change dtype to half if not already
+        x = self._autocast_dtype(x)
 
         # =================
         # DNA Convolution
@@ -223,7 +230,9 @@ class Borzoi(nn.Module):
         # Out - x: (bs, 512, 262144)
         # signal resolution is 1
         # =================
-        x = self.conv_dna(x, *args, **kwargs)
+        # pop gene mask from kwargs if exists, as it is only used in conv_dna
+        gene_mask = kwargs.pop("gene_mask", None)
+        x = self.conv_dna(x, gene_mask=gene_mask, **kwargs)
 
         # =================
         # Residual Tower (7 blocks)
