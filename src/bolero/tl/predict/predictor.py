@@ -9,7 +9,7 @@ import torch
 from bolero import Genome
 from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
-from bolero.tl.model.borzoi.utils import BorzoiRegions
+from bolero.tl.model.borzoi.utils import BorzoiGeneRegions, BorzoiRegions
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 from bolero.utils import minimize_overlap_regions, understand_regions
 
@@ -55,7 +55,17 @@ class GenericPredictor:
         self._dm = None
 
         # Both seq2PRINT and Borzoi use the same region partition for training
-        self.borzoi_regions = BorzoiRegions(self.genome)
+        use_regions = self._train_config["use_regions"]
+        if use_regions == "borzoi":
+            self.borzoi_regions = BorzoiRegions(self.genome)
+            # minimize the overlap between regions to reduce the number of regions.
+            # borzoi region are highly overlapped, and no need to run all of them in evaluation tasks
+            self.minimize_overlap = True
+        else:
+            print("Using gene regions for prediction tasks.")
+            self.borzoi_regions = BorzoiGeneRegions(self.genome)
+            # each gene regions are corresponding to one gene, no need to minimize overlap
+            self.minimize_overlap = False
 
     def _create_model(self) -> _model_cls:
         model_config = deepcopy(self._train_config)
@@ -129,9 +139,7 @@ class GenericPredictor:
             )
         return self._dm.pseudobulk_manager
 
-    def get_fold_regions(
-        self, test_only=True, minimize_overlap=False
-    ) -> pd.DataFrame | tuple[pd.DataFrame]:
+    def get_fold_regions(self, test_only=True) -> pd.DataFrame | tuple[pd.DataFrame]:
         """
         Get the regions for the fold during training.
 
@@ -139,14 +147,12 @@ class GenericPredictor:
         ----------
         test_only : bool
             If True, return only the test regions. If False, return train and valid regions as well.
-        minimize_overlap : bool
-            If True, minimize the overlap between regions to reduce the number of regions.
         """
         fold = self.config["fold_split_id"]
         train_regions, test_regions, valid_regions = (
             self.borzoi_regions.get_train_valid_test_regions(fold)
         )
-        if minimize_overlap:
+        if self.minimize_overlap:
             # minimize region overlap to reduce number of regions
             test_regions = minimize_overlap_regions(test_regions)
             if not test_only:

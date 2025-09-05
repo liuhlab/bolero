@@ -394,7 +394,7 @@ class BorzoiPredictor(GenericPredictor):
         embedding_key="embedding",
         pseudobulk_ids=None,
         add_true_data=True,
-        batch_size=16,
+        batch_size=2,
         mode="prediction",
         regions=None,
         trigger_model=False,
@@ -402,7 +402,7 @@ class BorzoiPredictor(GenericPredictor):
         """Iterable for debugging"""
         # 1. Get regions
         if regions is None:
-            regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
+            regions = self.get_fold_regions(test_only=True)
         regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
@@ -779,7 +779,7 @@ class BorzoiPredictor(GenericPredictor):
             Whether to save the first full batch for debugging purposes.
         """
         if isinstance(regions, str) and regions == "test_regions":
-            regions = self.get_fold_regions(test_only=True, minimize_overlap=True)
+            regions = self.get_fold_regions(test_only=True)
         else:
             regions = understand_regions(regions)
         if downsample_regions is not None:

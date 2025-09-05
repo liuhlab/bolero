@@ -146,8 +146,10 @@ class BorzoiRegions:
 
 
 class BorzoiGeneRegions(BorzoiRegions):
+    _gene_to_mask: pd.DataFrame
+
     @staticmethod
-    def _add_mask_bins(regions):
+    def _add_mask_coords(regions):
         records = []
         for _, row in regions.iterrows():
             if row["Strand"] == "+":
@@ -164,8 +166,6 @@ class BorzoiGeneRegions(BorzoiRegions):
             records, index=regions.index, columns=["MaskStart", "MaskEnd"]
         )
         records["MaskStart"] -= 1
-        records = np.round(records / 32).astype(int)
-        records["MaskStart"] = records["MaskStart"].map(lambda i: i - 1 if i > 0 else i)
 
         regions = pd.concat([regions, records], axis=1)
         return regions
@@ -193,10 +193,22 @@ class BorzoiGeneRegions(BorzoiRegions):
                 .apply(lambda df: df.sort_values("Start").iloc[1:-1])
                 .reset_index(drop=True)
             )
-            self._borzoi_regions = bed.reset_index(drop=True)
-            self._borzoi_regions = self._add_mask_bins(self._borzoi_regions)
+            self._borzoi_regions = bed.reset_index(drop=True).drop_duplicates(
+                subset="Name"
+            )
+            self._borzoi_regions = self._add_mask_coords(self._borzoi_regions)
+            self._gene_to_mask: pd.DataFrame = self._borzoi_regions.set_index("Name")[
+                ["MaskStart", "MaskEnd"]
+            ].copy()
             self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
         return self._borzoi_regions
+
+    def get_gene_mask(self, genes) -> np.ndarray:
+        """
+        Get mask bins for given genes.
+        """
+        mask = self._gene_to_mask.loc[genes]
+        return mask
 
     def get_train_valid_test_regions(self, split_id, deg_list=None, **kwargs):
         """

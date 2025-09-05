@@ -130,8 +130,6 @@ class BorzoiLoRA(Borzoi):
         self.load_state_dict(model_weights)
 
         # Setup Output Head
-        # place holder for other modalities
-        self.rna_output_head = None
         if output_head_kwargs is None:
             output_head_kwargs = {}
         if output_head_type == "count":
