@@ -173,6 +173,7 @@ class BorzoiPredictor(GenericPredictor):
         ypred_key="__ypred__",
         batch_size=16,
         crop=True,
+        _gene_mode=False,
     ):
         """
         Forward pass through the model.
@@ -180,6 +181,11 @@ class BorzoiPredictor(GenericPredictor):
         # prepare data
         dna = batch[dna_key]
         emb = batch[embedding_key]
+
+        if _gene_mode:
+            gene_mask = self.borzoi_gene_regions.get_gene_mask(
+                batch["region_name"], dna=dna
+            )
 
         n_emb = emb.shape[0]
         n_region = dna.shape[0]
@@ -190,16 +196,31 @@ class BorzoiPredictor(GenericPredictor):
         # [0, ..., 0, 1, ..., 1, ..., n_region-1, ..., n_region-1]
 
         pred_col = []
+        gene_count_col = []
         for i in range(0, len(emb_idx), batch_size):
             emb_mini_batch = emb[emb_idx[i : i + batch_size]]
             dna_mini_batch = dna[region_idx[i : i + batch_size]]
 
             with self._autocast_context():
-                y_pred_mini_batch = self.model(
-                    dna_mini_batch, embedding=emb_mini_batch, crop=crop
-                )
+                if _gene_mode:
+                    gene_mask_mini_batch = gene_mask[region_idx[i : i + batch_size]]
+                    y_pred_mini_batch, gene_count_mini_batch = self.model.forward_gene(
+                        dna_mini_batch,
+                        embedding=emb_mini_batch,
+                        crop=crop,
+                        gene_mask=gene_mask_mini_batch,
+                    )
+                    gene_count_col.append(gene_count_mini_batch)
+                else:
+                    y_pred_mini_batch = self.model(
+                        dna_mini_batch,
+                        embedding=emb_mini_batch,
+                        crop=crop,
+                    )
                 pred_col.append(y_pred_mini_batch)
+
         y_pred = torch.cat(pred_col, dim=0)
+
         # reshape to (n_region, n_emb, seq_len)
         # here only deal with one modality case
         y_pred = rearrange(
@@ -210,7 +231,20 @@ class BorzoiPredictor(GenericPredictor):
         )
 
         batch[ypred_key] = y_pred.detach()
+
+        if _gene_mode:
+            gene_count = torch.cat(gene_count_col, dim=0)
+            gene_count = rearrange(
+                gene_count,
+                "(n_region n_emb) 1 1 -> n_region n_emb",
+                n_region=n_region,
+                n_emb=n_emb,
+            )
+            batch[f"{ypred_key}:gene_count"] = gene_count.detach()
         return batch
+
+    def _model_gene_count_prediction_step(self, *args, **kwargs):
+        return self._model_prediction_step(*args, _gene_mode=True, **kwargs)
 
     def _model_qtl_step(self, batch, batch_size):
         # turn "__dna__" into "__dna__:ref" and "__dna__:alt"
@@ -402,7 +436,7 @@ class BorzoiPredictor(GenericPredictor):
         """Iterable for debugging"""
         # 1. Get regions
         if regions is None:
-            regions = self.get_fold_regions(test_only=True)
+            regions = self.get_fold_regions(test_only=True, mode=mode)
         regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
 
         # 2. Get data loader
@@ -460,7 +494,7 @@ class BorzoiPredictor(GenericPredictor):
         """
         Get the dataloader for prediction.
         """
-        assert mode in ["prediction", "qtl", "peak"], (
+        assert mode in ["prediction", "gene_count_prediction", "qtl", "peak"], (
             f"Invalid mode: {mode}. " "Must be one of 'prediction' or 'qtl'."
         )
         # 1. Get regions
@@ -522,6 +556,8 @@ class BorzoiPredictor(GenericPredictor):
                 t = time.time()
                 if mode == "prediction":
                     step_fn = self._model_prediction_step
+                elif mode == "gene_count_prediction":
+                    step_fn = self._model_gene_count_prediction_step
                 elif mode == "qtl":
                     step_fn = self._model_qtl_step
                 elif mode == "peak":
@@ -738,6 +774,21 @@ class BorzoiPredictor(GenericPredictor):
         ]
         return STATS_KEYS
 
+    def _get_default_prediction_save_keys(self, mode="prediction"):
+        SAVE_KEYS = [
+            "__ytrue__:peak",
+            "__ypred__:peak",
+            "__embedding__",
+            "peak",
+            "region",
+            "region_name",
+            "pseudobulk_ids",
+        ]
+
+        if mode == "gene_count_prediction":
+            SAVE_KEYS.append("__ypred__:gene_count")
+        return SAVE_KEYS
+
     def prediction_task(
         self,
         output_dir,
@@ -746,10 +797,11 @@ class BorzoiPredictor(GenericPredictor):
         downsample_seed=0,
         pseudobulk_ids=None,
         batch_size=16,
-        save_keys=None,
+        save_keys="default",
         stats_keys=None,
         verbose=True,
         save_first_batch=True,
+        mode="prediction",
     ):
         """
         Prediction task for Borzoi.
@@ -772,14 +824,28 @@ class BorzoiPredictor(GenericPredictor):
         batch_size: int
             The batch size for prediction.
         save_keys: list[str]
-            The keys to save in the output file. If None, save all keys.
+            The keys to save in the output batch file. If None, nothing will be saved.
         verbose: bool
             Whether to print the progress.
         save_first_batch: bool
             Whether to save the first full batch for debugging purposes.
+        mode: str
+            The mode of the task. One of "prediction", "gene_count_prediction".
+            If "prediction", predict the genome tracks.
+            If "gene_count_prediction", predict the gene counts along with genome tracks.
         """
+        if mode == "gene_count_prediction":
+            assert hasattr(self.model, "gene_count_output_head"), (
+                "Model does not have gene count output head. "
+                "Please use a model with gene count output head for gene count prediction."
+            )
+            assert self.borzoi_gene_regions is not None, (
+                "Borzoi gene regions is not set. "
+                "Please check config['train_config']['use_regions']."
+            )
+
         if isinstance(regions, str) and regions == "test_regions":
-            regions = self.get_fold_regions(test_only=True)
+            regions = self.get_fold_regions(test_only=True, mode=mode)
         else:
             regions = understand_regions(regions)
         if downsample_regions is not None:
@@ -791,6 +857,7 @@ class BorzoiPredictor(GenericPredictor):
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
+            mode=mode,
         )
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
@@ -815,6 +882,8 @@ class BorzoiPredictor(GenericPredictor):
         )
 
         # data to save for each batch
+        if isinstance(save_keys, str) and save_keys == "default":
+            save_keys = self._get_default_prediction_save_keys(mode=mode)
         save_keys = [] if save_keys is None else save_keys
         # stats to collect across batches
         default_stats_keys = self._get_default_stats_keys()
@@ -1308,6 +1377,11 @@ class BorzoiMultiHeadPredictor(BorzoiPredictor):
         batch[ypred_key] = y_pred.detach()
         return batch
 
+    def _model_gene_count_prediction_step(self, *args, **kwargs):
+        raise NotImplementedError(
+            "Gene count prediction is not implemented for multi-head models."
+        )
+
 
 class BorzoiPairPredictor(BorzoiPredictor):
     def __init__(self, config):
@@ -1430,15 +1504,10 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         return []
 
     def _get_pre_callbacks(self, mode="prediction"):
-        if mode == "prediction":
+        if mode in ("prediction", "gene_count_prediction", "qtl", "peak"):
             return self._get_pre_prediction_callbacks()
         elif mode == "attribution":
             return self._get_pre_attribution_callbacks()
-        elif mode == "qtl":
-            # same as prediction
-            return self._get_pre_prediction_callbacks()
-        elif mode == "peak":
-            return self._get_pre_prediction_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -1497,21 +1566,21 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         cb = self._prepare_callbacks(callbacks)
         return cb
 
-    def _get_post_qtl_callbacks(self):
+    def _get_post_null_callbacks(self):
         return []
 
     def _get_post_callbacks(self, mode="prediction"):
         """
         Get the post callbacks for the model.
         """
-        if mode == "prediction":
+        if mode in ("prediction", "gene_count_prediction"):
             return self._get_post_prediction_callbacks()
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
         elif mode == "qtl":
-            return self._get_post_qtl_callbacks()
+            return self._get_post_null_callbacks()
         elif mode == "peak":
-            return self._get_post_qtl_callbacks()
+            return self._get_post_null_callbacks()
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
@@ -1611,6 +1680,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         batch_size=16,
         ypred_key="__ypred__:cond1",
         crop=True,
+        gene_mode=False,
     ):
         """
         Forward pass through the model.
@@ -1622,6 +1692,11 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             cond_emb = batch[cond_embedding_key]
         else:
             cond_emb = None
+
+        if gene_mode:
+            gene_mask = self.borzoi_gene_regions.get_gene_mask(
+                batch["region_name"], dna=dna
+            )
 
         # take reference signal and log1p scale
         x0 = batch[x0_key]
@@ -1636,6 +1711,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         # [0, ..., 0, 1, ..., 1, ..., n_region-1, ..., n_region-1]
 
         pred_col = []
+        gene_count_col = []
         for i in range(0, len(emb_idx), batch_size):
             use_emb = emb_idx[i : i + batch_size]
             use_reg = region_idx[i : i + batch_size]
@@ -1650,6 +1726,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                 cond_emb_mini_batch = self._split_cond_emb_to_terms(cond_emb_mini_batch)
             # dna has shape (n_region, 4, seq_len)
             dna_mini_batch = dna[use_reg].contiguous()
+            if gene_mode:
+                gene_mask_mini_batch = gene_mask[use_reg].contiguous()
             # x0 has shape (n_region, n_emb, seq_len)
             # we need to select the paired region and embedding and get (bs, 1, seq_len)
             if self._forward_without_signal:
@@ -1662,12 +1740,22 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                     cell_emb=cell_emb_mini_batch,
                     cond_emb=cond_emb_mini_batch,
                 )
-                y_pred_mini_batch = self.model(
-                    dna_mini_batch,
-                    embedding=cond_ensemble,
-                    signal=x0_mini_batch,
-                    crop=crop,
-                )
+                if gene_mode:
+                    y_pred_mini_batch, gene_count_mini_batch = self.model.forward_gene(
+                        dna_mini_batch,
+                        gene_mask=gene_mask_mini_batch,
+                        embedding=cond_ensemble,
+                        signal=x0_mini_batch,
+                        crop=crop,
+                    )
+                    gene_count_col.append(gene_count_mini_batch)
+                else:
+                    y_pred_mini_batch = self.model(
+                        dna_mini_batch,
+                        embedding=cond_ensemble,
+                        signal=x0_mini_batch,
+                        crop=crop,
+                    )
                 pred_col.append(y_pred_mini_batch)
         y_pred = torch.cat(pred_col, dim=0)
         # reshape to (n_region, n_emb, seq_len)
@@ -1678,6 +1766,15 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             n_region=n_region,
             n_emb=n_emb,
         )
+        if gene_mode:
+            gene_count = torch.cat(gene_count_col, dim=0)
+            gene_count = rearrange(
+                gene_count,
+                "(n_region n_emb) 1 1 -> n_region n_emb",
+                n_region=n_region,
+                n_emb=n_emb,
+            )
+            batch[f"{ypred_key}:gene_count"] = gene_count.detach()
 
         if crop:
             # also crop ytrue to allow metric calculation
@@ -1688,6 +1785,26 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
         batch[ypred_key] = y_pred.detach()
         return batch
+
+    def _get_default_prediction_save_keys(self, mode="prediction"):
+        SAVE_KEYS = [
+            "__ytrue__:peak:cond0",
+            "__ytrue__:peak:cond1",
+            "__ypred__:peak:cond1",
+            "__embedding__",
+            "condition_pairs",
+            "peak",
+            "region",
+            "region_name",
+            "pseudobulk_ids",
+        ]
+
+        if mode == "gene_count_prediction":
+            SAVE_KEYS.append("__ypred__:cond1:gene_count")
+        return SAVE_KEYS
+
+    def _model_gene_count_prediction_step(self, *args, **kwargs):
+        return self._model_prediction_step(*args, gene_mode=True, **kwargs)
 
     def _create_fn_and_dataloader(
         self,

@@ -520,6 +520,39 @@ class BorzoiLoRA(Borzoi):
                 gene_mask=gene_mask,
             )
 
+    def forward_gene(
+        self,
+        x,
+        gene_mask,
+        embedding=None,
+        crop=True,
+        return_dna_embedding=False,
+        inverse_softclip=True,
+        **kwargs,
+    ):
+        """
+        For gene count model (output_head_type="gene_count"), do a
+        forward pass to get both final output and gene count output.
+        """
+        output, dna_embedding = self.forward(
+            x,
+            gene_mask=gene_mask,
+            embedding=embedding,
+            crop=crop,
+            return_dna_embedding=True,
+            **kwargs,
+        )
+
+        # get gene count prediction
+        gene_output = self.gene_count_output_head(dna_embedding, embedding=embedding)
+        if inverse_softclip:
+            # 1) undo softclip 2) revert squashing 3) log1p
+            # final output value should be at log1p CPM scale
+            gene_output = self.gene_count_softclip.inverse(gene_output)
+        if return_dna_embedding:
+            return output, gene_output, dna_embedding
+        return output, gene_output
+
     def forward_dna_only_model(
         self, x, embedding=None, crop=True, return_dna_embedding=False, gene_mask=None
     ):

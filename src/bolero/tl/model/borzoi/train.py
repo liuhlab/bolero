@@ -21,7 +21,7 @@ from bolero.tl.model.borzoi.model_lora import (
 )
 from bolero.tl.model.borzoi.module_output import DualOutputHead
 
-from .utils import MovingMetric
+from .utils import MovingMetric, gene_mask_coords_to_mask
 
 
 class TrainerBorzoiDatasetMixin:
@@ -903,13 +903,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         gene_mask = batch.get("MaskCoords", None)
         dna: torch.Tensor = batch["dna_one_hot"]
         if gene_mask is not None:
-            # coords (bs, 2) to gene mask (bs, 1, seq_len)
-            bs, _, seq_len = dna.shape
-            gene_mask_tensor = torch.zeros(
-                (bs, 1, seq_len), dtype=dna.dtype, device=dna.device
-            )
-            for i, (start, end) in enumerate(gene_mask.cpu().numpy()):
-                gene_mask_tensor[i, 0, start:end] = 1.0
+            gene_mask_tensor = gene_mask_coords_to_mask(gene_mask, dna)
             return gene_mask_tensor
         else:
             return None

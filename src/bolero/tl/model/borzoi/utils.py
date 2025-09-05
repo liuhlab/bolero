@@ -203,11 +203,12 @@ class BorzoiGeneRegions(BorzoiRegions):
             self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
         return self._borzoi_regions
 
-    def get_gene_mask(self, genes) -> np.ndarray:
+    def get_gene_mask(self, genes, dna) -> torch.Tensor:
         """
         Get mask bins for given genes.
         """
-        mask = self._gene_to_mask.loc[genes]
+        mask_coords = self._gene_to_mask.loc[genes].values
+        mask = gene_mask_coords_to_mask(mask_coords, dna)
         return mask
 
     def get_train_valid_test_regions(self, split_id, deg_list=None, **kwargs):
@@ -260,6 +261,21 @@ class BorzoiGeneRegions(BorzoiRegions):
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
         return train_regions, valid_regions, test_regions
+
+
+def gene_mask_coords_to_mask(
+    gene_mask: torch.Tensor | np.ndarray, dna: torch.Tensor
+) -> torch.Tensor:
+    """Turn gene mask coordinates to gene mask tensor."""
+    if isinstance(gene_mask, torch.Tensor):
+        gene_mask = gene_mask.cpu().numpy()
+
+    # coords (bs, 2) to gene mask (bs, 1, seq_len)
+    bs, _, seq_len = dna.shape
+    gene_mask_tensor = torch.zeros((bs, 1, seq_len), dtype=dna.dtype, device=dna.device)
+    for i, (start, end) in enumerate(gene_mask):
+        gene_mask_tensor[i, 0, start:end] = 1.0
+    return gene_mask_tensor
 
 
 class MultiBorzoiRegions:

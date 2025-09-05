@@ -54,18 +54,12 @@ class GenericPredictor:
 
         self._dm = None
 
-        # Both seq2PRINT and Borzoi use the same region partition for training
         use_regions = self._train_config["use_regions"]
-        if use_regions == "borzoi":
-            self.borzoi_regions = BorzoiRegions(self.genome)
-            # minimize the overlap between regions to reduce the number of regions.
-            # borzoi region are highly overlapped, and no need to run all of them in evaluation tasks
-            self.minimize_overlap = True
+        self.borzoi_regions = BorzoiRegions(self.genome)
+        if use_regions == "borzoi_gene":
+            self.borzoi_gene_regions = BorzoiGeneRegions(self.genome)
         else:
-            print("Using gene regions for prediction tasks.")
-            self.borzoi_regions = BorzoiGeneRegions(self.genome)
-            # each gene regions are corresponding to one gene, no need to minimize overlap
-            self.minimize_overlap = False
+            self.borzoi_gene_regions = None
 
     def _create_model(self) -> _model_cls:
         model_config = deepcopy(self._train_config)
@@ -139,7 +133,9 @@ class GenericPredictor:
             )
         return self._dm.pseudobulk_manager
 
-    def get_fold_regions(self, test_only=True) -> pd.DataFrame | tuple[pd.DataFrame]:
+    def get_fold_regions(
+        self, test_only=True, mode="prediction"
+    ) -> pd.DataFrame | tuple[pd.DataFrame]:
         """
         Get the regions for the fold during training.
 
@@ -148,11 +144,25 @@ class GenericPredictor:
         test_only : bool
             If True, return only the test regions. If False, return train and valid regions as well.
         """
+        if mode == "prediction":
+            region_manager = self.borzoi_regions
+            # minimize the overlap between regions to reduce the number of regions.
+            # borzoi region are highly overlapped, and no need to run all of them in evaluation tasks
+            minimize_overlap = True
+        elif mode == "gene_count_prediction":
+            region_manager = self.borzoi_gene_regions
+            # each gene regions are corresponding to one gene, no need to minimize overlap
+            minimize_overlap = False
+        else:
+            raise ValueError(
+                f"Unknown mode: {mode}. Supported modes are 'prediction' and 'gene_count_prediction'."
+            )
+
         fold = self.config["fold_split_id"]
         train_regions, test_regions, valid_regions = (
-            self.borzoi_regions.get_train_valid_test_regions(fold)
+            region_manager.get_train_valid_test_regions(fold)
         )
-        if self.minimize_overlap:
+        if minimize_overlap:
             # minimize region overlap to reduce number of regions
             test_regions = minimize_overlap_regions(test_regions)
             if not test_only:
@@ -173,6 +183,14 @@ class GenericPredictor:
                 keep_original=True,
             )
             regions["Name"] = regions["Original_Name"]
+
+        # keep only necessary columns, otherwise pr.PyRanges will have bugs during sorting
+        try:
+            regions = regions[["Chromosome", "Start", "End", "Name"]].copy()
+        except KeyError as e:
+            raise KeyError(
+                "Regions must have columns: Chromosome, Start, End, Name"
+            ) from e
 
         if isinstance(regions, pr.PyRanges):
             regions = regions.sort()

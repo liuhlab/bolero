@@ -149,6 +149,7 @@ class SequentialwithArgs(nn.Sequential):
         nn.Conv2d,
         nn.Linear,
         nn.Identity,
+        nn.AdaptiveAvgPool1d,
         GEGLU,
     )
 
