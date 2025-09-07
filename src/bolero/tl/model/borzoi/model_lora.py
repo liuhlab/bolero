@@ -52,7 +52,7 @@ class BorzoiLoRA(Borzoi):
             "_disable_cond_module": False,
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
-            "_zero_init_gene_mask_conv": False,
+            "_gene_softclip": True,
         }
     )
 
@@ -84,8 +84,7 @@ class BorzoiLoRA(Borzoi):
         _disable_cond_module=False,
         _predict_delta=True,
         _lora_scaling_factor=1,
-        _zero_init_gene_mask_conv=False,
-        _gene_loss_weight=1,
+        _gene_softclip=True,
         # base model
         **base_model_kwargs,
     ):
@@ -111,8 +110,7 @@ class BorzoiLoRA(Borzoi):
         # for lora preset "all_conditional_scaling", adjust model size
         self._lora_scaling_factor = _lora_scaling_factor
         # for gene count head
-        self._zero_init_gene_mask_conv = _zero_init_gene_mask_conv
-        self._gene_loss_weight = _gene_loss_weight
+        self._gene_softclip = _gene_softclip
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -238,11 +236,10 @@ class BorzoiLoRA(Borzoi):
         # also need a mask conv layer to take gene mask as input
         # adapted from genetech/decima: https://github.com/Genentech/decima
         self.gene_mask_conv = nn.Conv1d(1, 512, kernel_size=15, padding="same")
-        if self._zero_init_gene_mask_conv:
-            nn.init.constant_(self.gene_mask_conv.weight, 0.0)
-            nn.init.constant_(self.gene_mask_conv.bias, 0.0)
+        nn.init.constant_(self.gene_mask_conv.weight, 0.0)
+        nn.init.constant_(self.gene_mask_conv.bias, 0.0)
 
-        self.gene_count_softclip = GeneCountSoftClip()
+        self.gene_count_softclip = GeneCountSoftClip(enable=self._gene_softclip)
         return
 
     def _setup_cond_emb_module(self, cell_emb_dim, cond_emb_dim, **cond_emb_kwargs):

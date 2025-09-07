@@ -848,6 +848,7 @@ class BorzoiPredictor(GenericPredictor):
             regions = self.get_fold_regions(test_only=True, mode=mode)
         else:
             regions = understand_regions(regions)
+            regions = self._filter_valid_regions(regions, mode=mode)
         if downsample_regions is not None:
             regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
 
@@ -966,24 +967,29 @@ class BorzoiPredictor(GenericPredictor):
             pred_peak_key="__ypred__:peak",
         )
 
-    def _filter_valid_regions(self, mode="qtl"):
+    def _filter_valid_regions(self, regions=None, mode="qtl"):
         db = self.datamanager.datasets["parquet"]
-        if mode == "qtl":
-            regions = self.qtl_manager.regions
-        elif mode == "peak":
-            regions = self.peak_manager.regions
-        else:
-            raise ValueError(f"Invalid mode: {mode}. Must be one of 'qtl' or 'peak'.")
+        if regions is None:
+            if mode == "qtl":
+                regions = self.qtl_manager.regions
+            elif mode == "peak":
+                regions = self.peak_manager.regions
+            else:
+                raise ValueError(
+                    f"Invalid mode: {mode}. Must be one of 'qtl' or 'peak'."
+                )
 
-        regions_bed = pr.PyRanges(regions.reset_index().iloc[:, [1, 2, 3, 0]])
+        regions_bed = regions.reset_index().iloc[:, [1, 2, 3, 0]]
+        regions_bed["Name"] = list(range(regions_bed.shape[0]))
+        regions_bed = pr.PyRanges(regions_bed)
         valid_regions_bed = regions_bed.overlap(
             db.region_lookup_bed.merge(), how="containment"
         )
-        new_regions = regions.reindex(valid_regions_bed.df.iloc[:, 3].values)
+        new_regions = regions.iloc[valid_regions_bed.df["Name"].values].copy()
         if new_regions.shape[0] != regions.shape[0]:
             print(
                 f"Filtered {regions.shape[0] - new_regions.shape[0]} invalid regions "
-                "from QTL table that are not fully overlapped with the parquet dataset."
+                "from input regions that are not fully overlapped with the parquet dataset."
             )
         return new_regions
 

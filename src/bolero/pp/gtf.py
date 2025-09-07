@@ -57,6 +57,7 @@ class GTFDB(FeatureDB):
     _gene_name_to_id: dict[str, str]
     _gene_id_base_to_name: dict[str, str]
     _gene_name_to_id_base: dict[str, str]
+    _gene_id_base_to_gene_id: dict[str, str]
     gene_ids: list[str]
     gene_names: list[str]
     transcript_ids: list[str]
@@ -74,16 +75,22 @@ class GTFDB(FeatureDB):
         except KeyError:
             print("Failed to load basic info.")
 
-        # place holder
-        self._gene_bed = None
+        self.gene_bed = basic_info_dict["gene_bed"]
         return
 
     def _prepare_basic_ids(self):
         basic_info_path = self.db_path.with_suffix(".basic_info.joblib")
         if basic_info_path.exists():
             basic_info_dict = joblib.load(basic_info_path)
+            basic_info_dict["_gene_id_base_to_gene_id"] = {
+                gid.split(".")[0]: gid for gid in basic_info_dict["gene_ids"]
+            }
             return basic_info_dict
 
+        print(
+            f"Preparing basic gene/transcript info for gtf_db "
+            f"at {self.db_path}, this will take < 1 min..."
+        )
         # gene
         try:
             gene_id_to_name = {}
@@ -102,6 +109,21 @@ class GTFDB(FeatureDB):
         # transcript
         transcript_ids = [t.id for t in self.features_of_type("transcript")]
 
+        # gene bed
+        gene_bed = []
+        for gene in self.features_of_type("gene"):
+            gene_bed.append(
+                {
+                    "Chromosome": gene.chrom,
+                    "Start": gene.start - 1,
+                    "End": gene.end,
+                    "Name": gene.id,
+                    "Score": ".",
+                    "Strand": gene.strand,
+                }
+            )
+        gene_bed = pd.DataFrame(gene_bed)
+
         basic_info_dict = {
             "_gene_id_to_name": gene_id_to_name,
             "_gene_id_base_to_name": {
@@ -109,11 +131,12 @@ class GTFDB(FeatureDB):
             },
             "_gene_name_to_id": gene_name_to_id,
             "_gene_name_to_id_base": {
-                v: k.split(".")[0] for k, v in gene_name_to_id.items()
+                k: v.split(".")[0] for k, v in gene_name_to_id.items()
             },
             "gene_ids": gene_ids,
             "gene_names": gene_names,
             "transcript_ids": transcript_ids,
+            "gene_bed": gene_bed,
         }
         joblib.dump(basic_info_dict, basic_info_path)
         return basic_info_dict
@@ -130,30 +153,13 @@ class GTFDB(FeatureDB):
         """Convert gene ID base to gene name."""
         return universal_mapping(gene_id, self._gene_id_base_to_name)
 
+    def gene_id_base_to_gene_id(self, gene_id_base):
+        """Convert gene ID base to gene ID."""
+        return universal_mapping(gene_id_base, self._gene_id_base_to_gene_id)
+
     def gene_name_to_id_base(self, gene_name):
         """Convert gene name to gene ID base."""
         return universal_mapping(gene_name, self._gene_name_to_id_base)
-
-    @property
-    def gene_bed(self):
-        """Gene features in bed format."""
-        if self._gene_bed is None:
-            gene_bed = []
-            for gene in self.features_of_type("gene"):
-                gene_bed.append(
-                    {
-                        "Chromosome": gene.chrom,
-                        "Start": gene.start - 1,
-                        "End": gene.end,
-                        "Name": gene.id,
-                        "Score": ".",
-                        "Strand": gene.strand,
-                    }
-                )
-            self._gene_bed = pd.DataFrame(gene_bed)
-
-        gene_bed = self._gene_bed
-        return gene_bed
 
     def find_region_features(self, region, feature_types=("gene",), return_bed=True):
         """Find features in a region."""
@@ -173,7 +179,10 @@ class GTFDB(FeatureDB):
         try:
             gene_id = self.gene_name_to_id(gene)
         except KeyError:
-            gene_id = gene
+            if "." not in gene:
+                gene_id = self.gene_id_base_to_gene_id(gene)
+            else:
+                gene_id = gene
         gene_features = list(self.children(gene_id, featuretype=feature_types))
 
         if return_bed:

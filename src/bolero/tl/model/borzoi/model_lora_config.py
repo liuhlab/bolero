@@ -240,10 +240,10 @@ def make_all_conditional_lora_config(
             **shared_config,
             "lora_rank": 1,
         },
-        # "gene_count_output_head": {
-        #     **shared_config,
-        #     "lora_rank": 1,
-        # },
+        "gene_count_output_head": {
+            **shared_config,
+            "lora_rank": 1,
+        },
     }
 
     if except_output_head:

@@ -162,6 +162,7 @@ class GeneCountSoftClip(nn.Module):
         threshold=10.0,
         apply_squashing=0.75,
         log_input=True,
+        enable=True,
     ):
         """
         soft clip equation:
@@ -188,11 +189,15 @@ class GeneCountSoftClip(nn.Module):
         self.threshold = threshold
         self.apply_squashing = apply_squashing
         self.log_input = log_input
+        self.enable = enable
 
     def inverse(self, clipped):
         """
         Undo soft clip, undo squashing, and log1p transform
         """
+        if not self.enable:
+            return clipped
+
         threshold, scale, gamma = self.threshold, self.scale, self.gamma
         x = torch.where(
             clipped > threshold,
@@ -208,6 +213,9 @@ class GeneCountSoftClip(nn.Module):
         """
         Turn x into count scale, apply squashing, and soft clip.
         """
+        if not self.enable:
+            return x
+
         threshold, scale, gamma = self.threshold, self.scale, self.gamma
         if self.log_input:
             x = torch.expm1(x)
