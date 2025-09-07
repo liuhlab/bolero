@@ -931,7 +931,7 @@ class MultiPairedPseudobulker:
         n_dim = dims[0]
         return shared_data_col, n_dim
 
-    def take(self, n: int, key: str):
+    def take(self, n: int, key: str, return_pids: bool = False):
         """
         Take n pseudobulks from a specific pseudobulker.
 
@@ -941,14 +941,17 @@ class MultiPairedPseudobulker:
             The number of pseudobulks to sample.
         key : str
             The key of the pseudobulker to sample from.
+        return_pids : bool, optional
+            Whether to return the pseudobulk IDs along with the pseudobulks.
 
         Returns
         -------
-        list[dict[str, Any]]
+        list[dict[str, Any]] or tuple[list[dict[str, Any]], list]
             A list of pseudobulk records, where each record is a dictionary containing
             the pseudobulk data and metadata.
             Each pseudobulk record will have an additional key "__pseudobulker_key__"
             that indicates which pseudobulker it was sampled from.
+            If return_pids is True, returns a tuple of (pseudobulks, pids).
         """
         pseudobulker = self.pseudobulker_dict[key]
 
@@ -962,6 +965,9 @@ class MultiPairedPseudobulker:
                     p["__shared_data__"] = (
                         self.shared_data_col[key].loc[pid].values[None, :]
                     )
+
+        if return_pids:
+            return pseudobulks, record_pids
         return pseudobulks
 
 

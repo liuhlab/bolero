@@ -18,7 +18,7 @@ from bolero.tl.dataset.ray_dataset import _IterableFromIterator
 from bolero.tl.dataset.transforms import FetchRegionOneHot, ReverseComplement
 from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.model.borzoi.dataset import MaskBlacklistAndClamp
-from bolero.tl.model.borzoi.utils import MultiBorzoiRegions
+from bolero.tl.model.borzoi.utils import MultiBorzoiGeneRegions, MultiBorzoiRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import MultiPairedPseudobulker
 from bolero.utils import try_gpu, understand_regions
 
@@ -114,7 +114,6 @@ class DatasetRecordManager:
 
     The dataset_records contains all information for each dataset,
     the schema:
-    {
         "data_path": str,  # Path to the parquet dataset dir
         "pseudobulk_path": str,  # Path to the pseudobulk records file
         "genome": str,  # Genome name
@@ -122,7 +121,12 @@ class DatasetRecordManager:
         # Optional, Sampling weight for this dataset, default is 1;
         # This weight will be normalized across dataset via weight / max(weight),
         # and apply in norm_weight * n_pseudobulks during data loader.
-    }
+        "deg_list_path": str,
+        # Optional, Path to the deg list file, default is None;
+        # If provided, the deg list will be used to sample the regions.
+        "gene_data_path": str,
+        # Optional, Path to the gene data file, default is None;
+        # If provided, the gene data will be used to sample the regions.
 
     The instance of DatasetRecordManager maintains dataset information,
     create a MultiBorzoiRegions object to get dataset (genome) specific regions
@@ -135,6 +139,7 @@ class DatasetRecordManager:
     data_paths: dict[str, str]
     dataset_sample_weight: dict[str, float]
     _barcode_orders: dict[str, dict[str, pd.Index]]
+    use_regions: str
     # genome
     _shared_genome_obj: dict[str, Genome]
     genomes: dict[str, Genome]
@@ -151,15 +156,30 @@ class DatasetRecordManager:
         dataset_records: str | dict,
         pseudobulker_cls: str | type,
         shared_data_paths: dict[str, str] | None = None,
+        use_regions: str = "borzoi",
     ):
         if isinstance(dataset_records, str):
             dataset_records = joblib.load(dataset_records)
         self.dataset_records = dataset_records
         self.dataset_orders = list(self.dataset_records.keys())
+        self.use_regions = use_regions
 
         self._init_data()
         self._init_genome()
         self._init_pseudobulker(pseudobulker_cls, shared_data_paths=shared_data_paths)
+        self._init_gene_data()
+
+    def _init_gene_data(self):
+        self.deg_list_dict: dict[str, list[str]] = {
+            k: joblib.load(v["deg_list_path"])
+            for k, v in self.dataset_records.items()
+            if "deg_list_path" in v
+        }
+        self.gene_data_path_dict: dict[str, str] = {
+            k: v["gene_data_path"]
+            for k, v in self.dataset_records.items()
+            if "gene_data_path" in v
+        }
 
     def _init_data(self):
         self.data_paths: dict[str, str] = {
@@ -207,7 +227,14 @@ class DatasetRecordManager:
             if _g not in self._shared_genome_obj:
                 self._shared_genome_obj[_g] = Genome(_g)
             self.genomes[k] = self._shared_genome_obj[_g]
-        self.borzoi_regions = MultiBorzoiRegions(self.genomes)
+        if self.use_regions == "borzoi":
+            self.borzoi_regions = MultiBorzoiRegions(self.genomes)
+        elif self.use_regions == "borzoi_gene":
+            self.borzoi_regions = MultiBorzoiGeneRegions(self.genomes)
+        else:
+            raise ValueError(
+                f"Unknown use_regions {self.use_regions}, support 'borzoi' or 'borzoi_gene'."
+            )
         self.dataset_idx_to_genome_emb = self._create_genome_embedding()
 
     def _init_pseudobulker(
@@ -248,7 +275,7 @@ class DatasetRecordManager:
         Then sample the regions for each dataset key based on the sample_region_fracs.
         """
         train_df, valid_df, test_df = self.borzoi_regions.get_train_valid_test_regions(
-            split_id=split_id, **kwargs
+            split_id=split_id, deg_list_dict=self.deg_list_dict, **kwargs
         )
         train_df = self._select_full_overlap_regions(train_df)
         valid_df = self._select_full_overlap_regions(valid_df)
@@ -328,6 +355,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         dataset_orders: list[str],
         n_pseudobulks: int = 10,
         region_key="region",
+        gene_key="gene_id",
         dataset_key="__dataset_keys__",
         normalize_cov: bool = True,
         output_prefix: str = "pseudobulk",
@@ -335,12 +363,16 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         chrom_offsets: dict[str, pd.Series] = None,
         dataset_sample_weight: dict[str, float] = None,
         genome_embedding: dict[str, np.ndarray] = None,
+        gene_data_path_dict: dict[str, str] = None,
     ):
         self.pseudobulker = pseudobulker
         self.n_pseudobulks = n_pseudobulks
         self.dataset_sample_weight = dataset_sample_weight or {}
+        self.gene_data_path_dict = gene_data_path_dict or {}
+        self.has_gene_data = len(self.gene_data_path_dict) > 0
 
         self.region_key = region_key
+        self.gene_key = gene_key
         self.dataset_key = dataset_key
         self.dataset_orders = dataset_orders
 
@@ -375,7 +407,9 @@ class GenerateMultiGenomeParquetAndPseudobulk:
 
         self.genome_embedding = genome_embedding
 
-    def _sample_pseudobulks_and_get_data(self, key: str, region: str) -> list[dict]:
+    def _sample_pseudobulks_and_get_data(
+        self, key: str, region: str, gene: str
+    ) -> list[dict]:
         """
         For the given dataset key and region, do the following steps:
         1. Sample N pseudobulk records from the pseudobulker.
@@ -389,7 +423,10 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         # sample pseudobulk, weights are applied to the number of pseudobulks
         ds_weight = self.dataset_sample_weight.get(key, 1)
         _this_n_pseudobulks = max(1, int(self.n_pseudobulks * ds_weight))
-        pseudobulk_pairs = self.pseudobulker.take(_this_n_pseudobulks, key=key)
+
+        pseudobulk_pairs, pid_records = self.pseudobulker.take(
+            _this_n_pseudobulks, key=key, return_pids=True
+        )
 
         # make merge plan
         parquet_db: GenomeParquetDBNoParallel = self.parquet_db_dict[key]
@@ -415,11 +452,45 @@ class GenerateMultiGenomeParquetAndPseudobulk:
             all_pseudobulk_data=all_pseudobulk_data,
             dataset_prefix=dataset_prefix,
         )
+
+        if self.has_gene_data:
+            if key in self.gene_data_path_dict:
+                # Add gene count data if gene data is available
+                new_batches = self._add_gene_counts_to_batches(
+                    new_batches, key, gene, pid_records
+                )
+            else:
+                # Otherwise, set gene count data to nan, will be filtered out during calculating gene count loss
+                for batch in new_batches:
+                    batch["__gene_value__"] = np.array([np.nan]).astype("float32")
+
         return new_batches
 
+    def _add_gene_counts_to_batches(
+        self, batches: list[dict], key: str, gene: str, pid_records: list[str]
+    ) -> list[dict]:
+        """Add gene count data to batches for a specific dataset key."""
+        gene_data_path = self.gene_data_path_dict[key]
+
+        # Load gene data for this specific gene
+        gene_data = pd.read_feather(
+            gene_data_path,
+            columns=["__index_level_0__", gene],
+        )
+
+        # Add gene values to each batch
+        for batch, pid in zip(batches, pid_records):
+            gene_value = gene_data.loc[pid, gene]
+            batch["__gene_value__"] = np.array([gene_value]).astype("float32")
+
+        return batches
+
     def _prepare_paired_pseudobulk_dict(
-        self, pseudobulk_pairs, all_pseudobulk_data, dataset_prefix
-    ):
+        self,
+        pseudobulk_pairs: list[dict],
+        all_pseudobulk_data: np.ndarray,
+        dataset_prefix: str,
+    ) -> list[dict]:
         new_batches = []
         suffix_list = ["_0", "_1"]
         output_prefix = self.output_prefix
@@ -465,7 +536,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
             new_batches.append(this_bulk_dict)
         return new_batches
 
-    def _region_to_global_coords(self, key, region):
+    def _region_to_global_coords(self, key: str, region: str) -> np.ndarray:
         chrom, coords = region.split(":")
         start, end = map(int, coords.split("-"))
         chrom_offsets = self.chrom_offsets[key]
@@ -473,7 +544,9 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         global_coords = np.array([chrom_start + start, chrom_start + end])
         return global_coords
 
-    def _add_region_and_dataset_key_int(self, list_of_batches, key, region):
+    def _add_region_and_dataset_key_int(
+        self, list_of_batches: list[dict], key: str, region: str
+    ) -> list[dict]:
         key_int = self.dataset_orders.index(key)
         region_coords = self._region_to_global_coords(key, region)
         for batch in list_of_batches:
@@ -483,15 +556,18 @@ class GenerateMultiGenomeParquetAndPseudobulk:
             batch[self.region_key] = region_coords
         return list_of_batches
 
-    def __call__(self, batch: dict) -> list[dict[str, Any]]:
+    def __call__(self, batch: dict) -> list[dict]:
         """
         Generate pseudobulk data for a batch of region.
         """
         region = batch.pop(self.region_key)
+        gene = batch.pop(self.gene_key)
         dataset_key = batch.pop(self.dataset_key)
         dna = batch.pop(DNA_NAME)
 
-        list_of_batches = self._sample_pseudobulks_and_get_data(dataset_key, region)
+        list_of_batches = self._sample_pseudobulks_and_get_data(
+            dataset_key, region, gene
+        )
         list_of_batches = self._add_region_and_dataset_key_int(
             list_of_batches, key=dataset_key, region=region
         )
@@ -507,8 +583,6 @@ class BorzoiMultiDataset(GenericDataset):
     Compare to BorzoiDataset class, this class simutaneously handle multiple parquet datasets;
     it uses duckdb to efficiently query and manipulate the datasets;
     remaining dataloader preprocess steps should be similar to BorzoiDataset class
-
-    TODO: gene related options are not implemented
     """
 
     default_config = {
@@ -516,6 +590,7 @@ class BorzoiMultiDataset(GenericDataset):
         # regions:
         "dna_window": 524288,
         "train_region_step_sample": True,
+        "use_regions": "borzoi",
         # pseudobulks
         "n_pseudobulks": 10,
         "paired_mode": "ensemble",
@@ -534,6 +609,7 @@ class BorzoiMultiDataset(GenericDataset):
         dataset_records: str | dict,
         dna_window: int = 524288,
         train_region_step_sample=True,
+        use_regions: str = "borzoi",
         n_pseudobulks: int = 10,
         paired_mode: str = "ensemble",
         reverse_complement: bool = True,
@@ -546,6 +622,7 @@ class BorzoiMultiDataset(GenericDataset):
             dataset_records=dataset_records,
             pseudobulker_cls=paired_mode,
             shared_data_paths=shared_data_paths,
+            use_regions=use_regions,
         )
         self.dm = self.dataset_record_manager
         self.borzoi_regions = self.dataset_record_manager.borzoi_regions
@@ -557,6 +634,7 @@ class BorzoiMultiDataset(GenericDataset):
         self.reverse_complement = reverse_complement
         self.n_pseudobulks = n_pseudobulks
         self.train_region_step_sample = train_region_step_sample
+        self.use_regions = use_regions
 
         self._block_size = 20
         self._max_blocks = 200
@@ -621,6 +699,7 @@ class BorzoiMultiDataset(GenericDataset):
             "dataset_orders": self.dm.dataset_orders,
             "n_pseudobulks": self.n_pseudobulks,
             "region_key": "region",
+            "gene_key": "gene_id",
             "dataset_key": "__dataset_keys__",
             "normalize_cov": True,
             "output_prefix": "pseudobulk",
@@ -628,6 +707,7 @@ class BorzoiMultiDataset(GenericDataset):
             "chrom_offsets": self.dm.get_chrom_offsets(),
             "dataset_sample_weight": self.dm.dataset_sample_weight,
             "genome_embedding": self.dm.dataset_idx_to_genome_emb,
+            "gene_data_path_dict": self.dm.gene_data_path_dict,
         }
 
         dataset = dataset.flat_map(
@@ -653,16 +733,26 @@ class BorzoiMultiDataset(GenericDataset):
         return dataset
 
     def _prepare_region_dataset(self, region_bed: pd.DataFrame):
+        # Name in region_bed should be gene id or name, and renamed it to Original_Name
         region_bed = region_bed.rename(
-            columns={"key": "__dataset_keys__", "Name": "region"}
+            columns={"key": "__dataset_keys__", "Name": "gene_id"}
         )
-        region_bed = region_bed[["__dataset_keys__", "region"]].reset_index(drop=True)
+        region_bed["region"] = (
+            region_bed["Chromosome"].astype(str)
+            + ":"
+            + region_bed["Start"].astype(str)
+            + "-"
+            + region_bed["End"].astype(str)
+        )
+        region_bed = region_bed[["__dataset_keys__", "region", "gene_id"]].reset_index(
+            drop=True
+        )
 
         if self.is_train():
-            # resample regions for training
+            # shuffle regions for training
             region_bed = region_bed.sample(frac=1, replace=False)
         else:
-            # shuffle regions for validation and test
+            # fixed shuffle regions for validation and test
             region_bed = region_bed.sample(frac=1, replace=False, random_state=42)
 
         n_blocks = min(len(region_bed) // self._block_size + 1, self._max_blocks)
@@ -791,7 +881,3 @@ class BorzoiMultiDataset(GenericDataset):
             batch_size=self.batch_size,
         )
         return loader
-
-
-# TODO:
-# Dedup train regions as BorzoiDataset do

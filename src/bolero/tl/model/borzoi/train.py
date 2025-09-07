@@ -862,7 +862,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         if self.config.get("lora_checkpoint_path", None) is not None:
             # load the pre-trained LoRA model
             print(
-                f"Loading checkpoint state dict from {self.config['lora_checkpoint_path']} for fine-tuning."
+                "Config contains lora_checkpoint_path, will load weights and perform fine-tuning."
             )
             self.model.load_checkpoint_from_path(
                 self.config["lora_checkpoint_path"], strict=False
@@ -887,7 +887,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             pseudobulker_params = {
                 "pseudobulk_records": self.config["pseudobulk_records"],
                 "prefix_name": self.config["prefix"],
-                "downsample_pseudobulk": self.config["downsample_pseudobulk"],
+                "downsample_pseudobulk": self.config["downsample_pseudobulks"],
                 "emb_key": self.config["emb_key"],
             }
 
@@ -1224,70 +1224,3 @@ class BorzoiArchTrainer(BorzoiLoRATrainer):
             print(self.model)
         self._set_total_params()
         return
-
-
-class BorzoiLoRATrainerWithGeneCount(BorzoiLoRATrainer):
-    trainer_config = BorzoiLoRATrainer.trainer_config.copy()
-    trainer_config.update(
-        {"gene_loss_weight": 1, "freeze_borzoi": False, "lora_checkpoint_path": None}
-    )
-
-    def _setup_model(self, print_model=True):
-        super()._setup_model(print_model=False)
-
-        if self.config.get("freeze_borzoi", False):
-            print("Freeze the Borzoi model except the gene count head.")
-            for name, params in self.model.named_parameters():
-                # freeze everything except the gene count head
-                if not name.startswith("gene_count_output_head"):
-                    params.requires_grad = False
-            assert (
-                self.config["lora_checkpoint_path"] is not None
-            ), "LoRA checkpoint path is required for freezing the model."
-
-        if self.config.get("lora_checkpoint_path", None) is not None:
-            # load the pre-trained LoRA model
-            self.model.load_checkpoint_from_path(
-                self.config["lora_checkpoint_path"], strict=False
-            )
-
-        if print_model:
-            print(self.model)
-        self._set_total_params()
-        return
-
-    def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):
-        data_key = f"{self.prefix}:bulk_data"
-        dna_key = "dna_one_hot"
-        embedding_key = f"{self.prefix}:embedding_data"
-        position_weights = batch.get("position_weights", None)
-
-        # ==========
-        # Get batch data
-        # ==========
-        X = batch.pop(dna_key)
-        embedding = batch.get(embedding_key, None)
-        y_true = batch.pop(data_key)
-
-        # ==========
-        # Forward and Loss
-        # ==========
-        y_pred, dna_emb = model(X, embedding=embedding, return_dna_embedding=True)
-
-        loss, loss_breakdown, y_true = model.loss(
-            y_true=y_true, y_pred=y_pred, position_weights=position_weights
-        )
-
-        y_pred = y_pred.detach()
-
-        # ==========
-        # Gene count forward and loss
-        # ==========
-        gene_true = batch["gene_count"]  # (bs, 1)
-        gene_pred = model.gene_count_output_head(dna_emb)
-        gene_loss = model.gene_count_poisson_loss(y_pred=gene_pred, y_true=gene_true)
-        loss_breakdown["gene_count_mse"] = gene_loss.item()
-        loss += gene_loss * self.config["gene_loss_weight"]
-
-        batch["gene_pred"] = gene_pred
-        return y_true, y_pred, loss, loss_breakdown

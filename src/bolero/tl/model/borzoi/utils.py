@@ -3,6 +3,7 @@ import pathlib
 import numpy as np
 import pandas as pd
 import pyranges as pr
+import ray
 import torch
 
 from bolero.pp.genome import Genome
@@ -263,6 +264,18 @@ class BorzoiGeneRegions(BorzoiRegions):
         return train_regions, valid_regions, test_regions
 
 
+@ray.remote
+def _process_single_dataset(br, key, **kwargs):
+    """
+    Ray remote function to process regions for a single dataset.
+    """
+    tr, vr, te = br.get_train_valid_test_regions(**kwargs)
+    tr["key"] = key
+    vr["key"] = key
+    te["key"] = key
+    return tr, vr, te
+
+
 def gene_mask_coords_to_mask(
     gene_mask: torch.Tensor | np.ndarray, dna: torch.Tensor
 ) -> torch.Tensor:
@@ -296,13 +309,88 @@ class MultiBorzoiRegions:
         """
         Get train, valid, test regions for each key, and add key to the region bed.
         Concate them in the end.
+
+        Parameters
+        ----------
+        split_id : int
+            The split ID for train/valid/test fold separation
+        **kwargs
+            Additional keyword arguments passed to get_train_valid_test_regions
+
+        Returns
+        -------
+        tuple
+            (train_regions, valid_regions, test_regions) as pandas DataFrames
         """
         train_regions, valid_regions, test_regions = [], [], []
+        futures = []
         for key, br in self.regions.items():
-            tr, vr, te = br.get_train_valid_test_regions(split_id=split_id, **kwargs)
-            tr["key"] = key
-            vr["key"] = key
-            te["key"] = key
+            future = _process_single_dataset.remote(
+                br, key=key, split_id=split_id, **kwargs
+            )
+            futures.append(future)
+        results = ray.get(futures)
+
+        # Extract and concatenate results
+        train_regions, valid_regions, test_regions = [], [], []
+        for tr, vr, te in results:
+            train_regions.append(tr)
+            valid_regions.append(vr)
+            test_regions.append(te)
+        train_regions = pd.concat(train_regions, ignore_index=True)
+        valid_regions = pd.concat(valid_regions, ignore_index=True)
+        test_regions = pd.concat(test_regions, ignore_index=True)
+        return train_regions, valid_regions, test_regions
+
+
+class MultiBorzoiGeneRegions(MultiBorzoiRegions):
+    """
+    A class to handle multiple BorzoiGeneRegions for different keys with parallel processing support.
+
+    This class extends MultiBorzoiRegions to support parallel processing of multiple datasets
+    using Ray. The get_train_valid_test_regions method will process all datasets in parallel.
+    """
+
+    def __init__(self, key_to_genome):
+        self.key_to_genome = key_to_genome
+        self.regions = {
+            key: BorzoiGeneRegions(genome) for key, genome in key_to_genome.items()
+        }
+        self.fold_splits = BorzoiGeneRegions.fold_splits
+
+    def get_train_valid_test_regions(self, split_id, deg_list_dict=None, **kwargs):
+        """
+        Get train, valid, test regions for each key, and add key to the region bed.
+        Concate them in the end.
+
+        Parameters
+        ----------
+        split_id : int
+            The split ID for train/valid/test fold separation
+        deg_list_dict : dict, optional
+            Dictionary mapping keys to DEG gene lists
+        **kwargs
+            Additional keyword arguments passed to get_train_valid_test_regions
+
+        Returns
+        -------
+        tuple
+            (train_regions, valid_regions, test_regions) as pandas DataFrames
+        """
+        deg_list_dict = deg_list_dict or {}
+        train_regions, valid_regions, test_regions = [], [], []
+        futures = []
+        for key, br in self.regions.items():
+            _deg_list = deg_list_dict.get(key, None)
+            future = _process_single_dataset.remote(
+                br, key=key, split_id=split_id, deg_list=_deg_list, **kwargs
+            )
+            futures.append(future)
+        results = ray.get(futures)
+
+        # Extract and concatenate results
+        train_regions, valid_regions, test_regions = [], [], []
+        for tr, vr, te in results:
             train_regions.append(tr)
             valid_regions.append(vr)
             test_regions.append(te)
