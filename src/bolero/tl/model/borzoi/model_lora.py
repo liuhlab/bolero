@@ -673,7 +673,6 @@ class BorzoiLoRA(Borzoi):
         if reduce:
             loss = loss.mean()
 
-        loss = loss * self._gene_loss_weight
         return loss
 
 

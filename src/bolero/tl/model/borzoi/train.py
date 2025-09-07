@@ -854,6 +854,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         self.model = model
         self.model.to(self.device)
         self.model.convert_to_lora()
+
         if print_model:
             print(self.model)
         self._set_total_params()
@@ -866,6 +867,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             self.model.load_checkpoint_from_path(
                 self.config["lora_checkpoint_path"], strict=False
             )
+
+        # wrap with DataParallel after checkpoint loading to avoid module prefix issues
+        self._wrap_model_with_dataparallel()
 
         return
 
@@ -909,10 +913,14 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             return None
 
     def _model_forward_pass_gene_count(
-        self, model: BorzoiLoRA, batch: dict, dna_embedding: torch.Tensor
+        self,
+        model: BorzoiLoRA,
+        batch: dict,
+        dna_embedding: torch.Tensor,
+        embedding: torch.Tensor,
     ):
         y_true = batch["__gene_value__"]
-        y_pred = model.gene_count_output_head(dna_embedding)
+        y_pred = model.gene_count_output_head(dna_embedding, embedding=embedding)
         gene_count_loss = model.gene_count_poisson_loss(
             y_pred=y_pred, y_true=y_true, reduce=True
         )
@@ -948,7 +956,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         if hasattr(model, "gene_count_output_head"):
             # additional gene count loss
             gene_count_loss = self._model_forward_pass_gene_count(
-                model, batch, dna_embedding=dna_embedding
+                model, batch, dna_embedding=dna_embedding, embedding=embedding
             )
             loss = loss + gene_count_loss
             loss_breakdown["gene_count_loss"] = gene_count_loss
@@ -1017,7 +1025,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         if hasattr(model, "gene_count_output_head"):
             # additional gene count loss
             gene_count_loss = self._model_forward_pass_gene_count(
-                model, batch, dna_embedding=dna_emb
+                model, batch, dna_embedding=dna_emb, embedding=cond_ensemble
             )
             loss = loss + gene_count_loss
             loss_breakdown["gene_count_loss"] = gene_count_loss

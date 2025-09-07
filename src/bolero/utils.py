@@ -63,6 +63,33 @@ def try_gpu():
     return "cpu"
 
 
+def setup_multi_gpu(use_multi_gpu=True):
+    """
+    Setup multi-GPU training if available.
+
+    Parameters
+    ----------
+    use_multi_gpu : bool
+        Whether to use multi-GPU training if available.
+
+    Returns
+    -------
+    tuple
+        (device, num_gpus, use_data_parallel)
+    """
+    if not torch.cuda.is_available():
+        return "cpu", 0, False
+
+    num_gpus = torch.cuda.device_count()
+
+    if num_gpus > 1 and use_multi_gpu:
+        print(f"Using {num_gpus} GPUs for training")
+        return "cuda", num_gpus, True
+    else:
+        print("Using single GPU for training")
+        return "cuda", 1, False
+
+
 def understand_regions(regions, as_df=True) -> Union[pr.PyRanges, pd.DataFrame]:
     """
     From various inputs, return a clear output. Return pyranges by default.

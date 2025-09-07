@@ -19,7 +19,7 @@ from bolero.tl.generic.train_helper import (
     make_borzoi_scheduler,
     safe_save,
 )
-from bolero.utils import try_gpu, validate_config
+from bolero.utils import setup_multi_gpu, try_gpu, validate_config
 
 
 class GenericModel(nn.Module):
@@ -310,6 +310,7 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         "plot_example_per_epoch": 9,
         "accumulate_grad": 1,
         "grad_norm_collector": False,
+        "use_multi_gpu": True,
     }
     dataset_class = GenericDataset
     model_class = GenericModel
@@ -533,7 +534,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         # setup torch environment
         torch.set_num_threads(4)
         torch.backends.cudnn.benchmark = True
-        self.device = try_gpu()
+
+        # setup multi-GPU if available and configured
+        use_multi_gpu = self.config.get("use_multi_gpu", True)
+        self.device, self.num_gpus, self.use_data_parallel = setup_multi_gpu(
+            use_multi_gpu
+        )
 
         # save config to output_dir
         with open(f"{self.savename}.config.json", "w") as f:
@@ -555,6 +561,17 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         model = self.model_class.create_from_config(config)
         model.to(self.device)
         return model
+
+    def _wrap_model_with_dataparallel(self):
+        """Wrap model with DataParallel after checkpoint loading."""
+        if (
+            self.use_data_parallel
+            and self.num_gpus > 1
+            and not isinstance(self.model, nn.DataParallel)
+        ):
+            print(f"Wrapping model with DataParallel for {self.num_gpus} GPUs")
+            self.model = nn.DataParallel(self.model)
+        return
 
     def _set_total_params(self):
         total_params = 0
@@ -599,6 +616,9 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
 
         del checkpoint
         self._cleanup_env()
+
+        # wrap with DataParallel after loading checkpoint if needed
+        self._wrap_model_with_dataparallel()
         return
 
     def _get_ema(self):
@@ -769,8 +789,12 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         if update_best:
             print("Saving best checkpoint...")
             # check point includes model and other training states
+            if isinstance(self.model, nn.DataParallel):
+                state_dict = self.model.module.state_dict()
+            else:
+                state_dict = self.model.state_dict()
             checkpoint = {
-                "state_dict": self.model.state_dict(),
+                "state_dict": state_dict,
                 "optimizer": self.optimizer.state_dict(),
                 "scaler": self.scaler.state_dict() if self.scaler is not None else None,
                 "scheduler": (
@@ -797,7 +821,11 @@ class GenericTrainer(TrainerAttributesMixin, TrainerDatasetMixin):
         if self.config.get("use_ema", False):
             state_dict = self.ema.ema_model.state_dict()
         else:
-            state_dict = self.model.state_dict()
+            if isinstance(self.model, nn.DataParallel):
+                state_dict = self.model.module.state_dict()
+            else:
+                state_dict = self.model.state_dict()
+
         safe_save(state_dict, self.cur_epoch_model_state_path)
         return
 
