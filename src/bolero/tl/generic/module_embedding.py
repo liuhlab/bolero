@@ -389,7 +389,12 @@ class _SimpleEncoderDict(nn.ModuleDict):
         assert isinstance(
             input_emb, dict
         ), f"input_emb must be dict, but got {type(input_emb)}"
-        out_emb = [_encoder(input_emb[k]) for k, _encoder in self.items()]
+        try:
+            out_emb = [_encoder(input_emb[k]) for k, _encoder in self.items()]
+        except KeyError:
+            raise KeyError(
+                f"input_emb must have keys {list(self.keys())}, but got {list(input_emb.keys())}"
+            ) from None
         if self.pool_mode == "concat":
             out_emb = torch.cat(out_emb, dim=-1)
         else:
@@ -518,11 +523,13 @@ class ConditionEmbeddingModuleMulti(nn.Module):
                 dims_dict["cond"] = None
             else:
                 try:
-                    dims_dict["cell"] = dims.pop("cell")
+                    dims_dict["cell"] = dims["cell"]
+                    # IMPORTANT: remove cell key from dims and handle the rest as cond emb dims
+                    dims = {k: v for k, v in dims.items() if k != "cell"}
                 except KeyError:
                     raise KeyError(
                         f"dataset {dataset_name} must have 'cell' key, "
-                        f"got {dims.keys()}"
+                        f"got {list(dims.keys())}"
                     ) from None
                 # remaining parts are cond emb
                 dims_dict["cond"] = dims if len(dims) > 0 else None

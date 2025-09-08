@@ -180,6 +180,10 @@ class DatasetRecordManager:
             for k, v in self.dataset_records.items()
             if "gene_data_path" in v
         }
+        if len(self.gene_data_path_dict) > 0:
+            assert (
+                self.use_regions == "borzoi_gene"
+            ), "use_regions must be 'borzoi_gene' when gene_data_path is provided"
 
     def _init_data(self):
         self.data_paths: dict[str, str] = {
@@ -545,7 +549,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         return global_coords
 
     def _add_region_and_dataset_key_int(
-        self, list_of_batches: list[dict], key: str, region: str
+        self, list_of_batches: list[dict], key: str, region: str, **other_data
     ) -> list[dict]:
         key_int = self.dataset_orders.index(key)
         region_coords = self._region_to_global_coords(key, region)
@@ -554,6 +558,10 @@ class GenerateMultiGenomeParquetAndPseudobulk:
             if self.genome_embedding is not None:
                 batch["__genome__"] = self.genome_embedding[key_int]
             batch[self.region_key] = region_coords
+            for k, v in other_data.items():
+                if v is not None:
+                    batch[k] = v.copy()
+
         return list_of_batches
 
     def __call__(self, batch: dict) -> list[dict]:
@@ -564,15 +572,18 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         gene = batch.pop(self.gene_key)
         dataset_key = batch.pop(self.dataset_key)
         dna = batch.pop(DNA_NAME)
+        mask_coords = batch.pop("MaskCoords", None)
 
         list_of_batches = self._sample_pseudobulks_and_get_data(
             dataset_key, region, gene
         )
+        other_data = {
+            "MaskCoords": mask_coords,
+            DNA_NAME: dna,
+        }
         list_of_batches = self._add_region_and_dataset_key_int(
-            list_of_batches, key=dataset_key, region=region
+            list_of_batches, key=dataset_key, region=region, **other_data
         )
-        for batch in list_of_batches:
-            batch[DNA_NAME] = dna.copy()
         return list_of_batches
 
 
@@ -744,9 +755,9 @@ class BorzoiMultiDataset(GenericDataset):
             + "-"
             + region_bed["End"].astype(str)
         )
-        region_bed = region_bed[["__dataset_keys__", "region", "gene_id"]].reset_index(
-            drop=True
-        )
+        region_bed = region_bed[
+            ["__dataset_keys__", "region", "gene_id", "MaskStart", "MaskEnd"]
+        ].reset_index(drop=True)
 
         if self.is_train():
             # shuffle regions for training
@@ -756,7 +767,20 @@ class BorzoiMultiDataset(GenericDataset):
             region_bed = region_bed.sample(frac=1, replace=False, random_state=42)
 
         n_blocks = min(len(region_bed) // self._block_size + 1, self._max_blocks)
-        dataset = ray.data.from_pandas(region_bed).repartition(n_blocks).materialize()
+
+        # process mask coords just like the BorzoiDataset did
+        def _process_mask_coords(batch):
+            batch["MaskCoords"] = np.stack(
+                [batch.pop("MaskStart"), batch.pop("MaskEnd")]
+            ).T
+            return batch
+
+        dataset = (
+            ray.data.from_pandas(region_bed)
+            .repartition(n_blocks)
+            .map_batches(_process_mask_coords)
+            .materialize()
+        )
         return dataset
 
     def get_processed_dataset(self, region_bed: pd.DataFrame, concurrency: int):

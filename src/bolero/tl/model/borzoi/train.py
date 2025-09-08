@@ -1106,7 +1106,7 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         assert (
             ckpt_path is not None
         ), "Checkpoint path must be specified when training dataset specific only."
-        # TODO: change strict to True after dev
+
         self.model.load_checkpoint_from_path(ckpt_path, strict=False)
 
         name_pattern = re.compile("cond_emb_module.(cell|cond)_encoder_dict")
