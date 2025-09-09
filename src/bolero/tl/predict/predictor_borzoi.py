@@ -991,6 +991,9 @@ class BorzoiPredictor(GenericPredictor):
                 f"Filtered {regions.shape[0] - new_regions.shape[0]} invalid regions "
                 "from input regions that are not fully overlapped with the parquet dataset."
             )
+
+        if "Name" not in new_regions.columns:
+            new_regions["Name"] = new_regions.index.astype(str)
         return new_regions
 
     def qtl_task(
@@ -1036,7 +1039,6 @@ class BorzoiPredictor(GenericPredictor):
         # add qtl manager and get regions from the qtl manager
         self.register_qtl_manager(qtl_table)
         regions = self._filter_valid_regions(mode="qtl")
-
         dataloader = self.get_prediction_dataloader(
             regions=regions,
             add_true_data=add_true_data,
