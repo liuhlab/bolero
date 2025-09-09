@@ -755,9 +755,12 @@ class BorzoiMultiDataset(GenericDataset):
             + "-"
             + region_bed["End"].astype(str)
         )
-        region_bed = region_bed[
-            ["__dataset_keys__", "region", "gene_id", "MaskStart", "MaskEnd"]
-        ].reset_index(drop=True)
+
+        use_cols = ["__dataset_keys__", "region", "gene_id"]
+        if self.use_regions == "borzoi_gene":
+            use_cols.extend(["MaskStart", "MaskEnd"])
+
+        region_bed = region_bed[use_cols].reset_index(drop=True)
 
         if self.is_train():
             # shuffle regions for training
@@ -768,19 +771,24 @@ class BorzoiMultiDataset(GenericDataset):
 
         n_blocks = min(len(region_bed) // self._block_size + 1, self._max_blocks)
 
-        # process mask coords just like the BorzoiDataset did
-        def _process_mask_coords(batch):
-            batch["MaskCoords"] = np.stack(
-                [batch.pop("MaskStart"), batch.pop("MaskEnd")]
-            ).T
-            return batch
+        if self.use_regions == "borzoi_gene":
+            # process mask coords just like the BorzoiDataset did
+            def _process_mask_coords(batch):
+                batch["MaskCoords"] = np.stack(
+                    [batch.pop("MaskStart"), batch.pop("MaskEnd")]
+                ).T
+                return batch
 
-        dataset = (
-            ray.data.from_pandas(region_bed)
-            .repartition(n_blocks)
-            .map_batches(_process_mask_coords)
-            .materialize()
-        )
+            dataset = (
+                ray.data.from_pandas(region_bed)
+                .repartition(n_blocks)
+                .map_batches(_process_mask_coords)
+                .materialize()
+            )
+        else:
+            dataset = (
+                ray.data.from_pandas(region_bed).repartition(n_blocks).materialize()
+            )
         return dataset
 
     def get_processed_dataset(self, region_bed: pd.DataFrame, concurrency: int):
