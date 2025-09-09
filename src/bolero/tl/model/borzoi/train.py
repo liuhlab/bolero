@@ -1098,17 +1098,8 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
 
     def _train_dataset_specific_only(self):
         """
-        Given a checkpoint path, load the model weights from the checkpoint.
-
-        Then we freeze everything except the dataset specific part of cond_emb_module.
+        Freeze everything except the dataset specific part of cond_emb_module.
         """
-        ckpt_path = self.config["lora_checkpoint_path"]
-        assert (
-            ckpt_path is not None
-        ), "Checkpoint path must be specified when training dataset specific only."
-
-        self.model.load_checkpoint_from_path(ckpt_path, strict=False)
-
         name_pattern = re.compile("cond_emb_module.(cell|cond)_encoder_dict")
         for name, params in self.model.named_parameters():
             if not name_pattern.match(name):
