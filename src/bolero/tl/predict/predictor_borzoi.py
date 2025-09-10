@@ -852,9 +852,15 @@ class BorzoiPredictor(GenericPredictor):
         if downsample_regions is not None:
             regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
 
+        # check if dm has reference bigwig
+        if "reference" in self.datamanager.bw_datasets:
+            _add_true_data = False
+        else:
+            _add_true_data = True
+
         dataloader = self.get_prediction_dataloader(
             regions=regions,
-            add_true_data=True,
+            add_true_data=_add_true_data,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
@@ -1707,7 +1713,14 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             )
 
         # take reference signal and log1p scale
-        x0 = batch[x0_key]
+        x0 = batch.get(x0_key, None)
+        if x0 is None:
+            # x0 key doesn't exist, try reference signal key
+            x0 = batch.get("reference", None)
+        if x0 is None:
+            raise KeyError(
+                f"x0 key {x0_key} or reference signal key not found in batch"
+            )
         x0 = torch.log1p(x0)
 
         n_emb = cell_emb.shape[0]
