@@ -252,6 +252,105 @@ def make_all_conditional_lora_config(
     return lora_config
 
 
+def make_all_conditional_per_layer_lora_config(
+    emb_input_features,
+    hidden_dim=256,
+    hidden_layers=1,
+    lora_dropout=0.01,
+    lora_scale=1,
+    embedding_dropout=0,
+    except_output_head=False,
+    emb_attn_pooling=False,
+):
+    """Make LoRA configuration for the Borzoi model."""
+    shared_config = {
+        "emb_input_features": emb_input_features,
+        "hidden_dim": hidden_dim,
+        "hidden_layers": hidden_layers,
+        "lora_dropout": lora_dropout,
+        "embedding_dropout": embedding_dropout,
+        "lora_scale": lora_scale,
+        "convert_conv": True,
+        "convert_linear": True,
+        "emb_attn_pooling": emb_attn_pooling,
+    }
+    lora_config = {
+        "conv_dna": {
+            **shared_config,
+            "lora_rank": 2,  # total lora_lora_rank 2 * 15
+        },
+        (
+            "res_tower",
+            "unet1",
+        ): {
+            **shared_config,
+            "lora_rank": 6,  # total lora_rank 6 * 5
+        },
+        (
+            "transformer.0",
+            "transformer.1",
+            "transformer.2",
+            "transformer.3",
+            "transformer.4",
+            "transformer.5",
+            "transformer.6",
+            "transformer.7",
+        ): {
+            **shared_config,
+            "lora_rank": 30,
+            "exclude_cond_lora_patterns": [
+                # linear projections inside regular attention
+                "to_q",
+                "to_k",
+                "to_v",
+                "to_out",
+                "to_rel_k",
+                # linear projections inside flash attention
+                "mha.Wqkv",
+                "mha.out_proj",
+            ],
+        },
+        (
+            "horizontal_conv0",
+            "horizontal_conv1",
+            "upsampling_unet0",
+            "upsampling_unet1",
+        ): {
+            **shared_config,
+            "lora_rank": 30,  # total lora_rank 30 * 1
+        },
+        (
+            "separable0",
+            "separable1",
+        ): {
+            **shared_config,
+            "lora_rank": 10,  # total lora_rank 10 * 3
+        },
+        ("final_joined_convs",): {
+            **shared_config,
+            "lora_rank": 60,  # total lora_rank 60 * 1
+        },
+        "final_output_head": {
+            **shared_config,
+            "lora_rank": 1,
+        },
+        # These are optional heads, not used if the head doesn't exist in the model
+        "delta_output_head": {
+            **shared_config,
+            "lora_rank": 1,
+        },
+        "gene_count_output_head": {
+            **shared_config,
+            "lora_rank": 1,
+        },
+    }
+
+    if except_output_head:
+        del lora_config["final_output_head"]
+
+    return lora_config
+
+
 def make_all_conditional_scaling_lora_config(
     emb_input_features,
     hidden_dim=256,
@@ -350,6 +449,7 @@ LORA_CONFIG_FUNCTIONS = {
     "scooby": make_scooby_lora_config,
     "all_conditional": make_all_conditional_lora_config,  # DEFAULT
     "all_conditional_scaling": make_all_conditional_scaling_lora_config,
+    "all_conditional_per_layer": make_all_conditional_per_layer_lora_config,
     "all_conditional_except_output_head": partial(
         make_all_conditional_lora_config, except_output_head=True
     ),

@@ -1,7 +1,10 @@
+from copy import deepcopy
+
 import torch
 from torch import nn
 
 from bolero.tl.generic.module_embedding import EmbeddingMLP
+from bolero.tl.generic.module_lora import set_submodule_by_name
 from bolero.tl.generic.module_lora_cond import (
     collapse_lora_model_,
     convert_to_conditional_lora_model,
@@ -53,6 +56,8 @@ class BorzoiLoRA(Borzoi):
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
             "_gene_softclip": True,
+            "_include_cond_lora_patterns": None,
+            "_exclude_cond_lora_patterns": None,
         }
     )
 
@@ -85,6 +90,8 @@ class BorzoiLoRA(Borzoi):
         _predict_delta=True,
         _lora_scaling_factor=1,
         _gene_softclip=True,
+        _include_cond_lora_patterns=None,
+        _exclude_cond_lora_patterns=None,
         # base model
         **base_model_kwargs,
     ):
@@ -111,6 +118,8 @@ class BorzoiLoRA(Borzoi):
         self._lora_scaling_factor = _lora_scaling_factor
         # for gene count head
         self._gene_softclip = _gene_softclip
+        self._include_cond_lora_patterns = _include_cond_lora_patterns or []
+        self._exclude_cond_lora_patterns = _exclude_cond_lora_patterns or []
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -390,14 +399,26 @@ class BorzoiLoRA(Borzoi):
     def _convert_single_module(self, name, config):
         """Convert a single module to LoRA."""
         try:
-            module = getattr(self, name)
+            module = self.get_submodule(name)
         except AttributeError:
             print(f"Model does not have {name}, skip")
             return
         if module is None:
             return
-        module = convert_to_conditional_lora_model(module, **config)
-        setattr(self, name, module)
+
+        config = deepcopy(config)
+        default_conditional = True
+        if name in self._include_cond_lora_patterns:
+            default_conditional = True
+        if name in self._exclude_cond_lora_patterns:
+            default_conditional = False
+        config.setdefault("default_conditional", default_conditional)
+
+        module = convert_to_conditional_lora_model(
+            module,
+            **config,
+        )
+        set_submodule_by_name(self, name, module)
         return
 
     def collapse_lora(self, embedding):

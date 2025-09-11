@@ -12,6 +12,7 @@ from einops import rearrange
 from torch import einsum, nn
 from torch.nn import functional as F
 
+from bolero.tl.generic.module_lora import LoRAConv, LoRAEmbedding, LoRALinear
 from bolero.tl.generic.module_lora_cond import ConditionalLoRALayer
 
 
@@ -150,6 +151,9 @@ class SequentialwithArgs(nn.Sequential):
         nn.Linear,
         nn.Identity,
         nn.AdaptiveAvgPool1d,
+        LoRAConv,
+        LoRALinear,
+        LoRAEmbedding,
         GEGLU,
     )
 
