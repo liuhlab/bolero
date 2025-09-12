@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from bolero.tl.generic.module_embedding import EmbeddingMLP
@@ -56,6 +57,8 @@ class BorzoiLoRA(Borzoi):
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
             "_gene_softclip": True,
+            "_gene_loss_type": "poisson_multinomial",
+            "_use_pred_sig_in_gene_count": False,
             "_include_cond_lora_patterns": None,
             "_exclude_cond_lora_patterns": None,
         }
@@ -89,7 +92,9 @@ class BorzoiLoRA(Borzoi):
         _disable_cond_module=False,
         _predict_delta=True,
         _lora_scaling_factor=1,
-        _gene_softclip=True,
+        _gene_softclip=False,
+        _gene_loss_type="poisson_multinomial",
+        _use_pred_sig_in_gene_count=False,
         _include_cond_lora_patterns=None,
         _exclude_cond_lora_patterns=None,
         # base model
@@ -111,15 +116,22 @@ class BorzoiLoRA(Borzoi):
         base_checkpoint_path : str
             Path to the checkpoint file for the Borzoi base model.
         """
+        # ================================================
+        # Special parameters for experimental purposes
         self._multihead_model = _multihead_model
         self._disable_cond_module = _disable_cond_module
         self._predict_delta = _predict_delta
-        # for lora preset "all_conditional_scaling", adjust model size
+        # use "all_conditional_scaling", to adjust model size
+        # use "all_conditional_per_layer", to adjust layer-wise lora config
         self._lora_scaling_factor = _lora_scaling_factor
         # for gene count head
         self._gene_softclip = _gene_softclip
+        self._gene_loss_type = _gene_loss_type
+        self._use_pred_sig_in_gene_count = _use_pred_sig_in_gene_count
+        # for special layer-wise lora experiments
         self._include_cond_lora_patterns = _include_cond_lora_patterns or []
         self._exclude_cond_lora_patterns = _exclude_cond_lora_patterns or []
+        # ================================================
 
         super().__init__(**base_model_kwargs)
         self.lora_preset = lora_preset
@@ -561,6 +573,20 @@ class BorzoiLoRA(Borzoi):
             **kwargs,
         )
 
+        if self._use_pred_sig_in_gene_count:
+            if crop:
+                pred_sig = F.pad(output.detach(), (16, 16))
+            # use predicted signal to forward pass again and update dna_emb
+            kwargs["signal"] = torch.log1p(pred_sig)
+            _, dna_embedding = self.forward(
+                x,
+                gene_mask=gene_mask,
+                embedding=embedding,
+                crop=crop,
+                return_dna_embedding=True,
+                **kwargs,
+            )
+
         # get gene count prediction
         gene_output = self.gene_count_output_head(dna_embedding, embedding=embedding)
         if inverse_softclip:
@@ -680,7 +706,7 @@ class BorzoiLoRA(Borzoi):
             loss = loss.mean()
         return loss, y_true
 
-    def gene_count_poisson_loss(self, y_pred, y_true, reduce=True):
+    def gene_count_loss(self, y_pred, y_true, reduce=True):
         """Compute the gene count loss."""
         # assume y_true is log1p transformed
         # self.gene_count_softclip will do 1) expm1 2) squashing and 3) softclip
@@ -688,9 +714,19 @@ class BorzoiLoRA(Borzoi):
         y_true = self.gene_count_softclip(y_true)
 
         # y_pred is after softplus, so not log input
-        loss = nn.functional.poisson_nll_loss(
-            y_pred, y_true, log_input=False, reduction="none"
-        )
+        if self._gene_loss_type == "poisson_multinomial":
+            loss = nn.functional.poisson_nll_loss(
+                y_pred, y_true, log_input=False, reduction="none"
+            )
+        elif self._gene_loss_type == "mse":
+            # (bs, 1, 1) -> (bs, )
+            y_pred = y_pred.squeeze(-1).squeeze(-1)
+            loss = nn.functional.mse_loss(y_pred, y_true, reduction="none")
+        else:
+            raise ValueError(
+                f"Gene count loss type {self._gene_loss_type} not recognized"
+            )
+
         if reduce:
             loss = loss.mean()
 

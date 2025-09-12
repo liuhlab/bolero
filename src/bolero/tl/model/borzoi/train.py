@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import wandb
 
 from bolero.pl.borzoi import BorzoiExamplePlotter
@@ -921,7 +922,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     ):
         y_true = batch["__gene_value__"]
         y_pred = model.gene_count_output_head(dna_embedding, embedding=embedding)
-        gene_count_loss = model.gene_count_poisson_loss(
+        gene_count_loss = model.gene_count_loss(
             y_pred=y_pred, y_true=y_true, reduce=True
         )
         return gene_count_loss
@@ -1023,6 +1024,18 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             loss_breakdown["delta_loss"] = delta_loss
 
         if hasattr(model, "gene_count_output_head"):
+            if model._use_pred_sig_in_gene_count:
+                # pad y_pred_count to revert crop
+                signal_pred = F.pad(y_pred_count.detach(), (16, 16))
+                # use predicted signal to forward pass again and update dna_emb
+                signal_pred = torch.log1p(signal_pred)
+                _, dna_emb = model(
+                    dna_one_hot,
+                    embedding=cond_ensemble,
+                    signal=signal_pred,
+                    return_dna_embedding=True,
+                    gene_mask=gene_mask,
+                )
             # additional gene count loss
             gene_count_loss = self._model_forward_pass_gene_count(
                 model, batch, dna_embedding=dna_emb, embedding=cond_ensemble
