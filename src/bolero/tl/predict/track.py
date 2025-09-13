@@ -1,4 +1,5 @@
 import pathlib
+from shutil import rmtree
 from tempfile import mkdtemp
 
 import joblib
@@ -6,66 +7,58 @@ import numpy as np
 import pandas as pd
 import pyBigWig
 import ray
-from scipy.sparse import csc_matrix, lil_matrix
+from scipy.sparse import csr_matrix
 
 
 @ray.remote
 def _aggregate_pid_data(pid, pid_files, chrom_sizes, temp_dir, use_keys, resolution=32):
     """
-    Aggregate region data into chromosomal CSC matrices for each pseudobulk.
+    Aggregate region data into chromosomal CSR matrices for each pseudobulk.
     """
     pid_dicts = [joblib.load(path) for path in pid_files]
-    pid_data = {}
+    pid_data = {k: {} for k in use_keys}
     for use_key in use_keys:
-        # Use LIL matrix for efficient construction, then convert to CSC
-        chrom_lil_matrix = {
-            chrom: lil_matrix((1, size // resolution))
-            for chrom, size in chrom_sizes.items()
-        }
-        for pid_dict in pid_dicts:
-            data = pid_dict[use_key]
-            regions = pid_dict["regions"]
-            for rid, (chrom, start, end) in enumerate(regions):
-                bin_start = int(np.round(start / resolution))
-                size = int((end - start) / resolution)
-                bin_end = bin_start + size
-                chrom_lil_matrix[chrom][0, bin_start:bin_end] = data[rid, :]
+        for chrom, size in chrom_sizes.items():
+            chrom_array = np.zeros((size // resolution,), dtype="float32")
+            for pid_dict in pid_dicts:
+                data = pid_dict[use_key].astype("float32")
+                # data = np.where(data > 1e-4, data, 0)
+                regions = pid_dict["regions"]
+                for rid, (rchrom, start, end) in enumerate(regions):
+                    if rchrom != chrom:
+                        continue
+                    bin_start = int(np.round(start / resolution))
+                    size = int((end - start) / resolution)
+                    bin_end = bin_start + size
+                    chrom_array[bin_start:bin_end] = data[rid, :]
+            chrom_csr = csr_matrix(chrom_array)
+            pid_data[use_key][chrom] = chrom_csr
 
-        # Convert LIL to CSC for final storage (efficient for column operations)
-        chrom_csc_matrix = {}
-        for chrom in chrom_lil_matrix.keys():
-            chrom_csc_matrix[chrom] = csc_matrix(chrom_lil_matrix[chrom])
-            chrom_csc_matrix[chrom].eliminate_zeros()
-        pid_data[use_key] = chrom_csc_matrix
-
-    joblib.dump(pid_data["ytrue"], f"{temp_dir}/{pid}.ytrue_chrom_csc_matrix.joblib.gz")
-    joblib.dump(pid_data["ypred"], f"{temp_dir}/{pid}.ypred_chrom_csc_matrix.joblib.gz")
+    joblib.dump(pid_data["ytrue"], f"{temp_dir}/{pid}.ytrue_chrom_csr_matrix.joblib.gz")
+    joblib.dump(pid_data["ypred"], f"{temp_dir}/{pid}.ypred_chrom_csr_matrix.joblib.gz")
 
 
-def _csc_to_bigwig(csc_file, chrom_sizes, resolution, output_file):
-    # Load the CSC matrix data
-    chrom_csc_data = joblib.load(csc_file)
+@ray.remote
+def _csr_to_bigwig(csr_file, chrom_sizes, resolution, output_file):
+    output_file = pathlib.Path(output_file)
+    if output_file.exists():
+        return
+    temp_file = output_file.with_suffix(".tmp")
 
-    # Create BigWig file
-    with pyBigWig.open(str(output_file), "w") as bw:
-        # Write header with chromosome sizes
+    chrom_csr_data = joblib.load(csr_file)
+    with pyBigWig.open(str(temp_file), "w") as bw:
         bw.addHeader(list(chrom_sizes.items()))
 
-        # Write data for each chromosome
         for chrom in chrom_sizes.keys():
-            csc_matrix = chrom_csc_data[chrom]
-            if csc_matrix.nnz == 0:  # Skip empty matrices
+            csr_matrix = chrom_csr_data[chrom]
+            if csr_matrix.nnz == 0:  # Skip empty matrices
                 continue
-
-            # Convert CSC matrix to dense array for BigWig
-            coo = csc_matrix.tocoo()
-            starts = coo.col * resolution
-            values = coo.data
-
-            # Add intervals to BigWig
+            starts = csr_matrix.indices * resolution
+            values = csr_matrix.data
             bw.addEntries(
                 chrom, starts.tolist(), values=values.tolist(), span=resolution
             )
+    temp_file.rename(output_file)
     return
 
 
@@ -90,15 +83,6 @@ class TrackAggregator:
         self.resolution = resolution
         self.ytrue_key = ytrue_key
         self.ypred_key = ypred_key
-        _use_keys = []
-        if ytrue_key is not None:
-            _use_keys.append(ytrue_key)
-        if ypred_key is not None:
-            _use_keys.append(ypred_key)
-        self.use_keys = _use_keys
-        assert (
-            len(self.use_keys) > 0
-        ), "At least one of ytrue_key or ypred_key must be provided"
 
         self.batch_paths = list(self.output_dir.glob("batch/batch*.gz"))
 
@@ -158,28 +142,35 @@ class TrackAggregator:
                 chrom_sizes=self.chrom_sizes,
                 temp_dir=self.tmp_dir,
                 resolution=self.resolution,
-                use_keys=self.use_keys,
+                use_keys=("ytrue", "ypred"),
             )
             futures.append(f)
         _ = ray.get(futures)
 
-    def _csc_to_bigwig(self):
+    def _csr_to_bigwig(self):
         """
-        Convert CSC matrix files to BigWig format.
-        Loads files matching pattern *.*_chrom_csc_matrix.joblib.gz from tmp_dir
-        and saves as BigWig files with pattern *.*_chrom_csc_matrix.bw in output_dir.
+        Convert CSR matrix files to BigWig format.
+        Loads files matching pattern *.*_chrom_csr_matrix.joblib.gz from tmp_dir
+        and saves as BigWig files with pattern *.*_chrom_csr_matrix.bw in output_dir.
         """
-        # Find all CSC matrix files
-        csc_files = list(self.tmp_dir.glob("*.*_chrom_csc_matrix.joblib.gz"))
+        # Find all CSR matrix files
+        csr_files = list(self.tmp_dir.glob("*.*_chrom_csr_matrix.joblib.gz"))
 
-        for csc_file in csc_files:
+        futures = []
+        for csr_file in csr_files:
             # Extract the base name for output file
-            base_name = csc_file.stem.replace(".joblib.gz", "")
+            base_name = csr_file.stem.replace(".joblib.gz", "")
             output_file = self.track_dir / f"{base_name}.bw"
 
-            _csc_to_bigwig(csc_file, self.chrom_sizes, self.resolution, output_file)
+            f = _csr_to_bigwig.remote(
+                csr_file, self.chrom_sizes, self.resolution, output_file
+            )
+            futures.append(f)
+        _ = ray.get(futures)
 
     def dump_track(self):
         """Dump the track data from separate batches into pseudobulk separated bigwig files."""
         self._dump_pid_data()
-        self._csc_to_bigwig()
+        self._csr_to_bigwig()
+        rmtree(self.tmp_dir)
+        return

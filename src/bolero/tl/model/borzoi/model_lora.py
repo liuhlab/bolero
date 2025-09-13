@@ -93,7 +93,6 @@ class BorzoiLoRA(Borzoi):
         _predict_delta=True,
         _lora_scaling_factor=1,
         _gene_softclip=False,
-        _gene_loss_type="poisson_multinomial",
         _use_pred_sig_in_gene_count=False,
         _include_cond_lora_patterns=None,
         _exclude_cond_lora_patterns=None,
@@ -126,7 +125,6 @@ class BorzoiLoRA(Borzoi):
         self._lora_scaling_factor = _lora_scaling_factor
         # for gene count head
         self._gene_softclip = _gene_softclip
-        self._gene_loss_type = _gene_loss_type
         self._use_pred_sig_in_gene_count = _use_pred_sig_in_gene_count
         # for special layer-wise lora experiments
         self._include_cond_lora_patterns = _include_cond_lora_patterns or []
@@ -714,18 +712,9 @@ class BorzoiLoRA(Borzoi):
         y_true = self.gene_count_softclip(y_true)
 
         # y_pred is after softplus, so not log input
-        if self._gene_loss_type == "poisson_multinomial":
-            loss = nn.functional.poisson_nll_loss(
-                y_pred, y_true, log_input=False, reduction="none"
-            )
-        elif self._gene_loss_type == "mse":
-            # (bs, 1, 1) -> (bs, )
-            y_pred = y_pred.squeeze(-1).squeeze(-1)
-            loss = nn.functional.mse_loss(y_pred, y_true, reduction="none")
-        else:
-            raise ValueError(
-                f"Gene count loss type {self._gene_loss_type} not recognized"
-            )
+        loss = nn.functional.poisson_nll_loss(
+            y_pred, y_true, log_input=False, reduction="none"
+        )
 
         if reduce:
             loss = loss.mean()
