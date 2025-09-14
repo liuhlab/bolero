@@ -57,7 +57,6 @@ class BorzoiLoRA(Borzoi):
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
             "_gene_softclip": True,
-            "_gene_loss_type": "poisson_multinomial",
             "_use_pred_sig_in_gene_count": False,
             "_include_cond_lora_patterns": None,
             "_exclude_cond_lora_patterns": None,
