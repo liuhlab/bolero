@@ -157,6 +157,7 @@ class DatasetRecordManager:
         pseudobulker_cls: str | type,
         shared_data_paths: dict[str, str] | None = None,
         use_regions: str = "borzoi",
+        genomes: list[str] = None,
     ):
         if isinstance(dataset_records, str):
             dataset_records = joblib.load(dataset_records)
@@ -165,7 +166,7 @@ class DatasetRecordManager:
         self.use_regions = use_regions
 
         self._init_data()
-        self._init_genome()
+        self._init_genome(genomes=genomes)
         self._init_pseudobulker(pseudobulker_cls, shared_data_paths=shared_data_paths)
         self._init_gene_data()
 
@@ -206,9 +207,14 @@ class DatasetRecordManager:
             k: joblib.load(f"{v}/row_names.joblib") for k, v in self.data_paths.items()
         }
 
-    def _create_genome_embedding(self):
+    def _create_genome_embedding(self, genomes: list[str]):
         dataset_to_genome = {k: g.name for k, g in self.genomes.items()}
-        genomes = sorted(set(dataset_to_genome.values()))
+        ds_genomes = sorted(set(dataset_to_genome.values()))
+        if genomes is None:
+            genomes = ds_genomes
+        else:
+            for g in ds_genomes:
+                assert g in genomes, f"genome {g} is not in the provided genomes"
 
         encoder = OneHotEncoder(sparse_output=False)
         genome_to_emb = dict(
@@ -223,7 +229,7 @@ class DatasetRecordManager:
         }  # genome embedding shape (1, n_genomes)
         return dataset_to_genome_emb
 
-    def _init_genome(self):
+    def _init_genome(self, genomes: list[str]):
         self._shared_genome_obj: dict[str, Genome] = {}
         self.genomes: dict[str, Genome] = {}
         for k, v in self.dataset_records.items():
@@ -239,7 +245,7 @@ class DatasetRecordManager:
             raise ValueError(
                 f"Unknown use_regions {self.use_regions}, support 'borzoi' or 'borzoi_gene'."
             )
-        self.dataset_idx_to_genome_emb = self._create_genome_embedding()
+        self.dataset_idx_to_genome_emb = self._create_genome_embedding(genomes)
 
     def _init_pseudobulker(
         self, pseudobulker_cls: str | type, shared_data_paths: dict[str, str]
@@ -613,6 +619,9 @@ class BorzoiMultiDataset(GenericDataset):
         "output_prefix": "pseudobulk",
         # shared data score file
         "shared_data_paths": None,
+        # genomes
+        # use this to specify all genomes for shared embedding, otherwise will infer from dataset records
+        "_genomes": None,
     }
 
     def __init__(
@@ -628,12 +637,14 @@ class BorzoiMultiDataset(GenericDataset):
         batch_size: int = 4,
         output_prefix: str = "pseudobulk",
         shared_data_paths: str | None = None,
+        _genomes: list[str] = None,
     ):
         self.dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
             pseudobulker_cls=paired_mode,
             shared_data_paths=shared_data_paths,
             use_regions=use_regions,
+            genomes=_genomes,
         )
         self.dm = self.dataset_record_manager
         self.borzoi_regions = self.dataset_record_manager.borzoi_regions

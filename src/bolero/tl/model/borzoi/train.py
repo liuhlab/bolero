@@ -906,8 +906,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         If "MaskCoords" is not in the batch, return None.
         """
         gene_mask = batch.get("MaskCoords", None)
-        dna: torch.Tensor = batch["dna_one_hot"]
         if gene_mask is not None:
+            dna: torch.Tensor = batch["dna_one_hot"]
             gene_mask_tensor = gene_mask_coords_to_mask(gene_mask, dna)
             return gene_mask_tensor
         else:
@@ -936,9 +936,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # ==========
         # Get batch data
         # ==========
-        X = batch.pop(dna_key)
+        X = batch[dna_key]
         embedding = batch.get(embedding_key, None)
-        y_true = batch.pop(data_key)
+        y_true = batch[data_key]
 
         # ==========
         # Forward and Loss
@@ -979,7 +979,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         """
         cell_emb_0 = batch[f"{self.prefix}:embedding_data_0"]
         cond_emb = batch.get(f"{self.prefix}:condition_emb_1", None)
-
+        if module is None:
+            return cell_emb_0
         # 3. aggregate all conditional input
         cond_ensemble = module(cell_emb=cell_emb_0, cond_emb=cond_emb)
         return cond_ensemble
