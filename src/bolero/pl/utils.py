@@ -8,6 +8,7 @@ def figure_to_array(fig):
     fig.canvas.draw()
 
     # Now we can save it to a numpy array.
-    data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    data = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+    data = data[..., :3].copy()  # only take rgb, remove alpha
     return data
