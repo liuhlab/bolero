@@ -1,7 +1,6 @@
 from copy import deepcopy
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 from bolero.tl.generic.module_embedding import EmbeddingMLP
@@ -15,7 +14,6 @@ from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
 from .module_output import (
     DualOutputHead,
-    GeneCountSoftClip,
     OutputHead,
     ScoobyOutputHead,
 )
@@ -56,8 +54,6 @@ class BorzoiLoRA(Borzoi):
             "_disable_cond_module": False,
             "_predict_delta": True,
             "_lora_scaling_factor": 1,
-            "_gene_softclip": True,
-            "_use_pred_sig_in_gene_count": False,
             "_include_cond_lora_patterns": None,
             "_exclude_cond_lora_patterns": None,
         }
@@ -91,8 +87,6 @@ class BorzoiLoRA(Borzoi):
         _disable_cond_module=False,
         _predict_delta=True,
         _lora_scaling_factor=1,
-        _gene_softclip=False,
-        _use_pred_sig_in_gene_count=False,
         _include_cond_lora_patterns=None,
         _exclude_cond_lora_patterns=None,
         # base model
@@ -123,8 +117,6 @@ class BorzoiLoRA(Borzoi):
         # use "all_conditional_per_layer", to adjust layer-wise lora config
         self._lora_scaling_factor = _lora_scaling_factor
         # for gene count head
-        self._gene_softclip = _gene_softclip
-        self._use_pred_sig_in_gene_count = _use_pred_sig_in_gene_count
         # for special layer-wise lora experiments
         self._include_cond_lora_patterns = _include_cond_lora_patterns or []
         self._exclude_cond_lora_patterns = _exclude_cond_lora_patterns or []
@@ -256,8 +248,6 @@ class BorzoiLoRA(Borzoi):
         self.gene_mask_conv = nn.Conv1d(1, 512, kernel_size=15, padding="same")
         nn.init.constant_(self.gene_mask_conv.weight, 0.0)
         nn.init.constant_(self.gene_mask_conv.bias, 0.0)
-
-        self.gene_count_softclip = GeneCountSoftClip(enable=self._gene_softclip)
         return
 
     def _setup_cond_emb_module(self, cell_emb_dim, cond_emb_dim, **cond_emb_kwargs):
@@ -554,7 +544,6 @@ class BorzoiLoRA(Borzoi):
         embedding=None,
         crop=True,
         return_dna_embedding=False,
-        inverse_softclip=True,
         **kwargs,
     ):
         """
@@ -570,26 +559,9 @@ class BorzoiLoRA(Borzoi):
             **kwargs,
         )
 
-        if self._use_pred_sig_in_gene_count:
-            if crop:
-                pred_sig = F.pad(output.detach(), (16, 16))
-            # use predicted signal to forward pass again and update dna_emb
-            kwargs["signal"] = torch.log1p(pred_sig)
-            _, dna_embedding = self.forward(
-                x,
-                gene_mask=gene_mask,
-                embedding=embedding,
-                crop=crop,
-                return_dna_embedding=True,
-                **kwargs,
-            )
-
         # get gene count prediction
         gene_output = self.gene_count_output_head(dna_embedding, embedding=embedding)
-        if inverse_softclip:
-            # 1) undo softclip 2) revert squashing 3) log1p
-            # final output value should be at log1p CPM scale
-            gene_output = self.gene_count_softclip.inverse(gene_output)
+
         if return_dna_embedding:
             return output, gene_output, dna_embedding
         return output, gene_output
@@ -705,11 +677,6 @@ class BorzoiLoRA(Borzoi):
 
     def gene_count_loss(self, y_pred, y_true, reduce=True):
         """Compute the gene count loss."""
-        # assume y_true is log1p transformed
-        # self.gene_count_softclip will do 1) expm1 2) squashing and 3) softclip
-        # after this, y_true is at softclipped count scale
-        y_true = self.gene_count_softclip(y_true)
-
         # y_pred is after softplus, so not log input
         loss = nn.functional.poisson_nll_loss(
             y_pred, y_true, log_input=False, reduction="none"

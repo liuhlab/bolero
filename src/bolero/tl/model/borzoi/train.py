@@ -4,7 +4,6 @@ from collections import defaultdict
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import wandb
 
 from bolero.pl.borzoi import BorzoiExamplePlotter
@@ -23,6 +22,30 @@ from bolero.tl.model.borzoi.model_lora import (
 from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 from .utils import MovingMetric, gene_mask_coords_to_mask
+
+
+def _validate_gene_count_model_config(config):
+    if config["use_regions"] != "borzoi_gene":
+        print(
+            "Warning: use_regions must be 'borzoi_gene' when gene count model is used, modifying config..."
+        )
+        config["use_regions"] = "borzoi_gene"
+
+    assert config["deg_list"] is not None, "deg_list is required for gene count model"
+    assert (
+        config["gene_data_path"] is not None
+    ), "gene_data_path is required for gene count model"
+
+    if config["output_head_type"] != "gene_count":
+        print(
+            "Warning: output_head_type must be 'gene_count' when gene count model is used, modifying config..."
+        )
+        config["output_head_type"] = "gene_count"
+
+    assert (
+        config["lora_checkpoint_path"] is not None
+    ), "lora_checkpoint_path from pretrained ATAC model is required for gene count model"
+    return
 
 
 class TrainerBorzoiDatasetMixin:
@@ -274,6 +297,9 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
     }
 
     def __init__(self, config):
+        if config["output_head_type"] == "gene_count":
+            _validate_gene_count_model_config(config)
+
         super().__init__(config)
 
         # the prefix of pseudobulk data in the batch dict
@@ -865,9 +891,10 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             print(
                 "Config contains lora_checkpoint_path, will load weights and perform fine-tuning."
             )
-            self.model.load_checkpoint_from_path(
-                self.config["lora_checkpoint_path"], strict=False
-            )
+            ckpt_path = self.config["lora_checkpoint_path"]
+            if isinstance(ckpt_path, dict):
+                ckpt_path = ckpt_path["ckpt_path"]
+            self.model.load_checkpoint_from_path(ckpt_path, strict=False)
 
         # wrap with DataParallel after checkpoint loading to avoid module prefix issues
         self._wrap_model_with_dataparallel()
@@ -1024,20 +1051,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             loss = loss + delta_loss
             loss_breakdown["delta_loss"] = delta_loss
 
-        if hasattr(model, "gene_count_output_head"):
-            if model._use_pred_sig_in_gene_count:
-                # pad y_pred_count to revert crop
-                signal_pred = F.pad(y_pred_count.detach(), (16, 16))
-                # use predicted signal to forward pass again and update dna_emb
-                signal_pred = torch.log1p(signal_pred)
-                _, dna_emb = model(
-                    dna_one_hot,
-                    embedding=cond_ensemble,
-                    signal=signal_pred,
-                    return_dna_embedding=True,
-                    gene_mask=gene_mask,
-                )
-            # additional gene count loss
+        if hasattr(model, "gene_count_output_head"):  # additional gene count loss
             gene_count_loss = self._model_forward_pass_gene_count(
                 model, batch, dna_embedding=dna_emb, embedding=cond_ensemble
             )
