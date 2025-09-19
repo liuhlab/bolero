@@ -201,6 +201,8 @@ class Browser:
     _browser_obj: Optional[igv_notebook.Browser] = None
 
     def __post_init__(self):
+        igv_notebook.init()  # initialize igv notebook
+
         # Validate that either genome or reference is specified
         if not self.genome and not self.reference:
             raise ValueError(

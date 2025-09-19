@@ -769,7 +769,6 @@ class CorigamiSeqOnlyTrainer(GenericTrainer):
         wandb.summary["final_test_within"] = self.test_single_batch_pearson
         wandb.summary["final_test_across"] = self.test_across_batch_pearson
         wandb.summary["final_insulation_score"] = self.insulation_score
-        wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True

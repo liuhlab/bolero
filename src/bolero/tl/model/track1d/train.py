@@ -486,7 +486,6 @@ class Track1DTrainerMixin(GenericTrainer):
         wandb.summary["final_test_per_channel"] = (
             self.test_single_batch_pearson_per_channel
         )
-        wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True

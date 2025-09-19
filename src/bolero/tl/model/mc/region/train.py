@@ -413,7 +413,6 @@ class mCTrainerMixin(GenericTrainer):
         wandb.summary["final_valid_pearson"] = self.total_pearson
         wandb.summary["final_test_loss"] = self.test_loss
         wandb.summary["final_test_pearson"] = self.test_total_pearson
-        wandb.summary["final_image"] = wandb_images
 
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True

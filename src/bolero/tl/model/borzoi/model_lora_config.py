@@ -435,6 +435,10 @@ def make_all_conditional_scaling_lora_config(
             **shared_config,
             "lora_rank": scaling_factor,
         },
+        "gene_count_output_head": {
+            **shared_config,
+            "lora_rank": scaling_factor,
+        },
     }
 
     if except_output_head:

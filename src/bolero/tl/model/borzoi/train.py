@@ -842,7 +842,6 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         for k, v in self.test_loss_breakdown.items():
             wandb.summary[f"final_test_loss_{k}"] = v
         wandb.summary["final_test_corr"] = self.test_corr.compute().mean()
-        wandb.summary["final_image"] = wandb_images
         # final wandb flag to indicate the run is successfully finished
         wandb.summary["success"] = True
         return
