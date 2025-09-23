@@ -15,7 +15,11 @@ from sklearn.preprocessing import OneHotEncoder
 from bolero import Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDBNoParallel
 from bolero.tl.dataset.ray_dataset import _IterableFromIterator
-from bolero.tl.dataset.transforms import FetchRegionOneHot, ReverseComplement
+from bolero.tl.dataset.transforms import (
+    FetchRegionOneHot,
+    ReverseComplement,
+    ReverseComplementMinusStrand,
+)
 from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.model.borzoi.dataset import MaskBlacklistAndClamp
 from bolero.tl.model.borzoi.utils import MultiBorzoiGeneRegions, MultiBorzoiRegions
@@ -747,10 +751,18 @@ class BorzoiMultiDataset(GenericDataset):
         -------
         None
         """
-        _rc = ReverseComplement(
-            dna_key=self.dna_column,
-            signal_key=self.signal_columns,
-        )
+        if self.use_regions == "borzoi_gene":
+            print("Reverse complement minus strand gene regions")
+            _rc = ReverseComplementMinusStrand(
+                dna_key=self.dna_column,
+                signal_key=self.signal_columns,
+                strand_key="Strand",
+            )
+        else:
+            _rc = ReverseComplement(
+                dna_key=self.dna_column,
+                signal_key=self.signal_columns,
+            )
         dataset = dataset.map_batches(_rc, batch_size=batch_size)
         return dataset
 
