@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 import wandb
+from einops import rearrange
 
 from bolero.pl.borzoi import BorzoiExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
@@ -948,9 +949,21 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
     ):
         y_true = batch["__gene_value__"]
         y_pred = model.gene_count_output_head(dna_embedding, embedding=embedding)
+        y_pred = rearrange(y_pred, "bs 1 1 -> bs")
+
+        # select only non-nan values
+        # because some dataset may have some pseudobulks with no gene count data
+        is_valid = ~torch.isnan(y_true)
+        valid_ratio = torch.isnan(y_true).sum() / len(y_true)
+        y_true = y_true[is_valid]
+        y_pred = y_pred[is_valid]
+        if len(y_true) == 0:
+            return torch.tensor(0.0).to(y_true.device)
+
         gene_count_loss = model.gene_count_loss(
             y_pred=y_pred, y_true=y_true, reduce=True
         )
+        gene_count_loss = gene_count_loss * valid_ratio
         return gene_count_loss
 
     def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):

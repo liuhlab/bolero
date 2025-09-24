@@ -235,7 +235,11 @@ class GetGeneCountData:
         return
 
     def __call__(self, batch: dict) -> dict:
-        """Get gene count data for the batch."""
+        """
+        Get gene count data for the batch.
+
+        If the gene is not found in the gene data, set the gene count to nan.
+        """
         gene_idx = batch["Original_Name"]
         genes_in_batch = self.borzoi_gene_regions.loc[gene_idx, "Name"].tolist()
         unique_genes = list(set(genes_in_batch))
@@ -249,7 +253,10 @@ class GetGeneCountData:
         for gidx, pid in enumerate(pids):
             pid = self.pseudobulk_ids[pid]
             gid = genes_in_batch[gidx]
-            value = gene_data.loc[pid, gid]
+            try:
+                value = gene_data.loc[pid, gid]
+            except KeyError:
+                value = np.nan
             gene_values.append(value)
         gene_values = np.array(gene_values).astype("float32")
         batch["__gene_value__"] = gene_values
