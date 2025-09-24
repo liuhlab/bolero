@@ -512,7 +512,7 @@ class BorzoiPredictor(GenericPredictor):
             if pseudobulk_ids is not None
             else len(self.pseudobulk_manager.pseudobulk_ids)
         )
-        dataloader_batch_size = max(2, int(batch_size / n_pseudobulks * 50))
+        dataloader_batch_size = max(2, int(batch_size / n_pseudobulks * 100))
         dataloader_batch_size = min(16, dataloader_batch_size)
         print(f"Data loader batch size {dataloader_batch_size}")
         dataloader = self._create_fn_and_dataloader(
