@@ -466,10 +466,8 @@ class ReverseComplementMinusStrand:
 
         for k in self.dna_key:
             batch[k] = torch.stack(dna_col[k])
-            print("setting", k)
         for k in self.signal_key:
             batch[k] = torch.stack(signal_col[k])
-            print("setting", k)
         batch["region_strand"] = strands
         return batch
 

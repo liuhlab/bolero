@@ -32,10 +32,13 @@ def _validate_gene_count_model_config(config):
         )
         config["use_regions"] = "borzoi_gene"
 
-    assert config["deg_list"] is not None, "deg_list is required for gene count model"
-    assert (
-        config["gene_data_path"] is not None
-    ), "gene_data_path is required for gene count model"
+    if "dataset_records" not in config:
+        assert (
+            config["deg_list"] is not None
+        ), "deg_list is required for gene count model"
+        assert (
+            config["gene_data_path"] is not None
+        ), "gene_data_path is required for gene count model"
 
     if config["output_head_type"] != "gene_count":
         print(

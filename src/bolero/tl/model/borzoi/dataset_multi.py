@@ -176,9 +176,9 @@ class DatasetRecordManager:
 
     def _init_gene_data(self):
         self.deg_list_dict: dict[str, list[str]] = {
-            k: joblib.load(v["deg_list_path"])
+            k: joblib.load(v["deg_list"])
             for k, v in self.dataset_records.items()
-            if "deg_list_path" in v
+            if "deg_list" in v
         }
         self.gene_data_path_dict: dict[str, str] = {
             k: v["gene_data_path"]
@@ -484,7 +484,12 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         self, batches: list[dict], key: str, gene: str, pid_records: list[str]
     ) -> list[dict]:
         """Add gene count data to batches for a specific dataset key."""
-        gene_data_path = self.gene_data_path_dict[key]
+        try:
+            gene_data_path = self.gene_data_path_dict[key]
+        except KeyError:
+            for batch in batches:
+                batch["__gene_value__"] = np.array([np.nan]).astype("float32")
+            return batches
 
         # Load gene data for this specific gene
         gene_data = pd.read_feather(
@@ -494,7 +499,10 @@ class GenerateMultiGenomeParquetAndPseudobulk:
 
         # Add gene values to each batch
         for batch, pid in zip(batches, pid_records):
-            gene_value = gene_data.loc[pid, gene]
+            try:
+                gene_value = gene_data.loc[pid, gene]
+            except KeyError:
+                gene_value = np.nan
             batch["__gene_value__"] = np.array([gene_value]).astype("float32")
 
         return batches
