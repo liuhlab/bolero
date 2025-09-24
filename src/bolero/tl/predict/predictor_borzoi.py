@@ -802,6 +802,7 @@ class BorzoiPredictor(GenericPredictor):
         verbose=True,
         save_first_batch=True,
         mode="prediction",
+        filter_valid_regions=True,
     ):
         """
         Prediction task for Borzoi.
@@ -833,6 +834,8 @@ class BorzoiPredictor(GenericPredictor):
             The mode of the task. One of "prediction", "gene_count_prediction".
             If "prediction", predict the genome tracks.
             If "gene_count_prediction", predict the gene counts along with genome tracks.
+        filter_valid_regions: bool
+            Whether to filter the regions to valid regions.
         """
         if mode == "gene_count_prediction":
             assert hasattr(self.model, "gene_count_output_head"), (
@@ -848,7 +851,8 @@ class BorzoiPredictor(GenericPredictor):
             regions = self.get_fold_regions(test_only=True, mode=mode)
         else:
             regions = understand_regions(regions)
-            regions = self._filter_valid_regions(regions, mode=mode)
+            if filter_valid_regions:
+                regions = self._filter_valid_regions(regions, mode=mode)
         if downsample_regions is not None:
             regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
 
@@ -1517,9 +1521,31 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
     def _get_pre_attribution_callbacks(self):
         return []
 
+    def _get_pre_prediction_gene_count_callbacks(self):
+        region_name_to_strand = self.borzoi_gene_regions.borzoi_regions.set_index(
+            "Name"
+        )["Strand"].to_dict()
+        callback_configs = [
+            # calculate paired profile correlation
+            (
+                "reverse_complement_minus_strand",
+                {
+                    "dna_key": "__dna__",
+                    "signal_key": "__ytrue__",
+                    "region_name_to_strand": region_name_to_strand,
+                },
+            ),
+        ]
+        callbacks = self._prepare_callbacks(callback_configs)
+        return callbacks
+
     def _get_pre_callbacks(self, mode="prediction"):
-        if mode in ("prediction", "gene_count_prediction", "qtl", "peak"):
+        if mode in ("prediction", "qtl", "peak"):
             return self._get_pre_prediction_callbacks()
+        elif mode == "gene_count_prediction":
+            _gene_call_back = self._get_pre_prediction_gene_count_callbacks()
+            _pred_call_back = self._get_pre_prediction_callbacks()
+            return _gene_call_back + _pred_call_back
         elif mode == "attribution":
             return self._get_pre_attribution_callbacks()
         else:

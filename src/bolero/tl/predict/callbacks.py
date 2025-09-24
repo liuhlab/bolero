@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 from functools import partial
 
 import numpy as np
@@ -422,6 +423,57 @@ class ProcessPairedData:
         return batch
 
 
+class ReverseComplementMinusStrand:
+    def __init__(
+        self,
+        dna_key: str | list[str],
+        signal_key: str | list[str],
+        region_name_to_strand: dict[str, str],
+        region_name_key: str = "region_name",
+    ):
+        if isinstance(dna_key, str):
+            dna_key = [dna_key]
+        if isinstance(signal_key, str):
+            signal_key = [signal_key]
+        self.dna_key = dna_key
+        self.signal_key = signal_key
+        self.region_name_key = region_name_key
+        self.region_name_to_strand = region_name_to_strand
+
+        self.flip_dna_axis = (-1, -2)
+        self.flip_signal_axis = (-1,)
+        return
+
+    def __call__(self, batch: dict) -> dict:
+        """Reverse complement DNA and reverse signal for - strand region"""
+        region_names = batch[self.region_name_key]
+        dna_col = defaultdict(list)
+        signal_col = defaultdict(list)
+        strands = []
+        for idx, region_name in enumerate(region_names):
+            strand = self.region_name_to_strand[region_name]
+            strands.append(strand)
+            for k in self.dna_key:
+                _dna = batch[k][idx]
+                if strand == "-":
+                    _dna = torch.flip(_dna, self.flip_dna_axis)
+                dna_col[k].append(_dna)
+            for k in self.signal_key:
+                _signal = batch[k][idx]
+                if strand == "-":
+                    _signal = torch.flip(_signal, self.flip_signal_axis)
+                signal_col[k].append(_signal)
+
+        for k in self.dna_key:
+            batch[k] = torch.stack(dna_col[k])
+            print("setting", k)
+        for k in self.signal_key:
+            batch[k] = torch.stack(signal_col[k])
+            print("setting", k)
+        batch["region_strand"] = strands
+        return batch
+
+
 class Rename:
     def __init__(self, name_map: dict[str, str]):
         """
@@ -450,4 +502,5 @@ CALLBACK_NAME_TO_CLASS = {
     "extract_peak": PeakDataSummary,
     "process_paired_data": ProcessPairedData,
     "rename": Rename,
+    "reverse_complement_minus_strand": ReverseComplementMinusStrand,
 }

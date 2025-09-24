@@ -541,7 +541,6 @@ class GenericGenomeDataManager:
 
             # add dna one-hot encoding
             if add_dna:
-                # add dna one-hot encoding
                 onehot = self.query_dna_onehot(regions_ref)
                 batch_data["dna"] = onehot
 
