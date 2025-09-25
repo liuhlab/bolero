@@ -246,31 +246,30 @@ class ReverseComplementMinusStrand:
 
     def __call__(self, data: dict) -> dict:
         """Reverse complement when strand is negative."""
-        new_data = defaultdict(list)
+        flip_data_col = defaultdict(list)
 
         bs = data[self.dna_key[0]].shape[0]
-        other_key = [k for k in data if k not in (self.dna_key + self.signal_key)]
-        for i in range(bs):
-            strand = data[self.strand_key][i]
+        is_reverse_comp = np.zeros(bs, dtype=np.int32)
+        for i, strand in enumerate(data[self.strand_key]):
+            strand = int(strand)
             if strand == self.neg_strand:
                 for k in self.dna_key:
-                    new_data[k].append(np.flip(data[k][i], axis=self.flip_dna_axis))
+                    flip_data_col[k].append(
+                        np.flip(data[k][i], axis=self.flip_dna_axis)
+                    )
                 for k in self.signal_key:
-                    new_data[k].append(np.flip(data[k][i], axis=self.flip_signal_axis))
-                for k in other_key:
-                    new_data[k].append(data[k][i])
-                new_data["is_reverse_comp"].append(np.ones(1, dtype=np.int32))
-            elif strand == self.pos_strand:
-                for k in data.keys():
-                    new_data[k].append(data[k][i])
-                new_data["is_reverse_comp"].append(np.zeros(1, dtype=np.int32))
+                    flip_data_col[k].append(
+                        np.flip(data[k][i], axis=self.flip_signal_axis)
+                    )
+                is_reverse_comp[i] = 1
             else:
-                raise ValueError(
-                    f"Invalid strand value: {strand}, "
-                    f"must be {self.pos_strand} or {self.neg_strand}"
-                )
-        new_data = {k: np.stack(v) for k, v in new_data.items()}
-        return new_data
+                for k in self.dna_key + self.signal_key:
+                    flip_data_col[k].append(data[k][i])
+
+        for k in self.dna_key + self.signal_key:
+            data[k] = np.stack(flip_data_col[k])
+        data["is_reverse_comp"] = is_reverse_comp
+        return data
 
 
 class BatchRegionEmbedding:
@@ -366,7 +365,10 @@ class AddChannels:
         self.keys = key
 
         if channel_func is None:
-            channel_func = lambda x: np.expand_dims(x, channel_dim)
+
+            def channel_func(x):
+                return np.expand_dims(x, channel_dim)
+
         self.channel_func = channel_func
 
     def __call__(self, data: dict) -> dict:

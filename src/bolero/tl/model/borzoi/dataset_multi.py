@@ -57,7 +57,12 @@ def _make_torch_batch(batch):
         if BYTES_PATTERN.match(k):
             tensor_list = []
             for b in v:
-                a = _deserialize(b)
+                try:
+                    a = _deserialize(b)
+                except Exception as e:
+                    print(k, v)
+                    print(b)
+                    raise e
                 t = _try_arr_to_tensor(a, device)
                 tensor_list.append(t)
             torch_batch[k] = tensor_list
@@ -484,12 +489,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         self, batches: list[dict], key: str, gene: str, pid_records: list[str]
     ) -> list[dict]:
         """Add gene count data to batches for a specific dataset key."""
-        try:
-            gene_data_path = self.gene_data_path_dict[key]
-        except KeyError:
-            for batch in batches:
-                batch["__gene_value__"] = np.array([np.nan]).astype("float32")
-            return batches
+        gene_data_path = self.gene_data_path_dict[key]
 
         # Load gene data for this specific gene
         gene_data = pd.read_feather(
@@ -590,6 +590,10 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         gene = batch.pop(self.gene_key)
         dataset_key = batch.pop(self.dataset_key)
         dna = batch.pop(DNA_NAME)
+
+        # gene region related
+        strand = batch.pop("Strand", None)
+        strand = np.array([strand]) if strand is not None else None
         mask_coords = batch.pop("MaskCoords", None)
 
         list_of_batches = self._sample_pseudobulks_and_get_data(
@@ -598,6 +602,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         other_data = {
             "MaskCoords": mask_coords,
             DNA_NAME: dna,
+            "Strand": strand,
         }
         list_of_batches = self._add_region_and_dataset_key_int(
             list_of_batches, key=dataset_key, region=region, **other_data
@@ -789,9 +794,13 @@ class BorzoiMultiDataset(GenericDataset):
 
         use_cols = ["__dataset_keys__", "region", "gene_id"]
         if self.use_regions == "borzoi_gene":
-            use_cols.extend(["MaskStart", "MaskEnd"])
+            use_cols.extend(["MaskStart", "MaskEnd", "Strand"])
 
         region_bed = region_bed[use_cols].reset_index(drop=True)
+
+        # strand to 0 or 1
+        if "Strand" in region_bed.columns:
+            region_bed["Strand"] = region_bed["Strand"].map({"+": 1, "-": 0})
 
         if self.is_train():
             # shuffle regions for training

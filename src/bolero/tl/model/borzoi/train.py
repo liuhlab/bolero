@@ -5,7 +5,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 import wandb
-from einops import rearrange
+from einops import reduce
 
 from bolero.pl.borzoi import BorzoiExamplePlotter
 from bolero.tl.generic.train import GenericTrainer
@@ -23,6 +23,21 @@ from bolero.tl.model.borzoi.model_lora import (
 from bolero.tl.model.borzoi.module_output import DualOutputHead
 
 from .utils import MovingMetric, gene_mask_coords_to_mask
+
+
+def _to_1d(x):
+    """
+    Collapse any number of extra singleton dims to shape (bs,).
+    Expects x to have shape (bs, 1, 1, ..., 1) or already (bs,).
+    """
+    # fast path: already 1D
+    if x.ndim == 1:
+        return x
+    # sanity check (optional but helpful)
+    if any(d != 1 for d in x.shape[1:]):
+        raise ValueError(f"extra dims must be 1, got {tuple(x.shape)}")
+    # reduce over the (singleton) ellipsis — max/sum/mean are all equivalent here
+    return reduce(x, "b ... -> b", "max")
 
 
 def _validate_gene_count_model_config(config):
@@ -951,8 +966,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         embedding: torch.Tensor,
     ):
         y_true = batch["__gene_value__"]
+        y_true = _to_1d(y_true)
         y_pred = model.gene_count_output_head(dna_embedding, embedding=embedding)
-        y_pred = rearrange(y_pred, "bs 1 1 -> bs")
+        y_pred = _to_1d(y_pred)
 
         # select only non-nan values
         # because some dataset may have some pseudobulks with no gene count data
