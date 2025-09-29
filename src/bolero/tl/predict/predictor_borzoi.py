@@ -1707,6 +1707,9 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         return batch
 
     def _forward_cond_emb_module(self, cell_emb, cond_emb):
+        if self.model.cond_emb_module is None:
+            return cell_emb
+
         cond_ensemble = self.model.cond_emb_module(cell_emb=cell_emb, cond_emb=cond_emb)
         return cond_ensemble
 

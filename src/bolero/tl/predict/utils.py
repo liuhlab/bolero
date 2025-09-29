@@ -108,7 +108,11 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
     peak_bed = pd.concat(peak_bed)
 
     pids = pd.Index(batch["pseudobulk_ids"])
-    pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
+    if pids.size == true_peak_data.shape[1] * 2:
+        pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
+        is_signal = True
+    else:
+        is_signal = False
     true_peak_data = pd.DataFrame(
         true_peak_data, index=peak_bed["Name"].values, columns=pids
     )
@@ -122,9 +126,10 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
     # put back original pid
     config = joblib.load(f"{output_dir}/config.joblib.gz")
     prec = config["pseudobulk_records"]
-    original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
-    true_peak_data.columns = true_peak_data.columns.map(original_pid_map)
-    pred_peak_data.columns = pred_peak_data.columns.map(original_pid_map)
+    if is_signal:
+        original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
+        true_peak_data.columns = true_peak_data.columns.map(original_pid_map)
+        pred_peak_data.columns = pred_peak_data.columns.map(original_pid_map)
 
     # save peak data
     true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
