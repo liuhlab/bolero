@@ -2016,6 +2016,7 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         self._multi_dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
             pseudobulker_cls=train_config["paired_mode"],
+            use_regions=train_config["use_regions"],
         )
 
         # update config with cond_module_kwargs using DatasetRecordManager
