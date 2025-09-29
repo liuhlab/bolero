@@ -52,7 +52,7 @@ class BorzoiLoRA(Borzoi):
             # benchmark and experimental parameters
             "_multihead_model": False,
             "_disable_cond_module": False,
-            "_predict_delta": True,
+            "_predict_delta": False,
             "_lora_scaling_factor": 1,
             "_include_cond_lora_patterns": None,
             "_exclude_cond_lora_patterns": None,
