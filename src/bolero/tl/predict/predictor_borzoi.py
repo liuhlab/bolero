@@ -490,6 +490,7 @@ class BorzoiPredictor(GenericPredictor):
         batch_size=32,
         verbose=True,
         mode="prediction",
+        batch_dir=None,
     ) -> Generator:
         """
         Get the dataloader for prediction.
@@ -498,7 +499,9 @@ class BorzoiPredictor(GenericPredictor):
             f"Invalid mode: {mode}. " "Must be one of 'prediction' or 'qtl'."
         )
         # 1. Get regions
-        regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
+        regions, region_names = self._valid_and_sort_regions(
+            regions, return_list=True, batch_dir=batch_dir
+        )
 
         # 2. Get data loader
         da_prefix = self.datamanager._get_data_prefixs()
@@ -579,9 +582,9 @@ class BorzoiPredictor(GenericPredictor):
             print(
                 f"Total time: {timer['total']:.2f}s\n"
                 f"Inference time: {timer['infer']:.2f}s or "
-                f"{timer['infer']/timer['counter']:.3f}s per batch\n"
+                f"{timer['infer']/(timer['counter']+1e-5):.3f}s per batch\n"
                 f"Callback time: {timer['callback']:.2f}s or "
-                f"{timer['callback']/timer['counter']:.3f}s per batch\n"
+                f"{timer['callback']/(timer['counter']+1e-5):.3f}s per batch\n"
                 f"(total {timer['counter']} batches)\n"
             )
 
@@ -862,15 +865,6 @@ class BorzoiPredictor(GenericPredictor):
         else:
             _add_true_data = True
 
-        dataloader = self.get_prediction_dataloader(
-            regions=regions,
-            add_true_data=_add_true_data,
-            pseudobulk_ids=pseudobulk_ids,
-            batch_size=batch_size,
-            verbose=verbose,
-            mode=mode,
-        )
-
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
         batch_dir.mkdir(parents=True, exist_ok=True)
@@ -881,6 +875,16 @@ class BorzoiPredictor(GenericPredictor):
             print(f"Saving batches to {batch_dir}")
             print(f"Saving stats to {stats_path}")
             print(f"Using temporary directory {stats_tmpdir}")
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            add_true_data=_add_true_data,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+            mode=mode,
+            batch_dir=batch_dir,
+        )
 
         config_path = output_dir / "config.joblib.gz"
         self._save_task_configs(
@@ -1039,6 +1043,7 @@ class BorzoiPredictor(GenericPredictor):
         if isinstance(save_keys, str) and save_keys == "default":
             save_keys = [
                 "region",
+                "region_name",
                 "pseudobulk_ids",
                 "mutation_id",
                 "qtl_peaks",
@@ -1049,6 +1054,13 @@ class BorzoiPredictor(GenericPredictor):
         # add qtl manager and get regions from the qtl manager
         self.register_qtl_manager(qtl_table)
         regions = self._filter_valid_regions(mode="qtl")
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+
         dataloader = self.get_prediction_dataloader(
             regions=regions,
             add_true_data=add_true_data,
@@ -1056,13 +1068,8 @@ class BorzoiPredictor(GenericPredictor):
             batch_size=batch_size,
             verbose=verbose,
             mode="qtl",
+            batch_dir=batch_dir,
         )
-
-        output_dir = pathlib.Path(output_dir).absolute().resolve()
-        batch_dir = output_dir / "batch"
-        batch_dir.mkdir(parents=True, exist_ok=True)
-        if verbose:
-            print(f"Saving batches to {batch_dir}")
 
         config_path = output_dir / "config.joblib.gz"
         self._save_task_configs(
@@ -1141,6 +1148,12 @@ class BorzoiPredictor(GenericPredictor):
         self.register_peak_manager(peak_table)
         regions = self._filter_valid_regions(mode="peak")
 
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+
         dataloader = self.get_prediction_dataloader(
             regions=regions,
             add_true_data=add_true_data,
@@ -1148,13 +1161,8 @@ class BorzoiPredictor(GenericPredictor):
             batch_size=batch_size,
             verbose=verbose,
             mode="peak",
+            batch_dir=batch_dir,
         )
-
-        output_dir = pathlib.Path(output_dir).absolute().resolve()
-        batch_dir = output_dir / "batch"
-        batch_dir.mkdir(parents=True, exist_ok=True)
-        if verbose:
-            print(f"Saving batches to {batch_dir}")
 
         config_path = output_dir / "config.joblib.gz"
         self._save_task_configs(

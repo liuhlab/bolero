@@ -1,3 +1,4 @@
+import pathlib
 from copy import deepcopy
 
 import joblib
@@ -18,6 +19,19 @@ from .datamanager import GenericGenomeDataManager
 from .utils import get_device, load_config, validate_region
 
 _model_cls = Borzoi | BorzoiLoRA | seq2PRINT | seq2PRINTLoRA
+
+
+def _get_finished_region_names(batch_dir) -> set:
+    batch_dir = pathlib.Path(batch_dir)
+    finished_region_names = []
+    for path in batch_dir.glob("*.joblib.gz"):
+        batch = joblib.load(path)
+        region_names = batch.get("region_name", [])
+        if hasattr(region_names, "tolist"):
+            region_names = region_names.tolist()
+        finished_region_names.extend(region_names)
+    finished_region_names = set(finished_region_names)
+    return finished_region_names
 
 
 def _autocast_context(device, use_amp=True):
@@ -174,7 +188,20 @@ class GenericPredictor:
         else:
             return train_regions, valid_regions, test_regions
 
-    def _valid_and_sort_regions(self, regions, return_list=True, standard_size=None):
+    def _valid_and_sort_regions(
+        self, regions, return_list=True, standard_size=None, batch_dir=None
+    ):
+        """
+        Validate and sort borzoi regions used in the inference task
+
+        Parameters
+        ----------
+        regions
+        return_list
+        standard_size
+        batch_dir
+            If provided, will search for existing batch files and exclude region_name that already been saved.
+        """
         if standard_size is not None:
             regions = self.genome.standard_region_length(
                 regions,
@@ -201,8 +228,23 @@ class GenericPredictor:
             regions,
             self.genome.chrom_sizes.to_dict(),
         )
+
+        region_names = regions.df.iloc[:, 3].astype(str).tolist()
+        if batch_dir is not None:
+            finished_regions = _get_finished_region_names(batch_dir)
+            print(len(finished_regions), "regions has finished in", batch_dir)
+            regions = regions.df
+            regions = regions[~regions.iloc[:, 3].isin(finished_regions)]
+            print(regions.shape[0], "regions to compute")
+            if regions.shape[0] == 0:
+                if return_list:
+                    return [], []
+                else:
+                    return regions
+
+            regions = pr.PyRanges(regions)
+
         if return_list:
-            region_names = regions.df.iloc[:, 3].astype(str).tolist()
             regions_list = (
                 regions.df["Chromosome"].astype(str)
                 + ":"

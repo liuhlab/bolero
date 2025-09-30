@@ -913,7 +913,10 @@ class MultiPairedPseudobulker:
         }
         """
         shared_data_col: dict[str, pd.DataFrame] = joblib.load(shared_data_paths)
-        assert all(k in shared_data_col for k in self.pseudobulker_dict.keys())
+        missing_keys = set(self.pseudobulker_dict.keys()) - set(shared_data_col.keys())
+        assert all(
+            k in shared_data_col for k in self.pseudobulker_dict.keys()
+        ), f"Missing keys: {missing_keys}"
         shared_data_col = {
             k: v for k, v in shared_data_col.items() if k in self.pseudobulker_dict
         }
