@@ -973,7 +973,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         # select only non-nan values
         # because some dataset may have some pseudobulks with no gene count data
         is_valid = ~torch.isnan(y_true)
-        valid_ratio = torch.isnan(y_true).sum() / len(y_true)
+        valid_ratio = is_valid.sum() / len(y_true)
         y_true = y_true[is_valid]
         y_pred = y_pred[is_valid]
         if len(y_true) == 0:
