@@ -26,6 +26,14 @@ from .predictor import GenericPredictor
 from .utils import gather_peak_data, load_config
 
 
+def _get_cur_bid(batch_dir):
+    batch_dir = pathlib.Path(batch_dir)
+    bids = []
+    for path in batch_dir.glob("*.joblib.gz"):
+        bids.append(int(path.name.split(".")[0].split("_")[1]))
+    return max(bids) + 1 if len(bids) > 0 else 0
+
+
 def _clip(data: torch.Tensor, clip_length: int) -> torch.Tensor:
     seq_len = data.shape[-1]
     radius = clip_length // 2
@@ -716,6 +724,7 @@ class BorzoiPredictor(GenericPredictor):
                 # attribution task will iterate one pseudobulk at a time
                 pseudobulk_ids=[pseudobulk_id],
                 # attribution task will not use true data in parquet
+                # For Borzoi Signal mode, we will use reference bigwig for true data
                 add_true_data=False,
                 # batch size for attr is small, but we set it larger here so we save less batch files
                 batch_size=batch_size * 100,
@@ -803,7 +812,7 @@ class BorzoiPredictor(GenericPredictor):
         save_keys="default",
         stats_keys=None,
         verbose=True,
-        save_first_batch=True,
+        save_first_batch=False,
         mode="prediction",
         filter_valid_regions=True,
     ):
@@ -859,12 +868,6 @@ class BorzoiPredictor(GenericPredictor):
         if downsample_regions is not None:
             regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
 
-        # check if dm has reference bigwig
-        if "reference" in self.datamanager.bw_datasets:
-            _add_true_data = False
-        else:
-            _add_true_data = True
-
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
         batch_dir.mkdir(parents=True, exist_ok=True)
@@ -878,7 +881,7 @@ class BorzoiPredictor(GenericPredictor):
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
-            add_true_data=_add_true_data,
+            add_true_data=True,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
@@ -909,7 +912,9 @@ class BorzoiPredictor(GenericPredictor):
 
         batch_stats_paths = []
         save_batch = {}
+        cur_bid = _get_cur_bid(batch_dir)
         for idx, batch in enumerate(dataloader):
+            idx = idx + cur_bid
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 if save_first_batch:
@@ -1086,7 +1091,9 @@ class BorzoiPredictor(GenericPredictor):
         save_keys = [] if save_keys is None else save_keys
 
         save_batch = {}
+        cur_bid = _get_cur_bid(batch_dir)
         for idx, batch in enumerate(dataloader):
+            idx = idx + cur_bid
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 # save the first complete batch into output dir
@@ -1179,7 +1186,9 @@ class BorzoiPredictor(GenericPredictor):
         save_keys = [] if save_keys is None else save_keys
 
         save_batch = {}
+        cur_bid = _get_cur_bid(batch_dir)
         for idx, batch in enumerate(dataloader):
+            idx = idx + cur_bid
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 # save the first complete batch into output dir

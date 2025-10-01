@@ -927,7 +927,7 @@ class MultiPairedPseudobulker:
             score_data = shared_data_col[score_key].reindex(pseudobulker.pseudobulk_ids)
             assert (
                 score_data.isna().values.sum() == 0
-            ), "score data has NaN values after reindex by pseudobulk ids."
+            ), f"score data has NaN values after reindex by pseudobulk ids. score_key {score_key}"
             shared_data_col[score_key] = score_data
             dims.append(score_data.shape[1])
         assert len(set(dims)) <= 1, "All shared data must have the same dimension."
