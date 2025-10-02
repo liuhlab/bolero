@@ -23,7 +23,7 @@ from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
-from .utils import gather_peak_data, load_config
+from .utils import gather_gene_data, gather_peak_data, load_config
 
 
 def _get_cur_bid(batch_dir):
@@ -959,11 +959,12 @@ class BorzoiPredictor(GenericPredictor):
             else:
                 total_stats[k] = np.concatenate(v)
 
-        # add cumulative stats to final stats
-        cum_data = self.compute_cumulative_callbacks()
-        for k, v in cum_data.items():
-            if k in stats_keys:
-                total_stats[k] = v
+        if len(batch_stats_paths) > 0:
+            # add cumulative stats to final stats
+            cum_data = self.compute_cumulative_callbacks()
+            for k, v in cum_data.items():
+                if k in stats_keys:
+                    total_stats[k] = v
 
         # save the stats
         joblib.dump(total_stats, stats_path)
@@ -977,6 +978,29 @@ class BorzoiPredictor(GenericPredictor):
         # gather peak data into single dataframe
         self._gather_peak_data(output_dir)
         return
+
+    @staticmethod
+    def gather_gene_data(output_dir, gene_data_path):
+        """
+        Gather gene data into single dataframe from all batches in output_dir.
+        """
+        return gather_gene_data(
+            output_dir,
+            gene_data_path=gene_data_path,
+        )
+
+    def select_top_std_genes(self, gene_data_path, top_n=5000):
+        """
+        Select top variable genes, intersect with test fold.
+        """
+        true_gene_data = pd.read_feather(gene_data_path)
+        *_, test_regions = self.borzoi_gene_regions.get_train_valid_test_regions(0)
+        use_genes = (
+            true_gene_data.std(axis=0).sort_values(ascending=False)[:top_n].index
+        )
+
+        use_test_regions = test_regions[test_regions["Name"].isin(use_genes)].copy()
+        return use_test_regions
 
     @staticmethod
     def _gather_peak_data(output_dir):
@@ -1298,6 +1322,7 @@ class BorzoiPredictor(GenericPredictor):
         batch_size=6,
         save_keys=("__dna__:attr", "region", "pseudobulk_id", "region_name"),
         verbose=True,
+        save_first_batch=False,
     ):
         """
         Prediction task for Borzoi.
@@ -1318,6 +1343,8 @@ class BorzoiPredictor(GenericPredictor):
             The keys to save in the output file. If None, save all keys.
         verbose: bool
             Whether to print the progress.
+        save_first_batch: bool
+            Whether to save the first full batch for debugging purposes.
         """
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
@@ -1365,7 +1392,8 @@ class BorzoiPredictor(GenericPredictor):
                 if idx == 0 and verbose:
                     self._print_batch(batch, prefix="Dataloader")
                     # save the first complete batch into output dir
-                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+                    if save_first_batch:
+                        joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
                 # save the batch to a file
                 save_batch = {}
