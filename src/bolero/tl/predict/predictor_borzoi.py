@@ -1690,7 +1690,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         else:
             cond_emb = None
 
-        agg_emb = self.model.cond_emb_module(cell_emb=embedding, cond_emb=cond_emb)
+        agg_emb = self._forward_cond_emb_module(cell_emb=embedding, cond_emb=cond_emb)
         model = self._collapse_model(agg_emb)
         attr_model = BorzoiInputXGradient(model=model)
         return attr_model

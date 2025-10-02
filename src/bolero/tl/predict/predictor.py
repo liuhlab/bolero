@@ -344,6 +344,8 @@ class GenericPredictor:
                 print(f"- {key}: {type(value)} {value.shape} {value.dtype}")
             elif hasattr(value, "shape"):
                 print(f"- {key}: {type(value)} {value.shape}")
+            elif isinstance(value, list):
+                print(f"- {key}: {type(value)} {len(value)}")
             else:
                 print(f"- {key}: {type(value)} {value}")
         print("==========\n")
