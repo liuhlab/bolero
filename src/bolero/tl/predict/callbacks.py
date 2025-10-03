@@ -205,6 +205,7 @@ class PeakDataSummary:
         suffix="peak",
         resolution=32,
         seq_len=16352,
+        _is_gene_region=False,
     ):
         self.data_keys = list(data_keys)
         self.region_key = region_key
@@ -225,6 +226,7 @@ class PeakDataSummary:
             )
         self.peak_bed: pd.DataFrame = peak_bed
         self.suffix = suffix
+        self._is_gene_region = _is_gene_region
         return
 
     def _get_peak_and_mask(self, chrom, start, end):
@@ -263,9 +265,14 @@ class PeakDataSummary:
         return region_df
 
     def get_feature_level_data(
-        self, data: torch.Tensor, feature_masks: torch.Tensor
+        self, data: torch.Tensor, feature_masks: torch.Tensor, strand: str | None = None
     ) -> torch.Tensor:
         """Get feature level data from raw data"""
+        if strand == "-":
+            # gene region DNA is reverse complemented on "-" strand gene regions
+            # The predicted ATAC signal is also reversed
+            # Here we flip it back before extracting feature level data
+            data = torch.flip(data, (-1,))
         result = einsum(data, feature_masks, "c s, f s -> c f")
         return result
 
@@ -295,6 +302,10 @@ class PeakDataSummary:
 
         suffix = self.suffix
         feature_data_dict = {suffix: features}
+        if self._is_gene_region:
+            strand_list = data_dict["region_strand"]
+        else:
+            strand_list = None
         for key in self.data_keys:
             if key not in data_dict:
                 continue
@@ -302,8 +313,12 @@ class PeakDataSummary:
             data = data_dict[key]
             data = self._crop_data(data)
             feture_data_col = []
-            for _data, mask in zip(data, feature_masks):
-                feature_data = self.get_feature_level_data(_data, mask)
+            for idx, (_data, mask) in enumerate(zip(data, feature_masks)):
+                if self._is_gene_region:
+                    _strand = strand_list[idx]
+                else:
+                    _strand = None
+                feature_data = self.get_feature_level_data(_data, mask, _strand)
                 feture_data_col.append(feature_data)
             feture_data_col = torch.concat(feture_data_col, dim=-1)
             feature_data_dict[f"{key}:{suffix}"] = feture_data_col

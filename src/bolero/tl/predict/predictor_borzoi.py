@@ -305,7 +305,7 @@ class BorzoiPredictor(GenericPredictor):
     def _get_post_attribution_callbacks(self):
         return []
 
-    def _get_post_prediction_callbacks(self):
+    def _get_post_prediction_callbacks(self, mode="prediction"):
         callbacks = [
             # calc pearsonr on last dim (seq_len)
             # the metrics callback class always calculate on the first dim
@@ -328,7 +328,13 @@ class BorzoiPredictor(GenericPredictor):
         if self.peak_df is not None:
             peak_level_callbacks = [
                 # extract peak data from borzoi regions
-                ("extract_peak", {"peak_bed": self.peak_df}),
+                (
+                    "extract_peak",
+                    {
+                        "peak_bed": self.peak_df,
+                        "_is_gene_region": mode == "gene_count_prediction",
+                    },
+                ),
                 # this step adds the peak data to the batch:
                 # "__ytrue__:peak" and "__ypred__:peak"
                 # calculate peak cumulative profile correlation
@@ -379,7 +385,7 @@ class BorzoiPredictor(GenericPredictor):
 
     def _get_post_callbacks(self, mode="prediction"):
         if mode == "prediction":
-            return self._get_post_prediction_callbacks()
+            return self._get_post_prediction_callbacks(mode)
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
         elif mode == "qtl":
@@ -1602,7 +1608,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
     def _get_post_attribution_callbacks(self):
         return []
 
-    def _get_post_prediction_callbacks(self):
+    def _get_post_prediction_callbacks(self, mode="prediction"):
         # add paired task callbacks
         callbacks = [
             (
@@ -1614,6 +1620,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                         "__ytrue__:cond1",
                         "__ypred__:cond1",
                     ],
+                    "_is_gene_region": mode == "gene_count_prediction",
                 },
             ),
             (
@@ -1659,7 +1666,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         Get the post callbacks for the model.
         """
         if mode in ("prediction", "gene_count_prediction"):
-            return self._get_post_prediction_callbacks()
+            return self._get_post_prediction_callbacks(mode)
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
         elif mode == "qtl":
