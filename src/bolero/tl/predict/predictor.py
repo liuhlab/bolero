@@ -229,7 +229,6 @@ class GenericPredictor:
             self.genome.chrom_sizes.to_dict(),
         )
 
-        region_names = regions.df.iloc[:, 3].astype(str).tolist()
         if batch_dir is not None:
             finished_regions = _get_finished_region_names(batch_dir)
             print(len(finished_regions), "regions has finished in", batch_dir)
@@ -244,6 +243,7 @@ class GenericPredictor:
 
             regions = pr.PyRanges(regions)
 
+        region_names = regions.df.iloc[:, 3].astype(str).tolist()
         if return_list:
             regions_list = (
                 regions.df["Chromosome"].astype(str)
