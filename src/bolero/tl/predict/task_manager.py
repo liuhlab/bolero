@@ -15,51 +15,56 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     stats_cols = stats_cols or ["beta", "PIP"]
     table = pd.read_csv(qtl_table, sep="\t")
 
-    table["name"] = (
+    table = table.rename(columns={"id": "mutation_id"})
+
+    # use peak region to represent peak id
+    table["peak_id"] = (
         table["chr"]
         + ":"
-        + table["524k-start"].astype(str)
+        + table["peak-start"].astype(str)
         + "-"
-        + table["524k-end"].astype(str)
+        + table["peak-end"].astype(str)
     )
+    # use snp id + peak id as the name of caqtl item
+    table["qtl_id"] = table["mutation_id"] + "+" + table["peak_id"]
+    # make sure the combination of snp id and peak id is unique
+    assert table["qtl_id"].duplicated().sum() == 0
 
-    regions = (
-        table[["chr", "524k-start", "524k-end", "name"]]
-        .set_index("name")
-        .drop_duplicates()
-    )
+    # Borzoi Region information
+    regions = table[["chr", "524k-start", "524k-end", "qtl_id"]].set_index("qtl_id")
     regions.columns = ["Chromosome", "Start", "End"]
     regions.index.name = "Name"
 
-    region_and_mut = table[["id", "name"]].drop_duplicates()
-    # make sure region and mutation is one-to-one match
-    assert region_and_mut["id"].duplicated().sum() == 0
-    assert region_and_mut["name"].duplicated().sum() == 0
-    region_to_mutation = region_and_mut.set_index("name")["id"].to_dict()
+    # Region to mutation mapping
+    region_to_mutation = table.set_index("qtl_id")["mutation_id"].to_dict()
+    assert len(region_to_mutation) == table.shape[0]
 
-    mutations = table[["ref", "alt", "pos2start", "id"]].set_index("id")
+    # Mutation information
+    mutations = (
+        table[["ref", "alt", "pos2start", "mutation_id"]]
+        .drop_duplicates()
+        .set_index("mutation_id")
+    )
+    assert (
+        mutations.index.duplicated().sum() == 0
+    ), "mutations with same id has different information."
     # mutation pos2start is 1 based (VCF), adjust to 0 based
     mutations["pos2start"] -= 1
 
-    peak_cols = ["chr", "peak-end", "peak-start", "name", "id"] + [
+    # Peak information
+    peak_cols = ["chr", "peak-start", "peak-end", "peak_id", "qtl_id"] + [
         c for c in stats_cols if c in table.columns
     ]
     peaks = table[peak_cols].copy()
     peaks.columns = [
         "Chromosome",
-        "End",
         "Start",
-        "region_id",
-        "mutation_id",
+        "End",
+        "peak_id",
+        "qtl_id",
     ] + peaks.columns.tolist()[5:]
-    peaks = peaks.set_index(["region_id", "mutation_id"])
-    peaks["Name"] = (
-        peaks["Chromosome"].astype(str)
-        + ":"
-        + peaks["Start"].astype(str)
-        + "-"
-        + peaks["End"].astype(str)
-    )
+    peaks = peaks.set_index("qtl_id")
+
     # Here we don't do any coordinates adjustment,
     # assuming the borzoi region should always be uncliped and
     # at length 524288 (1bp res) OR 16384 (32bp res)
@@ -67,6 +72,11 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
     peaks["bin_start"] = peaks["bin_start"].round().astype(int)
     peaks["bin_end"] = peaks["bin_end"].round().astype(int)
+    assert peaks["bin_end"].max() <= 16384
+    assert peaks["bin_start"].min() >= 0
+    assert (
+        peaks["bin_end"] - peaks["bin_start"] > 0
+    ).all(), "peak bin end should be greater than start"
     return regions, region_to_mutation, mutations, peaks
 
 
@@ -102,37 +112,36 @@ class QTLManager:
         self.ypred_seq_len: int = ypred_seq_len
         # columns: ["Chromosome", "Start", "End"], index by region id
         self.regions: pd.DataFrame = regions
-        self.region_ids = regions.index.tolist()
+        self.qtl_ids = regions.index.tolist()
 
-        # map region name to mutation id, one-to-one mapping
+        # map qtl id to mutation id, one-to-one mapping
         self.region_to_mutation: dict[str, str] = region_to_mutation
 
         # columns: ["ref", "alt", "pos2start"], index by mutation id
         self.mutations: pd.DataFrame = mutations
         self.mutation_ids = mutations.index.tolist()
 
-        # columns: ["Chromosome", "Start", "End", "Name"], index by region id and mutation id
+        # columns: ["Chromosome", "Start", "End", "Name"], index by qtl id
         self.peaks: pd.DataFrame = peaks
-        self.peak_ids = peaks.index.tolist()
         return
 
     def mutate_dna(
         self,
         batch: dict[str, torch.Tensor],
         dna_key="__dna__",
-        region_key="region",
+        region_key="region_name",
         mutation_col="alt",
     ) -> dict[str, torch.Tensor]:
         """
         Mutate the DNA sequence in the batch according to the QTL regions.
         """
         dna = batch.pop(dna_key)
-        regions = batch[region_key]
+        regions = batch[region_key]  # list of qtl ids
 
         mut_dna_col = defaultdict(list)
         mutation_cols = ["ref", "alt"]
-        for region, region_dna in zip(regions, dna):
-            mutation_id = self.region_to_mutation[region]
+        for qtl_id, region_dna in zip(regions, dna):
+            mutation_id = self.region_to_mutation[qtl_id]
             mut_dna_col["mutation_id"].append(mutation_id)
             mutation = self.mutations.loc[mutation_id]
             for mutation_col in mutation_cols:
@@ -154,7 +163,7 @@ class QTLManager:
         """
         Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.
         """
-        batch_peaks = self.peaks.loc[list(zip(batch["region"], batch["mutation_id"]))]
+        batch_peaks = self.peaks.loc[batch["region_name"]]
 
         ypred = batch[ypred_key]
         assert ypred.shape[-1] == self.ypred_seq_len, (
@@ -175,7 +184,7 @@ class QTLManager:
         """
         Add peak information to the batch.
         """
-        batch_peaks = self.peaks.loc[list(zip(batch["region"], batch["mutation_id"]))]
+        batch_peaks = self.peaks.loc[batch["region_name"]]
         batch["qtl_peaks"] = batch_peaks
         return batch
 
