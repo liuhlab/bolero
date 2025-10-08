@@ -550,6 +550,8 @@ def call_long_attr_seqlets(
     """
     from tangermeme.seqlet import recursive_seqlets
 
+    full_length = attr_1d.shape[-1]
+
     # calculate seqlets in chunks
     attr_1d_tensor = torch.from_numpy(attr_1d)
     attr_1d_tensor_chunk1 = rearrange(attr_1d_tensor, "(a b) -> a b", b=chunk_length)
@@ -594,6 +596,11 @@ def call_long_attr_seqlets(
     center = (seqlets["start"] + seqlets["end"]) // 2
     seqlets["flank_start"] = center - center_flank
     seqlets["flank_end"] = center + center_flank
+
+    # remove seqlets that are out of the original input region
+    seqlets = seqlets[
+        (seqlets["flank_start"] >= 0) & (seqlets["flank_end"] <= full_length)
+    ].copy()
     return seqlets
 
 
@@ -678,7 +685,7 @@ class GeneCountAttrPostProcess:
                 seqlets_attr.append(seqlet_attr_)
                 seqlet_attr1d_ = attr_1d[s:e]
                 seqlets_attr1d.append(seqlet_attr1d_)
-        seqlets_df = pd.concat(seqlets_df)
+        seqlets_df = pd.concat(seqlets_df).reset_index(drop=True)
         seqlets_dna = np.stack(seqlets_dna).astype("bool")
         seqlets_attr = np.stack(seqlets_attr).astype("float16")
         seqlets_attr1d = np.stack(seqlets_attr1d).astype("float16")

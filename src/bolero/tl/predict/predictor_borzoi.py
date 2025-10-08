@@ -1690,8 +1690,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                     "gene_count_attr_post_process",
                     {
                         "seqlet_center_flank": 25,
-                        "save_full_attr": True,
-                        "save_full_attr1d": False,
+                        "save_full_attr": False,
+                        "save_full_attr1d": True,
                         "save_top_q": 0.02,
                         "threshold": 0.001,
                     },
