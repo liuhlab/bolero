@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import torch
 from einops import einsum, rearrange
+from scipy.sparse import coo_matrix
 from torchmetrics import Metric, PearsonCorrCoef, R2Score
 from torchmetrics.functional import pearson_corrcoef, r2_score
 
@@ -509,6 +510,216 @@ class Rename:
         return batch
 
 
+def call_long_attr_seqlets(
+    attr_1d,
+    chunk_length: int = 4096,
+    threshold: float = 0.001,
+    center_flank: int = 25,
+    min_seqlet_len: int = 4,
+    max_seqlet_len: int = 25,
+    idx: int = 0,
+) -> pd.DataFrame:
+    """
+    Call seqlets from a long attribute tensor using tangermeme.seqlet.recursive_seqlets.
+
+    Parameters
+    ----------
+    attr_1d : np.ndarray
+        The 1D attribute tensor, shape (seq_len,)
+    chunk_length : int, optional
+        The length of the chunk to call seqlets from.
+    threshold : float, optional
+        The p-value threshold to call seqlets from.
+    center_flank : int, optional
+        The flanking size to seqlet center when saving seqlets values.
+    min_seqlet_len : int, optional
+        The minimum length of the seqlet.
+    max_seqlet_len : int, optional
+        The maximum length of the seqlet.
+    idx : int, optional
+        The index of the region, used in "example_idx" column in the returned dataframe.
+
+    Returns
+    -------
+    pd.DataFrame
+        The seqlets dataframe, with columns: [
+            'example_idx', 'start', 'end', 'attribution',
+            'p-value', 'flank_start', 'flank_end', 'is_neg_strand'
+        ]
+        See tangermeme.seqlet.recursive_seqlets for more details.
+    """
+    from tangermeme.seqlet import recursive_seqlets
+
+    # calculate seqlets in chunks
+    attr_1d_tensor = torch.from_numpy(attr_1d)
+    attr_1d_tensor_chunk1 = rearrange(attr_1d_tensor, "(a b) -> a b", b=chunk_length)
+    seqlets1 = recursive_seqlets(
+        attr_1d_tensor_chunk1,
+        threshold=threshold,
+        min_seqlet_len=min_seqlet_len,
+        max_seqlet_len=max_seqlet_len,
+        additional_flanks=0,
+    )
+    # chunk2 is after shift, use it to get chunk1 boarder seqlets
+    attr_1d_tensor_chunk2 = rearrange(
+        torch.roll(attr_1d_tensor, shifts=256), "(a b) -> a b", b=chunk_length
+    )
+    seqlets2 = recursive_seqlets(
+        attr_1d_tensor_chunk2,
+        threshold=threshold,
+        min_seqlet_len=min_seqlet_len,
+        max_seqlet_len=max_seqlet_len,
+        additional_flanks=0,
+    )
+    seqlets2["start"] += 256
+    seqlets2["end"] += 256
+
+    # remove boarder in seqlets1
+    seqlets1 = seqlets1[
+        (seqlets1["start"] > 256) | (seqlets1["end"] < chunk_length - 256)
+    ].copy()
+    # add boarder from seqlets2
+    seqlets2 = seqlets2[
+        (seqlets2["end"] >= chunk_length - 256) & (seqlets2["start"] <= chunk_length)
+    ].copy()
+    seqlets = pd.concat([seqlets1, seqlets2])
+
+    # return coordinates into original input region coords
+    chunk_start = seqlets["example_idx"] * chunk_length
+    seqlets["start"] += chunk_start
+    seqlets["end"] += chunk_start
+    seqlets["example_idx"] = idx
+
+    # coordinates for saving fixed length attr data
+    center = (seqlets["start"] + seqlets["end"]) // 2
+    seqlets["flank_start"] = center - center_flank
+    seqlets["flank_end"] = center + center_flank
+    return seqlets
+
+
+class GeneCountAttrPostProcess:
+    def __init__(
+        self,
+        seqlet_center_flank: int = 25,
+        save_full_attr: bool = False,
+        save_full_attr1d: bool = True,
+        save_top_q: float = 0.02,
+        threshold: float = 0.001,
+    ):
+        """
+        Post process the gene count attribution to call seqlets and save seqlets values.
+
+        Parameters
+        ----------
+        seqlet_center_flank : int, optional
+            The flanking size to seqlet center when saving seqlets values.
+        save_full_attr : bool, optional
+            Whether to save the full attribute tensor.
+        save_full_attr1d : bool, optional
+            Whether to save the full attribute 1D tensor.
+        save_top_q : float, optional
+            The quantile cutoff to save the top values of the full attribute tensor.
+        threshold : float, optional
+            The p-value threshold to call seqlets from.
+        """
+        self.seqlet_center_flank = seqlet_center_flank
+        self.save_full_attr = save_full_attr
+        self.save_full_attr1d = save_full_attr1d
+        self.save_top_q = save_top_q
+        self.threshold = threshold
+
+    def __call__(self, batch):
+        """
+        Call seqlets and save seqlets values.
+
+        New keys added to the batch:
+        - seqlets_info: pd.DataFrame, shape (n_seqlets, 7)
+        - seqlets_dna: np.ndarray, shape (n_seqlets, 4, 50)
+        - seqlets_attr: np.ndarray, shape (n_seqlets, 4, 50)
+        - seqlets_attr1d: np.ndarray, shape (n_seqlets, 50)
+        - full_attr1d_sparse: coo_matrix, shape (bs, 524288)
+            If self.save_full_attr1d is True
+        - full_attr_sparse_list: list of coo_matrix, each with shape (4, 524288)
+            If self.save_full_attr is True
+        """
+        strands = batch["region_strand"]
+        dna = batch["__dna__"]
+        if isinstance(dna, torch.Tensor):
+            dna = dna.cpu().numpy()
+        dna_attr = batch["__dna__:attr"]
+        dna_attr = dna_attr.astype("float16")
+        dna_attr1d = (dna_attr * dna).sum(axis=1).astype("float32")
+
+        # ~300ms for each 524k region
+        bs = dna_attr.shape[0]
+        seqlets_df = []
+        seqlets_dna = []
+        seqlets_attr = []
+        seqlets_attr1d = []
+        for idx in range(bs):
+            strand = strands[idx]
+            dna_ = dna[idx]  # (4, 524288)
+            attr = dna_attr[idx]  # (4, 524288)
+            attr_1d = dna_attr1d[idx]  # (524288,)
+            # tangermeme seqlet calling on projected attr
+            seqlets = call_long_attr_seqlets(
+                attr_1d,
+                center_flank=self.seqlet_center_flank,
+                idx=idx,
+                threshold=self.threshold,
+            )
+            seqlets["is_neg_strand"] = strand == "-"
+            seqlets_df.append(seqlets)
+
+            for s, e in seqlets[["flank_start", "flank_end"]].values:
+                seqlet_dna_ = dna_[:, s:e]
+                seqlets_dna.append(seqlet_dna_)
+                seqlet_attr_ = attr[:, s:e]
+                seqlets_attr.append(seqlet_attr_)
+                seqlet_attr1d_ = attr_1d[s:e]
+                seqlets_attr1d.append(seqlet_attr1d_)
+        seqlets_df = pd.concat(seqlets_df)
+        seqlets_dna = np.stack(seqlets_dna).astype("bool")
+        seqlets_attr = np.stack(seqlets_attr).astype("float16")
+        seqlets_attr1d = np.stack(seqlets_attr1d).astype("float16")
+
+        # seqlets_info columns: ['example_idx', 'start', 'end',
+        # 'attribution', 'p-value', 'flank_start', 'flank_end', 'is_neg_strand']
+        batch["seqlets_info"] = seqlets_df  # (n_seqlets, 7)
+        batch["seqlets_dna"] = seqlets_dna  # (n_seqlets, 4, 50)
+        batch["seqlets_attr"] = seqlets_attr  # (n_seqlets, 4, 50)
+        batch["seqlets_attr1d"] = seqlets_attr1d  # (n_seqlets, 50)
+
+        if self.save_full_attr1d:
+            # mask small absolute values using self.save_top_q
+            cutoff = np.quantile(np.abs(dna_attr1d), 1 - self.save_top_q, axis=-1)
+            dna_attr1d_sparse = np.where(
+                np.abs(dna_attr1d) > cutoff[:, None],
+                dna_attr1d,
+                0,
+            )
+            dna_attr1d_sparse = coo_matrix(dna_attr1d_sparse.astype("float16"))
+            batch["full_attr1d_sparse"] = (
+                dna_attr1d_sparse  # coo_matrix of shape (bs, 524288)
+            )
+
+        if self.save_full_attr:
+            # mask small absolute values using self.save_top_q
+            cutoff = np.quantile(np.abs(dna_attr), 1 - self.save_top_q, axis=-1)
+            dna_attr_sparse = np.where(
+                np.abs(dna_attr) > cutoff[..., None],
+                dna_attr,
+                0,
+            )
+            dna_attr_sparse_list = [
+                coo_matrix(s) for s in dna_attr_sparse.astype("float16")
+            ]
+            batch["full_attr_sparse_list"] = (
+                dna_attr_sparse_list  # list of coo_matrix of shape (4, 524288)
+            )
+        return batch
+
+
 CALLBACK_NAME_TO_CLASS = {
     "pearsonr": PearsonCorrcoefCallback,
     "r2_score": R2ScoreCallback,
@@ -516,4 +727,5 @@ CALLBACK_NAME_TO_CLASS = {
     "process_paired_data": ProcessPairedData,
     "rename": Rename,
     "reverse_complement_minus_strand": ReverseComplementMinusStrand,
+    "gene_count_attr_post_process": GeneCountAttrPostProcess,
 }

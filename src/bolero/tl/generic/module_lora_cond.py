@@ -629,5 +629,9 @@ def collapse_lora_model_(model, *args, **kwargs):
     model = deepcopy(model)
     for name, module in model.named_modules():
         if hasattr(module, "collapse"):
-            set_submodule_by_name(model, name, module.collapse(*args, **kwargs))
+            try:
+                set_submodule_by_name(model, name, module.collapse(*args, **kwargs))
+            except Exception as e:
+                print(f"Error collapsing {name} {module}")
+                raise e
     return model

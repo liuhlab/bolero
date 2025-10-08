@@ -110,6 +110,54 @@ class BorzoiInputXGradient:
         return attr_data
 
 
+class BorzoiGeneInputXGradient:
+    def __init__(
+        self,
+        model,
+        model_dna_length=524288,
+        model_resolution=32,
+    ):
+        self.model = model
+        self.model_dna_length = model_dna_length
+        self.model_resolution = model_resolution
+
+        def _forward_hook(
+            *args,
+        ):
+            dna, gene_mask, *signal = args
+            if len(signal) == 0:
+                signal = None
+            else:
+                signal = signal[0]
+            kwargs = {
+                "x": dna,
+                "gene_mask": gene_mask,
+                "signal": signal,
+                "crop": False,
+                "return_dna_embedding": False,
+                "embedding": None,
+            }
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                # take gene output only
+                _, outputs = model.forward_gene(**kwargs)  # Shape: (batch_size, 1, 1)
+
+            outputs = rearrange(outputs, "bs 1 1 -> bs")
+            return outputs
+
+        from captum.attr import InputXGradient
+
+        self.attributor = InputXGradient(_forward_hook)
+
+    def __call__(self, *args) -> torch.Tensor | list[torch.Tensor]:
+        """
+        Compute the input gradients for the given DNA sequence and other inputs.
+        """
+        args = tuple(args)
+        args = tuple([a for a in args if a is not None])
+        attr_data = self.attributor.attribute(inputs=args)
+        return attr_data
+
+
 class BorzoiPredictor(GenericPredictor):
     model_class = BorzoiLoRA
 
@@ -614,10 +662,13 @@ class BorzoiPredictor(GenericPredictor):
         emb_model = emb_model.eval().cuda()
         return emb_model
 
-    def _prepare_attr_model(self, batch) -> torch.nn.Module:
-        embedding = batch["__embedding__"]
-        model = self._collapse_model(embedding)
-        attr_model = BorzoiInputXGradient(model=model)
+    def _prepare_attr_model(self, batch, mode="attribution") -> torch.nn.Module:
+        if mode == "attribution":
+            embedding = batch["__embedding__"]
+            model = self._collapse_model(embedding)
+            attr_model = BorzoiInputXGradient(model=model)
+        else:
+            raise ValueError(f"Invalid mode: {mode}. ")
         return attr_model
 
     def _no_training_randomness(self):
@@ -632,7 +683,13 @@ class BorzoiPredictor(GenericPredictor):
                 # module.running_mean.zero_()
                 # module.running_var.fill_(1.0)
 
-    def _model_attribution_step(self, model, batch, attr_batch_size):
+    def _model_attribution_step(
+        self, model, batch, attr_batch_size, mode="attribution"
+    ):
+        assert (
+            mode == "attribution"
+        ), "Only attribution mode is supported for non-signal model now."
+
         dna = batch["__dna__"].float()
         dna.requires_grad_()
 
@@ -690,6 +747,7 @@ class BorzoiPredictor(GenericPredictor):
         embedding_key="embedding",
         batch_size=6,
         verbose=True,
+        mode="attribution",
     ) -> Generator:
         """
         Get the dataloader for attribution.
@@ -737,8 +795,8 @@ class BorzoiPredictor(GenericPredictor):
             )
 
             # 3. Get callbacks
-            self._pre_callbacks = self._get_pre_callbacks("attribution")
-            self._post_callbacks = self._get_post_callbacks("attribution")
+            self._pre_callbacks = self._get_pre_callbacks(mode=mode)
+            self._post_callbacks = self._get_post_callbacks(mode=mode)
 
             attr_model = None
 
@@ -747,7 +805,7 @@ class BorzoiPredictor(GenericPredictor):
                 batch["pseudobulk_id"] = pseudobulk_id
 
                 if attr_model is None:
-                    model = self._prepare_attr_model(batch)
+                    model = self._prepare_attr_model(batch, mode=mode)
                 # Pre-inference callbacks
                 t = time.time()
                 batch = self.apply_callbacks(batch, "pre")
@@ -756,7 +814,7 @@ class BorzoiPredictor(GenericPredictor):
                 # Inference step
                 t = time.time()
                 batch = self._model_attribution_step(
-                    model, batch, attr_batch_size=batch_size
+                    model, batch, attr_batch_size=batch_size, mode=mode
                 )
                 timer["infer"] += time.time() - t
 
@@ -1242,11 +1300,10 @@ class BorzoiPredictor(GenericPredictor):
     def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk):
         # make a pid-by-region bool table
         pid_region_table_log = {}
-        for pid, (regions, _) in regions_per_pseudobulk.items():
+        for pid, (_, region_names) in regions_per_pseudobulk.items():
             pid_region_table_log[pid] = pd.Series(
-                np.ones(len(regions), dtype=bool), index=regions
+                np.ones(len(region_names), dtype=bool), index=region_names
             )
-        pid_region_table_log = pd.DataFrame(pid_region_table_log)
 
         # collect all finished batches
         batch_paths = batch_dir.glob("*.joblib.gz")
@@ -1254,9 +1311,11 @@ class BorzoiPredictor(GenericPredictor):
         for path in batch_paths:
             bids.append(int(path.name.split(".")[0].split("_")[1]))
             batch = joblib.load(path)
-            regions = batch["region"]
+            region_names = batch["region_name"]
             pid = batch["pseudobulk_id"]
-            pid_region_table_log.loc[regions, pid] = False
+            if pid not in pid_region_table_log:
+                continue
+            pid_region_table_log[pid].loc[region_names] = False
 
         # only run unfinished pid and regions
         def sel_list_with_bool(rl, bool_sel):
@@ -1329,6 +1388,7 @@ class BorzoiPredictor(GenericPredictor):
         save_keys=("__dna__:attr", "region", "pseudobulk_id", "region_name"),
         verbose=True,
         save_first_batch=False,
+        mode="attribution",
     ):
         """
         Prediction task for Borzoi.
@@ -1351,6 +1411,10 @@ class BorzoiPredictor(GenericPredictor):
             Whether to print the progress.
         save_first_batch: bool
             Whether to save the first full batch for debugging purposes.
+        mode: str
+            The mode of the task. One of "attribution", "gene_count_attribution".
+            If "attribution", compute the attribution for the DNA input.
+            If "gene_count_attribution", compute the attribution for the DNA input and gene count input.
         """
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
@@ -1358,6 +1422,7 @@ class BorzoiPredictor(GenericPredictor):
         if verbose:
             print(f"Saving batches to {batch_dir}")
 
+        # prepare regions for each pseudobulk
         if pseudobulk_ids is None:
             pseudobulk_ids = self.pseudobulk_manager.pseudobulk_ids
         if isinstance(regions_per_pseudobulk, str):
@@ -1365,6 +1430,7 @@ class BorzoiPredictor(GenericPredictor):
         regions_per_pseudobulk = self._prepare_attr_regions(
             pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
         )
+        # check and skip finished regions for each pseudobulk
         regions_per_pseudobulk_torun, cur_bid = (
             self._check_finished_attribution_batches(
                 batch_dir=batch_dir,
@@ -1390,6 +1456,7 @@ class BorzoiPredictor(GenericPredictor):
                 embedding_key="embedding",
                 batch_size=batch_size,
                 verbose=verbose,
+                mode=mode,
             )
 
             save_batch = {}
@@ -1416,9 +1483,10 @@ class BorzoiPredictor(GenericPredictor):
             if verbose and len(save_batch) > 0:
                 self._print_batch(save_batch, prefix="Saved")
 
-        self._save_pseudobulk_attr_ds(
-            pseudobulk_ids=pseudobulk_ids, batch_dir=batch_dir
-        )
+        if mode == "attribution":
+            self._save_pseudobulk_attr_ds(
+                pseudobulk_ids=pseudobulk_ids, batch_dir=batch_dir
+            )
         return
 
 
@@ -1550,8 +1618,12 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         self._forward_without_signal = self.config.get("nosignal", False)
 
     def _get_pre_prediction_callbacks(self):
-        _data_keys = ["__ytrue__", "__embedding__"]
-        split_dim = [1, 0]
+        if self._forward_without_signal:
+            _data_keys = ["__embedding__"]
+            split_dim = [0]
+        else:
+            _data_keys = ["__ytrue__", "__embedding__"]
+            split_dim = [1, 0]
         if self.has_cond_emb:
             _data_keys.append("__conditionemb__")
             split_dim.append(0)
@@ -1582,7 +1654,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                 "reverse_complement_minus_strand",
                 {
                     "dna_key": "__dna__",
-                    "signal_key": "__ytrue__",
+                    "signal_key": [] if self._forward_without_signal else "__ytrue__",
                     "region_name_to_strand": region_name_to_strand,
                 },
             ),
@@ -1599,14 +1671,38 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             return _gene_call_back + _pred_call_back
         elif mode == "attribution":
             return self._get_pre_attribution_callbacks()
+        elif mode == "gene_count_attribution":
+            _gene_call_back = self._get_pre_prediction_gene_count_callbacks()
+            _attr_call_back = self._get_pre_attribution_callbacks()
+            return _gene_call_back + _attr_call_back
         else:
             raise ValueError(
                 f"Invalid mode: {mode}. "
                 "Must be one of 'prediction' or 'attribution'."
             )
 
-    def _get_post_attribution_callbacks(self):
-        return []
+    def _get_post_attribution_callbacks(self, mode="attribution"):
+        if mode == "attribution":
+            return []
+        elif mode == "gene_count_attribution":
+            callbacks = [
+                (
+                    "gene_count_attr_post_process",
+                    {
+                        "seqlet_center_flank": 25,
+                        "save_full_attr": True,
+                        "save_full_attr1d": False,
+                        "save_top_q": 0.02,
+                        "threshold": 0.001,
+                    },
+                )
+            ]
+            return self._prepare_callbacks(callbacks)
+        else:
+            raise ValueError(
+                f"Invalid mode: {mode}. "
+                "Must be one of 'attribution' or 'gene_count_attribution'."
+            )
 
     def _get_post_prediction_callbacks(self, mode="prediction"):
         # add paired task callbacks
@@ -1667,17 +1763,14 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         """
         if mode in ("prediction", "gene_count_prediction"):
             return self._get_post_prediction_callbacks(mode)
-        elif mode == "attribution":
-            return self._get_post_attribution_callbacks()
+        elif mode in ("attribution", "gene_count_attribution"):
+            return self._get_post_attribution_callbacks(mode)
         elif mode == "qtl":
             return self._get_post_null_callbacks()
         elif mode == "peak":
             return self._get_post_null_callbacks()
         else:
-            raise ValueError(
-                f"Invalid mode: {mode}. "
-                "Must be one of 'prediction' or 'attribution'."
-            )
+            raise ValueError(f"Invalid mode: {mode}. ")
 
     def _split_cond_emb_to_terms(self, cond_emb):
         # split the cond_emb into dict of terms using cond_encoder in pseudobulker
@@ -1689,17 +1782,25 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             cond_emb_terms = cond_emb
         return cond_emb_terms
 
-    def _prepare_attr_model(self, batch):
+    def _prepare_attr_model(self, batch, mode="attribution"):
         embedding = batch["__embedding__"]
         if self.has_cond_emb:
             cond_emb = batch["__conditionemb__"]
             cond_emb = self._split_cond_emb_to_terms(cond_emb)
         else:
             cond_emb = None
-
-        agg_emb = self._forward_cond_emb_module(cell_emb=embedding, cond_emb=cond_emb)
+        with torch.no_grad():
+            agg_emb = self._forward_cond_emb_module(
+                cell_emb=embedding, cond_emb=cond_emb
+            )
         model = self._collapse_model(agg_emb)
-        attr_model = BorzoiInputXGradient(model=model)
+
+        if mode == "attribution":
+            attr_model = BorzoiInputXGradient(model=model)
+        elif mode == "gene_count_attribution":
+            attr_model = BorzoiGeneInputXGradient(model=model)
+        else:
+            raise ValueError(f"Invalid mode: {mode}. ")
         return attr_model
 
     def _dna_attr_step(self, model, batch, attr_batch_size):
@@ -1715,6 +1816,28 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             dna_mini_batch = dna[i : i + attr_batch_size]
             # calculate the attribution
             dna_attr = model(dna_mini_batch)[0]
+            dna_attr_col.append(dna_attr.detach().cpu().numpy())
+        dna_attr_col = np.concatenate(dna_attr_col, axis=0)
+        batch["__dna__:attr"] = dna_attr_col
+        return batch
+
+    def _dna_gene_count_attr_step(self, model, batch, attr_batch_size):
+        dna = batch["__dna__"].float()
+        dna.requires_grad_()
+
+        gene_mask = self.borzoi_gene_regions.get_gene_mask(
+            batch["region_name"], dna=dna
+        )
+        gene_mask = gene_mask.float()
+        gene_mask.requires_grad_()
+
+        bs = dna.shape[0]
+        dna_attr_col = []
+        for i in range(0, bs, attr_batch_size):
+            dna_mini_batch = dna[i : i + attr_batch_size]
+            gene_mask_mini_batch = gene_mask[i : i + attr_batch_size]
+            # calculate the attribution
+            dna_attr, mask_attr = model(dna_mini_batch, gene_mask_mini_batch)
             dna_attr_col.append(dna_attr.detach().cpu().numpy())
         dna_attr_col = np.concatenate(dna_attr_col, axis=0)
         batch["__dna__:attr"] = dna_attr_col
@@ -1744,14 +1867,31 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         batch["__signal__:attr"] = signal_attr_col
         return batch
 
-    def _model_attribution_step(self, model, batch, attr_batch_size):
+    def _dna_sig_gene_count_attr_step(self, model, batch, attr_batch_size):
+        raise NotImplementedError(
+            "gene count attribution with signal is not implemented"
+        )
+
+    def _model_attribution_step(
+        self, model, batch, attr_batch_size, mode="attribution"
+    ):
         """
         Forward pass through the model to get the attribution.
         """
-        if self._forward_without_signal:
-            batch = self._dna_attr_step(model, batch, attr_batch_size)
+        if mode == "attribution":
+            if self._forward_without_signal:
+                batch = self._dna_attr_step(model, batch, attr_batch_size)
+            else:
+                batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
+        elif mode == "gene_count_attribution":
+            if self._forward_without_signal:
+                batch = self._dna_gene_count_attr_step(model, batch, attr_batch_size)
+            else:
+                batch = self._dna_sig_gene_count_attr_step(
+                    model, batch, attr_batch_size
+                )
         else:
-            batch = self._dna_sig_attr_step(model, batch, attr_batch_size)
+            raise ValueError(f"Invalid mode: {mode}. ")
 
         # clean up memory
         gc.collect()
@@ -1974,6 +2114,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             "region_name",
         ),
         verbose=True,
+        mode="attribution",
+        save_first_batch=False,
     ):
         """
         Attribution task for BorzoiSignalPredictor.
@@ -2009,6 +2151,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             batch_size=batch_size,
             save_keys=save_keys,
             verbose=verbose,
+            mode=mode,
+            save_first_batch=save_first_batch,
         )
 
     def qtl_task(
