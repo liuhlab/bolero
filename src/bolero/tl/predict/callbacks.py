@@ -669,6 +669,7 @@ class GeneCountAttrPostProcess:
             attr = dna_attr[idx]  # (4, 524288)
             attr_1d = dna_attr1d[idx]  # (524288,)
             # tangermeme seqlet calling on projected attr
+            # TODO: speed by using ray parallel
             seqlets = call_long_attr_seqlets(
                 attr_1d,
                 center_flank=self.seqlet_center_flank,

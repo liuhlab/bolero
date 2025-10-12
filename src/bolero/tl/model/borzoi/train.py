@@ -885,6 +885,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "emb_key": "embedding",
             # Fine-tuning related
             "lora_checkpoint_path": None,
+            "_expm1_gene_count_y_true": False,
         }
     )
 
@@ -966,6 +967,10 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         embedding: torch.Tensor,
     ):
         y_true = batch["__gene_value__"]
+
+        if self.config["_expm1_gene_count_y_true"]:
+            # y_true is log1p transformed, so we need to expm1 to get the original value
+            y_true = torch.expm1(y_true)
         y_true = _to_1d(y_true)
         y_pred = model.gene_count_output_head(dna_embedding, embedding=embedding)
         y_pred = _to_1d(y_pred)

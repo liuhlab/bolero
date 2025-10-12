@@ -771,6 +771,10 @@ class BorzoiPredictor(GenericPredictor):
         _ = self.model
         self._no_training_randomness()
 
+        if mode == "gene_count_attribution":
+            dataloader_batch_size = batch_size * 5
+        else:
+            dataloader_batch_size = batch_size * 100
         timer = {"infer": 0, "callback": 0, "total": 0, "counter": 0}
         start = time.time()
         for pseudobulk_id in pseudobulk_ids:
@@ -791,7 +795,7 @@ class BorzoiPredictor(GenericPredictor):
                 # For Borzoi Signal mode, we will use reference bigwig for true data
                 add_true_data=False,
                 # batch size for attr is small, but we set it larger here so we save less batch files
-                batch_size=batch_size * 100,
+                batch_size=dataloader_batch_size,
             )
 
             # 3. Get callbacks
