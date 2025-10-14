@@ -10,45 +10,68 @@ from bolero.pp.seq import one_hot_encoding_torch
 def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     """
     Parse the QTL table and return
-    regions, region_to_mutation, mutations, and peaks.
+    regions, mutations, and peaks.
     """
     stats_cols = stats_cols or ["beta", "PIP"]
-    table = pd.read_csv(qtl_table, sep="\t")
 
-    table = table.rename(columns={"id": "mutation_id"})
+    if isinstance(qtl_table, str):
+        if str(qtl_table).endswith(".feather"):
+            table = pd.read_feather(qtl_table)
+        else:
+            table = pd.read_csv(qtl_table, sep="\t")
+    else:
+        table = qtl_table
 
-    # use peak region to represent peak id
-    table["peak_id"] = (
-        table["chr"]
-        + ":"
-        + table["peak-start"].astype(str)
-        + "-"
-        + table["peak-end"].astype(str)
-    )
+    is_old_format = (
+        table.columns[:5] == ["chr", "524k-start", "524k-end", "peak-start", "peak-end"]
+    ).all()
+    if is_old_format:
+        # back compatibility for old format
+        table.columns = [
+            "Chromosome",
+            "Start",
+            "End",
+            "PeakStart",
+            "PeakEnd",
+            "Ref",
+            "Alt",
+            "pos2start",
+            "beta",
+            "variant_id",
+            "PIP",
+        ]
+        table["peak_id"] = (
+            table["Chromosome"]
+            + ":"
+            + table["PeakStart"].astype(str)
+            + "-"
+            + table["PeakEnd"].astype(str)
+        )
+        table["Name"] = table["peak_id"] + "+" + table["variant_id"]
+        # old format uses 1-based pos2start
+        table["pos2start"] -= 1
+
     # use snp id + peak id as the name of caqtl item
-    table["qtl_id"] = table["mutation_id"] + "+" + table["peak_id"]
+    table["qtl_id"] = table["variant_id"] + "+" + table["peak_id"]
     # make sure the combination of snp id and peak id is unique
     assert table["qtl_id"].duplicated().sum() == 0, "qtl_id column should be unique"
 
     # Borzoi Region information
-    regions = table[["chr", "524k-start", "524k-end", "qtl_id"]].set_index("qtl_id")
-    regions.columns = ["Chromosome", "Start", "End"]
-    regions.index.name = "Name"
+    regions = table[["Chromosome", "Start", "End", "qtl_id"]].set_index("qtl_id")
 
     # Mutation information
     mutations = (
-        table[["ref", "alt", "pos2start", "mutation_id", "qtl_id"]]
+        table[["Ref", "Alt", "pos2start", "variant_id", "qtl_id"]]
         .drop_duplicates()
         .set_index("qtl_id")
     )
+    mutations.columns = ["ref", "alt", "pos2start", "variant_id"]
     assert (
         mutations.index.duplicated().sum() == 0
     ), "mutations with same id have different information."
-    # mutation pos2start is 1 based (VCF), adjust to 0 based
-    mutations["pos2start"] -= 1
 
     # Peak information
-    peak_cols = ["chr", "peak-start", "peak-end", "peak_id", "qtl_id"] + [
+    peak_cols = ["Chromosome", "PeakStart", "PeakEnd", "peak_id", "qtl_id"] + [
         c for c in stats_cols if c in table.columns
     ]
     peaks = table[peak_cols].copy()
@@ -64,8 +87,8 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     # Here we don't do any coordinates adjustment,
     # assuming the borzoi region should always be uncliped and
     # at length 524288 (1bp res) OR 16384 (32bp res)
-    peaks["bin_start"] = (peaks["Start"] - table["524k-start"].values) / resolution
-    peaks["bin_end"] = (peaks["End"] - table["524k-start"].values) / resolution
+    peaks["bin_start"] = (peaks["Start"] - table["Start"].values) / resolution
+    peaks["bin_end"] = (peaks["End"] - table["Start"].values) / resolution
     peaks["bin_start"] = peaks["bin_start"].round().astype(int)
     peaks["bin_end"] = peaks["bin_end"].round().astype(int)
     assert peaks["bin_end"].max() <= 16384

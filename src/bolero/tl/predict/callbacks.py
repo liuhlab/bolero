@@ -409,6 +409,9 @@ class ProcessPairedData:
         pid_table = self._make_or_check_pid_table(batch)
 
         for data_key, split_dim in zip(self.data_keys, self.split_dims):
+            if data_key not in batch:
+                continue
+
             all_pids = pid_table.index
 
             cond0_col = []
