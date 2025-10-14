@@ -125,6 +125,9 @@ class PseudobulkRecordManager:
         else:
             self.original_records = pseudobulk_records
 
+        if "pseudobulk_records" in self.original_records:
+            self.original_records = self.original_records["pseudobulk_records"]
+
         self.pseudobulk_records: dict[str, PseudobulkRecord] = OrderedDict()
         for pid, pid_record in self.original_records.items():
             self.pseudobulk_records[pid] = PseudobulkRecord(pid, **pid_record)
