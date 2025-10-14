@@ -2333,6 +2333,16 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         self.has_shared_data = (
             self.config["train_config"]["shared_data_paths"] is not None
         )
+        # check if the pseudobulk records have shared data in annotation
+        if self.has_shared_data:
+            pm = self.datamanager.pseudobulk_manager
+            assert (
+                "__shared_data__"
+                in pm.pseudobulk_records[pm.pseudobulk_ids[0]].annotation
+            ), (
+                "Pseudobulk records must have '__shared_data__' in annotation, "
+                "make sure the pseudobulk records in file has a '__shared_data__' key"
+            )
 
     def _prepare_multi_dataset_manager(self, config):
         train_config = deepcopy(config["train_config"])
@@ -2362,9 +2372,12 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         train_config["cond_module_kwargs"] = cur_kwargs
 
         dataset_key_info = dataset_records[self.dataset_key]
-        config.setdefault(
-            "pseudobulk_records_path", dataset_key_info["pseudobulk_path"]
-        )
+
+        # replace pseudobulk_path in train_config with predictor provided pseudobulk_records_path
+        train_config["dataset_records"][self.dataset_key]["pseudobulk_path"] = config[
+            "pseudobulk_records_path"
+        ]
+        config.setdefault("pseudobulk_records_path", config["pseudobulk_records_path"])
         config.setdefault("dataset_path", dataset_key_info["data_path"])
         config.setdefault("genome", dataset_key_info["genome"])
 
@@ -2380,11 +2393,11 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         dataset_idx = self._multi_dataset_record_manager.data_keys.index(
             self.dataset_key
         )
-
         # create shared embedding info
         dataset_genome_emb = (
             self._multi_dataset_record_manager.dataset_idx_to_genome_emb[dataset_idx]
         )
+
         bs = cell_emb.shape[0]
         genome_emb = torch.tensor(
             dataset_genome_emb, device=cell_emb.device, dtype=torch.float
