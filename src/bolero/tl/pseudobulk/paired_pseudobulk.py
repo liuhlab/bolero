@@ -727,12 +727,12 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
             )
         )
 
-        if "condition_to_related_pseudobulk" in pseudobulk_and_ot_info:
-            # pseudobulk has condition information
-            self.conditions = set(
-                pseudobulk_and_ot_info["condition_to_related_pseudobulk"].keys()
-            )
-            self._prepare_condition_terms_and_emb(pseudobulk_and_ot_info)
+        pseudobulk_and_ot_info.setdefault("condition_to_related_pseudobulk", {})
+        # pseudobulk has condition information
+        self.conditions = set(
+            pseudobulk_and_ot_info["condition_to_related_pseudobulk"].keys()
+        )
+        self._prepare_condition_terms_and_emb(pseudobulk_and_ot_info)
         return
 
     def _sample_single_pseudobulk(
@@ -839,6 +839,8 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
                 p0_key not in pseudobulk_col
             ), f"Duplicate key {p0_key} found in pseudobulk_col."
             p0["__pid__"] = pid
+            if "__shared_data__" in p1:
+                p0["__shared_data__"] = p1["__shared_data__"]
             pseudobulk_col[p0_key] = p0
 
             p1_key = f"ensemble|data:data-{idx}"

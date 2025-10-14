@@ -28,26 +28,22 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     # use snp id + peak id as the name of caqtl item
     table["qtl_id"] = table["mutation_id"] + "+" + table["peak_id"]
     # make sure the combination of snp id and peak id is unique
-    assert table["qtl_id"].duplicated().sum() == 0
+    assert table["qtl_id"].duplicated().sum() == 0, "qtl_id column should be unique"
 
     # Borzoi Region information
     regions = table[["chr", "524k-start", "524k-end", "qtl_id"]].set_index("qtl_id")
     regions.columns = ["Chromosome", "Start", "End"]
     regions.index.name = "Name"
 
-    # Region to mutation mapping
-    region_to_mutation = table.set_index("qtl_id")["mutation_id"].to_dict()
-    assert len(region_to_mutation) == table.shape[0]
-
     # Mutation information
     mutations = (
-        table[["ref", "alt", "pos2start", "mutation_id"]]
+        table[["ref", "alt", "pos2start", "mutation_id", "qtl_id"]]
         .drop_duplicates()
-        .set_index("mutation_id")
+        .set_index("qtl_id")
     )
     assert (
         mutations.index.duplicated().sum() == 0
-    ), "mutations with same id has different information."
+    ), "mutations with same id have different information."
     # mutation pos2start is 1 based (VCF), adjust to 0 based
     mutations["pos2start"] -= 1
 
@@ -77,7 +73,7 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     assert (
         peaks["bin_end"] - peaks["bin_start"] > 0
     ).all(), "peak bin end should be greater than start"
-    return regions, region_to_mutation, mutations, peaks
+    return regions, mutations, peaks
 
 
 def dna_substitution_(
@@ -94,43 +90,15 @@ def dna_substitution_(
     return dna
 
 
-class QTLManager:
-    def __init__(
-        self,
-        qtl_table: str,
-        resolution: int = 32,
-        qtl_stats_cols=None,
-        ypred_seq_len=16384,
-    ):
-        if qtl_stats_cols is None:
-            qtl_stats_cols = ["beta", "PIP"]
-
-        regions, region_to_mutation, mutations, peaks = prepare_qtl_table(
-            qtl_table, resolution=resolution, stats_cols=qtl_stats_cols
-        )
-        self.resolution: int = resolution
-        self.ypred_seq_len: int = ypred_seq_len
-        # columns: ["Chromosome", "Start", "End"], index by region id
-        self.regions: pd.DataFrame = regions
-        self.qtl_ids = regions.index.tolist()
-
-        # map qtl id to mutation id, one-to-one mapping
-        self.region_to_mutation: dict[str, str] = region_to_mutation
-
-        # columns: ["ref", "alt", "pos2start"], index by mutation id
-        self.mutations: pd.DataFrame = mutations
-        self.mutation_ids = mutations.index.tolist()
-
-        # columns: ["Chromosome", "Start", "End", "Name"], index by qtl id
-        self.peaks: pd.DataFrame = peaks
-        return
+class QTLMixIn:
+    region_to_mutation: dict[str, str]
+    mutations: pd.DataFrame
 
     def mutate_dna(
         self,
         batch: dict[str, torch.Tensor],
         dna_key="__dna__",
         region_key="region_name",
-        mutation_col="alt",
     ) -> dict[str, torch.Tensor]:
         """
         Mutate the DNA sequence in the batch according to the QTL regions.
@@ -141,9 +109,8 @@ class QTLManager:
         mut_dna_col = defaultdict(list)
         mutation_cols = ["ref", "alt"]
         for qtl_id, region_dna in zip(regions, dna):
-            mutation_id = self.region_to_mutation[qtl_id]
-            mut_dna_col["mutation_id"].append(mutation_id)
-            mutation = self.mutations.loc[mutation_id]
+            mut_dna_col["qtl_id"].append(qtl_id)
+            mutation = self.mutations.loc[qtl_id]
             for mutation_col in mutation_cols:
                 mut_seq = mutation[mutation_col]
                 pos2start = mutation["pos2start"]
@@ -155,9 +122,39 @@ class QTLManager:
         for mutation_col in mutation_cols:
             _data = mut_dna_col[f"{dna_key}:{mutation_col}"]
             mut_dna_col[f"{dna_key}:{mutation_col}"] = torch.stack(_data, dim=0)
-        mut_dna_col["mutation_id"] = np.array(mut_dna_col["mutation_id"])
+        mut_dna_col["qtl_id"] = np.array(mut_dna_col["qtl_id"])
         batch.update(mut_dna_col)
         return batch
+
+
+class caQTLManager(QTLMixIn):
+    qtl_type = "caqtl"
+
+    def __init__(
+        self,
+        qtl_table: str,
+        resolution: int = 32,
+        qtl_stats_cols=None,
+        ypred_seq_len=16384,
+    ):
+        if qtl_stats_cols is None:
+            qtl_stats_cols = ["beta", "PIP"]
+
+        regions, mutations, peaks = prepare_qtl_table(
+            qtl_table, resolution=resolution, stats_cols=qtl_stats_cols
+        )
+        self.resolution: int = resolution
+        self.ypred_seq_len: int = ypred_seq_len
+        # columns: ["Chromosome", "Start", "End"], index by region id
+        self.regions: pd.DataFrame = regions
+        self.qtl_ids = regions.index.tolist()
+
+        # columns: ["ref", "alt", "pos2start"], index by mutation id
+        self.mutations: pd.DataFrame = mutations
+
+        # columns: ["Chromosome", "Start", "End", "Name"], index by qtl id
+        self.peaks: pd.DataFrame = peaks
+        return
 
     def get_peak_sum(self, batch: dict, ypred_key):
         """
@@ -180,7 +177,7 @@ class QTLManager:
         batch[f"{ypred_key}:peak"] = peak_sum
         return batch
 
-    def add_peak_info(self, batch: dict):
+    def add_qtl_info(self, batch: dict):
         """
         Add peak information to the batch.
         """
@@ -290,4 +287,131 @@ class PeakManager:
         """
         batch_peaks = self.peaks.loc[batch["region_name"]]
         batch["peaks"] = batch_peaks
+        return batch
+
+
+def prepare_eqtl_table(eqtl_table):
+    """
+    Parse the eQTL table and return regions, region_to_mutation, mutations, and genes.
+
+    Expected columns in eqtl_table:
+    - Chromosome: Borzoi region coordinates
+    - Start: Borzoi region start
+    - End: Borzoi region end
+    - gene_id: gene identifier
+    - variant_id: variant/mutation ID
+    - pos2start: position of variant relative to borzoi region start
+        mutation pos2start should be 0 based, adjusted to borzoi region relative position
+        For + strand gene, 1-based variant position is converted to pos2start by:
+        pos2start = (var_pos - 1) - br_start
+        For - strand gene, 1-based variant position is converted to pos2start by:
+        pos2start = br_end - (var_pos - 1) - 1
+    - Ref, Alt: reference and alternate alleles
+        For + strand gene, ref and alt should be consistent with original variant information
+        For - strand gene, ref and alt should be reverse complemented with respect to original variant information
+    - GeneStart, GeneEnd: gene body coordinates
+    - Strand: gene strand (+/-)
+    - Additional gene information and eQTL statistics columns like slope/beta, PIP, p_value, etc.
+    """
+    if str(eqtl_table).endswith(".csv"):
+        table = pd.read_csv(eqtl_table, sep="\t")
+    else:
+        table = pd.read_feather(eqtl_table)
+    assert "gene_id" in table.columns, "gene_id column is required"
+    assert "variant_id" in table.columns, "variant_id column is required"
+
+    table["qtl_id"] = table["gene_id"] + "+" + table["variant_id"]
+    assert table["qtl_id"].duplicated().sum() == 0, "qtl_id column should be unique"
+
+    # Extract unique regions
+    regions = (
+        table[["Chromosome", "Start", "End", "qtl_id"]]
+        .drop_duplicates()
+        .set_index("qtl_id")
+    )
+    regions.index.name = "Name"
+
+    region_to_strand = table.set_index("qtl_id")["Strand"].to_dict()
+
+    # Mutation information
+    mutations = (
+        table[["Ref", "Alt", "pos2start", "variant_id", "qtl_id"]]
+        .drop_duplicates()
+        .set_index("qtl_id")
+    )
+    mutations.columns = ["ref", "alt", "pos2start", "variant_id"]
+    assert (
+        mutations.index.duplicated().sum() == 0
+    ), "mutations with same id have different information."
+    # IMPORTANT: mutation pos2start should be 0 based, adjusted to borzoi region relative position
+    # For + strand gene, 1-based variant position is converted to pos2start by:
+    # pos2start = (var_pos - 1) - br_start
+    # For - strand gene, 1-based variant position is converted to pos2start by:
+    # pos2start = br_end - (var_pos - 1) - 1
+
+    # Extract gene information
+    gene_cols = ["Chromosome", "GeneStart", "GeneEnd", "gene_id", "qtl_id"]
+    genes = table[gene_cols].copy()
+    genes.columns = [
+        "Chromosome",
+        "Start",
+        "End",
+        "gene_id",
+        "qtl_id",
+    ]
+    genes = genes.set_index("qtl_id")
+    return regions, region_to_strand, mutations, genes
+
+
+class eQTLManager(QTLMixIn):
+    qtl_type = "eqtl"
+
+    def __init__(
+        self,
+        qtl_table: str,
+    ):
+        """
+        Manager for eQTL (expression QTL) tasks.
+
+        Parameters
+        ----------
+        qtl_table : str
+            Path to eQTL table
+        """
+        regions, region_to_strand, mutations, genes = prepare_eqtl_table(qtl_table)
+
+        # columns: ["Chromosome", "Start", "End"], index by region id
+        self.regions: pd.DataFrame = regions
+        self.region_ids = regions.index.tolist()
+
+        # map region name to strand
+        self.region_to_strand: dict[str, str] = region_to_strand
+
+        # columns: ["Ref", "Alt", "pos2start"], index by mutation id
+        self.mutations: pd.DataFrame = mutations
+
+        # columns: ["Chromosome", "Start", "End", "Name", "gene_id", ...],
+        # index by region id and mutation id
+        self.genes: pd.DataFrame = genes
+        return
+
+    def mutate_dna(
+        self,
+        batch: dict[str, torch.Tensor],
+        dna_key="__dna__",
+        region_key="region_name",
+    ):
+        """Mutate dna for eQTL"""
+        regions = batch[region_key]
+        # add gene_id to batch for getting gene mask
+        batch["gene_id"] = [self.genes.loc[qtl_id, "gene_id"] for qtl_id in regions]
+
+        return super().mutate_dna(batch=batch, dna_key=dna_key, region_key=region_key)
+
+    def add_qtl_info(self, batch: dict):
+        """
+        Add gene information to the batch.
+        """
+        batch_genes = self.genes.loc[batch["region_name"]]
+        batch["eqtl_genes"] = batch_genes
         return batch

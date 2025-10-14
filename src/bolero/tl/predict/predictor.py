@@ -364,3 +364,18 @@ class GenericPredictor:
             ensemble_dict,
             output_path,
         )
+
+    def _save_batch(self, batch, batch_dir, idx, save_keys):
+        # save the batch to a file
+        save_batch = {}
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                v = v.cpu().numpy()
+            if k in save_keys:
+                save_batch[k] = v
+        # data to save for each batch
+        save_path = batch_dir / f"batch_{idx}.joblib.gz"
+        if save_path.exists():
+            raise FileExistsError(f"Batch file {save_path} already exists.")
+        joblib.dump(save_batch, save_path)
+        return save_batch

@@ -61,6 +61,9 @@ class BorzoiRegions:
         self.cur_idmap = None
         self._cur_effective_regions = None
 
+        # tigger borzoi regions loading
+        _ = self.borzoi_regions
+
     @property
     def borzoi_regions(self):
         """Return borzoi regions."""
@@ -204,10 +207,14 @@ class BorzoiGeneRegions(BorzoiRegions):
             self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
         return self._borzoi_regions
 
-    def get_gene_mask(self, genes, dna) -> torch.Tensor:
+    def get_gene_mask(self, batch, dna) -> torch.Tensor:
         """
         Get mask bins for given genes.
         """
+        if "gene_id" in batch.keys():
+            genes = batch["gene_id"]
+        else:
+            genes = batch["region_name"]
         mask_coords = self._gene_to_mask.loc[genes].values
         mask = gene_mask_coords_to_mask(mask_coords, dna)
         return mask

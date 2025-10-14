@@ -264,6 +264,7 @@ class PseudobulkRecordManager:
 
 class _RefBigwig:
     def __init__(self, bw_path, resolution):
+        self.bw_path = bw_path
         self.bw_handle = pyBigWig.open(str(bw_path))
         self.resolution = resolution
 
@@ -277,7 +278,12 @@ class _RefBigwig:
         region_data = []
         for region in regions:
             chrom, start, end = self._to_coords(region)
-            data = self.bw_handle.values(chrom, start, end, numpy=True)
+            try:
+                data = self.bw_handle.values(chrom, start, end, numpy=True)
+            except Exception as e:
+                print("Error when fetching region: ", region)
+                print("BigWig path: ", self.bw_path)
+                raise e
             region_data.append(data)
         region_data = np.nan_to_num(np.array(region_data), nan=0.0)
         region_data = region_data.reshape(
@@ -309,14 +315,6 @@ class GenericGenomeDataManager:
             fasta_path=self.genome.fasta_path, device=self.device, parallel=8
         )
         return onehot_encoder
-
-    def add_mutations(self):
-        """
-        Add mutations to the mutation table.
-        """
-        raise NotImplementedError(
-            "add_mutations method not implemented in GenericGenomeDataManager"
-        )
 
     def add_parquet_dataset(
         self,

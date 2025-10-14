@@ -4,6 +4,7 @@ import pathlib
 import tempfile
 import time
 from collections import defaultdict
+from copy import deepcopy
 from shutil import rmtree
 from typing import Generator
 
@@ -175,15 +176,22 @@ class BorzoiPredictor(GenericPredictor):
         self._callbacks = []
         self.qtl_manager = None
 
-    def register_qtl_manager(self, qtl_table):
+    def register_qtl_manager(self, qtl_table, qtl_type):
         """
         Register the QTL manager with the given QTL table.
 
         This is required in qtl task
         """
-        from .task_manager import QTLManager
+        if qtl_type == "caqtl":
+            from .task_manager import caQTLManager
 
-        self.qtl_manager = QTLManager(qtl_table, resolution=32)
+            self.qtl_manager = caQTLManager(qtl_table)
+        elif qtl_type == "eqtl":
+            from .task_manager import eQTLManager
+
+            self.qtl_manager = eQTLManager(qtl_table)
+        else:
+            raise ValueError(f"Invalid qtl type: {qtl_type}")
         return
 
     def register_peak_manager(self, peak_table):
@@ -239,9 +247,7 @@ class BorzoiPredictor(GenericPredictor):
         emb = batch[embedding_key]
 
         if _gene_mode:
-            gene_mask = self.borzoi_gene_regions.get_gene_mask(
-                batch["region_name"], dna=dna
-            )
+            gene_mask = self.borzoi_gene_regions.get_gene_mask(batch, dna=dna)
 
         n_emb = emb.shape[0]
         n_region = dna.shape[0]
@@ -311,20 +317,31 @@ class BorzoiPredictor(GenericPredictor):
         mutation_cols = ["ref", "alt"]
         with torch.inference_mode():
             for mutation_col in mutation_cols:
-                batch = self._model_prediction_step(
-                    batch,
-                    dna_key=f"__dna__:{mutation_col}",
-                    batch_size=batch_size,
-                    ypred_key=f"__ypred__:{mutation_col}",
-                    # QTL manager takes full borzoi region
-                    crop=False,
-                )
-                batch = qtl.get_peak_sum(
-                    batch,
-                    ypred_key=f"__ypred__:{mutation_col}",
-                )
+                if qtl.qtl_type == "caqtl":
+                    batch = self._model_prediction_step(
+                        batch,
+                        dna_key=f"__dna__:{mutation_col}",
+                        batch_size=batch_size,
+                        ypred_key=f"__ypred__:{mutation_col}",
+                        # QTL manager takes full borzoi region
+                        crop=False,
+                    )
+                    batch = qtl.get_peak_sum(
+                        batch,
+                        ypred_key=f"__ypred__:{mutation_col}",
+                    )
+                elif qtl.qtl_type == "eqtl":
+                    batch = self._model_gene_count_prediction_step(
+                        batch,
+                        dna_key=f"__dna__:{mutation_col}",
+                        batch_size=batch_size,
+                        ypred_key=f"__ypred__:{mutation_col}",
+                        crop=False,
+                    )
+                else:
+                    raise ValueError(f"Invalid qtl type: {qtl.qtl_type}")
         # add peak information to the batch
-        batch = qtl.add_peak_info(batch)
+        batch = qtl.add_qtl_info(batch)
         return batch
 
     def _model_peak_step(self, batch, batch_size):
@@ -436,7 +453,7 @@ class BorzoiPredictor(GenericPredictor):
             return self._get_post_prediction_callbacks(mode)
         elif mode == "attribution":
             return self._get_post_attribution_callbacks()
-        elif mode == "qtl":
+        elif mode in ("qtl", "eqtl"):
             return self._get_post_qtl_callbacks()
         else:
             raise ValueError(
@@ -545,6 +562,7 @@ class BorzoiPredictor(GenericPredictor):
     def get_prediction_dataloader(
         self,
         regions,
+        batch_dir,
         pseudobulk_ids=None,
         add_true_data=False,
         dna_key="dna",
@@ -552,13 +570,13 @@ class BorzoiPredictor(GenericPredictor):
         batch_size=32,
         verbose=True,
         mode="prediction",
-        batch_dir=None,
     ) -> Generator:
         """
         Get the dataloader for prediction.
         """
-        assert mode in ["prediction", "gene_count_prediction", "qtl", "peak"], (
-            f"Invalid mode: {mode}. " "Must be one of 'prediction' or 'qtl'."
+        assert mode in ["prediction", "gene_count_prediction", "qtl", "eqtl", "peak"], (
+            f"Invalid mode: {mode}. "
+            "Must be one of 'prediction', 'qtl', 'eqtl' or 'peak'."
         )
         # 1. Get regions
         regions, region_names = self._valid_and_sort_regions(
@@ -623,7 +641,7 @@ class BorzoiPredictor(GenericPredictor):
                     step_fn = self._model_prediction_step
                 elif mode == "gene_count_prediction":
                     step_fn = self._model_gene_count_prediction_step
-                elif mode == "qtl":
+                elif mode in ("qtl", "eqtl"):
                     step_fn = self._model_qtl_step
                 elif mode == "peak":
                     step_fn = self._model_peak_step
@@ -949,12 +967,12 @@ class BorzoiPredictor(GenericPredictor):
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
+            batch_dir=batch_dir,
             add_true_data=True,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
             mode=mode,
-            batch_dir=batch_dir,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1081,13 +1099,13 @@ class BorzoiPredictor(GenericPredictor):
     def _filter_valid_regions(self, regions=None, mode="qtl"):
         db = self.datamanager.datasets["parquet"]
         if regions is None:
-            if mode == "qtl":
+            if mode in ("qtl", "eqtl"):
                 regions = self.qtl_manager.regions
             elif mode == "peak":
                 regions = self.peak_manager.regions
             else:
                 raise ValueError(
-                    f"Invalid mode: {mode}. Must be one of 'qtl' or 'peak'."
+                    f"Invalid mode: {mode}. Must be one of 'qtl', 'eqtl' or 'peak'."
                 )
 
         regions_bed = regions.reset_index().iloc[:, [1, 2, 3, 0]]
@@ -1107,7 +1125,7 @@ class BorzoiPredictor(GenericPredictor):
             new_regions["Name"] = new_regions.index.astype(str)
         return new_regions
 
-    def qtl_task(
+    def caqtl_task(
         self,
         output_dir,
         qtl_table,
@@ -1116,6 +1134,7 @@ class BorzoiPredictor(GenericPredictor):
         save_keys="default",
         add_true_data=False,
         verbose=True,
+        save_first_batch=False,
     ):
         """
         QTL Prediction task for Borzoi.
@@ -1136,6 +1155,8 @@ class BorzoiPredictor(GenericPredictor):
             The keys to save in the output file. If None, save all keys.
         verbose: bool
             Whether to print the progress.
+        save_first_batch: bool
+            Whether to save the first complete batch into output dir.
         """
         if isinstance(save_keys, str) and save_keys == "default":
             save_keys = [
@@ -1149,7 +1170,7 @@ class BorzoiPredictor(GenericPredictor):
             ]
 
         # add qtl manager and get regions from the qtl manager
-        self.register_qtl_manager(qtl_table)
+        self.register_qtl_manager(qtl_table, qtl_type="caqtl")
         regions = self._filter_valid_regions(mode="qtl")
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
@@ -1160,12 +1181,12 @@ class BorzoiPredictor(GenericPredictor):
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
+            batch_dir=batch_dir,
             add_true_data=add_true_data,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
             mode="qtl",
-            batch_dir=batch_dir,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1188,19 +1209,112 @@ class BorzoiPredictor(GenericPredictor):
             idx = idx + cur_bid
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
-                # save the first complete batch into output dir
-                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+                if save_first_batch:
+                    # save the first complete batch into output dir
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+
+            save_batch = self._save_batch(
+                batch=batch, batch_dir=batch_dir, idx=idx, save_keys=save_keys
+            )
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
+        return
+
+    def qtl_task(self, *args, **kwargs):
+        """Alias for caqtl_task"""
+        print("qtl_task is deprecated. Use caqtl_task instead.")
+        return self.caqtl_task(*args, **kwargs)
+
+    def eqtl_task(
+        self,
+        output_dir,
+        qtl_table,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys="default",
+        add_true_data=False,
+        verbose=True,
+        save_first_batch=False,
+    ):
+        """
+        eQTL task for Borzoi - predict effect of variants on gene expression.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        qtl_table : str or pd.DataFrame
+            eQTL table with variant info, gene info, and regions
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output file. If None, save all keys.
+        verbose: bool
+            Whether to print the progress.
+        add_true_data: bool
+            Whether to add true data to the batch.
+        save_first_batch: bool
+            Whether to save the first complete batch into output dir.
+        """
+        if isinstance(save_keys, str) and save_keys == "default":
+            save_keys = [
+                "region",
+                "pseudobulk_ids",
+                "mutation_id",
+                "eqtl_genes",
+                "__ypred__:ref:gene_count",
+                "__ypred__:alt:gene_count",
+            ]
+
+        self.register_qtl_manager(qtl_table, qtl_type="eqtl")
+        regions = self._filter_valid_regions(mode="eqtl")
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        if verbose:
+            print(f"Saving batches to {batch_dir}")
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            batch_dir=batch_dir,
+            add_true_data=add_true_data,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+            mode="eqtl",
+        )
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+                "qtl_table": qtl_table,
+            },
+            output_path=config_path,
+        )
+
+        # data to save for each batch
+        save_keys = [] if save_keys is None else save_keys
+        save_batch = {}
+        cur_bid = _get_cur_bid(batch_dir)
+        for idx, batch in enumerate(dataloader):
+            idx = idx + cur_bid
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+                if save_first_batch:
+                    # save the first complete batch into output dir
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
-            save_batch = {}
-            for k, v in batch.items():
-                if isinstance(v, torch.Tensor):
-                    v = v.cpu().numpy()
-                if k in save_keys:
-                    save_batch[k] = v
-            # data to save for each batch
-            save_path = batch_dir / f"batch_{idx}.joblib.gz"
-            joblib.dump(save_batch, save_path)
+            save_batch = self._save_batch(
+                batch=batch, batch_dir=batch_dir, idx=idx, save_keys=save_keys
+            )
 
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
@@ -1255,12 +1369,12 @@ class BorzoiPredictor(GenericPredictor):
 
         dataloader = self.get_prediction_dataloader(
             regions=regions,
+            batch_dir=batch_dir,
             add_true_data=add_true_data,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
             mode="peak",
-            batch_dir=batch_dir,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1287,15 +1401,9 @@ class BorzoiPredictor(GenericPredictor):
                 joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
-            save_batch = {}
-            for k, v in batch.items():
-                if isinstance(v, torch.Tensor):
-                    v = v.cpu().numpy()
-                if k in save_keys:
-                    save_batch[k] = v
-            # data to save for each batch
-            save_path = batch_dir / f"batch_{idx}.joblib.gz"
-            joblib.dump(save_batch, save_path)
+            save_batch = self._save_batch(
+                batch=batch, batch_dir=batch_dir, idx=idx, save_keys=save_keys
+            )
 
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
@@ -1473,16 +1581,13 @@ class BorzoiPredictor(GenericPredictor):
                         joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
                 # save the batch to a file
-                save_batch = {}
-                for k, v in batch.items():
-                    if isinstance(v, torch.Tensor):
-                        v = v.cpu().numpy()
-                    if k in save_keys:
-                        save_batch[k] = v
-                # data to save for each batch
                 pid = batch["pseudobulk_id"]
-                save_path = batch_dir / f"batch_{idx}.{pid}.joblib.gz"
-                joblib.dump(save_batch, save_path)
+                save_batch = self._save_batch(
+                    batch=batch,
+                    batch_dir=batch_dir,
+                    idx=f"{idx}.{pid}",
+                    save_keys=save_keys,
+                )
 
             if verbose and len(save_batch) > 0:
                 self._print_batch(save_batch, prefix="Saved")
@@ -1648,10 +1753,14 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
     def _get_pre_attribution_callbacks(self):
         return []
 
-    def _get_pre_prediction_gene_count_callbacks(self):
-        region_name_to_strand = self.borzoi_gene_regions.borzoi_regions.set_index(
-            "Name"
-        )["Strand"].to_dict()
+    def _get_pre_prediction_gene_count_callbacks(self, mode):
+        if mode == "eqtl":
+            region_name_to_strand = self.qtl_manager.region_to_strand
+        else:
+            region_name_to_strand = self.borzoi_gene_regions.borzoi_regions.set_index(
+                "Name"
+            )["Strand"].to_dict()
+
         callback_configs = [
             # calculate paired profile correlation
             (
@@ -1669,14 +1778,14 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
     def _get_pre_callbacks(self, mode="prediction"):
         if mode in ("prediction", "qtl", "peak"):
             return self._get_pre_prediction_callbacks()
-        elif mode == "gene_count_prediction":
-            _gene_call_back = self._get_pre_prediction_gene_count_callbacks()
+        elif mode in ("gene_count_prediction", "eqtl"):
+            _gene_call_back = self._get_pre_prediction_gene_count_callbacks(mode)
             _pred_call_back = self._get_pre_prediction_callbacks()
             return _gene_call_back + _pred_call_back
         elif mode == "attribution":
             return self._get_pre_attribution_callbacks()
         elif mode == "gene_count_attribution":
-            _gene_call_back = self._get_pre_prediction_gene_count_callbacks()
+            _gene_call_back = self._get_pre_prediction_gene_count_callbacks(mode)
             _attr_call_back = self._get_pre_attribution_callbacks()
             return _gene_call_back + _attr_call_back
         else:
@@ -1769,7 +1878,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             return self._get_post_prediction_callbacks(mode)
         elif mode in ("attribution", "gene_count_attribution"):
             return self._get_post_attribution_callbacks(mode)
-        elif mode == "qtl":
+        elif mode in ("qtl", "eqtl"):
             return self._get_post_null_callbacks()
         elif mode == "peak":
             return self._get_post_null_callbacks()
@@ -1797,6 +1906,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             agg_emb = self._forward_cond_emb_module(
                 cell_emb=embedding, cond_emb=cond_emb
             )
+            # TODO: add shared data for multi model with score data
         model = self._collapse_model(agg_emb)
 
         if mode == "attribution":
@@ -1829,9 +1939,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         dna = batch["__dna__"].float()
         dna.requires_grad_()
 
-        gene_mask = self.borzoi_gene_regions.get_gene_mask(
-            batch["region_name"], dna=dna
-        )
+        gene_mask = self.borzoi_gene_regions.get_gene_mask(batch, dna=dna)
         gene_mask = gene_mask.float()
         gene_mask.requires_grad_()
 
@@ -1927,15 +2035,21 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         # prepare data
         dna = batch[dna_key]
         cell_emb = batch[cell_embedding_key]
+        if getattr(self, "has_shared_data", False):
+            shared_data = batch["__shared_data__"]
+            if shared_data.ndim == 1:
+                shared_data = shared_data.unsqueeze(1)
+                # shared_data shape (bs, 1)
+        else:
+            shared_data = None
+
         if self.has_cond_emb:
             cond_emb = batch[cond_embedding_key]
         else:
             cond_emb = None
 
         if gene_mode:
-            gene_mask = self.borzoi_gene_regions.get_gene_mask(
-                batch["region_name"], dna=dna
-            )
+            gene_mask = self.borzoi_gene_regions.get_gene_mask(batch, dna=dna)
 
         # take reference signal and log1p scale
         x0 = batch.get(x0_key, None)
@@ -1970,6 +2084,16 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             else:
                 cond_emb_mini_batch = cond_emb[use_emb].contiguous()
                 cond_emb_mini_batch = self._split_cond_emb_to_terms(cond_emb_mini_batch)
+
+            # shared_data shape (n_emb, d_shared)
+            if shared_data is None:
+                shared_data_mini_batch = None
+            else:
+                shared_data_mini_batch = shared_data[use_emb].contiguous()
+            _cond_emb_module_kwargs = (
+                {} if shared_data is None else {"shared_data": shared_data_mini_batch}
+            )
+
             # dna has shape (n_region, 4, seq_len)
             dna_mini_batch = dna[use_reg].contiguous()
             if gene_mode:
@@ -1985,6 +2109,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                 cond_ensemble = self._forward_cond_emb_module(
                     cell_emb=cell_emb_mini_batch,
                     cond_emb=cond_emb_mini_batch,
+                    **_cond_emb_module_kwargs,
                 )
                 if gene_mode:
                     y_pred_mini_batch, gene_count_mini_batch = self.model.forward_gene(
@@ -2080,6 +2205,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         pseudobulk_info_keys = ["cov_scale", embedding_key]
         if self.has_cond_emb:
             pseudobulk_info_keys.append("__conditionemb__")
+        if getattr(self, "has_shared_data", False):
+            pseudobulk_info_keys.append("__shared_data__")
 
         dataloader = self.datamanager.get_dataloader(
             regions=regions,
@@ -2203,19 +2330,26 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
 
         # overwrite BorzoiSignalPredictor
         self.has_cond_emb = True  # always set true for Multi model
+        self.has_shared_data = (
+            self.config["train_config"]["shared_data_paths"] is not None
+        )
 
     def _prepare_multi_dataset_manager(self, config):
+        train_config = deepcopy(config["train_config"])
+
         # extract dataset information and put into config
         # after this, pass the config to BorzoiSignalPredictor.__init__
-        with open(config["train_config"]) as f:
-            train_config = json.load(f)
+        if not isinstance(train_config, dict):
+            with open(train_config) as f:
+                train_config = json.load(f)
 
         # create the same dataset record manager as BorzoiMultiDataset in training
         # use this class to retrive dataset shared information, such as genome embedding
-        dataset_records = train_config.pop("dataset_records")
+        dataset_records = train_config["dataset_records"]
         self._multi_dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
             pseudobulker_cls=train_config["paired_mode"],
+            shared_data_paths=train_config.get("shared_data_paths", None),
             use_regions=train_config["use_regions"],
         )
 
@@ -2237,7 +2371,9 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         config["train_config"] = train_config
         return config
 
-    def _forward_cond_emb_module(self, cell_emb: torch.Tensor, cond_emb: torch.Tensor):
+    def _forward_cond_emb_module(
+        self, cell_emb: torch.Tensor, cond_emb: torch.Tensor, **kwargs
+    ):
         """
         Forward pass for the conditional embedding module.
         """
@@ -2255,9 +2391,8 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         ).repeat(bs, 1)
 
         shared_emb = {"__genome__": genome_emb}
-        shared_dim = self._multi_dataset_record_manager.pseudobulker.shared_data_dim
-        if shared_dim > 0:
-            shared_emb = {"__shared_data__": shared_dim}
+        if "shared_data" in kwargs:
+            shared_emb["__shared_data__"] = kwargs["shared_data"]
 
         # forward cond emb module using single dataset mode
         cond_ensemble = self.model.cond_emb_module.forward_single_dataset(
