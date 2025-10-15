@@ -300,7 +300,8 @@ class PseudobulkerMixin:
         self.local_rng: np.random.Generator = np.random.default_rng(seed=seed)
         self.cov_key = "cov_scale"
 
-        pseudobulk_and_ot_info = joblib.load(pseudobulk_and_ot_info)
+        if not isinstance(pseudobulk_and_ot_info, dict):
+            pseudobulk_and_ot_info = joblib.load(pseudobulk_and_ot_info)
 
         # Pre-computed pseudobulk records
         self.pseudobulk_records: dict[dict[str, Any]] = self._load_records(

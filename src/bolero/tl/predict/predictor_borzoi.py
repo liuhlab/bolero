@@ -1125,6 +1125,42 @@ class BorzoiPredictor(GenericPredictor):
             new_regions["Name"] = new_regions.index.astype(str)
         return new_regions
 
+    def _gather_qtl_data(self, output_dir, qtl_type="caqtl"):
+        batch_paths = list(
+            pathlib.Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz")
+        )
+        config = joblib.load(f"{output_dir}/config.joblib.gz")
+
+        pid_mapping = {k: v["__pid__"] for k, v in config["pseudobulk_records"].items()}
+
+        if qtl_type == "caqtl":
+            suffix = ":peak"
+        elif qtl_type == "eqtl":
+            suffix = ":gene_count"
+        else:
+            raise ValueError(f"Invalid qtl type: {qtl_type}")
+
+        all_qtl_data = []
+        for path in batch_paths:
+            batch = joblib.load(path)
+            pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_mapping)
+            ref_data = pd.DataFrame(
+                batch[f"__ypred__:ref{suffix}"],
+                index=batch["region_name"],
+                columns=pids,
+            )
+            alt_data = pd.DataFrame(
+                batch[f"__ypred__:alt{suffix}"],
+                index=batch["region_name"],
+                columns=pids,
+            )
+            logfc = np.log2(alt_data / ref_data)
+            all_qtl_data.append(logfc)
+        all_qtl_data = pd.concat(all_qtl_data)
+
+        all_qtl_data.to_feather(f"{output_dir}/ref_alt_logfc.feather")
+        return
+
     def caqtl_task(
         self,
         output_dir,
@@ -1219,6 +1255,8 @@ class BorzoiPredictor(GenericPredictor):
 
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
+
+        self._gather_qtl_data(output_dir, qtl_type="caqtl")
         return
 
     def qtl_task(self, *args, **kwargs):
@@ -1262,6 +1300,7 @@ class BorzoiPredictor(GenericPredictor):
         if isinstance(save_keys, str) and save_keys == "default":
             save_keys = [
                 "region",
+                "region_name",
                 "pseudobulk_ids",
                 "mutation_id",
                 "eqtl_genes",
