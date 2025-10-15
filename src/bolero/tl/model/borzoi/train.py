@@ -22,7 +22,7 @@ from bolero.tl.model.borzoi.model_lora import (
 )
 from bolero.tl.model.borzoi.module_output import DualOutputHead
 
-from .utils import MovingMetric, gene_mask_coords_to_mask
+from .utils import MovingMetric, gene_mask_coords_to_mask, mutation_info_to_mask
 
 
 def _to_1d(x):
@@ -703,10 +703,16 @@ class BorzoiTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                         additional_results = {}
 
                     if np.isnan(loss.item()):
-                        nan_loss = True
-                        print("Training loss has NaN, skipping epoch.")
-                        self._update_state_dict()
-                        break
+                        for k, v in loss_breakdown.items():
+                            print(f"{k}: {v}")
+                        for k, v in batch.items():
+                            if hasattr(v, "shape"):
+                                print(f"{k}: {v.shape}")
+                            else:
+                                print(f"{k}: {v}")
+                        raise ValueError(
+                            f"Training loss has NaN. batch_id: {batch_id}, Loss {loss.item()}"
+                        )
 
                 # ==========
                 # Backward
@@ -944,19 +950,54 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         )
         return dataset
 
-    @staticmethod
-    def _maybe_generate_gene_mask(batch) -> None | torch.Tensor:
+    def _add_qtl_info_to_batch(self, batch):
+        borzoi_regions = self.dataset.borzoi_regions.borzoi_regions
+        batch_region_idx = batch["Original_Name"].cpu().numpy()
+
+        batch_mutation_info = borzoi_regions.loc[
+            batch_region_idx, ["Ref", "Alt", "pos2start"]
+        ]
+        batch["__eqtl__:mutation_info"] = batch_mutation_info
+
+        qtl_sig_pval_and_pip = borzoi_regions.loc[
+            batch_region_idx, ["is_sig", "pip"]
+        ].values.astype(np.float32)
+        _dna = batch["dna_one_hot"]
+        batch["__eqtl__:sig_pval_and_pip"] = torch.from_numpy(qtl_sig_pval_and_pip).to(
+            _dna.device
+        )
+        qtl_slope = borzoi_regions.loc[batch_region_idx, ["slope"]].values.astype(
+            np.float32
+        )
+        batch["__eqtl__:slope"] = torch.from_numpy(qtl_slope).to(_dna.device)
+        return batch
+
+    def _maybe_generate_gene_mask(self, batch) -> None | torch.Tensor:
         """
         If "MaskCoords" is in the batch, generate a gene mask tensor.
-        The gene mask tensor has shape (bs, 1, seq_len) where the gene region is 1, else 0.
+
+        For gene count model, the gene mask tensor has shape (bs, 1, seq_len) where the gene region is 1, else 0.
+        For QTL model, the gene mask tensor has shape (bs, 5, seq_len) where
+        the first channel is gene mask, and the rest are mutation mask.
+
         If "MaskCoords" is not in the batch, return None.
         """
+        if self.dataset.qtl_data_path is not None:
+            batch = self._add_qtl_info_to_batch(batch)
+
         gene_mask = batch.get("MaskCoords", None)
         if gene_mask is not None:
             dna: torch.Tensor = batch["dna_one_hot"]
             gene_mask_tensor = gene_mask_coords_to_mask(gene_mask, dna)
+
+            if self.dataset.qtl_data_path is not None:
+                mutation_info = batch["__eqtl__:mutation_info"]
+                mutation_mask = mutation_info_to_mask(mutation_info, dna)
+                gene_mask_tensor = torch.cat([gene_mask_tensor, mutation_mask], dim=1)
+            batch["__gene_mask__"] = gene_mask_tensor
             return gene_mask_tensor
         else:
+            batch["__gene_mask__"] = None
             return None
 
     def _model_forward_pass_gene_count(
@@ -990,6 +1031,53 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         gene_count_loss = gene_count_loss * valid_ratio
         return gene_count_loss
 
+    def _model_forward_pass_eqtl(
+        self,
+        model: BorzoiLoRA,
+        batch: dict,
+        dna_embedding: torch.Tensor,
+    ):
+        y_true_pval_and_pip = batch["__eqtl__:sig_pval_and_pip"]
+        y_true_slope = batch["__eqtl__:slope"]
+        gene_mask = batch["__gene_mask__"]
+
+        y_pred_pval_and_pip, y_pred_slope = model.forward_qtl_with_dna_emb_and_mask(
+            dna_embedding, gene_mask
+        )
+
+        eqtl_loss = model.qtl_loss(
+            y_pred_pval_and_pip=y_pred_pval_and_pip,
+            y_pred_slope=y_pred_slope,
+            y_true_pval_and_pip=y_true_pval_and_pip,
+            y_true_slope=y_true_slope,
+        )
+        return eqtl_loss
+
+    def _maybe_add_gene_or_qtl_related_loss(
+        self,
+        model: BorzoiLoRA,
+        batch: dict,
+        dna_embedding: torch.Tensor,
+        embedding: torch.Tensor,
+        loss: torch.Tensor,
+        loss_breakdown: dict,
+    ):
+        if hasattr(model, "gene_count_output_head"):
+            # additional gene count loss
+            gene_count_loss = self._model_forward_pass_gene_count(
+                model, batch, dna_embedding=dna_embedding, embedding=embedding
+            )
+            loss = loss + gene_count_loss
+            loss_breakdown["gene_count_loss"] = gene_count_loss.clone().detach()
+        if hasattr(model, "qtl_slope_output_head"):
+            # additional eqtl loss
+            eqtl_loss = self._model_forward_pass_eqtl(
+                model, batch, dna_embedding=dna_embedding
+            )
+            loss = loss + eqtl_loss
+            loss_breakdown["eqtl_loss"] = eqtl_loss.clone().detach()
+        return loss, loss_breakdown
+
     def _model_forward_pass_single(self, model: BorzoiLoRA, batch: dict):
         data_key = f"{self.prefix}:bulk_data"
         dna_key = "dna_one_hot"
@@ -1017,13 +1105,15 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
 
         y_pred = y_pred.detach()
 
-        if hasattr(model, "gene_count_output_head"):
-            # additional gene count loss
-            gene_count_loss = self._model_forward_pass_gene_count(
-                model, batch, dna_embedding=dna_embedding, embedding=embedding
-            )
-            loss = loss + gene_count_loss
-            loss_breakdown["gene_count_loss"] = gene_count_loss
+        # add on gene count or eqtl related loss, if any
+        loss, loss_breakdown = self._maybe_add_gene_or_qtl_related_loss(
+            model=model,
+            batch=batch,
+            dna_embedding=dna_embedding,
+            embedding=embedding,
+            loss=loss,
+            loss_breakdown=loss_breakdown,
+        )
         return y_true, y_pred, loss, loss_breakdown
 
     def _split_cond_emb_to_terms(self, batch):
@@ -1087,12 +1177,15 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             loss = loss + delta_loss
             loss_breakdown["delta_loss"] = delta_loss
 
-        if hasattr(model, "gene_count_output_head"):  # additional gene count loss
-            gene_count_loss = self._model_forward_pass_gene_count(
-                model, batch, dna_embedding=dna_emb, embedding=cond_ensemble
-            )
-            loss = loss + gene_count_loss
-            loss_breakdown["gene_count_loss"] = gene_count_loss
+        # add on gene count or eqtl related loss, if any
+        loss, loss_breakdown = self._maybe_add_gene_or_qtl_related_loss(
+            model=model,
+            batch=batch,
+            dna_embedding=dna_emb,
+            embedding=cond_ensemble,
+            loss=loss,
+            loss_breakdown=loss_breakdown,
+        )
         return y_true_count, y_pred_count, loss, loss_breakdown
 
     def _model_forward_pass(self, model: BorzoiLoRA, batch: dict):

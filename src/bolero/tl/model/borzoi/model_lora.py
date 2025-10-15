@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 import torch
+from einops import reduce
 from torch import nn
 
 from bolero.tl.generic.module_embedding import EmbeddingMLP
@@ -161,6 +162,10 @@ class BorzoiLoRA(Borzoi):
             self.setup_gene_count(out_channels=out_channels, **output_head_kwargs)
             # this loss type is still for the tracks, gene count loss is separate
             self.loss_type = "poisson_multinomial"
+        elif output_head_type == "eqtl":
+            self.setup_eqtl(out_channels=out_channels, **output_head_kwargs)
+            # this loss type is still for the tracks, eqtl loss is separate
+            self.loss_type = "poisson_multinomial"
         else:
             raise ValueError(f"output_head_type: {output_head_type} is invalid")
 
@@ -246,6 +251,31 @@ class BorzoiLoRA(Borzoi):
         # also need a mask conv layer to take gene mask as input
         # adapted from genetech/decima: https://github.com/Genentech/decima
         self.gene_mask_conv = nn.Conv1d(1, 512, kernel_size=15, padding="same")
+        nn.init.constant_(self.gene_mask_conv.weight, 0.0)
+        nn.init.constant_(self.gene_mask_conv.bias, 0.0)
+        return
+
+    def setup_eqtl(self, out_channels):
+        """Setup a single QTL output head."""
+        self.setup_output_head(out_channels=out_channels, activation="softplus")
+
+        # will be taking the bin that contain mutation to get final emb
+        self.qtl_pval_and_pip_output_head = OutputHead(
+            in_channels=1920,
+            out_channels=2,
+            activation=None,
+            avg_pool=False,
+        )  # predict pvals (0, 1)
+        self.qtl_slope_output_head = OutputHead(
+            in_channels=1920,
+            out_channels=1,
+            activation=None,
+            avg_pool=False,
+        )  # predict slopes
+
+        # gene mask conv has 5 input channels:
+        # 1 for gene mask, 4 for variant alt allele one-hot encoding
+        self.gene_mask_conv = nn.Conv1d(5, 512, kernel_size=15, padding="same")
         nn.init.constant_(self.gene_mask_conv.weight, 0.0)
         nn.init.constant_(self.gene_mask_conv.bias, 0.0)
         return
@@ -537,35 +567,6 @@ class BorzoiLoRA(Borzoi):
                 gene_mask=gene_mask,
             )
 
-    def forward_gene(
-        self,
-        x,
-        gene_mask,
-        embedding=None,
-        crop=True,
-        return_dna_embedding=False,
-        **kwargs,
-    ):
-        """
-        For gene count model (output_head_type="gene_count"), do a
-        forward pass to get both final output and gene count output.
-        """
-        output, dna_embedding = self.forward(
-            x,
-            gene_mask=gene_mask,
-            embedding=embedding,
-            crop=crop,
-            return_dna_embedding=True,
-            **kwargs,
-        )
-
-        # get gene count prediction
-        gene_output = self.gene_count_output_head(dna_embedding, embedding=embedding)
-
-        if return_dna_embedding:
-            return output, gene_output, dna_embedding
-        return output, gene_output
-
     def forward_dna_only_model(
         self, x, embedding=None, crop=True, return_dna_embedding=False, gene_mask=None
     ):
@@ -632,6 +633,134 @@ class BorzoiLoRA(Borzoi):
             return output, x
         return output
 
+    def forward_gene(
+        self,
+        x,
+        gene_mask,
+        embedding=None,
+        crop=True,
+        return_dna_embedding=False,
+        **kwargs,
+    ):
+        """
+        For gene count model (output_head_type="gene_count"), do a
+        forward pass to get both final output and gene count output.
+        """
+        output, dna_embedding = self.forward(
+            x,
+            gene_mask=gene_mask,
+            embedding=embedding,
+            crop=crop,
+            return_dna_embedding=True,
+            **kwargs,
+        )
+
+        # get gene count prediction
+        gene_output = self.gene_count_output_head(dna_embedding, embedding=embedding)
+
+        if return_dna_embedding:
+            return output, gene_output, dna_embedding
+        return output, gene_output
+
+    def forward_qtl_with_dna_emb_and_mask(self, dna_embedding, gene_mask):
+        """
+        Forward pass with DNA embedding and gene mask input.
+
+        Parameters
+        ----------
+        dna_embedding : torch.Tensor
+            DNA embedding, shape (batch_size, 1920, seq_len).
+        gene_mask : torch.Tensor
+            Gene mask, shape (batch_size, 5, seq_len).
+            Gene mask has 5 channels: 1 for gene mask, 4 for variant alt allele one-hot encoding.
+
+        Returns
+        -------
+        pval_and_pip_output : torch.Tensor
+            Pval and pip output, shape (batch_size, 2).
+        slope_output : torch.Tensor
+            Slope output, shape (batch_size, 1).
+        """
+        # get mutation nnz
+        mutation_mask = gene_mask[:, 1:, :]  # (bs, 4, 524_288)
+        mutation_nnz = (mutation_mask > 0).sum(dim=1, keepdim=True)  # (bs, 1, 524_288)
+        # 1bp -> 32bp resolution conversion (bs 1, 524_288) -> (bs, 1, 16384)
+        mutation_nnz = reduce(mutation_nnz, "b 1 (n group) -> b 1 n", "sum", group=32)
+        # normalize mutation nnz, no effect for SNPs
+        mutation_nnz = mutation_nnz / mutation_nnz.sum(
+            dim=-1, keepdim=True
+        )  # (bs, 1, 16384)
+
+        to_crop_length = mutation_nnz.shape[-1] - dna_embedding.shape[-1]
+        if to_crop_length > 0:
+            # crop mutation_nnz to the same length as dna_embedding
+            radius = to_crop_length // 2
+            mutation_nnz = mutation_nnz[..., radius:-radius]
+        elif to_crop_length < 0:
+            raise ValueError(
+                f"mutation_nnz length {mutation_nnz.shape[-1]} is shorter than dna_embedding length {dna_embedding.shape[-1]}"
+            )
+
+        # get pval and pip output and slope output
+        pval_and_pip_output = self.qtl_pval_and_pip_output_head(
+            dna_embedding
+        )  # (bs, 2, 16384)
+        slope_output = self.qtl_slope_output_head(dna_embedding)  # (bs, 1, 16384)
+        # Mean output over nnz positions
+        pval_and_pip_output = (pval_and_pip_output * mutation_nnz).sum(
+            dim=-1
+        )  # (bs, 2)
+        slope_output = (slope_output * mutation_nnz).sum(dim=-1)  # (bs, 1)
+
+        return pval_and_pip_output, slope_output
+
+    def forward_qtl(
+        self,
+        x,
+        gene_mask,
+        embedding=None,
+        crop=True,
+        return_dna_embedding=False,
+        **kwargs,
+    ):
+        """
+        Forward pass with DNA and gene mask input.
+        For QTL model (output_head_type="qtl"), do a
+        forward pass to get both final output and QTL output.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            DNA input, shape (batch_size, 4, seq_len).
+        gene_mask : torch.Tensor
+            Gene mask, shape (batch_size, 5, seq_len).
+            Gene mask has 5 channels: 1 for gene mask, 4 for variant alt allele one-hot encoding.
+        embedding : torch.Tensor, optional
+            Embedding, shape (batch_size, embedding_dim).
+        crop : bool
+            Whether to crop the track output.
+        return_dna_embedding : bool
+            Whether to return the DNA embedding.
+        **kwargs : dict
+            Additional keyword arguments.
+        """
+        output, dna_embedding = self.forward(
+            x,
+            gene_mask=gene_mask,
+            embedding=embedding,
+            crop=crop,
+            return_dna_embedding=True,
+            **kwargs,
+        )
+
+        pval_and_pip_output, slope_output = self._forward_qtl_with_dna_emb_and_mask(
+            dna_embedding, gene_mask
+        )
+
+        if return_dna_embedding:
+            return output, pval_and_pip_output, slope_output, dna_embedding
+        return output, pval_and_pip_output, slope_output
+
     def loss(self, y_pred, y_true, reduce=True, position_weights=None):
         """
         Compute the loss for the Borzoi model.
@@ -686,6 +815,55 @@ class BorzoiLoRA(Borzoi):
             loss = loss.mean()
 
         return loss
+
+    def qtl_loss(
+        self,
+        y_pred_pval_and_pip,
+        y_pred_slope,
+        y_true_pval_and_pip,
+        y_true_slope,
+    ):
+        """
+        Compute the QTL loss.
+
+        Parameters
+        ----------
+        y_pred_pval_and_pip : torch.Tensor
+            Predicted pval and pip output, shape (batch_size, 2).
+        y_pred_slope : torch.Tensor
+            Predicted slope output, shape (batch_size, 1).
+        y_true_pval_and_pip : torch.Tensor
+            True pval and pip output, shape (batch_size, 2).
+        y_true_slope : torch.Tensor
+            True slope output, shape (batch_size, 1).
+        """
+        pval_and_pip_loss = nn.functional.binary_cross_entropy_with_logits(
+            y_pred_pval_and_pip, y_true_pval_and_pip, reduction="none"
+        )
+        if torch.isnan(pval_and_pip_loss).any():
+            raise ValueError(
+                f"pval_and_pip_loss has nan {pval_and_pip_loss}, "
+                f"y_pred_pval_and_pip: {y_pred_pval_and_pip}, "
+                f"y_true_pval_and_pip: {y_true_pval_and_pip}"
+            )
+        slope_loss = nn.functional.mse_loss(
+            y_pred_slope, y_true_slope, reduction="none"
+        )
+        if torch.isnan(slope_loss).any():
+            raise ValueError(
+                f"slope_loss has nan {slope_loss}, "
+                f"y_pred_slope: {y_pred_slope}, "
+                f"y_true_slope: {y_true_slope}"
+            )
+        # only use slope_loss on those regions that are pval significant
+        # first channel is binary label for pval significance
+        pval_sig = y_true_pval_and_pip[:, 0] > 0
+        if pval_sig.any():
+            slope_loss = slope_loss[pval_sig]
+            qtl_loss = pval_and_pip_loss.mean() + slope_loss.mean()
+        else:
+            qtl_loss = pval_and_pip_loss.mean()
+        return qtl_loss
 
 
 class BorzoiLoRAMulti(BorzoiLoRA):

@@ -23,7 +23,7 @@ from bolero.tl.pseudobulk.paired_pseudobulk import (
 )
 from bolero.tl.pseudobulk.single_pseudobulk import SinglePseudobulker
 
-from .utils import BorzoiGeneRegions, BorzoiRegions
+from .utils import BorzoiGeneQTLRegions, BorzoiGeneRegions, BorzoiRegions
 
 DNA_NAME = "dna_one_hot"
 
@@ -291,6 +291,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # gene related options
         "deg_list": None,
         "gene_data_path": None,
+        "qtl_data_path": None,
         # benchmark options
         "_multihead": False,
     }
@@ -322,6 +323,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # gene related options
         deg_list=None,
         gene_data_path=None,
+        qtl_data_path=None,
         # benchmark options
         _multihead=False,
     ):
@@ -355,12 +357,19 @@ class BorzoiDataset(RayGenomeChunkDataset):
 
         self.use_regions = use_regions
         self.gene_data_path = gene_data_path
+        self.qtl_data_path = qtl_data_path
+
         self.train_region_step_sample = train_region_step_sample
         if self.use_regions == "borzoi":
             self.borzoi_regions = BorzoiRegions(self.genome)
             self.train_region_step_sample = train_region_step_sample
         elif self.use_regions == "borzoi_gene":
-            self.borzoi_regions = BorzoiGeneRegions(self.genome)
+            if self.qtl_data_path is not None:
+                self.borzoi_regions = BorzoiGeneQTLRegions(
+                    self.genome, self.qtl_data_path
+                )
+            else:
+                self.borzoi_regions = BorzoiGeneRegions(self.genome)
             self.train_region_step_sample = False  # disable sample for gene region
         else:
             raise ValueError(
@@ -789,7 +798,7 @@ class BorzoiDataset(RayGenomeChunkDataset):
                 filter_prefix="pseudobulk",
             )
 
-        if self.use_regions == "borzoi_gene":
+        if self.use_regions == "borzoi_gene" and self.gene_data_path is not None:
             work_ds = self._add_gene_counts(
                 dataset=work_ds,
                 concurrency=(1, concurrency // 4 + 1),

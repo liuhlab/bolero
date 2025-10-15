@@ -7,6 +7,7 @@ import ray
 import torch
 
 from bolero.pp.genome import Genome
+from bolero.pp.seq import one_hot_encoding_torch
 from bolero.utils import get_package_dir
 
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
@@ -150,10 +151,13 @@ class BorzoiRegions:
 
 
 class BorzoiGeneRegions(BorzoiRegions):
-    _gene_to_mask: pd.DataFrame
+    _region_to_mask: pd.DataFrame
 
     @staticmethod
     def _add_mask_coords(regions):
+        if "MaskStart" in regions.columns:
+            return regions
+
         records = []
         for _, row in regions.iterrows():
             if row["Strand"] == "+":
@@ -201,7 +205,7 @@ class BorzoiGeneRegions(BorzoiRegions):
                 subset="Name"
             )
             self._borzoi_regions = self._add_mask_coords(self._borzoi_regions)
-            self._gene_to_mask: pd.DataFrame = self._borzoi_regions.set_index("Name")[
+            self._region_to_mask: pd.DataFrame = self._borzoi_regions.set_index("Name")[
                 ["MaskStart", "MaskEnd"]
             ].copy()
             self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
@@ -215,16 +219,18 @@ class BorzoiGeneRegions(BorzoiRegions):
             genes = batch["gene_id"]
         else:
             genes = batch["region_name"]
-        mask_coords = self._gene_to_mask.loc[genes].values
+        mask_coords = self._region_to_mask.loc[genes].values
         mask = gene_mask_coords_to_mask(mask_coords, dna)
         return mask
 
-    def get_train_valid_test_regions(self, split_id, deg_list=None, **kwargs):
+    def get_train_valid_test_regions(
+        self, split_id, deg_list=None, use_cols=None, **kwargs
+    ):
         """
         Get train, valid, test regions for a given genome and split id.
         """
-        regions = self.borzoi_regions[
-            [
+        if use_cols is None:
+            use_cols = [
                 "Chromosome",
                 "Start",
                 "End",
@@ -234,7 +240,8 @@ class BorzoiGeneRegions(BorzoiRegions):
                 "MaskStart",
                 "MaskEnd",
             ]
-        ].copy()
+
+        regions = self.borzoi_regions[use_cols].copy()
         regions = regions[regions["Fold"] != "."].copy()
         regions["Fold"] = regions["Fold"].astype(int)
         regions["Original_Name"] = regions.index
@@ -271,6 +278,91 @@ class BorzoiGeneRegions(BorzoiRegions):
         return train_regions, valid_regions, test_regions
 
 
+class BorzoiGeneQTLRegions(BorzoiGeneRegions):
+    _region_to_mutation: pd.DataFrame
+
+    def __init__(self, genome, brozoi_gene_regions_with_qtl):
+        self.qtl_table = brozoi_gene_regions_with_qtl
+        if not isinstance(self.qtl_table, pd.DataFrame):
+            self.qtl_table = pd.read_feather(self.qtl_table)
+        self.qtl_table.index = self.qtl_table["Name"]
+        assert (
+            self.qtl_table.index.duplicated().sum() == 0
+        ), "Name column (qtl_id) should be unique"
+
+        super().__init__(genome)
+        return
+
+    @property
+    def borzoi_regions(self):
+        """Return borzoi regions."""
+        if self._borzoi_regions is None:
+            bed = self.qtl_table
+            # bed.columns include all BorzoiGeneRegions columns and with additional QTL info
+
+            # skip first and last region of each chromosome to avoid border issue
+            # TODO: fix parquet issue and this will be unnecessary
+            bed = (
+                bed.groupby("Chromosome", observed=True)
+                .apply(lambda df: df.sort_values("Start").iloc[1:-1])
+                .reset_index(drop=True)
+            )
+            self._borzoi_regions = bed.reset_index(drop=True)
+            self._borzoi_regions = self._add_mask_coords(self._borzoi_regions)
+            self._region_to_mask: pd.DataFrame = self._borzoi_regions.set_index("Name")[
+                ["MaskStart", "MaskEnd"]
+            ].copy()
+            self._region_to_mutation: pd.DataFrame = self._borzoi_regions.set_index(
+                "Name"
+            )[["Ref", "Alt", "pos2start"]].copy()
+            self.cur_idmap: dict[int, str] = bed["Name"].to_dict()
+
+            # also update qtl_table to make sure its index is the same as _borzoi_regions
+            self.qtl_table = bed
+        return self._borzoi_regions
+
+    def get_gene_mask(self, batch, dna) -> torch.Tensor:
+        """
+        Get mask bins for given qtl ids.
+
+        mask is a tensor of shape (bs, 5, seq_len),
+        1 channel for gene mask, 4 channels for variant alt allele one-hot encoding
+        """
+        qtl_ids = batch["region_name"]
+
+        # gene mask (bs, 1, seq_len)
+        mask_coords = self._region_to_mask.loc[qtl_ids].values
+        mask = gene_mask_coords_to_mask(mask_coords, dna)
+
+        # mutation mask (bs, 4, seq_len)
+        mutation_info = self._region_to_mutation.loc[qtl_ids]
+        mutation_mask = mutation_info_to_mask(mutation_info, dna)
+        mask = torch.cat([mask, mutation_mask], dim=1)
+
+        # mask shape: (bs, 5, seq_len)
+        return mask
+
+    def get_train_valid_test_regions(self, *args, **kwargs):
+        """Get train, valid, test regions for a given genome and split id."""
+        kwargs["use_cols"] = [
+            "Chromosome",
+            "Start",
+            "End",
+            "Name",
+            "Strand",
+            "Fold",
+            "MaskStart",
+            "MaskEnd",
+            "Ref",
+            "Alt",
+            "pos2start",
+            "is_sig",
+            "pip",
+            "slope",
+        ]
+        return super().get_train_valid_test_regions(*args, **kwargs)
+
+
 @ray.remote
 def _process_single_dataset(br, key, **kwargs):
     """
@@ -296,6 +388,20 @@ def gene_mask_coords_to_mask(
     for i, (start, end) in enumerate(gene_mask):
         gene_mask_tensor[i, 0, start:end] = 1.0
     return gene_mask_tensor
+
+
+def mutation_info_to_mask(
+    mutation_info: pd.DataFrame, dna: torch.Tensor
+) -> torch.Tensor:
+    """Turn mutation info to mask tensor."""
+    mutation_mask_tensor = torch.zeros_like(dna)
+    # mutation_mask_tensor shape: (bs, 4, seq_len)
+
+    for i, (_, alt, pos2start) in enumerate(mutation_info.values):
+        mutation_mask_tensor[i, :, pos2start : pos2start + len(alt)] = (
+            one_hot_encoding_torch(alt, batch_dim=False, device=dna.device)
+        )
+    return mutation_mask_tensor
 
 
 class MultiBorzoiRegions:
