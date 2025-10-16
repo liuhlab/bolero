@@ -365,6 +365,10 @@ class BorzoiDataset(RayGenomeChunkDataset):
             self.train_region_step_sample = train_region_step_sample
         elif self.use_regions == "borzoi_gene":
             if self.qtl_data_path is not None:
+                if self.max_jitter > 0:
+                    raise ValueError(
+                        "max_jitter must be 0 for borzoi_gene_qtl regions."
+                    )
                 self.borzoi_regions = BorzoiGeneQTLRegions(
                     self.genome, self.qtl_data_path
                 )

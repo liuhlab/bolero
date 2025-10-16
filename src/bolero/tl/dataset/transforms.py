@@ -390,6 +390,7 @@ class FetchRegionOneHot:
         output_key: str = "dna_one_hot",
         dtype: str = "float32",
         random_shift: bool = 0,
+        mask_fn: callable = None,
     ) -> None:
         """
         Initialize the FetchRegionOneHot transform.
@@ -405,13 +406,16 @@ class FetchRegionOneHot:
         random_shift : bool, optional
             Whether to randomly shift the DNA sequence. Defaults to False.
             Borzoi model uses this to randomly shift the DNA sequence. Other models should allways set to 0
-
+        mask_fn : callable, optional
+            A callable function to take in DNA one-hot tensor (bs, 4, seq_len), do some masking or modification,
+            and return the modified DNA one-hot tensor in the same shape. Defaults to None, do nothing.
         """
         self.region_key = region_key
         self.output_key = output_key
         self.dtype = dtype
         self.random_shift = random_shift
         self.onehot_encoder = FastaOneHotNoParallel(fasta_path=fasta_path)
+        self.mask_fn = mask_fn
 
     def __call__(self, data: dict, key_suffix=None) -> dict:
         """
@@ -458,6 +462,10 @@ class FetchRegionOneHot:
                 .permute(0, 2, 1)
                 .numpy()
             )
+
+            if self.mask_fn is not None:
+                one_hot = self.mask_fn(one_hot)
+
             # (batch, length, channel)
             data[self.output_key + suffix] = one_hot.astype(self.dtype)
         return data
