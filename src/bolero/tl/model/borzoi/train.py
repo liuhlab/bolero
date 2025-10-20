@@ -891,7 +891,8 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             "emb_key": "embedding",
             # Fine-tuning related
             "lora_checkpoint_path": None,
-            "_expm1_gene_count_y_true": False,
+            "_expm1_gene_count_y_true": True,
+            "_gene_loss_weight": 1,
         }
     )
 
@@ -1038,6 +1039,9 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             y_pred=y_pred, y_true=y_true, reduce=True
         )
         gene_count_loss = gene_count_loss * valid_ratio
+
+        # apply gene loss weight
+        gene_count_loss = gene_count_loss * self.config["_gene_loss_weight"]
         return gene_count_loss
 
     def _model_forward_pass_eqtl(
