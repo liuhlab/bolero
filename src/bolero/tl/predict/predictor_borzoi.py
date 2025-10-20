@@ -19,6 +19,7 @@ from einops import rearrange
 from bolero.tl.model.borzoi.dataset_multi import DatasetRecordManager
 from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAMulti
+from bolero.tl.model.borzoi.utils import BorzoiGeneQTLRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import understand_regions
 
@@ -936,9 +937,11 @@ class BorzoiPredictor(GenericPredictor):
             Whether to filter the regions to valid regions.
         """
         if mode == "gene_count_prediction":
-            assert hasattr(self.model, "gene_count_output_head"), (
-                "Model does not have gene count output head. "
-                "Please use a model with gene count output head for gene count prediction."
+            assert hasattr(self.model, "gene_count_output_head") or hasattr(
+                self.model, "qtl_slope_output_head"
+            ), (
+                "Model does not have gene count output head or qtl slope output head. "
+                "Please use a model with gene count output head or qtl slope output head for gene count prediction."
             )
             assert self.borzoi_gene_regions is not None, (
                 "Borzoi gene regions is not set. "
@@ -2151,14 +2154,29 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                     **_cond_emb_module_kwargs,
                 )
                 if gene_mode:
-                    y_pred_mini_batch, gene_count_mini_batch = self.model.forward_gene(
-                        dna_mini_batch,
-                        gene_mask=gene_mask_mini_batch,
-                        embedding=cond_ensemble,
-                        signal=x0_mini_batch,
-                        crop=crop,
-                    )
-                    gene_count_col.append(gene_count_mini_batch)
+                    if isinstance(self.borzoi_gene_regions, BorzoiGeneQTLRegions):
+                        y_pred_mini_batch, _stats, _slope = self.model.forward_qtl(
+                            dna_mini_batch,
+                            gene_mask=gene_mask_mini_batch,
+                            embedding=cond_ensemble,
+                            signal=x0_mini_batch,
+                            crop=crop,
+                        )
+                        _stats = torch.nn.functional.sigmoid(_stats)
+                        gene_count_col.append(
+                            torch.concat([_stats, _slope], dim=1).detach()
+                        )
+                    else:
+                        y_pred_mini_batch, gene_count_mini_batch = (
+                            self.model.forward_gene(
+                                dna_mini_batch,
+                                gene_mask=gene_mask_mini_batch,
+                                embedding=cond_ensemble,
+                                signal=x0_mini_batch,
+                                crop=crop,
+                            )
+                        )
+                        gene_count_col.append(gene_count_mini_batch)
                 else:
                     y_pred_mini_batch = self.model(
                         dna_mini_batch,
@@ -2177,14 +2195,23 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             n_emb=n_emb,
         )
         if gene_mode:
-            gene_count = torch.cat(gene_count_col, dim=0)
-            gene_count = rearrange(
-                gene_count,
-                "(n_region n_emb) 1 1 -> n_region n_emb",
-                n_region=n_region,
-                n_emb=n_emb,
-            )
-            batch[f"{ypred_key}:gene_count"] = gene_count.detach()
+            if isinstance(self.borzoi_gene_regions, BorzoiGeneQTLRegions):
+                gene_count = torch.cat(gene_count_col, dim=0)
+                gene_count = rearrange(
+                    gene_count,
+                    "(n_region n_emb) d -> n_region n_emb d",
+                    n_region=n_region,
+                    n_emb=n_emb,
+                )
+            else:
+                gene_count = torch.cat(gene_count_col, dim=0)
+                gene_count = rearrange(
+                    gene_count,
+                    "(n_region n_emb) 1 1 -> n_region n_emb",
+                    n_region=n_region,
+                    n_emb=n_emb,
+                ).detach()
+            batch[f"{ypred_key}:gene_count"] = gene_count
 
         if crop:
             # also crop ytrue to allow metric calculation

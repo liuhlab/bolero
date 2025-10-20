@@ -10,7 +10,11 @@ import torch
 from bolero import Genome
 from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA
-from bolero.tl.model.borzoi.utils import BorzoiGeneRegions, BorzoiRegions
+from bolero.tl.model.borzoi.utils import (
+    BorzoiGeneQTLRegions,
+    BorzoiGeneRegions,
+    BorzoiRegions,
+)
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 from bolero.utils import minimize_overlap_regions, understand_regions
 
@@ -71,7 +75,12 @@ class GenericPredictor:
         use_regions = self._train_config["use_regions"]
         self.borzoi_regions = BorzoiRegions(self.genome)
         if use_regions == "borzoi_gene":
-            self.borzoi_gene_regions = BorzoiGeneRegions(self.genome)
+            if self.config.get("qtl_data_path", None) is not None:
+                self.borzoi_gene_regions = BorzoiGeneQTLRegions(
+                    self.genome, self.config["qtl_data_path"]
+                )
+            else:
+                self.borzoi_gene_regions = BorzoiGeneRegions(self.genome)
         else:
             self.borzoi_gene_regions = None
 

@@ -386,14 +386,28 @@ class BorzoiLoRA(Borzoi):
             param.requires_grad = False
         return
 
+    def _modify_gene_mask_weights(self, state_dict):
+        # when load gene count model ckpt, gene mask only has 1 channel, but we need 5 channels in qtl model
+        if "gene_mask_conv.weight" in state_dict and hasattr(
+            self, "qtl_slope_output_head"
+        ):
+            w = state_dict["gene_mask_conv.weight"]
+            new_w = torch.zeros(512, 5, 15, device=w.device, dtype=w.dtype)
+            new_w[:, :1, :] = w
+            state_dict["gene_mask_conv.weight"] = new_w
+        return state_dict
+
     def load_checkpoint_from_path(self, checkpoint_path, strict=True):
         """Load the pre-trained LoRA model."""
         print("Loading LoRA model weights from:", checkpoint_path)
         _checkpoint = torch.load(checkpoint_path, weights_only=False)
+
         if isinstance(_checkpoint, dict):
             if "model_state_dict" in _checkpoint:
                 self.load_state_dict(_checkpoint["model_state_dict"], strict=strict)
             elif "state_dict" in _checkpoint:
+                state_dict = _checkpoint["state_dict"]
+                state_dict = self._modify_gene_mask_weights(state_dict)
                 self.load_state_dict(_checkpoint["state_dict"], strict=strict)
             else:
                 self.load_state_dict(_checkpoint, strict=strict)
@@ -753,7 +767,7 @@ class BorzoiLoRA(Borzoi):
             **kwargs,
         )
 
-        pval_and_pip_output, slope_output = self._forward_qtl_with_dna_emb_and_mask(
+        pval_and_pip_output, slope_output = self.forward_qtl_with_dna_emb_and_mask(
             dna_embedding, gene_mask
         )
 

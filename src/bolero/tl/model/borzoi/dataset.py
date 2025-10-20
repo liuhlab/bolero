@@ -327,11 +327,21 @@ class BorzoiDataset(RayGenomeChunkDataset):
         # benchmark options
         _multihead=False,
     ):
+        if qtl_data_path is None:
+            max_regions_per_genome_chunk = 1
+        else:
+            # qtl data has many duplicated Borzoi regions because the same gene may have multiple QTLs
+            # so we set a larger max_regions_per_genome_chunk for qtl data
+            max_regions_per_genome_chunk = 10
+            if max_jitter > 0:
+                print("max_jitter is set to 0 for qtl data")
+            max_jitter = 0
+
         super().__init__(
             dataset_path=dataset_path,
             shuffle_files=shuffle_files,
             read_parquet_kwargs=read_parquet_kwargs,
-            max_regions_per_genome_chunk=1,
+            max_regions_per_genome_chunk=max_regions_per_genome_chunk,
         )
         self.batch_size = batch_size
 
@@ -365,10 +375,6 @@ class BorzoiDataset(RayGenomeChunkDataset):
             self.train_region_step_sample = train_region_step_sample
         elif self.use_regions == "borzoi_gene":
             if self.qtl_data_path is not None:
-                if self.max_jitter > 0:
-                    raise ValueError(
-                        "max_jitter must be 0 for borzoi_gene_qtl regions."
-                    )
                 self.borzoi_regions = BorzoiGeneQTLRegions(
                     self.genome, self.qtl_data_path
                 )

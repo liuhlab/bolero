@@ -907,6 +907,15 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
         self.model.to(self.device)
         self.model.convert_to_lora()
 
+        if self.config["output_head_type"] == "eqtl":
+            for n, p in self.model.named_parameters():
+                if n.split(".")[0] not in [
+                    "qtl_pval_and_pip_output_head",
+                    "qtl_slope_output_head",
+                    "gene_mask_conv",
+                ]:
+                    p.requires_grad = False
+
         if print_model:
             print(self.model)
         self._set_total_params()
