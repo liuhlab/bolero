@@ -176,17 +176,22 @@ class BorzoiPredictor(GenericPredictor):
 
         self._callbacks = []
         self.qtl_manager = None
-
-    def register_qtl_manager(self, qtl_table, qtl_type):
+        
+    def register_qtl_manager(self, qtl_table, qtl_type, channel_weights_path=None):
         """
         Register the QTL manager with the given QTL table.
 
         This is required in qtl task
         """
-        if qtl_type == "caqtl":
-            from .task_manager import caQTLManager
+        if qtl_type in ("caqtl", "caqtl_multihead"):
 
-            self.qtl_manager = caQTLManager(qtl_table)
+            if qtl_type == "caqtl_multihead":
+                from .task_manager import caQTLMultiheadManager
+                channel_weights = joblib.load(channel_weights_path)
+                self.qtl_manager = caQTLMultiheadManager(qtl_table, channel_weights=channel_weights, qtl_type="caqtl_multihead")
+            else:
+                from .task_manager import caQTLManager
+                self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
         elif qtl_type == "eqtl":
             from .task_manager import eQTLManager
 
@@ -313,12 +318,11 @@ class BorzoiPredictor(GenericPredictor):
         # turn "__dna__" into "__dna__:ref" and "__dna__:alt"
         qtl = self.qtl_manager
         assert qtl is not None, "QTL manager is not registered."
-
         batch = qtl.mutate_dna(batch)
         mutation_cols = ["ref", "alt"]
         with torch.inference_mode():
             for mutation_col in mutation_cols:
-                if qtl.qtl_type == "caqtl":
+                if qtl.qtl_type in ("caqtl", "caqtl_multihead"):
                     batch = self._model_prediction_step(
                         batch,
                         dna_key=f"__dna__:{mutation_col}",
@@ -1134,9 +1138,16 @@ class BorzoiPredictor(GenericPredictor):
         )
         config = joblib.load(f"{output_dir}/config.joblib.gz")
 
-        pid_mapping = {k: v["__pid__"] for k, v in config["pseudobulk_records"].items()}
+        # Create pid_mapping, handling cases where __pid__ annotation might be missing
+        pid_mapping = {}
+        for k, v in config["pseudobulk_records"].items():
+            if "__pid__" in v:
+                pid_mapping[k] = v["__pid__"]
+            else:
+                # Fallback: use the pseudobulk ID itself if __pid__ annotation is missing
+                pid_mapping[k] = k
 
-        if qtl_type == "caqtl":
+        if qtl_type in ("caqtl", "caqtl_multihead"):
             suffix = ":peak"
         elif qtl_type == "eqtl":
             suffix = ":gene_count"
@@ -1174,6 +1185,8 @@ class BorzoiPredictor(GenericPredictor):
         add_true_data=False,
         verbose=True,
         save_first_batch=False,
+        qtl_type="caqtl",
+        channel_weights_path=None,
     ):
         """
         QTL Prediction task for Borzoi.
@@ -1209,7 +1222,7 @@ class BorzoiPredictor(GenericPredictor):
             ]
 
         # add qtl manager and get regions from the qtl manager
-        self.register_qtl_manager(qtl_table, qtl_type="caqtl")
+        self.register_qtl_manager(qtl_table, qtl_type=qtl_type, channel_weights_path=channel_weights_path)
         regions = self._filter_valid_regions(mode="qtl")
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
@@ -1659,6 +1672,7 @@ class BorzoiMultiHeadPredictor(BorzoiPredictor):
             with self._autocast_context():
                 y_pred_mini_batch = self.model(dna_mini_batch, crop=crop)
                 pred_col.append(y_pred_mini_batch)
+        
         y_pred = torch.cat(pred_col, dim=0)
         # y_pred shape (n_region, n_emb/n_pseudobulks, seq_len)
 

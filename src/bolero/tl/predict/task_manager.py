@@ -151,7 +151,7 @@ class QTLMixIn:
 
 
 class caQTLManager(QTLMixIn):
-    qtl_type = "caqtl"
+    # qtl_type = "caqtl"
 
     def __init__(
         self,
@@ -159,7 +159,10 @@ class caQTLManager(QTLMixIn):
         resolution: int = 32,
         qtl_stats_cols=None,
         ypred_seq_len=16384,
+        channel_weights=None,
+        qtl_type = "caqtl",
     ):
+        self.qtl_type = qtl_type
         if qtl_stats_cols is None:
             qtl_stats_cols = ["beta", "PIP"]
 
@@ -177,6 +180,7 @@ class caQTLManager(QTLMixIn):
 
         # columns: ["Chromosome", "Start", "End", "Name"], index by qtl id
         self.peaks: pd.DataFrame = peaks
+
         return
 
     def get_peak_sum(self, batch: dict, ypred_key):
@@ -208,6 +212,56 @@ class caQTLManager(QTLMixIn):
         batch["qtl_peaks"] = batch_peaks
         return batch
 
+
+class caQTLMultiheadManager(caQTLManager):
+
+    
+    def __init__(self, qtl_table: str, resolution: int = 32, qtl_stats_cols=None, ypred_seq_len=16384, channel_weights=None, qtl_type="caqtl_multihead"):
+        super().__init__(qtl_table, resolution, qtl_stats_cols, ypred_seq_len, channel_weights, qtl_type)
+                # channel weights
+        if channel_weights is not None:
+            self.channel_weights = torch.tensor(channel_weights, dtype=torch.float32)
+        
+        return
+
+    def get_peak_sum(self, batch: dict, ypred_key):
+        """
+        Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.
+        """
+        batch_peaks = self.peaks.loc[batch["region_name"]]
+
+        ypred = batch[ypred_key]
+        assert ypred.shape[-1] == self.ypred_seq_len, (
+            f"Expected ypred to have last dimension of {self.ypred_seq_len}, "
+            f"but got {ypred.shape[-1]}"
+        )
+        ypred = ypred.clamp(min=0.0)  # Ensure non-negative predictions
+        # Prepare channel weights
+        assert hasattr(self, "channel_weights"), (
+            "channel_weights must be provided to TaskManager for channel-weighted peak sum"
+        )
+        channel_weights = self.channel_weights
+        if not torch.is_tensor(channel_weights):
+            channel_weights = torch.tensor(channel_weights, dtype=ypred.dtype)
+        channel_weights = channel_weights.to(device=ypred.device, dtype=ypred.dtype)
+
+        # Apply channel weights and reduce channels to a single track per sample
+        # ypred: (bs, n_channels, seq_len)
+        # channel_weights: (n_channels,) -> (1, n_channels, 1)
+        weighted_ypred = ypred * channel_weights.unsqueeze(0).unsqueeze(-1)
+        reduced_ypred = weighted_ypred.sum(dim=1, keepdim=True)
+        assert ypred.shape[0] == reduced_ypred.shape[0], "n_region mismatch"
+        assert reduced_ypred.shape[1] == 1, "not reduced correctly"
+        assert ypred.shape[2] == reduced_ypred.shape[2], "seq_len mismatch"
+
+        # Sum over peak bins for each sample
+        peak_sum = []
+        for rid, (bs, be) in enumerate(batch_peaks[["bin_start", "bin_end"]].values):
+            r_peak_sum = reduced_ypred[rid, :, bs:be].sum(axis=-1)
+            peak_sum.append(r_peak_sum)
+        peak_sum = torch.stack(peak_sum, dim=0)
+        batch[f"{ypred_key}:peak"] = peak_sum
+        return batch            
 
 def prepare_peak_table(
     peak_table: str | pd.DataFrame, resolution: int
