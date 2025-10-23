@@ -1799,6 +1799,9 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         if self.has_cond_emb:
             _data_keys.append("__conditionemb__")
             split_dim.append(0)
+        if getattr(self, "has_shared_data", False):
+            _data_keys.append("__shared_data__")
+            split_dim.append(0)
 
         callback_configs = [
             # calculate paired profile correlation
@@ -2099,7 +2102,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         dna = batch[dna_key]
         cell_emb = batch[cell_embedding_key]
         if getattr(self, "has_shared_data", False):
-            shared_data = batch["__shared_data__"]
+            # cond0 and cond1 has the same shared data value
+            shared_data = batch["__shared_data__:cond1"].to(cell_emb.dtype)
             if shared_data.ndim == 1:
                 shared_data = shared_data.unsqueeze(1)
                 # shared_data shape (bs, 1)
