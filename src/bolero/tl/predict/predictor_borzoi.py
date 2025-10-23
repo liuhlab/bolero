@@ -183,15 +183,10 @@ class BorzoiPredictor(GenericPredictor):
 
         This is required in qtl task
         """
-        if qtl_type in ("caqtl", "caqtl_multihead"):
+        if qtl_type == "caqtl":
+            from .task_manager import caQTLManager
+            self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
 
-            if qtl_type == "caqtl_multihead":
-                from .task_manager import caQTLMultiheadManager
-                channel_weights = joblib.load(channel_weights_path)
-                self.qtl_manager = caQTLMultiheadManager(qtl_table, channel_weights=channel_weights, qtl_type="caqtl_multihead")
-            else:
-                from .task_manager import caQTLManager
-                self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
         elif qtl_type == "eqtl":
             from .task_manager import eQTLManager
 
@@ -322,7 +317,7 @@ class BorzoiPredictor(GenericPredictor):
         mutation_cols = ["ref", "alt"]
         with torch.inference_mode():
             for mutation_col in mutation_cols:
-                if qtl.qtl_type in ("caqtl", "caqtl_multihead"):
+                if qtl.qtl_type == "caqtl":
                     batch = self._model_prediction_step(
                         batch,
                         dna_key=f"__dna__:{mutation_col}",
@@ -1147,7 +1142,7 @@ class BorzoiPredictor(GenericPredictor):
                 # Fallback: use the pseudobulk ID itself if __pid__ annotation is missing
                 pid_mapping[k] = k
 
-        if qtl_type in ("caqtl", "caqtl_multihead"):
+        if qtl_type == "caqtl":
             suffix = ":peak"
         elif qtl_type == "eqtl":
             suffix = ":gene_count"
@@ -1155,9 +1150,14 @@ class BorzoiPredictor(GenericPredictor):
             raise ValueError(f"Invalid qtl type: {qtl_type}")
 
         all_qtl_data = []
+        all_ref_data = []
+        all_alt_data = []
         for path in batch_paths:
             batch = joblib.load(path)
-            pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_mapping)
+            if len(pid_mapping.keys()) != batch[f"__ypred__:ref{suffix}"].shape[1]:
+                pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_mapping)
+            else:
+                pids = pd.Index(batch["pseudobulk_ids"]).map(pid_mapping)
             ref_data = pd.DataFrame(
                 batch[f"__ypred__:ref{suffix}"],
                 index=batch["region_name"],
@@ -1169,9 +1169,16 @@ class BorzoiPredictor(GenericPredictor):
                 columns=pids,
             )
             logfc = np.log2(alt_data / ref_data)
+            all_ref_data.append(ref_data)
+            all_alt_data.append(alt_data)
             all_qtl_data.append(logfc)
+        
         all_qtl_data = pd.concat(all_qtl_data)
-
+        all_alt_data = pd.concat(all_alt_data)
+        all_ref_data = pd.concat(all_ref_data)
+        
+        all_ref_data.to_feather(f"{output_dir}/ref_data.feather")
+        all_alt_data.to_feather(f"{output_dir}/alt_data.feather")
         all_qtl_data.to_feather(f"{output_dir}/ref_alt_logfc.feather")
         return
 
