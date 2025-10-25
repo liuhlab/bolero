@@ -183,12 +183,6 @@ class BorzoiPredictor(GenericPredictor):
 
         This is required in qtl task
         """
-<<<<<<< HEAD
-        if qtl_type == "caqtl":
-            from .task_manager import caQTLManager
-            self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
-
-=======
         if qtl_type in ("caqtl", "caqtl_multihead"):
             if qtl_type == "caqtl_multihead":
                 from .task_manager import caQTLMultiheadManager
@@ -203,7 +197,6 @@ class BorzoiPredictor(GenericPredictor):
                 from .task_manager import caQTLManager
 
                 self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
->>>>>>> ca325d1 (add embedding only support to skip all ytrue data during prediction_task)
         elif qtl_type == "eqtl":
             from .task_manager import eQTLManager
 
@@ -1193,11 +1186,11 @@ class BorzoiPredictor(GenericPredictor):
             all_ref_data.append(ref_data)
             all_alt_data.append(alt_data)
             all_qtl_data.append(logfc)
-        
+
         all_qtl_data = pd.concat(all_qtl_data)
         all_alt_data = pd.concat(all_alt_data)
         all_ref_data = pd.concat(all_ref_data)
-        
+
         all_ref_data.to_feather(f"{output_dir}/ref_data.feather")
         all_alt_data.to_feather(f"{output_dir}/alt_data.feather")
         all_qtl_data.to_feather(f"{output_dir}/ref_alt_logfc.feather")
