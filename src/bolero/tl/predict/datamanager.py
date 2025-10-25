@@ -590,6 +590,8 @@ class GenericGenomeDataManager:
         data_prefix_names = []
         for da in self.datasets.values():
             data_prefix_names.extend(da.prefix_names)
+        if len(data_prefix_names) == 0:
+            data_prefix_names = ["__embedding_only__"]
         return data_prefix_names
 
     @staticmethod

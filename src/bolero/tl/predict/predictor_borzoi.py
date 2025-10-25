@@ -176,17 +176,34 @@ class BorzoiPredictor(GenericPredictor):
 
         self._callbacks = []
         self.qtl_manager = None
-        
+
     def register_qtl_manager(self, qtl_table, qtl_type, channel_weights_path=None):
         """
         Register the QTL manager with the given QTL table.
 
         This is required in qtl task
         """
+<<<<<<< HEAD
         if qtl_type == "caqtl":
             from .task_manager import caQTLManager
             self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
 
+=======
+        if qtl_type in ("caqtl", "caqtl_multihead"):
+            if qtl_type == "caqtl_multihead":
+                from .task_manager import caQTLMultiheadManager
+
+                channel_weights = joblib.load(channel_weights_path)
+                self.qtl_manager = caQTLMultiheadManager(
+                    qtl_table,
+                    channel_weights=channel_weights,
+                    qtl_type="caqtl_multihead",
+                )
+            else:
+                from .task_manager import caQTLManager
+
+                self.qtl_manager = caQTLManager(qtl_table, qtl_type="caqtl")
+>>>>>>> ca325d1 (add embedding only support to skip all ytrue data during prediction_task)
         elif qtl_type == "eqtl":
             from .task_manager import eQTLManager
 
@@ -215,7 +232,8 @@ class BorzoiPredictor(GenericPredictor):
 
         dm = GenericGenomeDataManager(genome=genome)
         dm.add_pseudobulk_records(pseudobulk_records_path)
-        dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
+        if not self._embedding_only_mode:
+            dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
         # add bigwig if any
         bw_path_dict = config.get("bigwig_paths", {})
         for name, path in bw_path_dict.items():
@@ -472,6 +490,9 @@ class BorzoiPredictor(GenericPredictor):
         add_true_data,
         batch_size,
     ):
+        if self._embedding_only_mode:
+            add_true_data = False
+
         def _collate_fn(batch, add_data=add_true_data):
             # rename keys
             batch["__dna__"] = batch.pop(dna_key)
@@ -1047,7 +1068,7 @@ class BorzoiPredictor(GenericPredictor):
             else:
                 total_stats[k] = np.concatenate(v)
 
-        if len(batch_stats_paths) > 0:
+        if len(batch_stats_paths) > 0 and not self._embedding_only_mode:
             # add cumulative stats to final stats
             cum_data = self.compute_cumulative_callbacks()
             for k, v in cum_data.items():
@@ -1229,7 +1250,9 @@ class BorzoiPredictor(GenericPredictor):
             ]
 
         # add qtl manager and get regions from the qtl manager
-        self.register_qtl_manager(qtl_table, qtl_type=qtl_type, channel_weights_path=channel_weights_path)
+        self.register_qtl_manager(
+            qtl_table, qtl_type=qtl_type, channel_weights_path=channel_weights_path
+        )
         regions = self._filter_valid_regions(mode="qtl")
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
@@ -1679,7 +1702,7 @@ class BorzoiMultiHeadPredictor(BorzoiPredictor):
             with self._autocast_context():
                 y_pred_mini_batch = self.model(dna_mini_batch, crop=crop)
                 pred_col.append(y_pred_mini_batch)
-        
+
         y_pred = torch.cat(pred_col, dim=0)
         # y_pred shape (n_region, n_emb/n_pseudobulks, seq_len)
 
@@ -2170,7 +2193,10 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             if self._forward_without_signal:
                 x0_mini_batch = None
             else:
-                x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
+                if x0.ndim == 2:
+                    x0_mini_batch = x0[use_reg].contiguous().unsqueeze(1)
+                else:
+                    x0_mini_batch = x0[use_reg, use_emb].contiguous().unsqueeze(1)
 
             with self._autocast_context():
                 cond_ensemble = self._forward_cond_emb_module(
@@ -2238,7 +2264,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                 ).detach()
             batch[f"{ypred_key}:gene_count"] = gene_count
 
-        if crop:
+        if crop and not self._embedding_only_mode:
             # also crop ytrue to allow metric calculation
             for key in ["__ytrue__:cond0", "__ytrue__:cond1"]:
                 _data = batch[key]
@@ -2279,6 +2305,9 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         add_true_data,
         batch_size,
     ):
+        if self._embedding_only_mode:
+            add_true_data = False
+
         def _collate_fn(batch, add_data=add_true_data):
             # rename keys
             batch["__dna__"] = batch.pop(dna_key)
@@ -2412,8 +2441,10 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
     """
 
     model_class = BorzoiLoRAMulti
+    _embedding_only_mode = False
 
     def __init__(self, dataset_key, config):
+        self._embedding_only_mode = config.get("embedding_only_mode", False)
         self.dataset_key = dataset_key
         config = self._prepare_multi_dataset_manager(config)
 

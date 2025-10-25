@@ -18,7 +18,7 @@ from bolero.tl.model.borzoi.utils import (
 from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 from bolero.utils import minimize_overlap_regions, understand_regions
 
-from .callbacks import CALLBACK_NAME_TO_CLASS
+from .callbacks import CALLBACK_NAME_TO_CLASS, MetricCallback
 from .datamanager import GenericGenomeDataManager
 from .utils import get_device, load_config, validate_region
 
@@ -56,7 +56,11 @@ def _autocast_context(device, use_amp=True):
 
 
 class GenericPredictor:
+    _embedding_only_mode: bool = False
+
     def __init__(self, config, model_class):
+        self._embedding_only_mode = config.get("embedding_only_mode", False)
+
         self._config = load_config(config)
         self._train_config = load_config(self._config["train_config"])
         self.config = {
@@ -315,6 +319,10 @@ class GenericPredictor:
         try:
             idx = 0
             for callback in callbacks:
+                if isinstance(callback, MetricCallback) and self._embedding_only_mode:
+                    # skip all metric callbacks in embedding only mode
+                    continue
+
                 batch = callback(batch)
                 idx += 1
         except Exception as e:

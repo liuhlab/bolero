@@ -12,7 +12,11 @@ from cooler.core import (
     region_to_extent,
 )
 from cooler.util import parse_region
-from skimage.transform import resize
+
+try:
+    from skimage.transform import resize
+except ImportError:
+    pass
 
 from bolero.pp.genome_chunk_dataset import query_allc_region
 from bolero.utils import parse_mc_pattern, understand_regions
@@ -168,8 +172,12 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
         data_dict = super().__call__(data_dict)
 
         for suffix in self.data_suffix:
-            total_mc_values = data_dict[f"{self.data_prefix}mc{suffix}"] # Shape: (n_regions, n_bw, region_length)
-            total_cov_values = data_dict[f"{self.data_prefix}cov{suffix}"] # Shape: (n_regions, n_bw, region_length)
+            total_mc_values = data_dict[
+                f"{self.data_prefix}mc{suffix}"
+            ]  # Shape: (n_regions, n_bw, region_length)
+            total_cov_values = data_dict[
+                f"{self.data_prefix}cov{suffix}"
+            ]  # Shape: (n_regions, n_bw, region_length)
 
             assert (
                 total_mc_values.shape == total_cov_values.shape
@@ -181,7 +189,9 @@ class FetchRegionALLCsReduced(FetchRegionALLCs):
 
                 # New shape will be (n_regions, n_bw, n_bins, bin_size)
                 reshaped_mc = total_mc_values.reshape(n_regions, n_bw, n_bins, bin_size)
-                reshaped_cov = total_cov_values.reshape(n_regions, n_bw, n_bins, bin_size)
+                reshaped_cov = total_cov_values.reshape(
+                    n_regions, n_bw, n_bins, bin_size
+                )
 
                 # Resulting shape: (n_regions, n_bw, n_bins)
                 total_mc_values = reshaped_mc.sum(axis=-1)
@@ -642,11 +652,11 @@ class FetchRegionBigWigsReduced(FetchRegionBigWigs):
                         "The reduced matrix contains negative values, cannot apply log normalization."
                     )
                 total_values = np.log(total_values + 1)
-            
+
             # apply scale factors to bring the data into same target scale
             # default scale factors will be 1, unless user provided a specific scale factor file in the data loader
             total_values = total_values / self.scale_factors[None, :, None]
-            
+
             # Update the data_dict with the reduced data
             data_dict[self.data_key + suffix] = total_values
 

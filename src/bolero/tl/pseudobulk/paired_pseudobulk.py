@@ -267,6 +267,7 @@ class PseudobulkerMixin:
     prefix_order: list[str] | None
     prefix_name: str
     sampling_weights: pd.Series
+    _embedding_only_mode: bool
 
     @classmethod
     def create_from_config(cls, **config):
@@ -287,6 +288,17 @@ class PseudobulkerMixin:
                 k: v for k, v in pseudobulk_records.items() if k in use_id
             }
             print(f"Downsampled to {len(pseudobulk_records)} pseudobulk records.")
+
+        # for embedding only mode, we add dummy keys to keep the same schema
+        if self._embedding_only_mode:
+            for pid in pseudobulk_records.keys():
+                pseudobulk_records[pid]["cluster_ids"] = {
+                    "__embedding_only__": ["dummy_meta_cell"]
+                }
+                pseudobulk_records[pid]["n_frags"] = {"__embedding_only__": 5000000}
+                pseudobulk_records[pid]["cov_scale"] = {"__embedding_only__": 0}
+                pseudobulk_records[pid]["sample_weight"] = 1
+
         return pseudobulk_records
 
     def _prepare_pseudobulk_and_meta_cell_records(
@@ -302,6 +314,10 @@ class PseudobulkerMixin:
 
         if not isinstance(pseudobulk_and_ot_info, dict):
             pseudobulk_and_ot_info = joblib.load(pseudobulk_and_ot_info)
+
+        self._embedding_only_mode = pseudobulk_and_ot_info.get(
+            "__embedding_only__", False
+        )
 
         # Pre-computed pseudobulk records
         self.pseudobulk_records: dict[dict[str, Any]] = self._load_records(

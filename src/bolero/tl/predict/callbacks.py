@@ -295,11 +295,7 @@ class PeakDataSummary:
         regions = self.get_regions(data_dict)
         features, feature_masks = self.get_region_features_and_masks(regions)
 
-        _data = data_dict[self.data_keys[0]]
-        feature_masks = [
-            torch.from_numpy(m).to(device=_data.device, dtype=_data.dtype)
-            for m in feature_masks
-        ]
+        feature_masks = [torch.from_numpy(m) for m in feature_masks]
 
         suffix = self.suffix
         feature_data_dict = {suffix: features}
@@ -315,6 +311,7 @@ class PeakDataSummary:
             data = self._crop_data(data)
             feture_data_col = []
             for idx, (_data, mask) in enumerate(zip(data, feature_masks)):
+                mask = mask.to(device=_data.device, dtype=_data.dtype)
                 if self._is_gene_region:
                     _strand = strand_list[idx]
                 else:
