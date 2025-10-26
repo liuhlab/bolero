@@ -94,46 +94,48 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
     batch_paths = list(Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz"))
     print(f"{len(batch_paths)} batches in {output_dir}")
 
+    # put back original pid
+    first_batch = joblib.load(batch_paths[0])
+    pids = pd.Index(first_batch["pseudobulk_ids"])
+    if pids[0].startswith("ensemble|data:"):
+        # get original pids for signal model
+        pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
+        config = joblib.load(f"{output_dir}/config.joblib.gz")
+        prec = config["pseudobulk_records"]
+        original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
+        pids = pids.map(original_pid_map)
+
+    has_true_data = True
     true_peak_data = []
     pred_peak_data = []
     peak_bed = []
     for path in batch_paths:
         batch = joblib.load(path)
-        true_peak_data.append(batch[true_peak_key])
+        if has_true_data:
+            try:
+                true_peak_data.append(batch[true_peak_key])
+            except KeyError:
+                has_true_data = False
+                print("True peak data not found in batch, skip true peak data saving.")
         pred_peak_data.append(batch[pred_peak_key])
         peak_bed.append(batch["peak"])
-
-    true_peak_data = np.concatenate(true_peak_data, axis=1).T.astype("float32")
-    pred_peak_data = np.concatenate(pred_peak_data, axis=1).T.astype("float32")
     peak_bed = pd.concat(peak_bed)
+    peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
 
-    pids = pd.Index(batch["pseudobulk_ids"])
-    if pids.size == true_peak_data.shape[1] * 2:
-        pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
-        is_signal = True
-    else:
-        is_signal = False
-    true_peak_data = pd.DataFrame(
-        true_peak_data, index=peak_bed["Name"].values, columns=pids
-    )
+    pred_peak_data = np.concatenate(pred_peak_data, axis=1).T.astype("float32")
     pred_peak_data = pd.DataFrame(
         pred_peak_data, index=peak_bed["Name"].values, columns=pids
     )
-    peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
-    true_peak_data = true_peak_data[~true_peak_data.index.duplicated()].sort_index()
     pred_peak_data = pred_peak_data[~pred_peak_data.index.duplicated()].sort_index()
-
-    # put back original pid
-    config = joblib.load(f"{output_dir}/config.joblib.gz")
-    prec = config["pseudobulk_records"]
-    if is_signal:
-        original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
-        true_peak_data.columns = true_peak_data.columns.map(original_pid_map)
-        pred_peak_data.columns = pred_peak_data.columns.map(original_pid_map)
-
-    # save peak data
-    true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
     pred_peak_data.to_feather(f"{output_dir}/pred_peak_data.feather")
+
+    if has_true_data:
+        true_peak_data = np.concatenate(true_peak_data, axis=1).T.astype("float32")
+        true_peak_data = pd.DataFrame(
+            true_peak_data, index=peak_bed["Name"].values, columns=pids
+        )
+        true_peak_data = true_peak_data[~true_peak_data.index.duplicated()].sort_index()
+        true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
     return
 
 
