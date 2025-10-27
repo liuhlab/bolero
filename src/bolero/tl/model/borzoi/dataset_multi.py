@@ -619,6 +619,9 @@ class BorzoiMultiDataset(GenericDataset):
     remaining dataloader preprocess steps should be similar to BorzoiDataset class
     """
 
+    # placeholder to prevent attribute error
+    qtl_data_path = None
+
     default_config = {
         "dataset_records": "REQUIRED",
         # regions:

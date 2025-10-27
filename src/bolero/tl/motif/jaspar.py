@@ -181,12 +181,27 @@ class JASPARMotif:
         info_content = max_ic - entropy
         return info_content
 
-    def plot_on_ax(self, ax, min_ic=None, **kwargs):
+    def plot_on_ax(self, ax, min_ic=None, rc=False, pad_left=0, pad_right=0, **kwargs):
         """
         Plot motif logo on an Axes
         """
-        info = self.pwm_info_content()
-        pwm_info = self.pwm * info.values[:, None]
+        info = self.pwm_info_content().values
+        if rc:
+            _pwm = self.pwm.values[::-1][:, ::-1]
+            info = info[::-1]
+        else:
+            _pwm = self.pwm.values
+        _pwm = pd.DataFrame(_pwm, columns=self.pwm.columns)
+        pwm_info = _pwm * info[:, None]
+
+        # pwm shape (seq_len, 4)
+        if pad_left > 0:
+            pwm_info = np.pad(pwm_info.values, ((pad_left, 0), (0, 0)), mode="constant")
+        if pad_right > 0:
+            pwm_info = np.pad(
+                pwm_info.values, ((0, pad_right), (0, 0)), mode="constant"
+            )
+        pwm_info = pd.DataFrame(pwm_info, columns=self.pwm.columns)
 
         # Create a sequence logo
         with warnings.catch_warnings():
@@ -234,10 +249,10 @@ class JASPARMotif:
     def __repr__(self):
         return f"JASPARMotif({self.motif_id}, {self.name})"
 
-    def plot(self):
+    def plot(self, rc=False, pad_left=0, pad_right=0):
         """Visualize the motif."""
         _, ax = plt.subplots(figsize=(len(self.pwm) / 4, 1), dpi=100)
-        self.plot_on_ax(ax)
+        self.plot_on_ax(ax, rc=rc, pad_left=pad_left, pad_right=pad_right)
         ax.set_title(f"{self.name}\n({self.motif_id})", fontsize=8)
         ax.set_ylabel("IC (Bits)", fontsize=8)
         sns.despine(ax=ax)
@@ -370,7 +385,7 @@ class JASPARMotifDatabase:
         self.motif_names = [motif.name for motif in self.motifs]
         self.motif_dict = {motif.name: motif for motif in self.motifs}
         self.motif_name_to_id = {k: v.motif_id for k, v in self.motif_dict.items()}
-        self.motif_id_to_name = {v: k for k, v in self.motif_id_dict.items()}
+        self.motif_id_to_name = {k: v.name for k, v in self.motif_id_dict.items()}
         self._motif_tensor_dict = None
 
         if db == "JASPAR2024_CORE_vertebrates":
