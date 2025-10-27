@@ -1430,6 +1430,7 @@ class BorzoiPredictor(GenericPredictor):
         if isinstance(save_keys, str) and save_keys == "default":
             save_keys = [
                 "region",
+                "region_name",
                 "pseudobulk_ids",
                 "peaks",
                 "__ypred__:peak",
@@ -1806,12 +1807,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         self._forward_without_signal = self.config.get("nosignal", False)
 
     def _get_pre_prediction_callbacks(self):
-        if self._forward_without_signal:
-            _data_keys = ["__embedding__"]
-            split_dim = [0]
-        else:
-            _data_keys = ["__ytrue__", "__embedding__"]
-            split_dim = [1, 0]
+        _data_keys = ["__ytrue__", "__embedding__"]
+        split_dim = [1, 0]
         if self.has_cond_emb:
             _data_keys.append("__conditionemb__")
             split_dim.append(0)
@@ -2141,7 +2138,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             x0 = batch.get("reference", None)
         if x0 is None:
             raise KeyError(
-                f"x0 key {x0_key} or reference signal key not found in batch"
+                f"x0 key {x0_key} or reference signal key not found in batch, "
+                f"current batch keys are: {batch.keys()}"
             )
         x0 = torch.log1p(x0)
 

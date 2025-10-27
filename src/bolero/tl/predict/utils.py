@@ -120,7 +120,6 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
         pred_peak_data.append(batch[pred_peak_key])
         peak_bed.append(batch["peak"])
     peak_bed = pd.concat(peak_bed)
-    peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
 
     pred_peak_data = np.concatenate(pred_peak_data, axis=1).T.astype("float32")
     pred_peak_data = pd.DataFrame(
@@ -136,6 +135,9 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
         )
         true_peak_data = true_peak_data[~true_peak_data.index.duplicated()].sort_index()
         true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
+
+    # remove duplicate peak bed rows
+    peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
     return
 
 
