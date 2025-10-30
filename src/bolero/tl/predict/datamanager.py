@@ -135,6 +135,15 @@ class PseudobulkRecordManager:
 
         if annotation is not None:
             self.add_annotation("annotation", annotation)
+
+        self.origin_id_to_pid_map = {}
+        for pid, rec in self.pseudobulk_records.items():
+            if "__pid__" in rec.annotation:
+                orig_pid = rec.annotation["__pid__"]
+            else:
+                orig_pid = pid
+            self.origin_id_to_pid_map[orig_pid] = pid
+        self.pid_to_origin_id_map = {v: k for k, v in self.origin_id_to_pid_map.items()}
         return
 
     def get_pseudobulk_attrs(
@@ -240,7 +249,13 @@ class PseudobulkRecordManager:
         """
         Get a pseudobulk record by its ID.
         """
-        return self.pseudobulk_records[pid]
+        try:
+            return self.pseudobulk_records[pid]
+        except KeyError:
+            try:
+                return self.pseudobulk_records[self.origin_id_to_pid_map[pid]]
+            except KeyError as e:
+                raise KeyError(f"PID {pid} not found in pseudobulk records") from e
 
     def __len__(self) -> int:
         """
@@ -305,9 +320,6 @@ class GenericGenomeDataManager:
         # Signal dataset from parquet or bigwig
         self.datasets: dict[str, GenomeParquetDB] = {}
         self.bw_datasets: dict[str, _RefBigwig] = {}
-
-        # Mutation information for mutation task
-        self._mutation_table = None
 
         self.device = device if device is not None else get_device()
 

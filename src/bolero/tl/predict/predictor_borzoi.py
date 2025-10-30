@@ -694,14 +694,64 @@ class BorzoiPredictor(GenericPredictor):
         emb_model = emb_model.eval().cuda()
         return emb_model
 
-    def _prepare_attr_model(self, batch, mode="attribution") -> torch.nn.Module:
+    def _prepare_attr_model(
+        self, batch, mode="attribution", attr_kwargs=None
+    ) -> torch.nn.Module:
+        attr_kwargs = attr_kwargs or {}
         if mode == "attribution":
             embedding = batch["__embedding__"]
             model = self._collapse_model(embedding)
-            attr_model = BorzoiInputXGradient(model=model)
+            attr_model = BorzoiInputXGradient(model=model, **attr_kwargs)
+        elif mode == "prediction":
+            # prediction mode, return the model directly
+            attr_model = model
         else:
             raise ValueError(f"Invalid mode: {mode}. ")
         return attr_model
+
+    def get_dna_model(
+        self, mode="prediction", pseudobulk_id=None, attr_kwargs=None, **emb_data
+    ):
+        """
+        Get the collapsed DNA only model for DNA experiments.
+        Either provide **emb_data or a pseudobulk id to collapse the model.
+
+        Parameters
+        ----------
+        mode : str, optional
+            The mode to collapse the model. Default is 'prediction'.
+            Supported modes: 'prediction', 'attribution', 'gene_count_attribution'.
+        pseudobulk_id : str, optional
+            The pseudobulk id to collapse the model. If None, **emb_data should be provided.
+        attr_kwargs : dict, optional
+            The keyword arguments to pass to the attribution model. Default is None.
+        **emb_data : dict, optional
+            The embedding data to collapse the model. Default is None.
+
+        Returns
+        -------
+        model : torch.nn.Module
+            The collapsed DNA input only model.
+        """
+        if pseudobulk_id is not None:
+            pid_annotation = deepcopy(self.pseudobulk_manager[pseudobulk_id].annotation)
+            if "__shared_data__" in pid_annotation:
+                if isinstance(pid_annotation["__shared_data__"], float):
+                    pid_annotation["__shared_data__"] = np.array(
+                        [pid_annotation["__shared_data__"]]
+                    ).astype(np.float32)
+
+            emb_data = {
+                k: torch.from_numpy(v).to(self.device)
+                for k, v in pid_annotation.items()
+                if isinstance(v, np.ndarray)
+            }
+            emb_data = {
+                k: v.unsqueeze(0) if v.ndim == 1 else v for k, v in emb_data.items()
+            }
+
+        model = self._prepare_attr_model(emb_data, mode=mode, attr_kwargs=attr_kwargs)
+        return model
 
     def _no_training_randomness(self):
         """
@@ -834,14 +884,14 @@ class BorzoiPredictor(GenericPredictor):
             self._pre_callbacks = self._get_pre_callbacks(mode=mode)
             self._post_callbacks = self._get_post_callbacks(mode=mode)
 
-            attr_model = None
+            _model = None
 
             # 4. Inference and callback
             for batch in dataloader:
                 batch["pseudobulk_id"] = pseudobulk_id
 
-                if attr_model is None:
-                    model = self._prepare_attr_model(batch, mode=mode)
+                if _model is None:
+                    _model = self._prepare_attr_model(batch, mode=mode)
                 # Pre-inference callbacks
                 t = time.time()
                 batch = self.apply_callbacks(batch, "pre")
@@ -850,7 +900,7 @@ class BorzoiPredictor(GenericPredictor):
                 # Inference step
                 t = time.time()
                 batch = self._model_attribution_step(
-                    model, batch, attr_batch_size=batch_size, mode=mode
+                    _model, batch, attr_batch_size=batch_size, mode=mode
                 )
                 timer["infer"] += time.time() - t
 
@@ -1974,7 +2024,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             cond_emb_terms = cond_emb
         return cond_emb_terms
 
-    def _prepare_attr_model(self, batch, mode="attribution"):
+    def _prepare_attr_model(self, batch, mode="attribution", attr_kwargs=None):
+        attr_kwargs = attr_kwargs or {}
         embedding = batch["__embedding__"]
         if self.has_cond_emb:
             cond_emb = batch["__conditionemb__"]
@@ -1985,13 +2036,16 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             agg_emb = self._forward_cond_emb_module(
                 cell_emb=embedding, cond_emb=cond_emb
             )
-            # TODO: add shared data for multi model with score data
+
         model = self._collapse_model(agg_emb)
 
         if mode == "attribution":
-            attr_model = BorzoiInputXGradient(model=model)
+            attr_model = BorzoiInputXGradient(model=model, **attr_kwargs)
         elif mode == "gene_count_attribution":
-            attr_model = BorzoiGeneInputXGradient(model=model)
+            attr_model = BorzoiGeneInputXGradient(model=model, **attr_kwargs)
+        elif mode == "prediction":
+            # prediction mode, return the model directly
+            attr_model = model
         else:
             raise ValueError(f"Invalid mode: {mode}. ")
         return attr_model
@@ -2528,3 +2582,33 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
             dataset_key=dataset_idx,
         )
         return cond_ensemble
+
+    def _prepare_attr_model(self, batch, mode="attribution", attr_kwargs=None):
+        attr_kwargs = attr_kwargs or {}
+        embedding = batch["__embedding__"]
+        if self.has_cond_emb:
+            cond_emb = batch["__conditionemb__"]
+            cond_emb = self._split_cond_emb_to_terms(cond_emb)
+        else:
+            cond_emb = None
+        kwargs = {}
+        if "__shared_data__" in batch:
+            kwargs["shared_data"] = batch["__shared_data__"]
+
+        with torch.no_grad():
+            agg_emb = self._forward_cond_emb_module(
+                cell_emb=embedding, cond_emb=cond_emb, **kwargs
+            )
+
+        model = self._collapse_model(agg_emb)
+
+        if mode == "attribution":
+            attr_model = BorzoiInputXGradient(model=model, **attr_kwargs)
+        elif mode == "gene_count_attribution":
+            attr_model = BorzoiGeneInputXGradient(model=model, **attr_kwargs)
+        elif mode == "prediction":
+            # prediction mode, return the model directly
+            attr_model = model
+        else:
+            raise ValueError(f"Invalid mode: {mode}. ")
+        return attr_model
