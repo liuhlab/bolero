@@ -892,7 +892,7 @@ class BorzoiLoRATrainer(BorzoiTrainerMixin):
             # Fine-tuning related
             "lora_checkpoint_path": None,
             "_expm1_gene_count_y_true": True,
-            "_gene_loss_weight": 1,
+            "_gene_loss_weight": 0.1,
         }
     )
 
