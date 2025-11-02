@@ -1252,6 +1252,8 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
             "train_dataset_specific_only": False,
             # when fine tuning, use this to provide trained lora weights
             "lora_checkpoint_path": None,
+            "_expm1_gene_count_y_true": True,
+            "_gene_loss_weight": 0.1,
         }
     )
 

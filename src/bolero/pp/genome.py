@@ -239,13 +239,14 @@ class Genome:
         self.all_chromosomes = self.all_chrom_sizes.index
 
         # load blacklist if it exists
-        blacklist_path = (
+        self.blacklist_path = (
             package_dir / f"pkg_data/blacklist_v2/{genome}-blacklist.v2.bed.gz"
         )
-        if blacklist_path.exists():
-            _df = pr.read_bed(str(blacklist_path), as_df=True)
+        if self.blacklist_path.exists():
+            _df = pr.read_bed(str(self.blacklist_path), as_df=True)
             self.blacklist_bed = pr.PyRanges(_df.iloc[:, :3]).sort()
         else:
+            self.blacklist_path = None
             self.blacklist_bed = None
 
         # one hot

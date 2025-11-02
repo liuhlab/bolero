@@ -76,7 +76,7 @@ class BorzoiRegions:
             if self.genome_name not in ["hg38", "mm10"]:
                 # for custom genome, skip first and last region of each chromosome to avoid border issue
                 bed = (
-                    bed.groupby("Chromosome", observed=True)
+                    bed.groupby("Chromosome", observed=True)[bed.columns]
                     .apply(lambda df: df.sort_values("Start").iloc[1:-1])
                     .reset_index(drop=True)
                 )
@@ -197,7 +197,7 @@ class BorzoiGeneRegions(BorzoiRegions):
 
             # skip first and last region of each chromosome to avoid border issue
             bed = (
-                bed.groupby("Chromosome", observed=True)
+                bed.groupby("Chromosome", observed=True)[bed.columns]
                 .apply(lambda df: df.sort_values("Start").iloc[1:-1])
                 .reset_index(drop=True)
             )
@@ -303,7 +303,7 @@ class BorzoiGeneQTLRegions(BorzoiGeneRegions):
             # skip first and last region of each chromosome to avoid border issue
             # TODO: fix parquet issue and this will be unnecessary
             bed = (
-                bed.groupby("Chromosome", observed=True)
+                bed.groupby("Chromosome", observed=True)[bed.columns]
                 .apply(lambda df: df.sort_values("Start").iloc[1:-1])
                 .reset_index(drop=True)
             )
