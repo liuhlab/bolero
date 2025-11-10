@@ -493,7 +493,7 @@ class GenomeParquetDBNoParallel:
         jdf["rel_start"] = jdf["Start"] - jdf["Start_b"]  # _b is the cluster
         jdf["region_size"] = jdf["End"] - jdf["Start"]
         specs_per_cluster: dict[str, list[tuple[str, int, int]]] = (
-            jdf.groupby("Name_b")
+            jdf.groupby("Name_b")[["Name", "rel_start", "region_size"]]
             .apply(
                 lambda g: list(
                     zip(
