@@ -2528,6 +2528,7 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
             pseudobulker_cls=train_config["paired_mode"],
             shared_data_paths=train_config.get("shared_data_paths", None),
             use_regions=train_config["use_regions"],
+            genomes=train_config.get("_genomes", None),
         )
 
         # update config with cond_module_kwargs using DatasetRecordManager
