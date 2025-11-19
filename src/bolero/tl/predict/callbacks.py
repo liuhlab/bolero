@@ -475,15 +475,17 @@ class ReverseComplementMinusStrand:
                     _dna = torch.flip(_dna, self.flip_dna_axis)
                 dna_col[k].append(_dna)
             for k in self.signal_key:
-                _signal = batch[k][idx]
-                if strand == "-":
-                    _signal = torch.flip(_signal, self.flip_signal_axis)
-                signal_col[k].append(_signal)
+                if k in batch.keys():
+                    _signal = batch[k][idx]
+                    if strand == "-":
+                        _signal = torch.flip(_signal, self.flip_signal_axis)
+                    signal_col[k].append(_signal)
 
         for k in self.dna_key:
             batch[k] = torch.stack(dna_col[k])
         for k in self.signal_key:
-            batch[k] = torch.stack(signal_col[k])
+            if k in signal_col.keys():
+                batch[k] = torch.stack(signal_col[k])
         batch["region_strand"] = strands
         return batch
 
