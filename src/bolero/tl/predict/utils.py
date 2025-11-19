@@ -141,21 +141,17 @@ def gather_peak_data(output_dir: str, true_peak_key: str, pred_peak_key: str) ->
     return
 
 
-def gather_gene_data(output_dir: str, 
-                     # gene_data_path: str
-                     ) -> None:
+def gather_gene_data(output_dir: str, gene_data_path: str) -> None:
     """
     Gather gene data into single dataframe from all batches in output_dir.
     """
     batch_paths = list(Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz"))
-    # true_gene_data = pd.read_feather(gene_data_path)
+    true_gene_data = pd.read_feather(gene_data_path)
 
     all_pred_data = []
 
     for path in batch_paths:
         batch = joblib.load(path)
-        if '__ypred__:cond1:gene_count' not in batch:
-            continue
         columns = batch["pseudobulk_ids"][1::2]
         index = batch["region_name"]
         pred_data = pd.DataFrame(
@@ -169,12 +165,12 @@ def gather_gene_data(output_dir: str,
         pid: rec["__pid__"] for pid, rec in config["pseudobulk_records"].items()
     }
     all_pred_data.index = all_pred_data.index.map(name_map)
-    # all_true_data = true_gene_data.loc[
-    #     all_pred_data.index, all_pred_data.columns
-    # ].copy()
+    all_true_data = true_gene_data.loc[
+        all_pred_data.index, all_pred_data.columns
+    ].copy()
 
     all_pred_data.to_feather(f"{output_dir}/pred_gene_data.feather")
-    # all_true_data.to_feather(f"{output_dir}/true_gene_data.feather")
+    all_true_data.to_feather(f"{output_dir}/true_gene_data.feather")
     return
 
 

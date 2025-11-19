@@ -1129,20 +1129,14 @@ class BorzoiPredictor(GenericPredictor):
 
         # gather peak data into single dataframe
         self._gather_peak_data(output_dir)
-        self._gather_gene_data(output_dir)
         return
 
     @staticmethod
-    def _gather_gene_data(output_dir, 
-                          # gene_data_path
-                          ):
+    def gather_gene_data(output_dir, gene_data_path):
         """
         Gather gene data into single dataframe from all batches in output_dir.
         """
-        return gather_gene_data(
-            output_dir,
-            # gene_data_path=gene_data_path,
-        )
+        return gather_gene_data(output_dir, gene_data_path=gene_data_path)
 
     def select_top_std_genes(self, gene_data_path, top_n=5000):
         """
