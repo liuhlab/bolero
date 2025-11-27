@@ -125,6 +125,17 @@ class Wig(IGVTrack):
             self.max = max_val
 
 
+class Annotation(IGVTrack):
+    """
+    Annotation track class for displaying genomic features.
+    """
+
+    type: Optional[str] = "annotation"
+    format: Optional[str] = "bed"
+    url: Optional[str] = None
+    indexURL: Optional[str] = None
+
+
 def infer_track_class(config: Dict[str, Any]) -> str:
     """Infer the track class from the configuration"""
     track_type = config.get("type")
@@ -132,12 +143,17 @@ def infer_track_class(config: Dict[str, Any]) -> str:
         url = str(config.get("url")).lower()
         if url is None:
             raise ValueError("URL is not specified")
-        if url.endswith(".bigwig"):
+        if url.endswith(".gz"):
+            url = url[:-3]
+        suffix = url.split(".")[-1]
+        if suffix in ["bigwig", "bw"]:
             return Wig
-        elif url.endswith(".bw"):
-            return Wig
+        elif suffix in ["bed", "gff", "gff3", "gtf", "bedpe"]:
+            return Annotation
         else:
-            raise ValueError(f"Can not infer track type from URL {url}")
+            raise ValueError(
+                f"Can not infer track type from URL {url} with suffix {suffix}"
+            )
     else:
         if track_type == "wig":
             return Wig

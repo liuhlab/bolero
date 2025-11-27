@@ -2188,11 +2188,13 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             # x0 key doesn't exist, try reference signal key
             x0 = batch.get("reference", None)
         if x0 is None:
-            raise KeyError(
-                f"x0 key {x0_key} or reference signal key not found in batch, "
-                f"current batch keys are: {batch.keys()}"
-            )
-        x0 = torch.log1p(x0)
+            if not self._forward_without_signal:
+                raise KeyError(
+                    f"x0 key {x0_key} or reference signal key not found in batch, "
+                    f"current batch keys are: {batch.keys()}"
+                )
+        else:
+            x0 = torch.log1p(x0)
 
         n_emb = cell_emb.shape[0]
         n_region = dna.shape[0]
