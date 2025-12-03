@@ -830,6 +830,7 @@ class BorzoiPredictor(GenericPredictor):
         batch_size=6,
         verbose=True,
         mode="attribution",
+        qtl_mutations=False,  # NEW: Flag for QTL mode
     ) -> Generator:
         """
         Get the dataloader for attribution.
@@ -886,37 +887,66 @@ class BorzoiPredictor(GenericPredictor):
 
             _model = None
 
-            # 4. Inference and callback
+            # Inference and callback
             for batch in dataloader:
                 batch["pseudobulk_id"] = pseudobulk_id
-                # If this is a QTL attribution task, add gene_id to batch
-                if mode == "gene_count_attribution" and hasattr(self, 'qtl_manager') and self.qtl_manager is not None:
-                    # Extract gene_id from region_name (format: "ENSG00000134256+chr1_117001709_A_C")
-                    region_names = batch["region_name"]
-                    batch["gene_id"] = [
-                        self.qtl_manager.genes.loc[region_name, "gene_id"] 
-                        for region_name in region_names
-                    ]
-                if _model is None:
-                    _model = self._prepare_attr_model(batch, mode=mode)
+                
                 # Pre-inference callbacks
                 t = time.time()
                 batch = self.apply_callbacks(batch, "pre")
                 timer["callback"] += time.time() - t
+                
+                # Handle QTL mutations
+                if qtl_mutations:
+                    # Apply mutations to get ref and alt DNA
+                    batch = self.qtl_manager.mutate_dna(batch)
+                    batch = self.qtl_manager.add_qtl_info(batch)
+                    
+                    mutation_cols = ["ref", "alt"]
+                    
+                    for mutation_col in mutation_cols:
+                        # Create batch for this allele
+                        mutated_batch = {k: v for k, v in batch.items()}
+                        mutated_batch["__dna__"] = mutated_batch[f"__dna__:{mutation_col}"]
+                        mutated_batch["allele"] = mutation_col  # Mark which allele this is
+                        
+                        # Prepare model once per pseudobulk
+                        if _model is None:
+                            _model = self._prepare_attr_model(mutated_batch, mode=mode)
+                        
+                        # Compute attribution
+                        t = time.time()
+                        mutated_batch = self._model_attribution_step(
+                            _model, mutated_batch, attr_batch_size=batch_size, mode=mode
+                        )
+                        timer["infer"] += time.time() - t
+                        
+                        # Post-inference callbacks
+                        t = time.time()
+                        mutated_batch = self.apply_callbacks(mutated_batch, "post")
+                        timer["callback"] += time.time() - t
+                        timer["counter"] += 1
+                        
+                        yield mutated_batch
+                else:
+                    # Original non-QTL path
+                    if _model is None:
+                        _model = self._prepare_attr_model(batch, mode=mode)
+                    
+                    # Inference step
+                    t = time.time()
+                    batch = self._model_attribution_step(
+                        _model, batch, attr_batch_size=batch_size, mode=mode
+                    )
+                    timer["infer"] += time.time() - t
 
-                # Inference step
-                t = time.time()
-                batch = self._model_attribution_step(
-                    _model, batch, attr_batch_size=batch_size, mode=mode
-                )
-                timer["infer"] += time.time() - t
-
-                # Post-inference callbacks
-                t = time.time()
-                batch = self.apply_callbacks(batch, "post")
-                timer["callback"] += time.time() - t
-                timer["counter"] += 1
-                yield batch
+                    # Post-inference callbacks
+                    t = time.time()
+                    batch = self.apply_callbacks(batch, "post")
+                    timer["callback"] += time.time() - t
+                    timer["counter"] += 1
+                    
+                    yield batch
         timer["total"] = time.time() - start
 
         if verbose and timer["counter"] > 0:
@@ -1754,81 +1784,66 @@ class BorzoiPredictor(GenericPredictor):
                 batch_size=batch_size,
                 verbose=verbose,
                 mode=mode,
+                qtl_mutations=use_qtl_mutations,
             )
 
             save_batch = {}
-            for idx, batch in enumerate(dataloader):
-                idx = idx + cur_bid
-                if idx == 0 and verbose:
+            batch_counter = {}  # Track batch indices per pseudobulk
+            
+            for batch in dataloader:
+                pid = batch["pseudobulk_id"]
+                
+                # Initialize counter for this pseudobulk if needed
+                if pid not in batch_counter:
+                    batch_counter[pid] = cur_bid
+                idx = batch_counter[pid]
+                
+                if idx == cur_bid and verbose:
                     self._print_batch(batch, prefix="Dataloader")
                     if save_first_batch:
                         joblib.dump(batch, output_dir / "first_batch.joblib.gz")
-
-                pid = batch["pseudobulk_id"]
                 
-                # Handle mutations if QTL manager is registered
+                # Prepare save keys
                 if use_qtl_mutations:
-                    # Mutate DNA for ref and alt
-                    # This uses the mutation information from qtl_manager
-                    # which was loaded from the qtl_table
-                    batch = self.qtl_manager.mutate_dna(batch)
-                    mutation_cols = ["ref", "alt"]
+                    # Add QTL-specific metadata to save keys
+                    mutated_save_keys = list(save_keys)
+                    metadata_keys = ["allele", "qtl_id", "variant_id", "gene_id"]
                     
-                    # Add QTL info to batch (mutation_id, genes, variant_id, etc.)
-                    batch = self.qtl_manager.add_qtl_info(batch)
+                    if qtl_type == "eqtl":
+                        metadata_keys.append("eqtl_genes")
+                    elif qtl_type == "caqtl":
+                        metadata_keys.append("qtl_peaks")
                     
-                    for mutation_col in mutation_cols:
-                        # Create a copy of batch with mutated DNA
-                        mutated_batch = {k: v for k, v in batch.items()}
-                        mutated_batch["__dna__"] = mutated_batch[f"__dna__:{mutation_col}"]
-                                                
-                        # Prepare model and compute attribution for this mutation
-                        _model = self._prepare_attr_model(mutated_batch, mode=mode)
-                        mutated_batch = self._model_attribution_step(
-                            _model, mutated_batch, attr_batch_size=batch_size, mode=mode
-                        )
-                        
-                        # Clean up model
-                        del _model
-                        gc.collect()
-                        torch.cuda.empty_cache()
-                        
-                        # Update save keys to include mutation metadata
-                        mutated_save_keys = list(save_keys)
-                        metadata_keys = ["mutation_id", "variant_id", "gene_id"]
-                        if qtl_type == "eqtl":
-                            metadata_keys.append("eqtl_genes")
-                        elif qtl_type == "caqtl":
-                            metadata_keys.append("qtl_peaks")
-                        
-                        for key in metadata_keys:
-                            if key in mutated_batch and key not in mutated_save_keys:
-                                mutated_save_keys.append(key)
-                        
-                        # Save with mutation suffix
-                        save_batch = self._save_batch(
-                            batch=mutated_batch,
-                            batch_dir=batch_dir,
-                            idx=f"{idx}.{pid}.{mutation_col}",
-                            save_keys=mutated_save_keys,
-                        )
-                        
-                        if verbose and idx == cur_bid:
-                            n_regions = len(mutated_batch.get("region", []))
-                            print(f"Saved {mutation_col} attribution for {n_regions} regions in batch {idx}")
-                else:
-                    # Original behavior without mutations
-                    _model = self._prepare_attr_model(batch, mode=mode)
-                    batch = self._model_attribution_step(
-                        _model, batch, attr_batch_size=batch_size, mode=mode
+                    for key in metadata_keys:
+                        if key in batch and key not in mutated_save_keys:
+                            mutated_save_keys.append(key)
+                    
+                    # Get allele for file naming
+                    allele = batch.get("allele", "unknown")
+                    
+                    # Save with allele suffix
+                    save_batch = self._save_batch(
+                        batch=batch,
+                        batch_dir=batch_dir,
+                        idx=f"{idx}.{pid}.{allele}",
+                        save_keys=mutated_save_keys,
                     )
                     
+                    if verbose and idx == cur_bid:
+                        n_regions = len(batch.get("region", []))
+                        print(f"Saved {allele} attribution for {n_regions} regions in batch {idx}")
+                else:
+                    # Original non-QTL save
                     save_batch = self._save_batch(
                         batch=batch,
                         batch_dir=batch_dir,
                         idx=f"{idx}.{pid}",
                         save_keys=save_keys,
                     )
+                
+                # Increment counter only after processing both alleles (for QTL)
+                if not use_qtl_mutations or batch.get("allele") == "alt":
+                    batch_counter[pid] += 1
 
             if verbose and len(save_batch) > 0:
                 self._print_batch(save_batch, prefix="Saved")
@@ -1845,7 +1860,6 @@ class BorzoiPredictor(GenericPredictor):
                 print("File naming: batch_<idx>.<pid>.ref.joblib.gz and batch_<idx>.<pid>.alt.joblib.gz")
         
         return
-
 
 class BorzoiMultiHeadPredictor(BorzoiPredictor):
     def _model_prediction_step(
