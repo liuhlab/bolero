@@ -708,7 +708,7 @@ class GeneCountAttrPostProcess:
                 dna_attr1d,
                 0,
             )
-            dna_attr1d_sparse = coo_matrix(dna_attr1d_sparse.astype("float16"))
+            dna_attr1d_sparse = coo_matrix(dna_attr1d_sparse.astype("float32"))
             batch["full_attr1d_sparse"] = (
                 dna_attr1d_sparse  # coo_matrix of shape (bs, 524288)
             )
@@ -722,7 +722,7 @@ class GeneCountAttrPostProcess:
                 0,
             )
             dna_attr_sparse_list = [
-                coo_matrix(s) for s in dna_attr_sparse.astype("float16")
+                coo_matrix(s) for s in dna_attr_sparse.astype("float32")
             ]
             batch["full_attr_sparse_list"] = (
                 dna_attr_sparse_list  # list of coo_matrix of shape (4, 524288)
