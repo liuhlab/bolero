@@ -1682,8 +1682,8 @@ class BorzoiPredictor(GenericPredictor):
             The pseudobulk ids to use. If None, use all pseudobulk ids.
         batch_size : int
             The batch size for attribution computation.
-        save_keys : tuple
-            The keys to save in the output file.
+        save_keys : iterable of str
+            The keys to save in the output file. Can be a list, tuple, or any iterable of strings.
         verbose : bool
             Whether to print the progress.
         save_first_batch : bool
