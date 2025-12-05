@@ -1201,7 +1201,12 @@ class BorzoiPredictor(GenericPredictor):
         )
 
     def _filter_valid_regions(self, regions=None, mode="qtl"):
-        db = self.datamanager.datasets["parquet"]
+        try:
+            db = self.datamanager.datasets["parquet"]
+        except KeyError:
+            print("No parquet dataset found, skipping region filtering.")
+            return regions
+
         if regions is None:
             if mode in ("qtl", "eqtl"):
                 regions = self.qtl_manager.regions
