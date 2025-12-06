@@ -1581,42 +1581,111 @@ class BorzoiPredictor(GenericPredictor):
             self._print_batch(save_batch, prefix="Saved")
         return
 
-    def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk):
-        # make a pid-by-region bool table
+    def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk, qtl_mode=False):
+        """
+        Check and skip finished regions for each pseudobulk.
+        
+        Parameters
+        ----------
+        batch_dir : Path
+            Directory containing batch files
+        regions_per_pseudobulk : dict
+            Dictionary mapping pseudobulk IDs to (regions, region_names) tuples
+        qtl_mode : bool
+            If True, expects paired ref/alt files and only considers a batch finished
+            if both ref and alt files exist
+        
+        Returns
+        -------
+        regions_per_pseudobulk_torun : dict
+            Filtered regions that still need to be processed
+        batch_counters : dict
+            Dictionary mapping pseudobulk IDs to their next batch index
+        """
+        # Make a pid-by-region bool table
         pid_region_table_log = {}
         for pid, (_, region_names) in regions_per_pseudobulk.items():
             pid_region_table_log[pid] = pd.Series(
                 np.ones(len(region_names), dtype=bool), index=region_names
             )
 
-        # collect all finished batches
+        # Collect all finished batches
         batch_paths = batch_dir.glob("*.joblib.gz")
-        bids = []
+        
+        # Track batch indices per pseudobulk
+        batch_counters = {}
+        
         for path in batch_paths:
-            bids.append(int(path.name.split(".")[0].split("_")[1]))
-            batch = joblib.load(path)
-            region_names = batch["region_name"]
-            pid = batch["pseudobulk_id"]
+            # Parse filename: batch_{idx}.{pid}.joblib.gz or batch_{idx}.{pid}.{allele}.joblib.gz
+            stem = path.stem.replace('.joblib', '')
+            parts = stem.split('.')
+            
+            if len(parts) < 2:
+                continue
+            
+            # Extract batch index and pseudobulk ID
+            batch_idx_str = parts[0].replace('batch_', '')
+            try:
+                batch_idx = int(batch_idx_str)
+            except ValueError:
+                continue
+            
+            pid = parts[1]
+            allele = parts[2] if len(parts) > 2 else None
+            
+            # Update batch counter
+            if pid not in batch_counters:
+                batch_counters[pid] = 0
+            batch_counters[pid] = max(batch_counters[pid], batch_idx + 1)
+            
+            # For QTL mode, only mark regions as finished if BOTH ref and alt exist
+            if qtl_mode:
+                if allele is None:
+                    continue  # Not a QTL file
+                
+                # Check if companion allele file exists
+                companion_allele = "alt" if allele == "ref" else "ref"
+                companion_path = batch_dir / f"batch_{batch_idx}.{pid}.{companion_allele}.joblib.gz"
+                
+                if not companion_path.exists():
+                    # Companion doesn't exist yet, don't mark as finished
+                    continue
+            
+            # Load batch and mark regions as finished
             if pid not in pid_region_table_log:
                 continue
-            pid_region_table_log[pid].loc[region_names] = False
+            
+            try:
+                batch = joblib.load(path)
+                region_names = batch.get("region_name", [])
+                
+                # Mark these regions as finished
+                pid_region_table_log[pid].loc[
+                    pid_region_table_log[pid].index.isin(region_names)
+                ] = False
+            except Exception as e:
+                print(f"Warning: Could not load {path}: {e}")
+                continue
 
-        # only run unfinished pid and regions
+        # Only run unfinished pid and regions
         def sel_list_with_bool(rl, bool_sel):
             rl = np.array(rl)[bool_sel]
-            rl = rl.tolist()
-            return rl
+            return rl.tolist()
 
-        cur_bid = max(bids) + 1 if len(bids) > 0 else 0
         regions_per_pseudobulk_torun = {}
         for pid, (regions, region_names) in regions_per_pseudobulk.items():
+            if pid not in pid_region_table_log:
+                regions_per_pseudobulk_torun[pid] = (regions, region_names)
+                continue
+            
             regions_bool = pid_region_table_log[pid]
             if regions_bool.any():
                 regions_per_pseudobulk_torun[pid] = (
                     sel_list_with_bool(regions, regions_bool),
                     sel_list_with_bool(region_names, regions_bool),
                 )
-        return regions_per_pseudobulk_torun, cur_bid
+        
+        return regions_per_pseudobulk_torun, batch_counters
 
     def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
         _all_attr_keys = ["__dna__:attr", "__signal__:attr"]
@@ -1765,12 +1834,13 @@ class BorzoiPredictor(GenericPredictor):
         )
 
         # check and skip finished regions for each pseudobulk
-        regions_per_pseudobulk_torun, cur_bid = (
-            self._check_finished_attribution_batches(
-                batch_dir=batch_dir,
-                regions_per_pseudobulk=regions_per_pseudobulk,
-            )
-        )
+        regions_per_pseudobulk_torun, batch_counters = (
+                self._check_finished_attribution_batches(
+                    batch_dir=batch_dir,
+                    regions_per_pseudobulk=regions_per_pseudobulk,
+                    qtl_mode=use_qtl_mutations,  # NEW: Pass QTL mode flag
+                )
+            )         
         pseudobulk_ids_torun = list(regions_per_pseudobulk_torun.keys())
 
         if len(regions_per_pseudobulk_torun) != 0:
@@ -1800,21 +1870,19 @@ class BorzoiPredictor(GenericPredictor):
             )
 
             save_batch = {}
-            batch_counter = {}  # Track batch indices per pseudobulk
-
+            current_batch_idx = {}  # Track current batch index per pseudobulk
             for batch in dataloader:
                 pid = batch["pseudobulk_id"]
 
                 # Initialize counter for this pseudobulk if needed
-                if pid not in batch_counter:
-                    batch_counter[pid] = cur_bid
-                idx = batch_counter[pid]
+                if pid not in current_batch_idx:
+                    current_batch_idx[pid] = batch_counters.get(pid, 0)
+                idx = current_batch_idx[pid]
 
-                if idx == cur_bid and verbose:
+                if idx == batch_counters.get(pid, 0) and verbose:
                     self._print_batch(batch, prefix="Dataloader")
                     if save_first_batch:
                         joblib.dump(batch, output_dir / "first_batch.joblib.gz")
-
                 # Prepare save keys
                 if use_qtl_mutations:
                     # Add QTL-specific metadata to save keys
@@ -1841,7 +1909,7 @@ class BorzoiPredictor(GenericPredictor):
                         save_keys=mutated_save_keys,
                     )
 
-                    if verbose and idx == cur_bid:
+                    if verbose and idx == batch_counters.get(pid, 0):
                         n_regions = len(batch.get("region", []))
                         print(
                             f"Saved {allele} attribution for {n_regions} regions in batch {idx}"
@@ -1856,8 +1924,11 @@ class BorzoiPredictor(GenericPredictor):
                     )
 
                 # Increment counter only after processing both alleles (for QTL)
-                if not use_qtl_mutations or batch.get("allele") == "alt":
-                    batch_counter[pid] += 1
+                if not use_qtl_mutations:
+                    current_batch_idx[pid] += 1
+                elif batch.get("allele") == "alt":
+                    # Both ref and alt have been processed
+                    current_batch_idx[pid] += 1
 
             if verbose and len(save_batch) > 0:
                 self._print_batch(save_batch, prefix="Saved")
