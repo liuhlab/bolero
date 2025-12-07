@@ -195,12 +195,11 @@ class JASPARMotif:
         pwm_info = _pwm * info[:, None]
 
         # pwm shape (seq_len, 4)
+        pwm_info = pwm_info.values
         if pad_left > 0:
-            pwm_info = np.pad(pwm_info.values, ((pad_left, 0), (0, 0)), mode="constant")
+            pwm_info = np.pad(pwm_info, ((pad_left, 0), (0, 0)), mode="constant")
         if pad_right > 0:
-            pwm_info = np.pad(
-                pwm_info.values, ((0, pad_right), (0, 0)), mode="constant"
-            )
+            pwm_info = np.pad(pwm_info, ((0, pad_right), (0, 0)), mode="constant")
         pwm_info = pd.DataFrame(pwm_info, columns=self.pwm.columns)
 
         # Create a sequence logo
