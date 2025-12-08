@@ -160,7 +160,7 @@ class caQTLManager(QTLMixIn):
         qtl_stats_cols=None,
         ypred_seq_len=16384,
         channel_weights=None,
-        qtl_type = "caqtl",
+        qtl_type="caqtl",
     ):
         self.qtl_type = qtl_type
         if qtl_stats_cols is None:
@@ -210,7 +210,8 @@ class caQTLManager(QTLMixIn):
         """
         batch_peaks = self.peaks.loc[batch["region_name"]]
         batch["qtl_peaks"] = batch_peaks
-        return batch  
+        return batch
+
 
 def prepare_peak_table(
     peak_table: str | pd.DataFrame, resolution: int

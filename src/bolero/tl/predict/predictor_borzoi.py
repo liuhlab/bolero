@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pyranges as pr
 import torch
-import xarray as xr
 from einops import rearrange
 
 from bolero.tl.model.borzoi.dataset_multi import DatasetRecordManager
@@ -819,6 +818,13 @@ class BorzoiPredictor(GenericPredictor):
             regions_per_pseudobulk = {
                 pid: (regions, region_names) for pid in pseudobulk_ids
             }
+        # check for region duplicates
+        for pid, (regions, _) in regions_per_pseudobulk.items():
+            if len(set(regions)) != len(regions):
+                raise ValueError(
+                    f"Duplicate regions found for pseudobulk {pid}. "
+                    "Please remove duplicate regions."
+                )
         return regions_per_pseudobulk
 
     def get_attribution_dataloader(
@@ -990,6 +996,27 @@ class BorzoiPredictor(GenericPredictor):
 
         if mode == "gene_count_prediction":
             SAVE_KEYS.append("__ypred__:gene_count")
+        return SAVE_KEYS
+
+    def _get_default_attribution_save_keys(self, qtl_type=None):
+        SAVE_KEYS = [
+            "__dna__:attr",
+            "__dna__:attr_seq",
+            "region",
+            "pseudobulk_id",
+            "region_name",
+            "seqlets_info",
+            "seqlets_dna",
+            "seqlets_attr",
+            "seqlets_attr1d",
+        ]
+        # Add QTL-specific metadata to save keys
+        if qtl_type is not None:
+            SAVE_KEYS += ["allele", "qtl_id", "variant_id", "gene_id"]
+        if qtl_type == "eqtl":
+            SAVE_KEYS.append("eqtl_genes")
+        elif qtl_type == "caqtl":
+            SAVE_KEYS.append("qtl_peaks")
         return SAVE_KEYS
 
     def prediction_task(
@@ -1208,7 +1235,7 @@ class BorzoiPredictor(GenericPredictor):
             return regions
 
         if regions is None:
-            if mode in ("qtl", "eqtl"):
+            if mode in ("qtl", "eqtl", "caqtl"):
                 regions = self.qtl_manager.regions
             elif mode == "peak":
                 regions = self.peak_manager.regions
@@ -1581,10 +1608,12 @@ class BorzoiPredictor(GenericPredictor):
             self._print_batch(save_batch, prefix="Saved")
         return
 
-    def _check_finished_attribution_batches(self, batch_dir, regions_per_pseudobulk, qtl_mode=False):
+    def _check_finished_attribution_batches(
+        self, batch_dir, regions_per_pseudobulk, qtl_mode=False
+    ):
         """
         Check and skip finished regions for each pseudobulk.
-        
+
         Parameters
         ----------
         batch_dir : Path
@@ -1594,7 +1623,7 @@ class BorzoiPredictor(GenericPredictor):
         qtl_mode : bool
             If True, expects paired ref/alt files and only considers a batch finished
             if both ref and alt files exist
-        
+
         Returns
         -------
         regions_per_pseudobulk_torun : dict
@@ -1611,59 +1640,61 @@ class BorzoiPredictor(GenericPredictor):
 
         # Collect all finished batches
         batch_paths = batch_dir.glob("*.joblib.gz")
-        
+
         # Track batch indices per pseudobulk
         batch_counters = {}
-        
+
         for path in batch_paths:
             # Parse filename: batch_{idx}.{pid}.joblib.gz or batch_{idx}.{pid}.{allele}.joblib.gz
-            stem = path.stem.replace('.joblib', '')
-            parts = stem.split('.')
-            
+            stem = path.stem.replace(".joblib", "")
+            parts = stem.split(".")
+
             if len(parts) < 2:
                 continue
-            
+
             # Extract batch index and pseudobulk ID
-            batch_idx_str = parts[0].replace('batch_', '')
+            batch_idx_str = parts[0].replace("batch_", "")
             try:
                 batch_idx = int(batch_idx_str)
             except ValueError:
                 continue
-            
+
             pid = parts[1]
             allele = parts[2] if len(parts) > 2 else None
-            
+
             # Update batch counter
             if pid not in batch_counters:
                 batch_counters[pid] = 0
             batch_counters[pid] = max(batch_counters[pid], batch_idx + 1)
-            
+
             # For QTL mode, only mark regions as finished if BOTH ref and alt exist
             if qtl_mode:
                 if allele is None:
                     continue  # Not a QTL file
-                
+
                 # Check if companion allele file exists
                 companion_allele = "alt" if allele == "ref" else "ref"
-                companion_path = batch_dir / f"batch_{batch_idx}.{pid}.{companion_allele}.joblib.gz"
-                
+                companion_path = (
+                    batch_dir / f"batch_{batch_idx}.{pid}.{companion_allele}.joblib.gz"
+                )
+
                 if not companion_path.exists():
                     # Companion doesn't exist yet, don't mark as finished
                     continue
-            
+
             # Load batch and mark regions as finished
             if pid not in pid_region_table_log:
                 continue
-            
+
             try:
                 batch = joblib.load(path)
                 region_names = batch.get("region_name", [])
-                
+
                 # Mark these regions as finished
                 pid_region_table_log[pid].loc[
                     pid_region_table_log[pid].index.isin(region_names)
                 ] = False
-            except Exception as e:
+            except FileNotFoundError as e:
                 print(f"Warning: Could not load {path}: {e}")
                 continue
 
@@ -1677,60 +1708,15 @@ class BorzoiPredictor(GenericPredictor):
             if pid not in pid_region_table_log:
                 regions_per_pseudobulk_torun[pid] = (regions, region_names)
                 continue
-            
+
             regions_bool = pid_region_table_log[pid]
             if regions_bool.any():
                 regions_per_pseudobulk_torun[pid] = (
                     sel_list_with_bool(regions, regions_bool),
                     sel_list_with_bool(region_names, regions_bool),
                 )
-        
+
         return regions_per_pseudobulk_torun, batch_counters
-
-    def _save_pseudobulk_attr_ds(self, pseudobulk_ids, batch_dir):
-        _all_attr_keys = ["__dna__:attr", "__signal__:attr"]
-        _attr_keys = None
-        for pid in pseudobulk_ids:
-            pid_batch_paths = list(batch_dir.glob(f"*.{pid}.joblib.gz"))
-
-            temp_path = batch_dir / f"{pid}.attr.zarr.temp"
-            zarr_path = batch_dir / f"{pid}.attr.zarr"
-            if not zarr_path.exists():
-                pid_data = defaultdict(list)
-                for p in pid_batch_paths:
-                    batch = joblib.load(p)
-                    if _attr_keys is None:
-                        _attr_keys = [k for k in _all_attr_keys if k in batch]
-                    region = batch["region"]
-                    pid = batch["pseudobulk_id"]
-                    for key in _attr_keys:
-                        attr = batch[key]
-                        if key == "__dna__:attr":
-                            da = xr.DataArray(attr, dims=["region", "base", "pos"])
-                            da.coords["region"] = region
-                            da.coords["base"] = list("ACGT")
-                        else:
-                            da = xr.DataArray(attr, dims=["region", "channel", "pos"])
-                            da.coords["region"] = region
-                        pid_data[key].append(da)
-                pid_data = {k: xr.concat(v, dim="region") for k, v in pid_data.items()}
-                pid_ds = xr.Dataset(pid_data).chunk(region=10000)
-
-                # change regions (524288) into attr regions (1024)
-                full_regions = pid_ds.get_index("region")
-                attr_length = attr.shape[-1]
-                regions = self.genome.standard_region_length(
-                    full_regions, length=attr_length, keep_original=True
-                )
-                regions = regions.set_index("Original_Name").reindex(full_regions)
-                pid_ds.coords["region"] = regions["Name"].values
-
-                pid_ds.to_zarr(temp_path, mode="w")
-                temp_path.rename(zarr_path)
-
-            for path in pid_batch_paths:
-                path.unlink()
-        return
 
     def attribution_task(
         self,
@@ -1738,12 +1724,12 @@ class BorzoiPredictor(GenericPredictor):
         regions_per_pseudobulk,
         pseudobulk_ids=None,
         batch_size=6,
-        save_keys=("__dna__:attr", "region", "pseudobulk_id", "region_name"),
+        save_keys="default",
         verbose=True,
         save_first_batch=False,
         mode="attribution",
         qtl_table=None,
-        qtl_type="eqtl",
+        qtl_type=None,
     ):
         """
         Attribution task for Borzoi with optional QTL mutation analysis.
@@ -1774,8 +1760,15 @@ class BorzoiPredictor(GenericPredictor):
             Chromosome, Start, End, Name (gene+variant), Strand, TSS, GeneStart, GeneEnd,
             MaskStart, MaskEnd, variant_id, Ref, Alt, gene_id, etc.
         qtl_type : str
-            Type of QTL analysis ('eqtl' or 'caqtl'). Default 'eqtl'.
+            Type of QTL analysis ('eqtl' or 'caqtl'). Default None.
         """
+        if qtl_table is not None:
+            assert (
+                qtl_type is not None
+            ), "qtl_type must be provided if qtl_table is provided"
+        if save_keys == "default":
+            save_keys = self._get_default_attribution_save_keys(qtl_type=qtl_type)
+
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
         batch_dir.mkdir(parents=True, exist_ok=True)
@@ -1790,37 +1783,12 @@ class BorzoiPredictor(GenericPredictor):
             self.register_qtl_manager(qtl_table, qtl_type=qtl_type)
             use_qtl_mutations = True
 
-            # Get regions from QTL manager - these will have the correct Name format
-            # e.g., "ENSG00000242485+chr1_1407014_G_A"
+            # Get regions from QTL manager
             qtl_regions = self._filter_valid_regions(mode=qtl_type)
             if regions_per_pseudobulk is None:
-                # Use all regions from QTL table
                 regions_per_pseudobulk = qtl_regions
                 if verbose:
-                    print(f"Using {len(regions_per_pseudobulk)} regions from QTL table")
-            else:
-                # Validate that provided regions match QTL regions
-                provided_names = set(regions_per_pseudobulk["Name"].values)
-                qtl_regions["gene_id"] = qtl_regions["Name"].str.split("+").str[0]
-                qtl_names = set(qtl_regions["gene_id"].values)
-
-                if not provided_names.issubset(qtl_names):
-                    missing = provided_names - qtl_names
-                    if verbose:
-                        print(
-                            f"Warning: {len(missing)} provided regions not in QTL table"
-                        )
-                        print(f"Example missing: {list(missing)[:5]}")
-
-                # Filter to only regions that are in QTL table
-                regions_per_pseudobulk = qtl_regions[
-                    qtl_regions["gene_id"].isin(provided_names)
-                ].copy()
-
-                if verbose:
-                    print(
-                        f"Using {len(regions_per_pseudobulk)} regions (filtered to match QTL table)"
-                    )
+                    print("Using qtl_regions as regions_per_pseudobulk")
 
         # prepare regions for each pseudobulk
         if pseudobulk_ids is None:
@@ -1835,12 +1803,12 @@ class BorzoiPredictor(GenericPredictor):
 
         # check and skip finished regions for each pseudobulk
         regions_per_pseudobulk_torun, batch_counters = (
-                self._check_finished_attribution_batches(
-                    batch_dir=batch_dir,
-                    regions_per_pseudobulk=regions_per_pseudobulk,
-                    qtl_mode=use_qtl_mutations,  # NEW: Pass QTL mode flag
-                )
-            )         
+            self._check_finished_attribution_batches(
+                batch_dir=batch_dir,
+                regions_per_pseudobulk=regions_per_pseudobulk,
+                qtl_mode=use_qtl_mutations,  # NEW: Pass QTL mode flag
+            )
+        )
         pseudobulk_ids_torun = list(regions_per_pseudobulk_torun.keys())
 
         if len(regions_per_pseudobulk_torun) != 0:
@@ -1871,6 +1839,7 @@ class BorzoiPredictor(GenericPredictor):
 
             save_batch = {}
             current_batch_idx = {}  # Track current batch index per pseudobulk
+            first_batch_printed = False
             for batch in dataloader:
                 pid = batch["pseudobulk_id"]
 
@@ -1879,25 +1848,17 @@ class BorzoiPredictor(GenericPredictor):
                     current_batch_idx[pid] = batch_counters.get(pid, 0)
                 idx = current_batch_idx[pid]
 
-                if idx == batch_counters.get(pid, 0) and verbose:
+                if (
+                    idx == batch_counters.get(pid, 0)
+                    and verbose
+                    and (not first_batch_printed)
+                ):
                     self._print_batch(batch, prefix="Dataloader")
+                    first_batch_printed = True
                     if save_first_batch:
                         joblib.dump(batch, output_dir / "first_batch.joblib.gz")
                 # Prepare save keys
                 if use_qtl_mutations:
-                    # Add QTL-specific metadata to save keys
-                    mutated_save_keys = list(save_keys)
-                    metadata_keys = ["allele", "qtl_id", "variant_id", "gene_id"]
-
-                    if qtl_type == "eqtl":
-                        metadata_keys.append("eqtl_genes")
-                    elif qtl_type == "caqtl":
-                        metadata_keys.append("qtl_peaks")
-
-                    for key in metadata_keys:
-                        if key in batch and key not in mutated_save_keys:
-                            mutated_save_keys.append(key)
-
                     # Get allele for file naming
                     allele = batch.get("allele", "unknown")
 
@@ -1906,7 +1867,7 @@ class BorzoiPredictor(GenericPredictor):
                         batch=batch,
                         batch_dir=batch_dir,
                         idx=f"{idx}.{pid}.{allele}",
-                        save_keys=mutated_save_keys,
+                        save_keys=save_keys,
                     )
 
                     if verbose and idx == batch_counters.get(pid, 0):
@@ -1934,17 +1895,15 @@ class BorzoiPredictor(GenericPredictor):
                 self._print_batch(save_batch, prefix="Saved")
 
         # Only aggregate to zarr if not doing QTL mutations
-        if mode == "attribution" and not use_qtl_mutations:
-            self._save_pseudobulk_attr_ds(
-                pseudobulk_ids=pseudobulk_ids, batch_dir=batch_dir
+        if mode == "attribution":
+            self.task_aggregater.aggregate_atac_attribution_results(output_dir)
+
+        if verbose and use_qtl_mutations:
+            print(f"QTL mutation attributions saved to {batch_dir}")
+            print("Note: Each batch contains ref and alt attributions separately")
+            print(
+                "File naming: batch_<idx>.<pid>.ref.joblib.gz and batch_<idx>.<pid>.alt.joblib.gz"
             )
-        elif use_qtl_mutations:
-            if verbose:
-                print(f"QTL mutation attributions saved to {batch_dir}")
-                print("Note: Each batch contains ref and alt attributions separately")
-                print(
-                    "File naming: batch_<idx>.<pid>.ref.joblib.gz and batch_<idx>.<pid>.alt.joblib.gz"
-                )
 
         return
 
@@ -2157,11 +2116,23 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
     def _get_post_attribution_callbacks(self, mode="attribution"):
         if mode == "attribution":
-            return []
+            callbacks = [
+                (
+                    "attr_seqlets_post_process",
+                    {
+                        "seqlet_center_flank": 25,
+                        "save_full_attr": True,
+                        "save_full_attr1d": True,
+                        "save_top_q": 0.25,
+                        "threshold": 0.001,
+                    },
+                )
+            ]
+            return self._prepare_callbacks(callbacks)
         elif mode == "gene_count_attribution":
             callbacks = [
                 (
-                    "gene_count_attr_post_process",
+                    "attr_seqlets_post_process",
                     {
                         "seqlet_center_flank": 25,
                         "save_full_attr": False,
@@ -2298,6 +2269,8 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             dna_attr_col.append(dna_attr.detach().cpu().numpy())
         dna_attr_col = np.concatenate(dna_attr_col, axis=0)
         batch["__dna__:attr"] = dna_attr_col
+        radius = (dna.shape[-1] - dna_attr_col.shape[-1]) // 2
+        batch["__dna__:attr_seq"] = dna[..., radius:-radius].detach().cpu().numpy()
         return batch
 
     def _dna_gene_count_attr_step(self, model, batch, attr_batch_size):
