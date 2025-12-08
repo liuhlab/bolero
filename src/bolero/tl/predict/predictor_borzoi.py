@@ -819,11 +819,11 @@ class BorzoiPredictor(GenericPredictor):
                 pid: (regions, region_names) for pid in pseudobulk_ids
             }
         # check for region duplicates
-        for pid, (regions, _) in regions_per_pseudobulk.items():
-            if len(set(regions)) != len(regions):
+        for pid, (_, region_names) in regions_per_pseudobulk.items():
+            if len(set(region_names)) != len(region_names):
                 raise ValueError(
-                    f"Duplicate regions found for pseudobulk {pid}. "
-                    "Please remove duplicate regions."
+                    f"Duplicate region_names found for pseudobulk {pid}. "
+                    "Please remove duplicate region_names."
                 )
         return regions_per_pseudobulk
 

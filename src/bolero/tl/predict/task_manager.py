@@ -1,3 +1,4 @@
+import pathlib
 from collections import defaultdict
 
 import numpy as np
@@ -14,7 +15,7 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     """
     stats_cols = stats_cols or ["beta", "PIP"]
 
-    if isinstance(qtl_table, str):
+    if isinstance(qtl_table, (str, pathlib.Path)):
         if str(qtl_table).endswith(".feather"):
             table = pd.read_feather(qtl_table)
         else:
@@ -340,10 +341,13 @@ def prepare_eqtl_table(eqtl_table):
     - Strand: gene strand (+/-)
     - Additional gene information and eQTL statistics columns like slope/beta, PIP, p_value, etc.
     """
-    if str(eqtl_table).endswith(".csv"):
-        table = pd.read_csv(eqtl_table, sep="\t")
+    if isinstance(eqtl_table, (str, pathlib.Path)):
+        if str(eqtl_table).endswith(".csv"):
+            table = pd.read_csv(eqtl_table, sep="\t")
+        else:
+            table = pd.read_feather(eqtl_table)
     else:
-        table = pd.read_feather(eqtl_table)
+        table = eqtl_table
     assert "gene_id" in table.columns, "gene_id column is required"
     assert "variant_id" in table.columns, "variant_id column is required"
 

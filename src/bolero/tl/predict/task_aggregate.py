@@ -180,17 +180,26 @@ def _collect_mutation_attr_results(output_dir, pid_map):
     return attr_region_col, attr_ds_col, seqlets_info_col, seqlets_ds_col
 
 
+def _get_pid_map(config):
+    pid_map = pd.Series(
+        {k: v["__pid__"] for k, v in config["pseudobulk_records"].items()}
+    )
+    return pid_map
+
+
+def _get_config(output_dir):
+    config = joblib.load(output_dir / "config.joblib.gz")
+    return config
+
+
 class AggregateMixin:
     @staticmethod
     def aggregate_atac_attribution_results(output_dir):
         """
         Aggregate ATAC attribution results from all batches with ref and alt alleles.
         """
-        output_dir = pathlib.Path(output_dir)
-        config = joblib.load(output_dir / "config.joblib.gz")
-        pid_map = pd.Series(
-            {k: v["__pid__"] for k, v in config["pseudobulk_records"].items()}
-        )
+        config = _get_config(output_dir)
+        pid_map = _get_pid_map(config)
 
         has_mutation = config["task_config"].get("qtl_table", None) is not None
         if has_mutation:
@@ -241,3 +250,38 @@ class AggregateMixin:
                 output_dir / "seqlets_attribution_and_seq.zarr", mode="w"
             )
         return
+
+    @staticmethod
+    def aggregate_eqtl_results(output_dir):
+        """
+        Aggregate eQTL results from all batches.
+        """
+        output_dir = pathlib.Path(output_dir)
+        config = _get_config(output_dir)
+        pid_map = _get_pid_map(config)
+
+        ref_data_col = []
+        alt_data_col = []
+        region_col = []
+
+        batch_paths = (output_dir / "batch").glob("*.joblib.gz")
+        for batch_path in batch_paths:
+            batch = joblib.load(batch_path)
+            ref_data_col.append(batch["__ypred__:ref:gene_count"])
+            alt_data_col.append(batch["__ypred__:alt:gene_count"])
+            region_col.append(batch["region_name"])
+
+        pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_map)
+        regions = np.concatenate(region_col, axis=0)
+        ref_data = pd.DataFrame(
+            np.concatenate(ref_data_col, axis=0), index=regions, columns=pids
+        )
+        alt_data = pd.DataFrame(
+            np.concatenate(alt_data_col, axis=0), index=regions, columns=pids
+        )
+        ref_data.to_feather(output_dir / "ref_data.feather")
+        alt_data.to_feather(output_dir / "alt_data.feather")
+        return
+
+
+# TODO: save genotype data_var into seqlet ds with mutation
