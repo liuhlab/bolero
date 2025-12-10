@@ -626,6 +626,7 @@ class CallAttrSeqletsPostProcess:
         save_full_attr1d: bool = True,
         save_top_q: float = 0.02,
         threshold: float = 0.001,
+        mutations: pd.DataFrame | None = None,
     ):
         """
         Post process the gene count attribution to call seqlets and save seqlets values.
@@ -643,12 +644,35 @@ class CallAttrSeqletsPostProcess:
             the quantile cutoff to save the top values of the full attribute tensor.
         threshold : float, optional
             The p-value threshold to call seqlets from.
+        mutations : pd.DataFrame, optional
+            Mutations dataframe with index as region_name, columns contains pos2start.
+            If provided, batch keys "__dna__:attr" and "__dna__:attr_seq" will be
+            replaced with the mutation centered attribution.
         """
         self.seqlet_center_flank = seqlet_center_flank
         self.save_full_attr = save_full_attr
         self.save_full_attr1d = save_full_attr1d
         self.save_top_q = save_top_q
         self.threshold = threshold
+        self.mutations = mutations
+
+    def _replace_attr_with_mutation_centered_attr(self, batch: dict) -> dict:
+        full_seq = batch["__dna__"].cpu().numpy()
+        full_attr = batch["__dna__:attr"]
+
+        attr_col = []
+        seq_col = []
+        for rid, region in enumerate(batch["region_name"]):
+            pos = self.mutations.loc[region, "pos2start"]
+            attr_slice = slice(pos - 512, pos + 512)
+            attr_col.append(full_attr[rid, :, attr_slice])
+            seq_col.append(full_seq[rid, :, attr_slice])
+        attr_col = np.array(attr_col)
+        seq_col = np.array(seq_col)
+
+        batch["__dna__:attr"] = attr_col
+        batch["__dna__:attr_seq"] = seq_col
+        return batch
 
     def __call__(self, batch):
         """
@@ -752,6 +776,10 @@ class CallAttrSeqletsPostProcess:
             else:
                 dna_attr_sparse_list = list(dna_attr.astype("float32"))
             batch["full_attr_list"] = dna_attr_sparse_list
+
+        if self.mutations is not None:
+            batch = self._replace_attr_with_mutation_centered_attr(batch)
+
         return batch
 
 

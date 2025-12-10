@@ -998,10 +998,8 @@ class BorzoiPredictor(GenericPredictor):
             SAVE_KEYS.append("__ypred__:gene_count")
         return SAVE_KEYS
 
-    def _get_default_attribution_save_keys(self, qtl_type=None):
+    def _get_default_attribution_save_keys(self, mode="attribution", qtl_type=None):
         SAVE_KEYS = [
-            "__dna__:attr",
-            "__dna__:attr_seq",
             "region",
             "pseudobulk_id",
             "region_name",
@@ -1010,11 +1008,16 @@ class BorzoiPredictor(GenericPredictor):
             "seqlets_attr",
             "seqlets_attr1d",
         ]
+        if mode == "attribution":
+            SAVE_KEYS += ["__dna__:attr", "__dna__:attr_seq"]
+            # for general gene count attribution, we don't save the __dna__:attr
+            # because its too large to save (n_region, 4, 524288) matrix for each gene * pseudobulk.
         # Add QTL-specific metadata to save keys
         if qtl_type is not None:
             SAVE_KEYS += ["allele", "qtl_id", "variant_id", "gene_id"]
         if qtl_type == "eqtl":
-            SAVE_KEYS.append("eqtl_genes")
+            # "__dna__:attr", "__dna__:attr_seq" will contain the mutation centered attribution.
+            SAVE_KEYS += ["__dna__:attr", "__dna__:attr_seq", "eqtl_genes"]
         elif qtl_type == "caqtl":
             SAVE_KEYS.append("qtl_peaks")
         return SAVE_KEYS
@@ -1767,7 +1770,9 @@ class BorzoiPredictor(GenericPredictor):
                 qtl_type is not None
             ), "qtl_type must be provided if qtl_table is provided"
         if save_keys == "default":
-            save_keys = self._get_default_attribution_save_keys(qtl_type=qtl_type)
+            save_keys = self._get_default_attribution_save_keys(
+                mode=mode, qtl_type=qtl_type
+            )
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
@@ -2125,6 +2130,10 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                         "save_full_attr1d": True,
                         "save_top_q": 0.25,
                         "threshold": 0.001,
+                        # For eQTL mode, we provide the mutations to save 1024 bp attribution centered at the mutation position.
+                        # for peak mode, we don't need to provide mutations because we will only save the attribution centered
+                        # at the borzoi region, which we expect mutation is also centered at the borzoi region.
+                        "mutations": None,
                     },
                 )
             ]
@@ -2139,6 +2148,12 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                         "save_full_attr1d": True,
                         "save_top_q": 0.02,
                         "threshold": 0.001,
+                        # For eQTL mode, we provide the mutations to save 1024 bp attribution centered at the mutation position.
+                        # for peak mode, we don't need to provide mutations because we will only save the attribution centered
+                        # at the borzoi region, which we expect mutation is also centered at the borzoi region.
+                        "mutations": self.qtl_manager.mutations
+                        if self.qtl_manager is not None
+                        else None,
                     },
                 )
             ]

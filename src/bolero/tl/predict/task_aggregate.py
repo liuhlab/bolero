@@ -198,6 +198,7 @@ class AggregateMixin:
         """
         Aggregate ATAC attribution results from all batches with ref and alt alleles.
         """
+        output_dir = pathlib.Path(output_dir)
         config = _get_config(output_dir)
         pid_map = _get_pid_map(config)
 
