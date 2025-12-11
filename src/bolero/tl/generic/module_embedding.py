@@ -656,7 +656,10 @@ class ConditionEmbeddingModuleMulti(nn.Module):
             dataset_specific_emb.append(combine_emb)
         dataset_specific_emb = torch.stack(dataset_specific_emb)
 
-        shared_emb["__shared_data__"] = shared_emb["__shared_data__"].to(torch.float32)
+        if "__shared_data__" in shared_emb:
+            shared_emb["__shared_data__"] = shared_emb["__shared_data__"].to(
+                torch.float32
+            )
         dataset_shared_emb = self.shared_encoder(shared_emb)
 
         final_emb = torch.cat([dataset_specific_emb, dataset_shared_emb], dim=-1)
@@ -683,8 +686,12 @@ class ConditionEmbeddingModuleMulti(nn.Module):
             cond_emb = cond_encoder(cond_emb)
             combine_emb = torch.cat([cell_emb, cond_emb], dim=-1)
 
-        shared_emb["__shared_data__"] = shared_emb["__shared_data__"].to(torch.float32)
+        if "__shared_data__" in shared_emb:
+            shared_emb["__shared_data__"] = shared_emb["__shared_data__"].to(
+                torch.float32
+            )
         dataset_shared_emb = self.shared_encoder(shared_emb)
+
         final_emb = torch.cat([combine_emb, dataset_shared_emb], dim=-1)
         return final_emb
 
