@@ -182,7 +182,7 @@ def _collect_mutation_attr_results(output_dir, pid_map):
 
 def _get_pid_map(config):
     pid_map = pd.Series(
-        {k: v["__pid__"] for k, v in config["pseudobulk_records"].items()}
+        {k: v.get("__pid__", k) for k, v in config["pseudobulk_records"].items()}
     )
     return pid_map
 
@@ -253,7 +253,7 @@ class AggregateMixin:
         return
 
     @staticmethod
-    def aggregate_eqtl_results(output_dir):
+    def aggregate_qtl_results(output_dir, qtl_type="eqtl", save=True):
         """
         Aggregate eQTL results from all batches.
         """
@@ -265,11 +265,18 @@ class AggregateMixin:
         alt_data_col = []
         region_col = []
 
+        if qtl_type == "caqtl":
+            suffix = ":peak"
+        elif qtl_type == "eqtl":
+            suffix = ":gene_count"
+        else:
+            raise ValueError(f"Invalid qtl type: {qtl_type}")
+
         batch_paths = (output_dir / "batch").glob("*.joblib.gz")
         for batch_path in batch_paths:
             batch = joblib.load(batch_path)
-            ref_data_col.append(batch["__ypred__:ref:gene_count"])
-            alt_data_col.append(batch["__ypred__:alt:gene_count"])
+            ref_data_col.append(batch[f"__ypred__:ref{suffix}"])
+            alt_data_col.append(batch[f"__ypred__:alt{suffix}"])
             region_col.append(batch["region_name"])
 
         pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_map)
@@ -280,9 +287,13 @@ class AggregateMixin:
         alt_data = pd.DataFrame(
             np.concatenate(alt_data_col, axis=0), index=regions, columns=pids
         )
-        ref_data.to_feather(output_dir / "ref_data.feather")
-        alt_data.to_feather(output_dir / "alt_data.feather")
-        return
+        logfc = np.log2(alt_data / (ref_data + 1e-6))
+
+        if save:
+            ref_data.to_feather(output_dir / "ref_data.feather")
+            alt_data.to_feather(output_dir / "alt_data.feather")
+            logfc.to_feather(output_dir / "ref_alt_logfc.feather")
+        return ref_data, alt_data, logfc
 
 
 # TODO: save genotype data_var into seqlet ds with mutation

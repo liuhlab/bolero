@@ -583,6 +583,7 @@ class BorzoiPredictor(GenericPredictor):
         batch_size=32,
         verbose=True,
         mode="prediction",
+        _dataloader_batch_size=None,
     ) -> Generator:
         """
         Get the dataloader for prediction.
@@ -608,8 +609,11 @@ class BorzoiPredictor(GenericPredictor):
             if pseudobulk_ids is not None
             else len(self.pseudobulk_manager.pseudobulk_ids)
         )
-        dataloader_batch_size = max(2, int(batch_size / n_pseudobulks * 100))
-        dataloader_batch_size = min(16, dataloader_batch_size)
+        if _dataloader_batch_size is not None:
+            dataloader_batch_size = _dataloader_batch_size
+        else:
+            dataloader_batch_size = max(2, int(batch_size / n_pseudobulks * 100))
+            dataloader_batch_size = min(16, dataloader_batch_size)
         print(f"Data loader batch size {dataloader_batch_size}")
         dataloader = self._create_fn_and_dataloader(
             dna_key=dna_key,
@@ -1264,61 +1268,6 @@ class BorzoiPredictor(GenericPredictor):
             new_regions["Name"] = new_regions.index.astype(str)
         return new_regions
 
-    def _gather_qtl_data(self, output_dir, qtl_type="caqtl"):
-        batch_paths = list(
-            pathlib.Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz")
-        )
-        config = joblib.load(f"{output_dir}/config.joblib.gz")
-
-        # Create pid_mapping, handling cases where __pid__ annotation might be missing
-        pid_mapping = {}
-        for k, v in config["pseudobulk_records"].items():
-            if "__pid__" in v:
-                pid_mapping[k] = v["__pid__"]
-            else:
-                # Fallback: use the pseudobulk ID itself if __pid__ annotation is missing
-                pid_mapping[k] = k
-
-        if qtl_type == "caqtl":
-            suffix = ":peak"
-        elif qtl_type == "eqtl":
-            suffix = ":gene_count"
-        else:
-            raise ValueError(f"Invalid qtl type: {qtl_type}")
-
-        all_qtl_data = []
-        all_ref_data = []
-        all_alt_data = []
-        for path in batch_paths:
-            batch = joblib.load(path)
-            if len(pid_mapping.keys()) != batch[f"__ypred__:ref{suffix}"].shape[1]:
-                pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_mapping)
-            else:
-                pids = pd.Index(batch["pseudobulk_ids"]).map(pid_mapping)
-            ref_data = pd.DataFrame(
-                batch[f"__ypred__:ref{suffix}"],
-                index=batch["region_name"],
-                columns=pids,
-            )
-            alt_data = pd.DataFrame(
-                batch[f"__ypred__:alt{suffix}"],
-                index=batch["region_name"],
-                columns=pids,
-            )
-            logfc = np.log2(alt_data / ref_data)
-            all_ref_data.append(ref_data)
-            all_alt_data.append(alt_data)
-            all_qtl_data.append(logfc)
-
-        all_qtl_data = pd.concat(all_qtl_data)
-        all_alt_data = pd.concat(all_alt_data)
-        all_ref_data = pd.concat(all_ref_data)
-
-        all_ref_data.to_feather(f"{output_dir}/ref_data.feather")
-        all_alt_data.to_feather(f"{output_dir}/alt_data.feather")
-        all_qtl_data.to_feather(f"{output_dir}/ref_alt_logfc.feather")
-        return
-
     def caqtl_task(
         self,
         output_dir,
@@ -1331,6 +1280,7 @@ class BorzoiPredictor(GenericPredictor):
         save_first_batch=False,
         qtl_type="caqtl",
         channel_weights_path=None,
+        _dataloader_batch_size=None,
     ):
         """
         QTL Prediction task for Borzoi.
@@ -1385,6 +1335,7 @@ class BorzoiPredictor(GenericPredictor):
             batch_size=batch_size,
             verbose=verbose,
             mode="qtl",
+            _dataloader_batch_size=_dataloader_batch_size,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1418,7 +1369,7 @@ class BorzoiPredictor(GenericPredictor):
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
 
-        self._gather_qtl_data(output_dir, qtl_type="caqtl")
+        self.task_aggregater.aggregate_qtl_results(output_dir, qtl_type="caqtl")
         return
 
     def qtl_task(self, *args, **kwargs):
@@ -1436,6 +1387,7 @@ class BorzoiPredictor(GenericPredictor):
         add_true_data=False,
         verbose=True,
         save_first_batch=False,
+        _dataloader_batch_size=None,
     ):
         """
         eQTL task for Borzoi - predict effect of variants on gene expression.
@@ -1487,6 +1439,7 @@ class BorzoiPredictor(GenericPredictor):
             batch_size=batch_size,
             verbose=verbose,
             mode="eqtl",
+            _dataloader_batch_size=_dataloader_batch_size,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1519,6 +1472,8 @@ class BorzoiPredictor(GenericPredictor):
 
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
+
+        self.task_aggregater.aggregate_qtl_results(output_dir, qtl_type="eqtl")
         return
 
     def peak_task(
