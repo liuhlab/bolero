@@ -26,6 +26,30 @@ def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
     return arr
 
 
+def _tomtom(scores, pwms, tomtom_n_nearest=10, n_jobs=-1, score_names=None):
+    results = tomtom(Qs=scores, Ts=pwms, n_nearest=tomtom_n_nearest, n_jobs=n_jobs)
+
+    value_type = [
+        "p_values",
+        "scores",
+        "offsets",
+        "overlaps",
+        "strands",
+        "idxs",
+    ]
+    coords = {
+        "value_type": value_type,
+    }
+    if score_names is not None:
+        coords["seqlet"] = score_names
+    results = xr.DataArray(
+        results.transpose(1, 2, 0).astype("float32"),
+        dims=["seqlet", "motif_rank", "value_type"],
+        coords=coords,
+    )
+    return results
+
+
 class SeqletTomtom:
     """Class to perform motif comparison using Tomtom."""
 
@@ -140,20 +164,43 @@ class SeqletTomtom:
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         score_names = [seqlet.string for seqlet in seqlets]
 
-        results = tomtom(Qs=scores, Ts=pwms, n_nearest=10, n_jobs=self.n_jobs)
+        results = _tomtom(
+            scores=scores,
+            pwms=pwms,
+            tomtom_n_nearest=self.tomtom_n_nearest,
+            n_jobs=self.n_jobs,
+            score_names=score_names,
+        )
+        return results
 
-        value_type = [
-            "p_values",
-            "scores",
-            "offsets",
-            "overlaps",
-            "strands",
-            "idxs",
-        ]
-        results = xr.DataArray(
-            results.transpose(1, 2, 0).astype("float32"),
-            dims=["seqlet", "motif_rank", "value_type"],
-            coords={"value_type": value_type, "seqlet": score_names},
+    def simple_tomtom(
+        self, attr_scores: np.ndarray, score_names: list[str] = None
+    ) -> xr.DataArray:
+        """
+        Perform Tomtom motif comparison on attribute scores.
+
+        Parameters
+        ----------
+        attr_scores : np.ndarray
+            Attribute scores. Shape (n, seq_len, 4).
+        score_names : list[str], optional
+            Score names. Default is None.
+
+        Returns
+        -------
+        xr.DataArray
+            Tomtom results. Shape (n, motif_rank, value_type).
+            value_type: ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"].
+        """
+        pwms = [m.pwm.values.T.astype("float32") for m in self.motif_db.motifs]
+        scores = list(attr_scores.astype("float32"))
+
+        results = _tomtom(
+            scores=scores,
+            pwms=pwms,
+            tomtom_n_nearest=self.tomtom_n_nearest,
+            n_jobs=self.n_jobs,
+            score_names=score_names,
         )
         return results
 
@@ -240,8 +287,37 @@ class SeqletTomtom:
         First using modisco extract seqlets from the dna and attribution scores,
         then perform Tomtom motif comparison, and finally save the results to a Zarr file.
 
-        one_hot and hypothetical_contribs can be either paths to .npz files or numpy arrays.
-        Shape of both should be (n, seq_len, 4), where n is the number of examples,
+        Zarr file structure:
+        Dimensions:
+        - seqlet, motif_id, base, position, value_type, motif_rank
+        Coordinates:
+        - seqlet: Seqlet name. If regions are provided, the seqlet name will be the genomic region.
+        - motif_id: Motif ID.
+        - base: DNA base A, C, G, T.
+        - value_type: Type of value from Tomtom ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"].
+        Data variables:
+        - attr_region: relative attr region coords of each seqlets: {input_region_idx}_{rel_start}_{rel_end} (seqlet,)
+        - motif_name: motif_name (motif_id,)
+        - seqlets_score: attr score for each seqlet (seqlet, base, position)
+        - seqlets_seq: DNA one hot for each seqlet (seqlet, base, position)
+        - seqlets_sign: sign of the seqlet (seqlet,)
+        - seqlets_tomtom: Tomtom results for each seqlet (seqlet, motif_rank, value_type)
+
+        Parameters
+        ----------
+        one_hot : str | np.ndarray
+            Path to .npz file or numpy array of one-hot encoded DNA sequences. Shape (n, seq_len, 4).
+        hypothetical_contribs : str | np.ndarray
+            Path to .npz file or numpy array of hypothetical contribution scores. Shape (n, seq_len, 4).
+        output_dir : str
+            Path to the output directory.
+        regions : pd.DataFrame | None, optional
+            DataFrame of regions. If provided, the seqlet index will be annotated with the regions.
+            First three columns should be "chrom", "start", "end".
+
+        Returns
+        -------
+        None
         """
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -647,12 +723,12 @@ class AggregateModiscoResults:
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         scores = [s if s.sum() > 0 else s * -1 for s in scores]
 
-        results = tomtom(Qs=scores, Ts=pwms, n_nearest=10, n_jobs=self.n_jobs)
-        value_type = ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"]
-        results = xr.DataArray(
-            results.transpose(1, 2, 0).astype("float32"),
-            dims=["seqlet", "motif_rank", "value_type"],
-            coords={"value_type": value_type, "seqlet": pattern_names},
+        results = _tomtom(
+            scores=scores,
+            pwms=pwms,
+            tomtom_n_nearest=10,
+            n_jobs=self.n_jobs,
+            score_names=pattern_names,
         )
 
         pattern_to_tf = (
