@@ -36,6 +36,7 @@ def prepare_array(
     gpus: int = 0,
     chdir: str = ".",
     force: bool = False,
+    max_jobs: int = 32,
 ) -> str:
     """
     Prepare an array script for slurm.
@@ -63,6 +64,8 @@ def prepare_array(
         The directory to change to (default is ".").
     force : bool, optional
         Whether to force overwrite the script and command file if they already exist.
+    max_jobs : int, optional
+        The maximum concurrent jobs to submit via sbatch --array.
 
     Returns
     -------
@@ -96,9 +99,14 @@ def prepare_array(
         for cmd in commands:
             f.write(cmd + "\n")
     n_cmd = len(commands) - 1
+    if max_jobs is not None:
+        n_cmd_str = f"{n_cmd}%{max_jobs}"
+    else:
+        n_cmd_str = str(n_cmd)
+
     script = ARRAY_SCRIPT.format(
         job_name=job_name,
-        n_cmd=n_cmd,
+        n_cmd=n_cmd_str,
         partition=partition,
         cpus_per_task=cpus_per_task,
         mem_per_cpu=mem_per_cpu,
