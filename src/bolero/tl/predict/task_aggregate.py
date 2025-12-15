@@ -85,10 +85,6 @@ def _create_seqlet_ds(batch, batch_attr_regions):
             "base": list("ACGT"),
         },
     )
-    if "allele" in batch:
-        seqlet_ds["genotype"] = pd.Series(
-            batch["allele"], index=seqlet_ds.get_index("seqlet")
-        )
     return seqlets_info, seqlet_ds
 
 
@@ -244,6 +240,8 @@ class AggregateMixin:
         seqlets_ds["SeqletEnd"] = (
             seqlets_info["attr_region_start"].astype(int) + seqlets_info["end"]
         )
+        if has_mutation:
+            seqlets_ds["genotype"] = seqlets_info["genotype"]
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")

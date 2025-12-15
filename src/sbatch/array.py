@@ -8,9 +8,9 @@ ARRAY_SCRIPT = """
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --mem-per-cpu={mem_per_cpu}
 #SBATCH --time={time}
-#SBATCH --gpus={gpus}
-#SBATCH --output={script_dir}/%A_%a.out
-#SBATCH --error={script_dir}/%A_%a.err
+{gpus_line}
+#SBATCH --output={script_dir}/{job_name}_%A_%a.out
+#SBATCH --error={script_dir}/{job_name}_%A_%a.err
 #SBATCH --chdir={chdir}
 
 # Get the command for this array index
@@ -99,10 +99,17 @@ def prepare_array(
         for cmd in commands:
             f.write(cmd + "\n")
     n_cmd = len(commands) - 1
-    if max_concurrent_jobs is not None:
+    if (max_concurrent_jobs is not None) and (max_concurrent_jobs < n_cmd):
         n_cmd_str = f"{n_cmd}%{max_concurrent_jobs}"
     else:
         n_cmd_str = str(n_cmd)
+
+    if gpus == 0:
+        gpus_line = ""
+        if partition == "preemptible":
+            partition = "cpu_preemptible"
+    else:
+        gpus_line = f"#SBATCH --gpus={gpus}"
 
     script = ARRAY_SCRIPT.format(
         job_name=job_name,
@@ -111,7 +118,7 @@ def prepare_array(
         cpus_per_task=cpus_per_task,
         mem_per_cpu=mem_per_cpu,
         time=time,
-        gpus=gpus,
+        gpus_line=gpus_line,
         chdir=chdir,
         script_dir=script_dir,
         command_path=command_path,
@@ -119,18 +126,14 @@ def prepare_array(
     with open(script_path, "w") as f:
         f.write(script.lstrip())
 
-    print(f"Creating sbatch array job {job_name} with {n_cmd} sub-jobs.")
-    print("=" * 50)
+    print(f"Creating sbatch array job {job_name} with {n_cmd+1} sub-jobs.")
     print(f"Command file: {command_path}")
     print(f"Script: {script_path}")
-    print(f"partition: {partition}")
-    print(f"cpus_per_task: {cpus_per_task}")
-    print(f"mem_per_cpu: {mem_per_cpu}")
-    print(f"time: {time}")
-    print(f"gpus: {gpus}")
-    print(f"chdir: {chdir}")
-    print(f"total jobs: {n_cmd}")
-    print(f"max_concurrent_jobs: {max_concurrent_jobs}")
+    print("=" * 50)
+    print("SBATCH settings:")
+    for line in script.split("\n"):
+        if line.startswith("#SBATCH"):
+            print(line)
     print("=" * 50)
 
     print("To submit the job, run:")

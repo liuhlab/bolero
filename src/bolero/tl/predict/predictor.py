@@ -15,7 +15,8 @@ from bolero.tl.model.borzoi.utils import (
     BorzoiGeneRegions,
     BorzoiRegions,
 )
-from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
+
+# from bolero.tl.model.scprinter.model import seq2PRINT, seq2PRINTLoRA
 from bolero.utils import minimize_overlap_regions, understand_regions
 
 from .callbacks import CALLBACK_NAME_TO_CLASS, MetricCallback
@@ -23,7 +24,7 @@ from .datamanager import GenericGenomeDataManager
 from .task_aggregate import AggregateMixin
 from .utils import get_device, load_config, validate_region
 
-_model_cls = Borzoi | BorzoiLoRA | seq2PRINT | seq2PRINTLoRA
+_model_cls = Borzoi | BorzoiLoRA  # | seq2PRINT | seq2PRINTLoRA
 
 
 def _get_finished_region_names(batch_dir) -> set:

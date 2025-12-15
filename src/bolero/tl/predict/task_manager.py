@@ -92,8 +92,12 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     peaks["bin_end"] = (peaks["End"] - table["Start"].values) / resolution
     peaks["bin_start"] = peaks["bin_start"].round().astype(int)
     peaks["bin_end"] = peaks["bin_end"].round().astype(int)
-    assert peaks["bin_end"].max() <= 16384
-    assert peaks["bin_start"].min() >= 0
+    assert (
+        peaks["bin_end"].max() <= 16384
+    ), f"Got max bin end {peaks['bin_end'].max()} > 16384"
+    assert (
+        peaks["bin_start"].min() >= 0
+    ), f"Got min bin start {peaks['bin_start'].min()} < 0"
     assert (
         peaks["bin_end"] - peaks["bin_start"] > 0
     ).all(), "peak bin end should be greater than start"
