@@ -91,6 +91,7 @@ class SeqletTomtom:
         one_hot_path: str | np.ndarray,
         hypothetical_contribs_path: str | np.ndarray,
         regions: pd.DataFrame | None = None,
+        pseudobulk_ids: pd.Series | np.ndarray | None = None, 
     ):
         one_hot = _read_npz(one_hot_path)
         hypothetical_contribs = _read_npz(hypothetical_contribs_path)
@@ -110,7 +111,14 @@ class SeqletTomtom:
                 f"Number of regions ({len(regions)}) must match the number of examples "
                 f"in one_hot and hypothetical_contribs ({one_hot.shape[0]})."
             )
-        return one_hot, hypothetical_contribs, regions
+        if pseudobulk_ids is not None:
+            assert len(pseudobulk_ids) == one_hot.shape[0], (
+                f"Number of pseudobulk_ids ({len(pseudobulk_ids)}) must match "
+                f"the number of examples ({one_hot.shape[0]})."
+            )
+            if not isinstance(pseudobulk_ids, pd.Series):
+                pseudobulk_ids = pd.Series(pseudobulk_ids)
+        return one_hot, hypothetical_contribs, regions, pseudobulk_ids
 
     def _extract_seqlets(self, one_hot: str, hypothetical_contribs: str):
         contrib_scores = np.multiply(one_hot, hypothetical_contribs)
@@ -218,9 +226,10 @@ class SeqletTomtom:
         seq = xr.DataArray(seq, dims=["seqlet", "base", "position"], coords=coords)
         return score, seq
 
-    def _annotate_regions(self, chunk_ds, regions):
+    def _annotate_regions(self, chunk_ds, regions, pseudobulk_ids=None):
         seqlet_regions = []
         attr_region_pos = chunk_ds["seqlet"].values.copy()
+        pseudobulk_list = []  # Add this
         for seqlet_name in chunk_ds["seqlet"].values:
             seq_id, qstart, qend = map(int, seqlet_name.split("_"))
             chrom, rstart, *_ = regions.iloc[seq_id]
@@ -228,14 +237,22 @@ class SeqletTomtom:
             gend = rstart + qend
             seqlet_region = f"{chrom}:{gstart}-{gend}"
             seqlet_regions.append(seqlet_region)
+            # Add pseudobulk ID
+            if pseudobulk_ids is not None:
+                pseudobulk_list.append(pseudobulk_ids.iloc[seq_id])
         chunk_ds = chunk_ds.assign_coords(seqlet=pd.Index(seqlet_regions))
 
         attr_region_pos = pd.Series(attr_region_pos, index=chunk_ds.get_index("seqlet"))
         chunk_ds["attr_region"] = attr_region_pos
+
+        # Add pseudobulk IDs
+        if pseudobulk_ids is not None:
+            chunk_ds["pseudobulk_id"] = pd.Series(pseudobulk_list, index=chunk_ds.get_index("seqlet"))
+
         return chunk_ds
 
     def _run_chunk(
-        self, chunk_start, one_hot, hypothetical_contribs, output_dir, regions
+        self, chunk_start, one_hot, hypothetical_contribs, output_dir, regions, pseudobulk_ids=None
     ):
         output_path = output_dir / f"chunk_{chunk_start}.zarr"
         temp_path = output_dir / f"chunk_{chunk_start}.zarr_tmp"
@@ -265,8 +282,11 @@ class SeqletTomtom:
 
         if regions is not None:
             # Annotate seqlets with genomic regions
-            ds = self._annotate_regions(ds, regions)
-
+            chunk_pseudobulk = None
+            if pseudobulk_ids is not None:
+                chunk_end = chunk_start + one_hot.shape[0]
+                chunk_pseudobulk = pseudobulk_ids.iloc[chunk_start:chunk_end]
+            ds = self._annotate_regions(ds, regions, chunk_pseudobulk)
         # save temporarily
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -280,6 +300,7 @@ class SeqletTomtom:
         hypothetical_contribs: str | np.ndarray,
         output_dir: str,
         regions: pd.DataFrame | None = None,
+        pseudobulk_ids: pd.Series | np.ndarray | None = None,
     ):
         """
         Run the entire Modisco Tomtom pipeline.
@@ -327,8 +348,8 @@ class SeqletTomtom:
                 print(f"Output directory {output_dir} already processed. Skipping.")
             return
 
-        one_hot, hypothetical_contribs, regions = self._load_data(
-            one_hot, hypothetical_contribs, regions
+        one_hot, hypothetical_contribs, regions, pseudobulk_ids = self._load_data(
+            one_hot, hypothetical_contribs, regions, pseudobulk_ids
         )
         if self.verbose:
             print(f"Loaded data with shape: {one_hot.shape} (n_regions, seq_len, 4)")
@@ -350,6 +371,7 @@ class SeqletTomtom:
                 hypothetical_contribs=hypothetical_contribs_chunk,
                 output_dir=output_dir,
                 regions=regions,
+                pseudobulk_ids=pseudobulk_ids,
             )
 
         # Create a success flag file
@@ -395,6 +417,9 @@ def _dump_seqlets_per_cluster(
     seq_da = dataset["seqlets_seq"].load()
     attr_region = dataset["attr_region"].load()
     seqlet_sign = dataset["seqlets_sign"].load()
+    pseudobulk_id = dataset.get("pseudobulk_id", None)
+    if pseudobulk_id is not None:
+        pseudobulk_id = pseudobulk_id.load()
 
     for cluster, seqlets in top_motif_cluster.groupby(top_motif_cluster):
         seqlets = seqlets.index
@@ -402,17 +427,26 @@ def _dump_seqlets_per_cluster(
         attr = score_da.sel(seqlet=seqlets).values
         attr_regions = attr_region.sel(seqlet=seqlets).values
         signs = seqlet_sign.sel(seqlet=seqlets).values
+        if pseudobulk_id is not None:
+            pbulk_ids = pseudobulk_id.sel(seqlet=seqlets).values
         for sign in [-1, 1]:
             sign_sel = signs == sign
             _seq = seq[sign_sel]
             _attr = attr[sign_sel] * sign
             _attr_regions = attr_regions[sign_sel]
+            save_dict = {
+                "seq": _seq,
+                "attr": _attr,
+                "attr_region": _attr_regions,
+                "attr_zarr_dir": np.array([str(attr_zarr_dir)]),
+            }
+            
+            if pseudobulk_id is not None:
+                save_dict["pseudobulk_id"] = pbulk_ids[sign_sel]
+            
             np.savez_compressed(
                 f"{output_dir}/{cluster}/{save_name}_{sign}",
-                seq=_seq,
-                attr=_attr,
-                attr_region=_attr_regions,
-                attr_zarr_dir=np.array([str(attr_zarr_dir)]),
+                **save_dict
             )
     flag_path.touch()
     return
