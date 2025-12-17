@@ -595,9 +595,11 @@ class scPrinterDatasetBase(scPrinterDataset):
     default_config.update(
         {
             "prefix": "pseudobulk",
+            # random sample this number of rows to form the pseudobulk
             "sample_rows": 1000,
+            # If a list of cell ids is provided, we will always use these rows to form the pseudobulk
+            "use_rows": None,
             "cov_scale": 1,
-            "fix_sample_rows": True,
         }
     )
 
@@ -605,6 +607,7 @@ class scPrinterDatasetBase(scPrinterDataset):
         super().__init__(*args, **kwargs)
 
         self.sample_rows = kwargs.pop("sample_rows", 1000)
+        self.use_rows = kwargs.pop("use_rows", None)
         print(
             f"Getting pseudobulk with random {self.sample_rows} rows in {self.prefix} data_key."
         )

@@ -245,10 +245,14 @@ class AggregateMixin:
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            attr_regions.to_feather(output_dir / "attribution_regions.feather")
+            attr_regions.to_feather(
+                output_dir / "attribution_regions.feather", compression="zstd"
+            )
             attr_ds.to_zarr(output_dir / "region_attribution_and_seq.zarr", mode="w")
 
-            seqlets_info.to_feather(output_dir / "seqlets_info.feather")
+            seqlets_info.to_feather(
+                output_dir / "seqlets_info.feather", compression="zstd"
+            )
             seqlets_ds.to_zarr(
                 output_dir / "seqlets_attribution_and_seq.zarr", mode="w"
             )
@@ -292,9 +296,9 @@ class AggregateMixin:
         logfc = np.log2(alt_data / (ref_data + 1e-6))
 
         if save:
-            ref_data.to_feather(output_dir / "ref_data.feather")
-            alt_data.to_feather(output_dir / "alt_data.feather")
-            logfc.to_feather(output_dir / "ref_alt_logfc.feather")
+            ref_data.to_feather(output_dir / "ref_data.feather", compression="zstd")
+            alt_data.to_feather(output_dir / "alt_data.feather", compression="zstd")
+            logfc.to_feather(output_dir / "ref_alt_logfc.feather", compression="zstd")
         return ref_data, alt_data, logfc
 
 

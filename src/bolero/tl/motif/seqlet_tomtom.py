@@ -2,6 +2,7 @@ import pathlib
 import time
 import warnings
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 import ray
@@ -15,6 +16,12 @@ from modiscolite.tfmodisco import seqlets_to_patterns
 from bolero.pp.genome import Genome
 
 from .modisco import ModiscoHDF
+
+# These motifs contain base pairs with low IC, which induce large number of
+# FP hits in TOMTOM with very low p-value but visually unmatched hits.
+# If these motifs are included, they will dominate most of top 1st hit.
+# There is an issue about this: https://github.com/jmschrei/tangermeme/issues/28
+MOTIF_BLACKLIST = ["MA1929.2", "MA1930.2", "MA1978.2"]
 
 
 def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
@@ -91,7 +98,7 @@ class SeqletTomtom:
         one_hot_path: str | np.ndarray,
         hypothetical_contribs_path: str | np.ndarray,
         regions: pd.DataFrame | None = None,
-        pseudobulk_ids: pd.Series | np.ndarray | None = None, 
+        pseudobulk_ids: pd.Series | np.ndarray | None = None,
     ):
         one_hot = _read_npz(one_hot_path)
         hypothetical_contribs = _read_npz(hypothetical_contribs_path)
@@ -167,8 +174,48 @@ class SeqletTomtom:
             seqlet.example_idx += chunk_start
         return
 
-    def _tomtom(self, seqlets: list[Seqlet]) -> xr.DataArray:
-        pwms = [m.pwm.values.T.astype("float32") for m in self.motif_db.motifs]
+    def _get_pwms_and_motif_infos(
+        self, blacklist: list[str] = MOTIF_BLACKLIST
+    ) -> tuple[list[np.ndarray], list[str]]:
+        high_ic_cutoff = 0.1
+        step = 3
+
+        # Cut PWMs at >= 3 consecutive low IC bases, then select the longest continuous region.
+        # This is to prevent tomtom getting false positive hits when using motifs with low IC regions.
+        pwms = []
+        motif_infos = {}
+        for motif in self.motif_db.motifs:
+            if motif.motif_id in blacklist:
+                continue
+            ic_flag = motif.pwm_info_content() > high_ic_cutoff
+            g = nx.Graph()
+            edges = set()
+            for _step in range(1, step + 1):
+                for start in range(0, ic_flag.size - _step):
+                    start_flag = ic_flag[start]
+                    end_flag = ic_flag[start + _step]
+                    if start_flag and end_flag:
+                        edges.add((start, start + _step))
+            edges = list(edges)
+            g.add_edges_from(edges)
+            comps = []
+            comp_sizes = []
+            for comp in nx.components.connected_components(g):
+                comps.append(comp)
+                comp_sizes.append(len(comp))
+            locs = sorted(comps[np.argmax(comp_sizes)])
+            use_pos = ic_flag[
+                max(min(locs) - 1, 0) : min(max(locs) + 1, ic_flag.size)
+            ].index
+            pwms.append(motif.pwm.loc[use_pos].values.T.astype("float32"))
+            motif_infos[motif.motif_id] = motif.motif_name
+        return pwms, motif_infos
+
+    def _tomtom(
+        self, seqlets: list[Seqlet], blacklist: list[str] = MOTIF_BLACKLIST
+    ) -> xr.DataArray:
+        pwms, motif_infos = self._get_pwms_and_motif_infos(blacklist)
+
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         score_names = [seqlet.string for seqlet in seqlets]
 
@@ -179,10 +226,14 @@ class SeqletTomtom:
             n_jobs=self.n_jobs,
             score_names=score_names,
         )
+        results.attrs["motif_info"] = motif_infos
         return results
 
     def simple_tomtom(
-        self, attr_scores: np.ndarray, score_names: list[str] = None
+        self,
+        attr_scores: np.ndarray,
+        score_names: list[str] = None,
+        blacklist: list[str] = MOTIF_BLACKLIST,
     ) -> xr.DataArray:
         """
         Perform Tomtom motif comparison on attribute scores.
@@ -190,7 +241,7 @@ class SeqletTomtom:
         Parameters
         ----------
         attr_scores : np.ndarray
-            Attribute scores. Shape (n, seq_len, 4).
+            Attribute scores. Shape (n, 4, seq_len).
         score_names : list[str], optional
             Score names. Default is None.
 
@@ -200,8 +251,13 @@ class SeqletTomtom:
             Tomtom results. Shape (n, motif_rank, value_type).
             value_type: ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"].
         """
-        pwms = [m.pwm.values.T.astype("float32") for m in self.motif_db.motifs]
-        scores = list(attr_scores.astype("float32"))
+        pwms, motif_infos = self._get_pwms_and_motif_infos(blacklist)
+
+        if isinstance(attr_scores, np.ndarray):
+            # assum attr_scores is np.ndarray, shape (n_regions, 4, seq_len)
+            scores = list(attr_scores.astype("float32"))
+        else:
+            scores = attr_scores
 
         results = _tomtom(
             scores=scores,
@@ -210,7 +266,54 @@ class SeqletTomtom:
             n_jobs=self.n_jobs,
             score_names=score_names,
         )
+        results.attrs["motif_info"] = motif_infos
         return results
+
+    def annotate_seqlet_ds(
+        self,
+        seqlet_ds: xr.Dataset,
+        seqlet_info: pd.DataFrame,
+        flank_seqlet_size: int = 2,
+    ) -> pd.DataFrame:
+        """
+        Annotate a tengermeme extracted seqlet dataset with motif information.
+
+        Parameters
+        ----------
+        seqlet_ds : xr.Dataset
+            Seqlet dataset.
+        seqlet_info : pd.DataFrame
+            Seqlet information.
+        flank_seqlet_size : int, optional
+            Flank size of the seqlet cluster. Default is 2.
+        """
+        # use the actual seqlet region to do tomtom
+        attr_scores = []
+        for (seqlet_start, seqlet_end, flank_start), seqlet_attr in zip(
+            seqlet_info[["start", "end", "flank_start"]].values,
+            seqlet_ds["seqlets_attr"].values.astype("float32"),
+        ):
+            rel_start = seqlet_start - flank_seqlet_size - flank_start
+            rel_start = max(rel_start, 0)
+            rel_end = seqlet_end + flank_seqlet_size - flank_start
+            rel_end = min(rel_end, seqlet_attr.shape[1])
+            use_attr = seqlet_attr[:, rel_start:rel_end]
+            attr_scores.append(use_attr)
+
+        score_names = seqlet_ds.get_index("seqlet")
+        result = self.simple_tomtom(
+            attr_scores=attr_scores,
+            score_names=score_names,
+        )
+        motif_top_hits = result.sel(motif_rank=0).to_pandas()
+        motifs = pd.Series(result.attrs["motif_info"])
+        motif_top_hits["motif_id"] = (
+            motif_top_hits["idxs"].astype(int).map(lambda i: motifs.index[i])
+        )
+        motif_top_hits["motif_name"] = (
+            motif_top_hits["idxs"].astype(int).map(lambda i: motifs.values[i])
+        )
+        return motif_top_hits
 
     def _seqlet_to_da(self, seqlets: list) -> xr.DataArray:
         """Convert seqlets to an xarray DataArray."""
@@ -247,12 +350,20 @@ class SeqletTomtom:
 
         # Add pseudobulk IDs
         if pseudobulk_ids is not None:
-            chunk_ds["pseudobulk_id"] = pd.Series(pseudobulk_list, index=chunk_ds.get_index("seqlet"))
+            chunk_ds["pseudobulk_id"] = pd.Series(
+                pseudobulk_list, index=chunk_ds.get_index("seqlet")
+            )
 
         return chunk_ds
 
     def _run_chunk(
-        self, chunk_start, one_hot, hypothetical_contribs, output_dir, regions, pseudobulk_ids=None
+        self,
+        chunk_start,
+        one_hot,
+        hypothetical_contribs,
+        output_dir,
+        regions,
+        pseudobulk_ids=None,
     ):
         output_path = output_dir / f"chunk_{chunk_start}.zarr"
         temp_path = output_dir / f"chunk_{chunk_start}.zarr_tmp"
@@ -276,7 +387,8 @@ class SeqletTomtom:
         ds["seqlets_sign"] = seqlet_signs
 
         # add motif annotations
-        pwm_annot = pd.Series({m.motif_id: m.name for m in self.motif_db.motifs})
+        motif_id_to_name = ds["seqlets_tomtom"].attrs["motif_info"]
+        pwm_annot = pd.Series(motif_id_to_name)
         pwm_annot.index.name = "motif_id"
         ds["motif_name"] = pwm_annot
 
@@ -440,13 +552,12 @@ def _dump_seqlets_per_cluster(
                 "attr_region": _attr_regions,
                 "attr_zarr_dir": np.array([str(attr_zarr_dir)]),
             }
-            
+
             if pseudobulk_id is not None:
                 save_dict["pseudobulk_id"] = pbulk_ids[sign_sel]
-            
+
             np.savez_compressed(
-                f"{output_dir}/{cluster}/{save_name}_{sign}",
-                **save_dict
+                f"{output_dir}/{cluster}/{save_name}_{sign}", **save_dict
             )
     flag_path.touch()
     return
@@ -702,13 +813,6 @@ class TFModiscoOnMotifCluster:
         pattern_annot = aggregator.run()
         print(f"Annotated {len(pattern_annot)} patterns after filtering.")
         return pattern_annot
-
-
-# These motifs contain base pairs with low IC, which induce large number of
-# FP hits in TOMTOM with very low p-value but visually unmatched hits.
-# If these motifs are included, they will dominate most of top 1st hit.
-# There is an issue about this: https://github.com/jmschrei/tangermeme/issues/28
-MOTIF_BLACKLIST = ["MA1929.2", "MA1930.2", "MA1978.2"]
 
 
 class AggregateModiscoResults:
