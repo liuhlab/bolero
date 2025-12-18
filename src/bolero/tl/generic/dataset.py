@@ -28,7 +28,12 @@ class GenericDataset:
         """Create the dataset from a configuration dictionary."""
         config = {k: v for k, v in config.items() if k in cls.default_config}
         validate_config(config, cls.default_config)
-        print(f"Create {cls.__name__} with config: {config}")
+        print(f"Create {cls.__name__} with config:")
+        for k, v in config.items():
+            if isinstance(v, (list, tuple, dict)):
+                print(f"  {k}: {len(v)} items {type(v)}")
+            else:
+                print(f"  {k}: {v}")
         return cls(**config)
 
     @property

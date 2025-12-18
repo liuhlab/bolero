@@ -3,7 +3,9 @@ from copy import deepcopy
 from typing import Any, Iterable, Union
 
 import h5py
+import joblib
 import numpy as np
+import pandas as pd
 
 from bolero.tl.dataset.ray_dataset import (
     RayGenomeChunkDataset,
@@ -563,26 +565,30 @@ class GenerateBaseModelPseudobulk:
     Simply sum the rows to generate pseudobulks.
     """
 
-    def __init__(self, sample_rows=1000, prefix="pseudobulk", **kwargs):
+    def __init__(self, sample_rows=1000, prefix="pseudobulk", use_rows=None, **kwargs):
         self.sample_rows = sample_rows
         self.prefix = prefix
-
+        self.use_rows = use_rows
         # fix by set local random state
         self.rand_state = np.random.RandomState(seed=42)
         return
+
+    def _get_use_rows(self, nrows):
+        if self.use_rows is not None:
+            return self.use_rows
+        else:
+            if nrows > self.sample_rows:
+                return self.rand_state.choice(nrows, self.sample_rows, replace=False)
+            else:
+                return np.arange(nrows)
 
     def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
         """Generate pseudobulks for each output prefix."""
         # row_by_base is a csr_matrix of shape (n_rows, region_length)
         row_by_base = data_dict.pop(self.prefix)
 
-        nrows = row_by_base.shape[0]
-        if nrows > self.sample_rows:
-            use_rows = self.rand_state.choice(nrows, self.sample_rows, replace=False)
-            _bulk_values = row_by_base[use_rows].sum(axis=0).A1  # (region_length,)
-        else:
-            # if less than sample_rows, just sum all rows
-            _bulk_values = row_by_base.sum(axis=0).A1
+        use_rows = self._get_use_rows(row_by_base.shape[0])
+        _bulk_values = row_by_base[use_rows].sum(axis=0).A1  # (region_length,)
 
         data_dict[f"{self.prefix}:bulk_data"] = _bulk_values
 
@@ -597,7 +603,7 @@ class scPrinterDatasetBase(scPrinterDataset):
             "prefix": "pseudobulk",
             # random sample this number of rows to form the pseudobulk
             "sample_rows": 1000,
-            # If a list of cell ids is provided, we will always use these rows to form the pseudobulk
+            # If a list of meta cell ids is provided, we will always use these rows to form the pseudobulk
             "use_rows": None,
             "cov_scale": 1,
         }
@@ -607,12 +613,22 @@ class scPrinterDatasetBase(scPrinterDataset):
         super().__init__(*args, **kwargs)
 
         self.sample_rows = kwargs.pop("sample_rows", 1000)
-        self.use_rows = kwargs.pop("use_rows", None)
+        _use_rows = kwargs.pop("use_rows", None)
+        self.use_rows = (
+            None if _use_rows is None else self._translate_use_rows(_use_rows)
+        )
         print(
             f"Getting pseudobulk with random {self.sample_rows} rows in {self.prefix} data_key."
         )
         self.name_to_pseudobulker = {self.prefix: None}
         return
+
+    def _translate_use_rows(self, use_rows: list[str]) -> list[int]:
+        # turn list of meta cell ids to list of row ids using the dataset row_names.joblib
+        row_names_path = f"{self.dataset_path}/row_names.joblib"
+        row_names: pd.Index = joblib.load(row_names_path)[self.prefix]
+        row_ids = row_names.get_indexer(use_rows).tolist()
+        return row_ids
 
     def _generate_pseudobulk(
         self,
@@ -624,6 +640,7 @@ class scPrinterDatasetBase(scPrinterDataset):
         fn_constructor_kwargs = {
             "sample_rows": self.sample_rows,
             "prefix": self.prefix,
+            "use_rows": self.use_rows,
             **kwargs,
         }
 

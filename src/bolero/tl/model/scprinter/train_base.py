@@ -31,22 +31,20 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
         "wandb_job_type": "REQUIRED",
         "wandb_group": None,
         "wandb_name": None,
-        "max_epochs": 80,
-        "patience": 5,
-        "start_early_stop_after_epoch": 30,
+        "max_epochs": 30,
         "use_amp": True,
         "use_ema": True,
         "scheduler": True,
         "lr": "REQUIRED",
-        "large_lr_scale": 5,
+        "large_lr_scale": 2,
         "optimizer": "adamw",
         "global_clipnorm": 0.2,
-        "train_batches": 5000,
-        "val_batches": 1000,
+        "train_batches": 10000,
+        "val_batches": 250,
         "warmup_steps": 1000,
         "weight_decay": 1e-4,
         "plot_example_per_epoch": 9,
-        "accumulate_grad": 4,
+        "accumulate_grad": 1,
         "dataloader_concurrency": 16,
         "downsample_train_region": None,
         "downsample_valid_region": None,
@@ -57,7 +55,6 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
     def __init__(self, config):
         super().__init__(config)
-        self.start_early_stop_after_epoch: bool = config["start_early_stop_after_epoch"]
 
         # the prefix of pseudobulk data in the batch dict
         # this is the pseudobulker name passed to dataset
@@ -283,7 +280,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
 
         return wandb_images
 
-    def _log_save_and_check_stop(self):
+    def _log_save(self):
         epoch = self.cur_epoch
 
         loss_str = ";\n".join([f"{k}: {v:.3f}" for k, v in self.train_loss.items()])
@@ -295,35 +292,20 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             print(f"Across peak pearson {k} {p:.3f}")
 
         # determine early stop based on footprint loss
-        previous_best = self.best_val_loss
         val_fp_loss = self.val_loss["footprint"]
-        if val_fp_loss < self.best_val_loss:
-            self.early_stopping_counter = 0
-        else:
-            if epoch >= self.start_early_stop_after_epoch:
-                self.early_stopping_counter += 1
-        print(
-            f"Previous best loss: {previous_best:.3f}, "
-            f"Loss at epoch {epoch}: {val_fp_loss:.3f}; "
-            f"Early stopping counter: {self.early_stopping_counter}"
-        )
+        print(f"Loss at epoch {epoch}: {val_fp_loss:.3f}.")
+
+        # save epoch model state for comparing model over epochs
+        save_every_n_epoch = self.config.get("save_state_every_n_epoch", None)
+        if save_every_n_epoch is not None and epoch % save_every_n_epoch == 0:
+            self._save_epoch_model_state()
 
         # save checkpoint if the loss is better
-        if epoch < self.start_early_stop_after_epoch:
-            self.best_val_loss = val_fp_loss
-            self._save_checkpoint(update_best=True)
-        else:
-            if val_fp_loss < self.best_val_loss:
-                self.best_val_loss = val_fp_loss
-                self._save_checkpoint(update_best=True)
-            else:
-                self._save_checkpoint(update_best=False)
+        self._save_checkpoint(update_best=True)
 
         wandb.log(
             {
                 **{f"val/val_loss_{k}": v for k, v in self.val_loss.items()},
-                "val/best_val_loss": self.best_val_loss,
-                "val/early_stopping_counter": self.early_stopping_counter,
                 "val/profile_pearson": self.profile_pearson,
                 **{
                     f"val/across_pearson_{k}": v for k, v in self.across_pearson.items()
@@ -331,9 +313,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
                 "val_example/example_footprints": self.val_images,
             }
         )
-
-        flag = self.early_stopping_counter >= self.patience
-        return flag
+        return
 
     def _global_clipnorm(self):
         self.scaler.unscale_(self.optimizer)
@@ -370,32 +350,11 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             print(
                 f"Resuming training from epoch {self.cur_epoch+1}, with {max_epochs+1} epochs in total."
             )
-            if self.cur_epoch <= self.start_early_stop_after_epoch:
-                self.early_stopping_counter = 0
-        stop_flag = self.early_stopping_counter >= self.patience
 
         total_norm = 0
         loss_logger = {k: CumulativeCounter() for k in self.model.output_keys}
-        while self.cur_epoch <= max_epochs and not stop_flag:
-            # one can manually create a stop flag file to stop the training
-            # path: f"{self.savename}.stop.flag"
-            if self._check_stage_flag("stop"):
-                print(
-                    f"Early stopping flag file found, stopping training at {self.cur_epoch}."
-                )
-                self.early_stoped = True
-                break
-
-            print(
-                f"Current epoch: {self.cur_epoch}, max epochs: {max_epochs}, stop flag: {stop_flag}."
-            )
-            # check early stop
-            if self.early_stopping_counter >= self.patience:
-                # early stopping counter could be loaded from the checkpoint
-                # check before starting the for loop
-                print(f"Early stopping at epoch {self.cur_epoch}")
-                self.early_stoped = True
-                break
+        while self.cur_epoch <= max_epochs:
+            print(f"Current epoch: {self.cur_epoch}, max epochs: {max_epochs}.")
 
             # get train data loader
             dataloader = self.get_train_dataloader(batches=self.train_batches)
@@ -467,11 +426,7 @@ class scFootprintTrainerMixin(TrainerBorzoiDatasetMixin, GenericTrainer):
             # validation
             self._validation_step()
             self.cur_epoch += 1
-            stop_flag = self._log_save_and_check_stop()
-            if stop_flag:
-                print(f"Early stopping at epoch {self.cur_epoch}")
-                self.early_stoped = True
-                break
+            self._log_save()
 
         self._cleanup_env()
         return
@@ -534,7 +489,7 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
     trainer_config.update(
         {
             "mode": "base",
-            "lr": 0.002,
+            "lr": 0.003,
             # dataset related files
             "pretrained_model": None,
             "prefix": "pseudobulk",
