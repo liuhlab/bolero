@@ -14,6 +14,7 @@ import torch
 from bolero.pp.genome import FastaOneHot, Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDB
 
+from .dna_gen import DNASynthesisFactory
 from .utils import convert_np_to_torch, get_device
 
 
@@ -311,8 +312,17 @@ class _RefBigwig:
 
 
 class GenericGenomeDataManager:
-    def __init__(self, genome: str | Genome, device: str | None = None):
-        self.genome = Genome(genome) if isinstance(genome, str) else genome
+    def __init__(
+        self,
+        genome: str | dict[str, str] | Genome,
+        device: str | None = None,
+        genome_kwargs: dict[str, Any] = None,
+    ):
+        genome_kwargs = genome_kwargs or {}
+        if isinstance(genome, dict):
+            self.genome = DNASynthesisFactory(genome_fastas=genome, **genome_kwargs)
+        else:
+            self.genome = Genome(genome) if isinstance(genome, str) else genome
 
         # Pseudobulk records
         self.pseudobulk_manager = None
@@ -323,12 +333,17 @@ class GenericGenomeDataManager:
 
         self.device = device if device is not None else get_device()
 
-        self._onehot_encoder: FastaOneHot = self._create_one_hot_encoder()
+        self._onehot_encoder: FastaOneHot | DNASynthesisFactory = (
+            self._create_one_hot_encoder()
+        )
 
     def _create_one_hot_encoder(self):
-        onehot_encoder = FastaOneHot(
-            fasta_path=self.genome.fasta_path, device=self.device, parallel=8
-        )
+        if isinstance(self.genome, DNASynthesisFactory):
+            onehot_encoder = self.genome
+        else:
+            onehot_encoder = FastaOneHot(
+                fasta_path=self.genome.fasta_path, device=self.device, parallel=8
+            )
         return onehot_encoder
 
     def add_parquet_dataset(
@@ -435,7 +450,8 @@ class GenericGenomeDataManager:
 
     def query_dna_onehot(
         self,
-        regions: pd.DataFrame | pr.PyRanges,
+        regions: pd.DataFrame | pr.PyRanges | list[str],
+        region_names: list[str],
         length_last: bool = True,
     ) -> np.ndarray:
         """
@@ -456,7 +472,10 @@ class GenericGenomeDataManager:
         if isinstance(regions, pr.PyRanges):
             regions = regions.df
 
-        onehot = self._onehot_encoder.get_regions_onehot(regions)
+        if isinstance(self._onehot_encoder, DNASynthesisFactory):
+            onehot = self._onehot_encoder.get_regions_onehot(regions, region_names)
+        else:
+            onehot = self._onehot_encoder.get_regions_onehot(regions)
 
         if length_last:
             onehot = onehot.permute(0, 2, 1)
@@ -554,7 +573,7 @@ class GenericGenomeDataManager:
 
             # add dna one-hot encoding
             if add_dna:
-                onehot = self.query_dna_onehot(regions_ref)
+                onehot = self.query_dna_onehot(regions_ref, region_names)
                 batch_data["dna"] = onehot
 
             # add pseudobulk information

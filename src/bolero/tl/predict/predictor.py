@@ -204,16 +204,13 @@ class GenericPredictor:
         else:
             return train_regions, valid_regions, test_regions
 
-    def _valid_and_sort_regions(
-        self, regions, return_list=True, standard_size=None, batch_dir=None
-    ):
+    def _valid_and_sort_regions(self, regions, standard_size=None, batch_dir=None):
         """
         Validate and sort borzoi regions used in the inference task
 
         Parameters
         ----------
         regions
-        return_list
         standard_size
         batch_dir
             If provided, will search for existing batch files and exclude region_name that already been saved.
@@ -252,25 +249,18 @@ class GenericPredictor:
             regions = regions[~regions.iloc[:, 3].isin(finished_regions)]
             print(regions.shape[0], "regions to compute")
             if regions.shape[0] == 0:
-                if return_list:
-                    return [], []
-                else:
-                    return regions
-
+                return [], []
             regions = pr.PyRanges(regions)
 
         region_names = regions.df.iloc[:, 3].astype(str).tolist()
-        if return_list:
-            regions_list = (
-                regions.df["Chromosome"].astype(str)
-                + ":"
-                + regions.df["Start"].astype(str)
-                + "-"
-                + regions.df["End"].astype(str)
-            ).tolist()
-            return regions_list, region_names
-        else:
-            return regions
+        regions_list = (
+            regions.df["Chromosome"].astype(str)
+            + ":"
+            + regions.df["Start"].astype(str)
+            + "-"
+            + regions.df["End"].astype(str)
+        ).tolist()
+        return regions_list, region_names
 
     def _prepare_callbacks(self, callbacks: str | list[str] | list[tuple[str, dict]]):
         """

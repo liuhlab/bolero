@@ -490,7 +490,6 @@ class scFootprintBaseTrainer(scFootprintTrainerMixin):
         {
             "mode": "base",
             "lr": 0.003,
-            # dataset related files
             "pretrained_model": None,
             "prefix": "pseudobulk",
         }

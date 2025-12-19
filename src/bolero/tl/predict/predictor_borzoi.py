@@ -222,7 +222,9 @@ class BorzoiPredictor(GenericPredictor):
         pseudobulk_records_path = config["pseudobulk_records_path"]
         parallel = config.get("parallel", 8)
 
-        dm = GenericGenomeDataManager(genome=genome)
+        dm = GenericGenomeDataManager(
+            genome=genome, genome_kwargs=config.get("genome_kwargs", {})
+        )
         dm.add_pseudobulk_records(pseudobulk_records_path)
         if not self._embedding_only_mode:
             dm.add_parquet_dataset("parquet", db_path, parallel=parallel)
@@ -529,7 +531,7 @@ class BorzoiPredictor(GenericPredictor):
         # 1. Get regions
         if regions is None:
             regions = self.get_fold_regions(test_only=True, mode=mode)
-        regions, region_names = self._valid_and_sort_regions(regions, return_list=True)
+        regions, region_names = self._valid_and_sort_regions(regions)
 
         # 2. Get data loader
         da_prefix = self.datamanager._get_data_prefixs()
@@ -594,7 +596,7 @@ class BorzoiPredictor(GenericPredictor):
         )
         # 1. Get regions
         regions, region_names = self._valid_and_sort_regions(
-            regions, return_list=True, batch_dir=batch_dir
+            regions, batch_dir=batch_dir
         )
 
         # 2. Get data loader
@@ -809,7 +811,6 @@ class BorzoiPredictor(GenericPredictor):
             regions_per_pseudobulk = {
                 pid: self._valid_and_sort_regions(
                     regions_per_pseudobulk[pid],
-                    return_list=True,
                     standard_size=524288,
                 )
                 for pid in pseudobulk_ids
@@ -817,7 +818,7 @@ class BorzoiPredictor(GenericPredictor):
         else:
             regions = regions_per_pseudobulk.copy()
             regions, region_names = self._valid_and_sort_regions(
-                regions, return_list=True, standard_size=524288
+                regions, standard_size=524288
             )
             regions_per_pseudobulk = {
                 pid: (regions, region_names) for pid in pseudobulk_ids
