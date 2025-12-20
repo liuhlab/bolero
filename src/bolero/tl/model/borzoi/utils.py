@@ -50,15 +50,25 @@ class BorzoiRegions:
 
     fold_splits = FOLD_SPLITS
 
-    def __init__(self, genome):
-        if isinstance(genome, Genome):
-            self.genome = genome
-            self.genome_name = genome.name
+    def __init__(self, genome, borzoi_regions=None):
+        if genome is None:
+            self.genome = None
+            self.genome_name = None
+            assert (
+                borzoi_regions is not None
+            ), "No genome and no preloaded borzoi regions."
+            assert isinstance(
+                borzoi_regions, pd.DataFrame
+            ), "Preloaded borzoi regions must be a pandas DataFrame."
         else:
-            self.genome = Genome(genome)
-            self.genome_name = genome
+            if isinstance(genome, Genome):
+                self.genome = genome
+                self.genome_name = genome.name
+            else:
+                self.genome = Genome(genome)
+                self.genome_name = genome
 
-        self._borzoi_regions = None
+        self._borzoi_regions = borzoi_regions
         self.cur_idmap = None
         self._cur_effective_regions = None
 
@@ -107,6 +117,9 @@ class BorzoiRegions:
 
         id_to_fold = regions["Fold"].to_dict()
         regions["Name"] = regions.index
+        assert (
+            self.genome is not None
+        ), "Genome must be provided to get train, valid, test regions."
         # blacklist regions not exist in any folds
         null_regions_bed = self.genome.genome_bed.subtract(pr.PyRanges(regions))
         sized_regions = self.genome.standard_region_length(
@@ -148,6 +161,13 @@ class BorzoiRegions:
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
         return train_regions, valid_regions, test_regions
+
+    @classmethod
+    def from_regions(cls, regions: pd.DataFrame):
+        """Create BorzoiGeneRegions from regions."""
+        obj = cls(genome=None, borzoi_regions=regions)
+        obj.cur_idmap = dict(enumerate(obj._borzoi_regions.index))
+        return obj
 
 
 class BorzoiGeneRegions(BorzoiRegions):
@@ -276,6 +296,17 @@ class BorzoiGeneRegions(BorzoiRegions):
         valid_regions = self._remove_overlap(valid_bed, train_bed, test_bed)
         test_regions = self._remove_overlap(test_bed, train_bed, valid_bed)
         return train_regions, valid_regions, test_regions
+
+    @classmethod
+    def from_regions(cls, regions: pd.DataFrame):
+        """Create BorzoiGeneRegions from regions."""
+        obj = cls(genome=None, borzoi_regions=regions)
+        obj.cur_idmap = dict(enumerate(obj._borzoi_regions.index))
+        obj._region_to_mask: pd.DataFrame = obj._borzoi_regions.set_index("Name")[
+            ["MaskStart", "MaskEnd"]
+        ].copy()
+        obj.cur_idmap: dict[int, str] = obj._borzoi_regions["Name"].to_dict()
+        return obj
 
 
 class BorzoiGeneQTLRegions(BorzoiGeneRegions):

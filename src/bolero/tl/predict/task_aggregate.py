@@ -301,5 +301,35 @@ class AggregateMixin:
             logfc.to_feather(output_dir / "ref_alt_logfc.feather", compression="zstd")
         return ref_data, alt_data, logfc
 
+    @staticmethod
+    def aggregate_inference_results(output_dir, mode="prediction"):
+        """
+        Aggregate peak results from all batches.
+        """
+        output_dir = pathlib.Path(output_dir)
+        config = _get_config(output_dir)
+        pid_map = _get_pid_map(config)
 
-# TODO: save genotype data_var into seqlet ds with mutation
+        if mode.startswith("prediction"):
+            pred_key = "__ypred__:peak"
+            save_name = "pred_peak_data.feather"
+        elif mode.startswith("gene_count_prediction"):
+            pred_key = "__ypred__:cond1:gene_count"
+            save_name = "pred_gene_count_data.feather"
+        elif mode == "peak":
+            pred_key = "__ypred__:peak"
+            save_name = "pred_peak_data.feather"
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
+
+        batch_paths = (output_dir / "batch").glob("*.joblib.gz")
+        all_pred_data = []
+        for path in batch_paths:
+            batch = joblib.load(path)
+            regions = batch["region_name"]
+            pids = pd.Index(batch["pseudobulk_ids"][::2]).map(pid_map)
+            pred_data = pd.DataFrame(batch[pred_key], index=regions, columns=pids)
+            all_pred_data.append(pred_data)
+        pred_data = pd.concat(all_pred_data)
+        pred_data.to_feather(output_dir / save_name, compression="zstd")
+        return pred_data

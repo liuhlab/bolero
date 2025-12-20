@@ -18,7 +18,7 @@ from einops import rearrange
 from bolero.tl.model.borzoi.dataset_multi import DatasetRecordManager
 from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAMulti
-from bolero.tl.model.borzoi.utils import BorzoiGeneQTLRegions
+from bolero.tl.model.borzoi.utils import BorzoiGeneQTLRegions, BorzoiGeneRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import understand_regions
 
@@ -161,6 +161,15 @@ class BorzoiGeneInputXGradient:
 
 class BorzoiPredictor(GenericPredictor):
     model_class = BorzoiLoRA
+    allowed_modes = [
+        "prediction",
+        "gene_count_prediction",
+        "qtl",
+        "eqtl",
+        "peak",
+        "prediction_inference",
+        "gene_count_prediction_inference",
+    ]
 
     def __init__(self, config):
         super().__init__(config, self.model_class)
@@ -590,9 +599,8 @@ class BorzoiPredictor(GenericPredictor):
         """
         Get the dataloader for prediction.
         """
-        assert mode in ["prediction", "gene_count_prediction", "qtl", "eqtl", "peak"], (
-            f"Invalid mode: {mode}. "
-            "Must be one of 'prediction', 'qtl', 'eqtl' or 'peak'."
+        assert mode in self.allowed_modes, (
+            f"Invalid mode: {mode}. " f"Must be one of {self.allowed_modes}."
         )
         # 1. Get regions
         regions, region_names = self._valid_and_sort_regions(
@@ -656,9 +664,12 @@ class BorzoiPredictor(GenericPredictor):
 
                 # Inference step
                 t = time.time()
-                if mode == "prediction":
+                if mode in ("prediction", "prediction_inference"):
                     step_fn = self._model_prediction_step
-                elif mode == "gene_count_prediction":
+                elif mode in (
+                    "gene_count_prediction",
+                    "gene_count_prediction_inference",
+                ):
                     step_fn = self._model_gene_count_prediction_step
                 elif mode in ("qtl", "eqtl"):
                     step_fn = self._model_qtl_step
@@ -998,8 +1009,7 @@ class BorzoiPredictor(GenericPredictor):
             "region_name",
             "pseudobulk_ids",
         ]
-
-        if mode == "gene_count_prediction":
+        if "gene_count" in mode:
             SAVE_KEYS.append("__ypred__:gene_count")
         return SAVE_KEYS
 
@@ -1041,6 +1051,7 @@ class BorzoiPredictor(GenericPredictor):
         save_first_batch=False,
         mode="prediction",
         filter_valid_regions=True,
+        _dataloader_batch_size=None,
     ):
         """
         Prediction task for Borzoi.
@@ -1074,6 +1085,8 @@ class BorzoiPredictor(GenericPredictor):
             If "gene_count_prediction", predict the gene counts along with genome tracks.
         filter_valid_regions: bool
             Whether to filter the regions to valid regions.
+        _dataloader_batch_size: int
+            The batch size for the dataloader. If None, use the batch size.
         """
         if mode == "gene_count_prediction":
             assert hasattr(self.model, "gene_count_output_head") or hasattr(
@@ -1115,6 +1128,7 @@ class BorzoiPredictor(GenericPredictor):
             batch_size=batch_size,
             verbose=verbose,
             mode=mode,
+            _dataloader_batch_size=_dataloader_batch_size,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1205,6 +1219,126 @@ class BorzoiPredictor(GenericPredictor):
 
         # gather peak data into single dataframe
         self._gather_peak_data(output_dir)
+        return
+
+    def inference_task(
+        self,
+        output_dir,
+        regions,
+        downsample_regions=None,
+        downsample_seed=0,
+        pseudobulk_ids=None,
+        batch_size=16,
+        save_keys="default",
+        verbose=True,
+        save_first_batch=False,
+        mode="prediction",
+        _dataloader_batch_size=None,
+    ):
+        """
+        Inference task for Borzoi.
+        Compute the prediction on a set of regions and pseudobulk records.
+        Then compute the stats and save them to a file.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        regions: str or pd.DataFrame or list[str]
+            The regions to predict.
+        downsample_regions: int
+            The number of regions to downsample. If None, use all regions.
+        downsample_seed: int
+            The seed for downsampling.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for prediction.
+        save_keys: list[str]
+            The keys to save in the output batch file. If None, nothing will be saved.
+        verbose: bool
+            Whether to print the progress.
+        save_first_batch: bool
+            Whether to save the first full batch for debugging purposes.
+        mode: str
+            The mode of the task. One of "prediction", "gene_count_prediction".
+            If "prediction", predict the genome tracks.
+            If "gene_count_prediction", predict the gene counts along with genome tracks.
+        _dataloader_batch_size: int
+            The batch size for the dataloader. If None, use the batch size.
+        """
+        if mode == "gene_count_prediction":
+            assert hasattr(self.model, "gene_count_output_head") or hasattr(
+                self.model, "qtl_slope_output_head"
+            ), (
+                "Model does not have gene count output head or qtl slope output head. "
+                "Please use a model with gene count output head or qtl slope output head for gene count prediction."
+            )
+        if self.borzoi_gene_regions is None:
+            # create borzoi_gene_regions using the provided regions
+            self.borzoi_gene_regions = BorzoiGeneRegions.from_regions(regions)
+        mode = f"{mode}_inference"
+        print(f"Inference mode: {mode}")
+
+        regions = understand_regions(regions)
+        if downsample_regions is not None:
+            regions = regions.sample(n=downsample_regions, random_state=downsample_seed)
+
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+
+        dataloader = self.get_prediction_dataloader(
+            regions=regions,
+            batch_dir=batch_dir,
+            add_true_data=True,
+            pseudobulk_ids=pseudobulk_ids,
+            batch_size=batch_size,
+            verbose=verbose,
+            mode=mode,
+            _dataloader_batch_size=_dataloader_batch_size,
+        )
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "regions": regions,
+                "pseudobulk_ids": pseudobulk_ids,
+                "save_keys": save_keys,
+            },
+            output_path=config_path,
+        )
+
+        # data to save for each batch
+        if isinstance(save_keys, str) and save_keys == "default":
+            save_keys = self._get_default_prediction_save_keys(mode=mode)
+        save_keys = [] if save_keys is None else save_keys
+
+        save_batch = {}
+        cur_bid = _get_cur_bid(batch_dir)
+        for idx, batch in enumerate(dataloader):
+            idx = idx + cur_bid
+            if idx == 0 and verbose:
+                self._print_batch(batch, prefix="Dataloader")
+                if save_first_batch:
+                    # save the first complete batch into output dir
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+
+            # save the batch to a file
+            save_batch = {}
+            for k, v in batch.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                if k in save_keys:
+                    save_batch[k] = v
+            # data to save for each batch
+            save_path = batch_dir / f"batch_{idx}.joblib.gz"
+            joblib.dump(save_batch, save_path)
+
+        if verbose and len(save_batch) > 0:
+            self._print_batch(save_batch, prefix="Saved")
+
+        self.task_aggregater.aggregate_inference_results(output_dir, mode=mode)
         return
 
     @staticmethod
@@ -1484,8 +1618,9 @@ class BorzoiPredictor(GenericPredictor):
         pseudobulk_ids=None,
         batch_size=16,
         save_keys="default",
-        add_true_data=True,
         verbose=True,
+        save_first_batch=False,
+        _dataloader_batch_size=None,
     ):
         """
         Prediction task for Borzoi.
@@ -1505,6 +1640,10 @@ class BorzoiPredictor(GenericPredictor):
             The keys to save in the output file. If None, save all keys.
         verbose: bool
             Whether to print the progress.
+        save_first_batch: bool
+            Whether to save the first complete batch into output dir.
+        _dataloader_batch_size: int
+            The batch size for the dataloader. If None, use the batch size.
         """
         if isinstance(save_keys, str) and save_keys == "default":
             save_keys = [
@@ -1517,7 +1656,7 @@ class BorzoiPredictor(GenericPredictor):
 
         # add peak manager and get regions from the peak manager
         self.register_peak_manager(peak_table)
-        regions = self._filter_valid_regions(mode="peak")
+        regions = self.peak_manager.regions.copy()
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
@@ -1528,11 +1667,12 @@ class BorzoiPredictor(GenericPredictor):
         dataloader = self.get_prediction_dataloader(
             regions=regions,
             batch_dir=batch_dir,
-            add_true_data=add_true_data,
+            add_true_data=False,
             pseudobulk_ids=pseudobulk_ids,
             batch_size=batch_size,
             verbose=verbose,
             mode="peak",
+            _dataloader_batch_size=_dataloader_batch_size,
         )
 
         config_path = output_dir / "config.joblib.gz"
@@ -1556,7 +1696,8 @@ class BorzoiPredictor(GenericPredictor):
             if idx == 0 and verbose:
                 self._print_batch(batch, prefix="Dataloader")
                 # save the first complete batch into output dir
-                joblib.dump(batch, output_dir / "first_batch.joblib.gz")
+                if save_first_batch:
+                    joblib.dump(batch, output_dir / "first_batch.joblib.gz")
 
             # save the batch to a file
             save_batch = self._save_batch(
@@ -1565,6 +1706,8 @@ class BorzoiPredictor(GenericPredictor):
 
         if verbose and len(save_batch) > 0:
             self._print_batch(save_batch, prefix="Saved")
+
+        self.task_aggregater.aggregate_inference_results(output_dir, mode="peak")
         return
 
     def _check_finished_attribution_batches(
@@ -2026,7 +2169,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
     def _get_pre_prediction_gene_count_callbacks(self, mode):
         if mode == "eqtl":
             region_name_to_strand = self.qtl_manager.region_to_strand
-        elif mode == "gene_count_attribution":
+        elif mode in ("gene_count_attribution", "gene_count_prediction_inference"):
             # Check if we're in QTL mode by seeing if qtl_manager exists
             if hasattr(self, "qtl_manager") and self.qtl_manager is not None:
                 region_name_to_strand = self.qtl_manager.region_to_strand
@@ -2057,9 +2200,13 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         return callbacks
 
     def _get_pre_callbacks(self, mode="prediction"):
-        if mode in ("prediction", "qtl", "peak"):
+        if mode in ("prediction", "qtl", "peak", "prediction_inference"):
             return self._get_pre_prediction_callbacks()
-        elif mode in ("gene_count_prediction", "eqtl"):
+        elif mode in (
+            "gene_count_prediction",
+            "eqtl",
+            "gene_count_prediction_inference",
+        ):
             _gene_call_back = self._get_pre_prediction_gene_count_callbacks(mode)
             _pred_call_back = self._get_pre_prediction_callbacks()
             return _gene_call_back + _pred_call_back
@@ -2107,9 +2254,11 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                         # For eQTL mode, we provide the mutations to save 1024 bp attribution centered at the mutation position.
                         # for peak mode, we don't need to provide mutations because we will only save the attribution centered
                         # at the borzoi region, which we expect mutation is also centered at the borzoi region.
-                        "mutations": self.qtl_manager.mutations
-                        if self.qtl_manager is not None
-                        else None,
+                        "mutations": (
+                            self.qtl_manager.mutations
+                            if self.qtl_manager is not None
+                            else None
+                        ),
                     },
                 )
             ]
@@ -2145,28 +2294,33 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
                     }
                 },
             ),
-            # calculate paired profile correlation
-            (
-                "pearsonr",
-                {
-                    "ytrue_key": "__ytrue__:peak:cond1",
-                    "ypred_key": "__ypred__:peak:cond1",
-                    "permute": (1, 0),  # (sample, peak) -> (peak, sample)
-                    "output_key": "peak_pearsonr",
-                    "cumulative": True,
-                },
-            ),
-            (
-                "r2_score",
-                {
-                    "ytrue_key": "__ytrue__:peak:cond1",
-                    "ypred_key": "__ypred__:peak:cond1",
-                    "permute": (1, 0),
-                    "output_key": "peak_r2",
-                    "cumulative": True,
-                },
-            ),
         ]
+        if mode.endswith("prediction"):
+            stats_callbacks = [
+                # calculate paired profile correlation
+                (
+                    "pearsonr",
+                    {
+                        "ytrue_key": "__ytrue__:peak:cond1",
+                        "ypred_key": "__ypred__:peak:cond1",
+                        "permute": (1, 0),  # (sample, peak) -> (peak, sample)
+                        "output_key": "peak_pearsonr",
+                        "cumulative": True,
+                    },
+                ),
+                (
+                    "r2_score",
+                    {
+                        "ytrue_key": "__ytrue__:peak:cond1",
+                        "ypred_key": "__ypred__:peak:cond1",
+                        "permute": (1, 0),
+                        "output_key": "peak_r2",
+                        "cumulative": True,
+                    },
+                ),
+            ]
+            callbacks.extend(stats_callbacks)
+
         cb = self._prepare_callbacks(callbacks)
         return cb
 
@@ -2177,7 +2331,12 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         """
         Get the post callbacks for the model.
         """
-        if mode in ("prediction", "gene_count_prediction"):
+        if mode in (
+            "prediction",
+            "gene_count_prediction",
+            "prediction_inference",
+            "gene_count_prediction_inference",
+        ):
             return self._get_post_prediction_callbacks(mode)
         elif mode in ("attribution", "gene_count_attribution"):
             return self._get_post_attribution_callbacks(mode)
@@ -2509,8 +2668,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             "region_name",
             "pseudobulk_ids",
         ]
-
-        if mode == "gene_count_prediction":
+        if "gene_count" in mode:
             SAVE_KEYS.append("__ypred__:cond1:gene_count")
         return SAVE_KEYS
 

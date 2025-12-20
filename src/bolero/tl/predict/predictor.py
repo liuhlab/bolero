@@ -21,6 +21,7 @@ from bolero.utils import minimize_overlap_regions, understand_regions
 
 from .callbacks import CALLBACK_NAME_TO_CLASS, MetricCallback
 from .datamanager import GenericGenomeDataManager
+from .dna_gen import DNASynthesisFactory
 from .task_aggregate import AggregateMixin
 from .utils import get_device, load_config, validate_region
 
@@ -71,7 +72,14 @@ class GenericPredictor:
             **self._config,
         }
 
-        self.genome = Genome(self.config["genome"])
+        _genome = self.config["genome"]
+        if isinstance(_genome, dict):
+            self.genome = DNASynthesisFactory(
+                genome_fastas=_genome, **self.config.get("genome_kwargs", {})
+            )
+        else:
+            self.genome = Genome(_genome)
+
         self.device = get_device()
 
         self.model_class: _model_cls = model_class
@@ -80,16 +88,23 @@ class GenericPredictor:
         self._dm = None
 
         use_regions = self._train_config["use_regions"]
-        self.borzoi_regions = BorzoiRegions(self.genome)
-        if use_regions == "borzoi_gene":
-            if self.config.get("qtl_data_path", None) is not None:
-                self.borzoi_gene_regions = BorzoiGeneQTLRegions(
-                    self.genome, self.config["qtl_data_path"]
-                )
-            else:
-                self.borzoi_gene_regions = BorzoiGeneRegions(self.genome)
-        else:
+        if isinstance(self.genome, DNASynthesisFactory):
+            # When using DNASynthesisFactory, we expect the factor class to handle borzoi regions and gene regions
+            self.borzoi_regions = None
+            # However, we still need borzoi_gene_regions for gene count prediction,
+            # because this class handles how to get gene mask and strand information from region_name
             self.borzoi_gene_regions = None
+        else:
+            self.borzoi_regions = BorzoiRegions(self.genome)
+            if use_regions == "borzoi_gene":
+                if self.config.get("qtl_data_path", None) is not None:
+                    self.borzoi_gene_regions = BorzoiGeneQTLRegions(
+                        self.genome, self.config["qtl_data_path"]
+                    )
+                else:
+                    self.borzoi_gene_regions = BorzoiGeneRegions(self.genome)
+            else:
+                self.borzoi_gene_regions = None
 
     def _create_model(self) -> _model_cls:
         model_config = deepcopy(self._train_config)
@@ -215,13 +230,17 @@ class GenericPredictor:
         batch_dir
             If provided, will search for existing batch files and exclude region_name that already been saved.
         """
-        if standard_size is not None:
+        if standard_size is not None and not isinstance(
+            self.genome, DNASynthesisFactory
+        ):
+            # we skip standardization for DNASynthesisFactory, as it is not a single genome object
             regions = self.genome.standard_region_length(
                 regions,
                 length=standard_size,
                 boarder_strategy="drop",
                 keep_original=True,
             )
+        if "Original_Name" in regions.columns:
             regions["Name"] = regions["Original_Name"]
 
         # keep only necessary columns, otherwise pr.PyRanges will have bugs during sorting
@@ -229,7 +248,7 @@ class GenericPredictor:
             regions = regions[["Chromosome", "Start", "End", "Name"]].copy()
         except KeyError as e:
             raise KeyError(
-                "Regions must have columns: Chromosome, Start, End, Name"
+                f"Regions must have columns: Chromosome, Start, End, Name, got {regions.columns.tolist()}"
             ) from e
 
         if isinstance(regions, pr.PyRanges):
@@ -237,10 +256,12 @@ class GenericPredictor:
         else:
             regions = pr.PyRanges(understand_regions(regions)).sort()
 
-        validate_region(
-            regions,
-            self.genome.chrom_sizes.to_dict(),
-        )
+        if not isinstance(self.genome, DNASynthesisFactory):
+            # we skip validation for DNASynthesisFactory, as it is not a single genome object
+            validate_region(
+                regions,
+                self.genome.chrom_sizes.to_dict(),
+            )
 
         if batch_dir is not None:
             finished_regions = _get_finished_region_names(batch_dir)

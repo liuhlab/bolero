@@ -235,6 +235,8 @@ def prepare_peak_table(
     """
     if isinstance(peak_table, str):
         peak_table = pd.read_feather(peak_table)
+    if "Name" in peak_table.columns:
+        peak_table["Original_Name"] = peak_table["Name"]
     # Original_Name should be a unique peak name
     borzoi_region = peak_table[
         ["Chromosome", "Start", "End", "Original_Name"]
@@ -279,17 +281,6 @@ class PeakManager:
         self.peaks.index = self.peaks["Original_Name"]
         self.peak_ids = peak_region.index.tolist()
         return
-
-    # def mutate_dna(
-    #     self,
-    #     batch: dict[str, torch.Tensor],
-    #     *args,
-    #     **kwargs
-    # ) -> dict[str, torch.Tensor]:
-    #     """
-    #     # TODO Substitute DNA sequence with mutated peak sequence
-    #     """
-    #     return batch
 
     def get_peak_sum(self, batch: dict, ypred_key):
         """

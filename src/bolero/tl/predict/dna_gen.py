@@ -376,9 +376,9 @@ class DNASynthesisFactory:
         """
         mode = mode or self.default_mode
         assert mode is not None, "Mode is not provided and no default mode set"
-        assert len(regions) == len(
-            region_names
-        ), "Regions and region names must have the same length"
+        assert (
+            len(regions) == len(region_names)
+        ), f"Regions and region names must have the same length: {len(regions)} != {len(region_names)}"
 
         records = []
         for idx in range(len(regions)):

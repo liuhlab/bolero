@@ -474,12 +474,12 @@ class GenericGenomeDataManager:
 
         if isinstance(self._onehot_encoder, DNASynthesisFactory):
             onehot = self._onehot_encoder.get_regions_onehot(regions, region_names)
+            # shape is already (n_regions, 4, seq_len)
         else:
             onehot = self._onehot_encoder.get_regions_onehot(regions)
-
-        if length_last:
-            onehot = onehot.permute(0, 2, 1)
-            # shape is (n_regions, 4, seq_len)
+            if length_last:
+                onehot = onehot.permute(0, 2, 1)
+                # shape is (n_regions, 4, seq_len)
         return onehot
 
     def _prepare_pseudobulk_info(
@@ -544,11 +544,13 @@ class GenericGenomeDataManager:
 
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
+            region_names_ref = np.array(
+                region_names[cur_start : cur_start + batch_size]
+            )
+
             batch_data = {"region": regions_ref}
             if region_names is not None:
-                batch_data["region_name"] = np.array(
-                    region_names[cur_start : cur_start + batch_size]
-                )
+                batch_data["region_name"] = region_names_ref
 
             # add bigwig data
             for da_name, bw in self.bw_datasets.items():
@@ -573,7 +575,7 @@ class GenericGenomeDataManager:
 
             # add dna one-hot encoding
             if add_dna:
-                onehot = self.query_dna_onehot(regions_ref, region_names)
+                onehot = self.query_dna_onehot(regions_ref, region_names_ref)
                 batch_data["dna"] = onehot
 
             # add pseudobulk information
