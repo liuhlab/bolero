@@ -248,14 +248,17 @@ class JASPARMotif:
     def __repr__(self):
         return f"JASPARMotif({self.motif_id}, {self.name})"
 
-    def plot(self, rc=False, pad_left=0, pad_right=0):
+    def plot(self, rc=False, pad_left=0, pad_right=0, return_fig=False):
         """Visualize the motif."""
-        _, ax = plt.subplots(figsize=(len(self.pwm) / 4, 1), dpi=100)
+        fig, ax = plt.subplots(figsize=(len(self.pwm) / 4, 1), dpi=100)
         self.plot_on_ax(ax, rc=rc, pad_left=pad_left, pad_right=pad_right)
         ax.set_title(f"{self.name}\n({self.motif_id})", fontsize=8)
         ax.set_ylabel("IC (Bits)", fontsize=8)
         sns.despine(ax=ax)
-        return
+        if return_fig:
+            return fig
+        else:
+            return None
 
     def sample_dna_one_hot(self, num_sequences):
         """

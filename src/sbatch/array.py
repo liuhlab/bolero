@@ -8,6 +8,7 @@ ARRAY_SCRIPT = """
 #SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --mem-per-cpu={mem_per_cpu}
 #SBATCH --time={time}
+{exclude_line}
 {gpus_line}
 #SBATCH --output={script_dir}/{job_name}_%A_%a.out
 #SBATCH --error={script_dir}/{job_name}_%A_%a.err
@@ -36,6 +37,7 @@ def prepare_array(
     gpus: int = 0,
     chdir: str = ".",
     force: bool = False,
+    exclude: str = "",
     max_concurrent_jobs: int = 32,
 ) -> str:
     """
@@ -111,6 +113,11 @@ def prepare_array(
     else:
         gpus_line = f"#SBATCH --gpus={gpus}"
 
+    if len(exclude) > 0:
+        exclude_line = f"#SBATCH --exclude={exclude}"
+    else:
+        exclude_line = ""
+
     script = ARRAY_SCRIPT.format(
         job_name=job_name,
         n_cmd=n_cmd_str,
@@ -119,6 +126,7 @@ def prepare_array(
         mem_per_cpu=mem_per_cpu,
         time=time,
         gpus_line=gpus_line,
+        exclude_line=exclude_line,
         chdir=chdir,
         script_dir=script_dir,
         command_path=command_path,

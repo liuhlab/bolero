@@ -10,7 +10,11 @@ from bolero.utils import understand_regions
 
 
 def _get_attr_regions(batch):
-    attr_size = batch["__dna__:attr"].shape[-1]
+    if "__dna__:attr" in batch:
+        attr_size = batch["__dna__:attr"].shape[-1]
+    else:
+        attr_size = 524288
+
     attr_regions = understand_regions(batch["region"])
     attr_regions["Pos0Base"] = attr_regions[["Start", "End"]].sum(axis=1) // 2
     attr_regions["Start"] = attr_regions["Pos0Base"] - attr_size // 2
@@ -121,7 +125,7 @@ def _create_ref_alt_seqlet_ds(ref_batch, alt_batch, batch_attr_regions):
     return seqlets_info, seqlet_ds
 
 
-def _collect_attr_results(output_dir, pid_map):
+def _collect_attr_results(output_dir, pid_map, has_attr_ds=True):
     attr_region_col = []
     attr_ds_col = []
     seqlets_info_col = []
@@ -131,11 +135,14 @@ def _collect_attr_results(output_dir, pid_map):
         original_pid = pid_map[batch_path.name.split(".")[1]]
         batch = joblib.load(batch_path)
 
-        # full region attr scores (clipped at center 1024)
-        batch_attr_regions, batch_attr_ds = _create_attr_ds(batch)
-        batch_attr_regions["pseudobulk_id"] = original_pid
-        attr_region_col.append(batch_attr_regions)
-        attr_ds_col.append(batch_attr_ds)
+        if has_attr_ds:
+            # full region attr scores (clipped at center 1024)
+            batch_attr_regions, batch_attr_ds = _create_attr_ds(batch)
+            batch_attr_regions["pseudobulk_id"] = original_pid
+            attr_region_col.append(batch_attr_regions)
+            attr_ds_col.append(batch_attr_ds)
+        else:
+            batch_attr_regions = _get_attr_regions(batch)
 
         # seqlet attr scores
         batch_seqlets_info, batch_seqlets_ds = _create_seqlet_ds(
@@ -250,6 +257,49 @@ class AggregateMixin:
             )
             attr_ds.to_zarr(output_dir / "region_attribution_and_seq.zarr", mode="w")
 
+            seqlets_info.to_feather(
+                output_dir / "seqlets_info.feather", compression="zstd"
+            )
+            seqlets_ds.to_zarr(
+                output_dir / "seqlets_attribution_and_seq.zarr", mode="w"
+            )
+        return
+
+    @staticmethod
+    def aggregate_seqlet_attribution_results(output_dir):
+        """
+        Aggregate seqlet only attribution results from all batches.
+        """
+        output_dir = pathlib.Path(output_dir)
+        config = _get_config(output_dir)
+        pid_map = _get_pid_map(config)
+
+        *_, seqlets_info_col, seqlets_ds_col = _collect_attr_results(
+            output_dir, pid_map, has_attr_ds=False
+        )
+
+        seqlets_info = pd.concat(seqlets_info_col)
+        seqlets_info.index = pd.Index(range(seqlets_info.shape[0]), name="seqlet")
+        seqlets_ds = xr.concat(seqlets_ds_col, dim="seqlet")
+        seqlets_ds["seqlets_attr"] = seqlets_ds["seqlets_attr"].astype("float16")
+        seqlets_ds["seqlets_dna"] = seqlets_ds["seqlets_dna"].astype("bool")
+        seqlets_ds["pseudobulk_id"] = seqlets_info["pseudobulk_id"].astype("object")
+        seqlets_ds["Chromosome"] = seqlets_info["attr_region_chrom"]
+        seqlets_ds["Start"] = (
+            seqlets_info["attr_region_start"].astype(int) + seqlets_info["flank_start"]
+        )
+        seqlets_ds["End"] = (
+            seqlets_info["attr_region_start"].astype(int) + seqlets_info["flank_end"]
+        )
+        seqlets_ds["SeqletStart"] = (
+            seqlets_info["attr_region_start"].astype(int) + seqlets_info["start"]
+        )
+        seqlets_ds["SeqletEnd"] = (
+            seqlets_info["attr_region_start"].astype(int) + seqlets_info["end"]
+        )
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
             seqlets_info.to_feather(
                 output_dir / "seqlets_info.feather", compression="zstd"
             )

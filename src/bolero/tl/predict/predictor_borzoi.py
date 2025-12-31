@@ -807,7 +807,7 @@ class BorzoiPredictor(GenericPredictor):
         return batch
 
     def _prepare_attr_regions(
-        self, pseudobulk_ids, regions_per_pseudobulk
+        self, pseudobulk_ids, regions_per_pseudobulk, batch_dir=None
     ) -> dict[str, list[str]]:
         if isinstance(regions_per_pseudobulk, dict):
             # use different regions for each pseudobulk
@@ -823,13 +823,14 @@ class BorzoiPredictor(GenericPredictor):
                 pid: self._valid_and_sort_regions(
                     regions_per_pseudobulk[pid],
                     standard_size=524288,
+                    batch_dir=batch_dir,
                 )
                 for pid in pseudobulk_ids
             }
         else:
             regions = regions_per_pseudobulk.copy()
             regions, region_names = self._valid_and_sort_regions(
-                regions, standard_size=524288
+                regions, standard_size=524288, batch_dir=batch_dir
             )
             regions_per_pseudobulk = {
                 pid: (regions, region_names) for pid in pseudobulk_ids
@@ -879,7 +880,7 @@ class BorzoiPredictor(GenericPredictor):
         if mode == "gene_count_attribution":
             dataloader_batch_size = batch_size * 5
         else:
-            dataloader_batch_size = batch_size * 100
+            dataloader_batch_size = batch_size * 50
         timer = {"infer": 0, "callback": 0, "total": 0, "counter": 0}
         start = time.time()
         for pseudobulk_id in pseudobulk_ids:
@@ -1872,6 +1873,9 @@ class BorzoiPredictor(GenericPredictor):
             save_keys = self._get_default_attribution_save_keys(
                 mode=mode, qtl_type=qtl_type
             )
+            print("mode: ", mode)
+            print("qtl_type: ", qtl_type)
+            print(f"Save keys: {save_keys}")
 
         output_dir = pathlib.Path(output_dir).absolute().resolve()
         batch_dir = output_dir / "batch"
@@ -1902,7 +1906,9 @@ class BorzoiPredictor(GenericPredictor):
             regions_per_pseudobulk = pr.read_bed(regions_per_pseudobulk, as_df=True)
 
         regions_per_pseudobulk = self._prepare_attr_regions(
-            pseudobulk_ids=pseudobulk_ids, regions_per_pseudobulk=regions_per_pseudobulk
+            pseudobulk_ids=pseudobulk_ids,
+            regions_per_pseudobulk=regions_per_pseudobulk,
+            batch_dir=batch_dir,
         )
 
         # check and skip finished regions for each pseudobulk
@@ -1999,7 +2005,9 @@ class BorzoiPredictor(GenericPredictor):
                 self._print_batch(save_batch, prefix="Saved")
 
         # Only aggregate to zarr if not doing QTL mutations
-        if mode == "attribution":
+        if mode == "gene_count_attribution" and qtl_type != "eqtl":
+            self.task_aggregater.aggregate_seqlet_attribution_results(output_dir)
+        else:
             self.task_aggregater.aggregate_atac_attribution_results(output_dir)
 
         if verbose and use_qtl_mutations:
@@ -2738,18 +2746,12 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         regions_per_pseudobulk,
         pseudobulk_ids=None,
         batch_size=6,
-        save_keys=(
-            "__dna__:attr",
-            "__signal__:attr",
-            "region",
-            "pseudobulk_id",
-            "region_name",
-        ),
+        save_keys="default",
         verbose=True,
         mode="attribution",
         save_first_batch=False,
         qtl_table=None,
-        qtl_type="eqtl",
+        qtl_type=None,
     ):
         """
         Attribution task for BorzoiSignalPredictor.
