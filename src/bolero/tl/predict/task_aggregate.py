@@ -1,5 +1,6 @@
 import pathlib
 import warnings
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -383,3 +384,95 @@ class AggregateMixin:
         pred_data = pd.concat(all_pred_data)
         pred_data.to_feather(output_dir / save_name, compression="zstd")
         return pred_data
+
+    @staticmethod
+    def gather_peak_data(output_dir: str) -> None:
+        """
+        Gather peak true and prediction data into a single dataframe from all batches in output_dir.
+        """
+        batch_paths = list(Path(f"{output_dir}/batch/").glob("batch_*.joblib.gz"))
+        print(f"{len(batch_paths)} batches in {output_dir}")
+
+        # put back original pid
+        first_batch = joblib.load(batch_paths[0])
+        pids = pd.Index(first_batch["pseudobulk_ids"])
+        if pids[0].startswith("ensemble|data:"):
+            # get original pids for signal model
+            pids = pids[1::2]  # only use data pid, skip ensembles (which is the cond0)
+            config = joblib.load(f"{output_dir}/config.joblib.gz")
+            prec = config["pseudobulk_records"]
+            original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
+            pids = pids.map(original_pid_map)
+        if "__ytrue__:peak:cond1" in first_batch:
+            true_peak_key = "__ytrue__:peak:cond1"
+            pred_peak_key = "__ypred__:peak:cond1"
+        else:
+            true_peak_key = "__ytrue__:peak"
+            pred_peak_key = "__ypred__:peak"
+
+        has_true_data = True
+        true_peak_data = []
+        pred_peak_data = []
+        peak_bed = []
+        for path in batch_paths:
+            batch = joblib.load(path)
+            if has_true_data:
+                try:
+                    true_peak_data.append(batch[true_peak_key])
+                except KeyError:
+                    has_true_data = False
+                    print(
+                        "True peak data not found in batch, skip true peak data saving."
+                    )
+            pred_peak_data.append(batch[pred_peak_key])
+            peak_bed.append(batch["peak"])
+        peak_bed = pd.concat(peak_bed)
+
+        pred_peak_data = np.concatenate(pred_peak_data, axis=1).T.astype("float32")
+        pred_peak_data = pd.DataFrame(
+            pred_peak_data, index=peak_bed["Name"].values, columns=pids
+        )
+        pred_peak_data = pred_peak_data[~pred_peak_data.index.duplicated()].sort_index()
+        pred_peak_data.to_feather(f"{output_dir}/pred_peak_data.feather")
+
+        if has_true_data:
+            true_peak_data = np.concatenate(true_peak_data, axis=1).T.astype("float32")
+            true_peak_data = pd.DataFrame(
+                true_peak_data, index=peak_bed["Name"].values, columns=pids
+            )
+            true_peak_data = true_peak_data[
+                ~true_peak_data.index.duplicated()
+            ].sort_index()
+            true_peak_data.to_feather(f"{output_dir}/true_peak_data.feather")
+
+        # remove duplicate peak bed rows
+        peak_bed = peak_bed[~peak_bed["Name"].duplicated()].copy()
+        return
+
+    @staticmethod
+    def gather_gene_data(output_dir: str) -> None:
+        """
+        Gather gene data into single dataframe from all batches in output_dir.
+        """
+        output_dir = pathlib.Path(output_dir)
+        config = _get_config(output_dir)
+        pid_map = _get_pid_map(config)
+
+        batch_paths = (output_dir / "batch").glob("*.joblib.gz")
+
+        all_pred_data = []
+        for path in batch_paths:
+            batch = joblib.load(path)
+            columns = batch["pseudobulk_ids"][1::2]
+            index = batch["region_name"]
+            pred_data = pd.DataFrame(
+                batch["__ypred__:cond1:gene_count"], index=index, columns=columns
+            )
+            all_pred_data.append(pred_data)
+        all_pred_data = pd.concat(all_pred_data).T
+
+        all_pred_data.index = all_pred_data.index.map(pid_map)
+        all_pred_data.to_feather(
+            output_dir / "pred_gene_data.feather", compression="zstd"
+        )
+        return

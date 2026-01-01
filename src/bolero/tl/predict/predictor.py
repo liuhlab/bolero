@@ -204,7 +204,7 @@ class GenericPredictor:
             )
 
         fold = self.config["fold_split_id"]
-        train_regions, test_regions, valid_regions = (
+        train_regions, valid_regions, test_regions = (
             region_manager.get_train_valid_test_regions(fold)
         )
         if minimize_overlap:
@@ -213,7 +213,12 @@ class GenericPredictor:
             if not test_only:
                 train_regions = minimize_overlap_regions(train_regions)
                 valid_regions = minimize_overlap_regions(valid_regions)
-
+        if "Original_Name" in test_regions.columns:
+            del test_regions["Original_Name"]
+        if "Original_Name" in train_regions.columns:
+            del train_regions["Original_Name"]
+        if "Original_Name" in valid_regions.columns:
+            del valid_regions["Original_Name"]
         if test_only:
             return test_regions
         else:

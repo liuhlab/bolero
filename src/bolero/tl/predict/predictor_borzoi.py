@@ -24,7 +24,8 @@ from bolero.utils import understand_regions
 
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
-from .utils import gather_gene_data, gather_peak_data, load_config
+from .task_aggregate import AggregateMixin
+from .utils import load_config
 
 
 def _get_cur_bid(batch_dir):
@@ -1219,7 +1220,9 @@ class BorzoiPredictor(GenericPredictor):
             print(f"Removed temporary files in {stats_tmpdir}")
 
         # gather peak data into single dataframe
-        self._gather_peak_data(output_dir)
+        AggregateMixin.gather_peak_data(str(output_dir))
+        if mode == "gene_count_prediction":
+            AggregateMixin.gather_gene_data(str(output_dir))
         return
 
     def inference_task(
@@ -1342,13 +1345,6 @@ class BorzoiPredictor(GenericPredictor):
         self.task_aggregater.aggregate_inference_results(output_dir, mode=mode)
         return
 
-    @staticmethod
-    def gather_gene_data(output_dir, gene_data_path):
-        """
-        Gather gene data into single dataframe from all batches in output_dir.
-        """
-        return gather_gene_data(output_dir, gene_data_path=gene_data_path)
-
     def select_top_std_genes(self, gene_data_path, top_n=5000):
         """
         Select top variable genes, intersect with test fold.
@@ -1361,14 +1357,6 @@ class BorzoiPredictor(GenericPredictor):
 
         use_test_regions = test_regions[test_regions["Name"].isin(use_genes)].copy()
         return use_test_regions
-
-    @staticmethod
-    def _gather_peak_data(output_dir):
-        return gather_peak_data(
-            output_dir,
-            true_peak_key="__ytrue__:peak",
-            pred_peak_key="__ypred__:peak",
-        )
 
     def _filter_valid_regions(self, regions=None, mode="qtl"):
         try:
@@ -2126,14 +2114,6 @@ class BorzoiPairPredictor(BorzoiPredictor):
             "peak_r2",
         ]
         return STATS_KEYS
-
-    @staticmethod
-    def _gather_peak_data(output_dir):
-        return gather_peak_data(
-            output_dir,
-            true_peak_key="__ytrue__:peak:cond1",
-            pred_peak_key="__ypred__:peak:cond1",
-        )
 
 
 class BorzoiSignalPredictor(BorzoiPairPredictor):
