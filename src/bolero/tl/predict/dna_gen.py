@@ -9,6 +9,94 @@ from tangermeme.utils import characters, random_one_hot
 from bolero.pp.seq import one_hot_encoding_torch
 
 
+class _GenomeSequenceHandler:
+    """Wrapper class to provide a unified interface for FASTA and 2bit files."""
+
+    def __init__(self, handler, file_type):
+        self.handler = handler
+        self.file_type = file_type
+
+    @classmethod
+    def from_file(cls, file_path: str):
+        """
+        Create a handler for FASTA or 2bit files, abstracting away file format details.
+
+        This class method automatically detects the file format based on the file extension
+        and returns a handler with a unified interface.
+
+        Parameters
+        ----------
+        file_path: str
+            Path to the FASTA (.fa, .fasta, .fa.gz, .fasta.gz) or 2bit (.2bit) file
+
+        Returns
+        -------
+        _GenomeSequenceHandler
+            Handler object with a unified interface for accessing sequences
+
+        Raises
+        ------
+        ImportError
+            If py2bit is not installed when trying to open a 2bit file
+        ValueError
+            If the file format is not supported
+        """
+        file_path_lower = str(file_path).lower()
+
+        # Check if it's a 2bit file
+        if file_path_lower.endswith(".2bit"):
+            try:
+                import py2bit
+            except ImportError:
+                raise ImportError(
+                    "py2bit is required to open 2bit files. "
+                    "Install it with: pip install py2bit"
+                ) from None
+            handler = py2bit.open(file_path)
+            return cls(handler, "2bit")
+
+        # Check if it's a FASTA file (supports .fa, .fasta, and their gzipped versions)
+        elif (
+            file_path_lower.endswith(".fa")
+            or file_path_lower.endswith(".fasta")
+            or file_path_lower.endswith(".fa.gz")
+            or file_path_lower.endswith(".fasta.gz")
+        ):
+            handler = pyfaidx.Fasta(file_path)
+            return cls(handler, "fasta")
+
+        else:
+            raise ValueError(
+                f"Unsupported file format for {file_path}. "
+                "Supported formats: FASTA (.fa, .fasta, .fa.gz, .fasta.gz) and 2bit (.2bit)"
+            )
+
+    def get_sequence(self, chrom: str, start: int, end: int) -> str:
+        """
+        Get DNA sequence from a genomic region.
+
+        Parameters
+        ----------
+        chrom: str
+            Chromosome name
+        start: int
+            Start position (0-based)
+        end: int
+            End position (0-based, exclusive)
+
+        Returns
+        -------
+        str
+            DNA sequence in uppercase
+        """
+        if self.file_type == "fasta":
+            return self.handler[chrom][start:end].seq.upper()
+        elif self.file_type == "2bit":
+            return self.handler.sequence(chrom, start, end).upper()
+        else:
+            raise ValueError(f"Unsupported file type: {self.file_type}")
+
+
 class DNASynthesisFactory:
     def __init__(
         self,
@@ -24,8 +112,8 @@ class DNASynthesisFactory:
 
         All coordinates should be 0-based, including variant positions.
 
-        Step 1: Get background DNA sequence from a region in fasta file or from random generated sequences.
-          - a. Get sequence from fasta file
+        Step 1: Get background DNA sequence from a region in fasta/2bit file or from random generated sequences.
+          - a. Get sequence from fasta or 2bit file
           - b. Get random sequence
         Step 2: Perform different kinds of DNA sequence modifications.
         Step 3: Return/yield the synthesized DNA sequence in different options.
@@ -33,7 +121,9 @@ class DNASynthesisFactory:
         Parameters
         ----------
         genome_fastas: dict[str, str]
-            Dictionary of genome names and their fasta file paths.
+            Dictionary of genome names and their file paths.
+            Supports FASTA files (.fa, .fasta, .fa.gz, .fasta.gz) and 2bit files (.2bit).
+            For 2bit files, py2bit package must be installed.
 
         Returns
         -------
@@ -53,20 +143,20 @@ class DNASynthesisFactory:
             "right",
         ], f"Invalid fix_seq_length_mode: {fix_seq_length_mode}"
 
-        for genome, fasta_path in self.genome_fastas.items():
-            self._fasta_handlers[genome] = pyfaidx.Fasta(fasta_path)
+        for genome, file_path in self.genome_fastas.items():
+            self._fasta_handlers[genome] = _GenomeSequenceHandler.from_file(file_path)
 
     def get_fasta_region_sequence(
         self, chrom: str, start: int, end: int, genome: str = None
     ) -> str:
         """
-        Get the DNA sequence from the fasta file for a given region.
+        Get the DNA sequence from the fasta or 2bit file for a given region.
         """
         genome = genome or self.default_genome
         assert genome is not None, "No genome provided and no default genome set"
 
-        fasta_handler = self._fasta_handlers[genome]
-        sequence = fasta_handler[chrom][start:end].seq.upper()
+        handler = self._fasta_handlers[genome]
+        sequence = handler.get_sequence(chrom, start, end)
         sequence = one_hot_encoding_torch(sequence, batch_dim=True)
         return sequence
 

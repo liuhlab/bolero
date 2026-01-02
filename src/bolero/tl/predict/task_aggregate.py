@@ -403,7 +403,10 @@ class AggregateMixin:
             prec = config["pseudobulk_records"]
             original_pid_map = {k: v["__pid__"] for k, v in prec.items()}
             pids = pids.map(original_pid_map)
-        if "__ytrue__:peak:cond1" in first_batch:
+        if (
+            "__ytrue__:peak:cond1" in first_batch
+            or "__ypred__:peak:cond1" in first_batch
+        ):
             true_peak_key = "__ytrue__:peak:cond1"
             pred_peak_key = "__ypred__:peak:cond1"
         else:
