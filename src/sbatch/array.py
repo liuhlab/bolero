@@ -14,6 +14,9 @@ ARRAY_SCRIPT = """
 #SBATCH --error={script_dir}/{job_name}_%A_%a.err
 #SBATCH --chdir={chdir}
 
+# Print the hostname
+echo "Hostname: $(hostname)"
+
 # Get the command for this array index
 CMD=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" {command_path})
 
@@ -143,7 +146,9 @@ def prepare_array(
         if line.startswith("#SBATCH"):
             print(line)
     print("=" * 50)
-
     print("To submit the job, run:")
     print(f"sbatch {pathlib.Path(script_path).absolute()}")
+    print("=" * 50)
+    print("To run the job locally, run:")
+    print(f"cat {command_path} | xargs -I {{}} -P 8 sh -c '{{}}'")
     return
