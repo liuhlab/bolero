@@ -1807,6 +1807,8 @@ class BorzoiPredictor(GenericPredictor):
                     sel_list_with_bool(region_names, regions_bool),
                 )
 
+        # print("regions_per_pseudobulk_torun: ", {k: len(v[0]) for k, v in regions_per_pseudobulk_torun.items()})
+        # print("batch_counters: ", batch_counters)
         return regions_per_pseudobulk_torun, batch_counters
 
     def attribution_task(
@@ -1896,7 +1898,7 @@ class BorzoiPredictor(GenericPredictor):
         regions_per_pseudobulk = self._prepare_attr_regions(
             pseudobulk_ids=pseudobulk_ids,
             regions_per_pseudobulk=regions_per_pseudobulk,
-            batch_dir=batch_dir,
+            batch_dir=None,  # do not pass batch_dir to avoid checking finished regions, as default check function do not consider pseudobulks
         )
 
         # check and skip finished regions for each pseudobulk

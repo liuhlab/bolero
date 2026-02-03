@@ -264,7 +264,7 @@ class ModiscoSeqlet(Seqlet):
         self.contrib_scores = contrib_scores  # shape (len, 4)
         self.hypothetical_contribs = hypothetical_contribs  # shape (len, 4)
 
-    def get_trimed_matrix(self, key="sequence", trim_threshold=0.3):
+    def get_trimed_matrix(self, key="sequence", trim_threshold=0.3, additional_flank=0):
         """
         Trim the sequence by contribution score > max(contrib_scores) * trim_threshold.
         """
@@ -292,7 +292,9 @@ class ModiscoSeqlet(Seqlet):
         if len(pass_inds) == 0:
             trimmed = np.zeros((0, 4))
         else:
-            trimmed = ppm[np.min(pass_inds) : np.max(pass_inds) + 1]
+            s = max(np.min(pass_inds) - additional_flank, 0)
+            e = min(np.max(pass_inds) + additional_flank + 1, len(ppm))
+            trimmed = ppm[s:e]
         return trimmed
 
     def get_tangermeme_input(self, key="sequence", trim_threshold=0.3):
@@ -701,7 +703,7 @@ class ModiscoResults:
 
 
 class ModiscoHDF:
-    def __init__(self, hdf5_path):
+    def __init__(self, hdf5_path, load_subpatterns=False, load_seqlets=False):
         """
         Initialize ModiscoHDF.
 
@@ -709,6 +711,8 @@ class ModiscoHDF:
             hdf5_path (str): The path to the HDF5 file.
         """
         self.hdf5_path = hdf5_path
+        self.load_subpatterns = load_subpatterns
+        self.load_seqlets = load_seqlets
         self.pos_patterns, self.neg_patterns = self._get_patterns_from_h5()
 
     def _get_patterns_from_h5(self):
@@ -721,7 +725,7 @@ class ModiscoHDF:
         """
         pos_patterns, neg_patterns = _get_patterns_from_h5(
             self.hdf5_path,
-            load_subpatterns=False,
-            load_seqlets=False,
+            load_subpatterns=self.load_subpatterns,
+            load_seqlets=self.load_seqlets,
         )
         return pos_patterns, neg_patterns

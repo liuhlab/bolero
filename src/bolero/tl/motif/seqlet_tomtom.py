@@ -1,14 +1,16 @@
 import pathlib
 import time
 import warnings
+from collections import OrderedDict
 
 import networkx as nx
 import numpy as np
 import pandas as pd
 import ray
 import xarray as xr
-from memelite import tomtom
-from modiscolite.core import Seqlet, TrackSet
+from memelite import tomtom as _tomtom
+from modiscolite.core import Seqlet as _Seqlet
+from modiscolite.core import TrackSet as _TrackSet
 from modiscolite.extract_seqlets import extract_seqlets
 from modiscolite.io import save_hdf5
 from modiscolite.tfmodisco import seqlets_to_patterns
@@ -24,6 +26,37 @@ from .modisco import ModiscoHDF
 MOTIF_BLACKLIST = ["MA1929.2", "MA1930.2", "MA1978.2"]
 
 
+class Seqlet(_Seqlet):
+    def __init__(self, name, sequence, contrib_scores, hypothetical_contribs):
+        assert sequence.shape[1] == 4, "sequence dim 1 must be size 4"
+        assert contrib_scores.shape[1] == 4, "contrib_scores dim 1 must be size 4"
+        assert (
+            hypothetical_contribs.shape[1] == 4
+        ), "hypothetical_contribs dim 1 must be size 4"
+
+        self.name = name
+        self.sequence = sequence
+        self.contrib_scores = contrib_scores
+        self.hypothetical_contribs = hypothetical_contribs
+
+        example_idx, start, end = map(int, name.split("_"))
+        self.example_idx = example_idx
+        self.start = start
+        self.end = end
+        self.is_revcomp = False
+
+
+class TrackSet(_TrackSet):
+    def __init__(self, one_hot, contrib_scores, hypothetical_contribs):
+        assert one_hot.shape[2] == 4, "one_hot dim 2 must be size 4"
+        assert contrib_scores.shape[2] == 4, "contrib_scores dim 2 must be size 4"
+        assert (
+            hypothetical_contribs.shape[2] == 4
+        ), "hypothetical_contribs dim 2 must be size 4"
+
+        super().__init__(one_hot, contrib_scores, hypothetical_contribs)
+
+
 def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
     """Read a .npz file and return the data as a dictionary."""
     if isinstance(npz_path, np.ndarray):
@@ -33,8 +66,18 @@ def _read_npz(npz_path: str | np.ndarray) -> np.ndarray:
     return arr
 
 
-def _tomtom(scores, pwms, tomtom_n_nearest=10, n_jobs=-1, score_names=None):
-    results = tomtom(Qs=scores, Ts=pwms, n_nearest=tomtom_n_nearest, n_jobs=n_jobs)
+def tomtom(scores, pwms, tomtom_n_nearest=10, n_jobs=-1, score_names=None):
+    """Perform Tomtom motif comparison."""
+    for _s in scores:
+        assert _s.ndim == 2, f"scores must be 2D, but got {_s.ndim}D"
+        assert (
+            _s.shape[0] == 4
+        ), f"scores shape must be (4, seq_len), but got {_s.shape}"
+    for _p in pwms:
+        assert _p.ndim == 2, f"pwms must be 2D, but got {_p.ndim}D"
+        assert _p.shape[0] == 4, f"pwms shape must be (4, seq_len), but got {_p.shape}"
+
+    results = _tomtom(Qs=scores, Ts=pwms, n_nearest=tomtom_n_nearest, n_jobs=n_jobs)
 
     value_type = [
         "p_values",
@@ -183,7 +226,7 @@ class SeqletTomtom:
         # Cut PWMs at >= 3 consecutive low IC bases, then select the longest continuous region.
         # This is to prevent tomtom getting false positive hits when using motifs with low IC regions.
         pwms = []
-        motif_infos = {}
+        motif_infos = OrderedDict()
         for motif in self.motif_db.motifs:
             if motif.motif_id in blacklist:
                 continue
@@ -211,15 +254,16 @@ class SeqletTomtom:
             motif_infos[motif.motif_id] = motif.motif_name
         return pwms, motif_infos
 
-    def _tomtom(
+    def tomtom(
         self, seqlets: list[Seqlet], blacklist: list[str] = MOTIF_BLACKLIST
     ) -> xr.DataArray:
+        """Perform Tomtom motif comparison on seqlets."""
         pwms, motif_infos = self._get_pwms_and_motif_infos(blacklist)
 
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         score_names = [seqlet.string for seqlet in seqlets]
 
-        results = _tomtom(
+        results = tomtom(
             scores=scores,
             pwms=pwms,
             tomtom_n_nearest=self.tomtom_n_nearest,
@@ -259,7 +303,7 @@ class SeqletTomtom:
         else:
             scores = attr_scores
 
-        results = _tomtom(
+        results = tomtom(
             scores=scores,
             pwms=pwms,
             tomtom_n_nearest=self.tomtom_n_nearest,
@@ -342,7 +386,7 @@ class SeqletTomtom:
             seqlet_regions.append(seqlet_region)
             # Add pseudobulk ID
             if pseudobulk_ids is not None:
-                pseudobulk_list.append(pseudobulk_ids.iloc[seq_id])
+                pseudobulk_list.append(pseudobulk_ids[seq_id])
         chunk_ds = chunk_ds.assign_coords(seqlet=pd.Index(seqlet_regions))
 
         attr_region_pos = pd.Series(attr_region_pos, index=chunk_ds.get_index("seqlet"))
@@ -378,7 +422,7 @@ class SeqletTomtom:
             print(f"Extracted {len(use_seqlets)} seqlets from chunk {chunk_start}.")
 
         ds = {}
-        ds["seqlets_tomtom"] = self._tomtom(use_seqlets)
+        ds["seqlets_tomtom"] = self.tomtom(use_seqlets)
         ds["seqlets_score"], ds["seqlets_seq"] = self._seqlet_to_da(use_seqlets)
         ds = xr.Dataset(ds)
 
@@ -466,7 +510,15 @@ class SeqletTomtom:
         if self.verbose:
             print(f"Loaded data with shape: {one_hot.shape} (n_regions, seq_len, 4)")
 
-        n = one_hot.shape[0]
+        if regions is not None:
+            assert isinstance(regions, pd.DataFrame), "regions must be a DataFrame"
+            assert regions.shape[0] == len(
+                one_hot
+            ), "regions must have the same number of rows as one_hot"
+        if pseudobulk_ids is not None:
+            pseudobulk_ids = list(pseudobulk_ids)
+
+        n = len(one_hot)
         n_chunks = n // self.chunk_size + 1
         chunk_size = n // n_chunks + 1
         for cid, chunk_start in enumerate(range(0, n, chunk_size)):
@@ -563,19 +615,6 @@ def _dump_seqlets_per_cluster(
     return
 
 
-class _Seqlet(Seqlet):
-    def __init__(self, name, sequence, contrib_scores, hypothetical_contribs):
-        self.sequence = sequence
-        self.contrib_scores = contrib_scores
-        self.hypothetical_contribs = hypothetical_contribs
-
-        example_idx, start, end = map(int, name.split("_"))
-        self.example_idx = example_idx
-        self.start = start
-        self.end = end
-        self.is_revcomp = False
-
-
 @ray.remote
 def _sample_seqlets_from_npz(npz_path, sample_prob, sign):
     seqlets = []
@@ -666,7 +705,6 @@ class TFModiscoOnMotifCluster:
         self.seqlet_dir = pathlib.Path(seqlet_dir)
         self.max_seqlets = max_seqlets
         self.genome = Genome(genome) if isinstance(genome, str) else genome
-        _ = self.genome.genome_one_hot  # trigger genome loading
         self.motif_db = self.genome.get_motif_db()
 
         self.cluster_dir_dict = {
@@ -759,11 +797,20 @@ class TFModiscoOnMotifCluster:
         if len(all_seqlets) == 0:
             return []
 
+        patterns = self.run_seqlets_to_patterns(all_seqlets, track_set)
+        return patterns
+
+    def run_seqlets_to_patterns(
+        self, seqlets: list[Seqlet], track_set: TrackSet, **kwargs
+    ):
+        """
+        Run seqlets to patterns step using modisco.
+        """
         patterns = seqlets_to_patterns(
-            seqlets=all_seqlets,
+            seqlets=seqlets,
             track_set=track_set,
-            track_signs=sign,
             **self.modisco_kwargs,
+            **kwargs,
         )
         return patterns
 
@@ -861,7 +908,7 @@ class AggregateModiscoResults:
         scores = [seqlet.contrib_scores.T.astype("float32") for seqlet in seqlets]
         scores = [s if s.sum() > 0 else s * -1 for s in scores]
 
-        results = _tomtom(
+        results = tomtom(
             scores=scores,
             pwms=pwms,
             tomtom_n_nearest=10,
