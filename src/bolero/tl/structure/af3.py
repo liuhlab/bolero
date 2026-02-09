@@ -54,7 +54,7 @@ def get_chain_interval(chain_ids):
 class AF3Result:
     """AlphaFold3 result object"""
 
-    def __init__(self, output_dir):
+    def __init__(self, output_dir, chain_idmap=None):
         self.output_dir = pathlib.Path(output_dir)
         self.run_name = self._get_run_name()
 
@@ -67,6 +67,7 @@ class AF3Result:
         self._chain_intervals = None
         self._structure = None
         self.converter = converter
+        self.chain_idmap = chain_idmap if chain_idmap is not None else {}
 
     def _get_run_name(self):
         _input_jsons = list(self.output_dir.glob("*_data.json"))
@@ -259,6 +260,7 @@ class AF3Result:
             "pae": pae,
             "contact_prob": contact_prob,
             "mmcif": mmcif_content,
+            "chain_idmap": self.chain_idmap,
         }
         return core_metric
 
@@ -268,6 +270,7 @@ class AF3ResultMinimum(AF3Result):
         self.minimum_path = minimum_path
         self.content = joblib.load(minimum_path)
         self._structure = None
+        self.chain_idmap = self.content.get("chain_idmap", {})
 
     @property
     def chain_names(self):
@@ -418,6 +421,8 @@ def truncate_templates(templates: list, start: int, end: int, min_length=10) -> 
 
 
 class AF3Input:
+    chain_idmap = {}
+
     def __init__(
         self,
         name,
@@ -502,10 +507,11 @@ class AF3Input:
         protein = {"protein": {"id": chain_id, "sequence": sequence}}
         protein["protein"].update(kwargs)
         self.json_data["sequences"].append(protein)
-        return
+        return chain_id
 
     def add_protein_from_cache(
         self,
+        prot_id,
         cache_data,
         chain_id=None,
         repeat=1,
@@ -520,12 +526,21 @@ class AF3Input:
         else:
             # assume its file path
             data = joblib.load(cache_data)
+
+        chain_ids = []
         for _, chain_data in data.items():
             if truncate_region is not None and len(truncate_region) == 2:
                 chain_data = self.truncate_protein_chain_data(
                     chain_data, truncate_region, min_template_length=min_template_length
                 )
-            self.add_protein(chain_id=chain_id, repeat=repeat, **chain_data)
+            chain_id = self.add_protein(chain_id=chain_id, repeat=repeat, **chain_data)
+            if isinstance(chain_id, list):
+                chain_ids.extend(chain_id)
+            else:
+                chain_ids.append(chain_id)
+
+        for chain_id in chain_ids:
+            self.chain_idmap[chain_id] = prot_id
         return
 
     @staticmethod
@@ -567,6 +582,11 @@ class AF3Input:
         if add_rc_strand:
             rc_sequence = sequence.translate(str.maketrans("ATCG", "TAGC"))[::-1]
             self.add_dna(sequence=rc_sequence, repeat=repeat, add_rc_strand=False)
+
+        if repeat == 1:
+            chain_id = [chain_id]
+        for _id in chain_id:
+            self.chain_idmap[_id] = sequence
         return
 
     def add_ligand_ccd(self, ccdCodes, chain_id=None, repeat=1):
@@ -581,6 +601,10 @@ class AF3Input:
             ccdCodes = [ccdCodes]
         ligand = {"ligand": {"id": chain_id, "ccdCodes": ccdCodes}}
         self.json_data["sequences"].append(ligand)
+        if repeat == 1:
+            chain_id = [chain_id]
+        for _id in chain_id:
+            self.chain_idmap[_id] = ccdCodes
         return
 
     def add_ligand_smiles(self, smiles, chain_id=None, repeat=1):
@@ -593,6 +617,10 @@ class AF3Input:
         chain_id = self._prepare_chain_id(chain_id, repeat)
         ligand = {"ligand": {"id": chain_id, "smiles": smiles}}
         self.json_data["sequences"].append(ligand)
+        if repeat == 1:
+            chain_id = [chain_id]
+        for _id in chain_id:
+            self.chain_idmap[_id] = smiles
         return
 
     def dump(self, path):
@@ -646,7 +674,8 @@ class AF3Input:
                                 prot, genome, af3_cache_dir
                             )
                             af3_input.add_protein_from_cache(
-                                af3_cache_path,
+                                prot_id=prot,
+                                cache_data=af3_cache_path,
                                 repeat=repeat,
                                 truncate_region=truncate_region,
                             )
@@ -690,6 +719,8 @@ class AF3Input:
             delete_temp=delete_temp,
             verbose=verbose,
         )
+
+        result["chain_idmap"] = self.chain_idmap
 
         joblib.dump(result, temp_path)
         temp_path.rename(final_path)
@@ -787,7 +818,9 @@ class AF3Runner:
             stderr=subprocess.STDOUT if not verbose else None,
         )
 
-        result = AF3Result(f"{output_dir}/{af3_input.name}")
+        result = AF3Result(
+            f"{output_dir}/{af3_input.name}", chain_idmap=af3_input.chain_idmap
+        )
         if return_minimum:
             result = result.get_minimum_results()
         if is_temp_dir and delete_temp:

@@ -1,5 +1,7 @@
 import gzip
 import io
+import os
+import tempfile
 from itertools import combinations, combinations_with_replacement
 
 import matplotlib.pyplot as plt
@@ -7,6 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
+from Bio.PDB.mmcifio import MMCIFIO
 from Bio.PDB.MMCIFParser import MMCIFParser
 from scipy.ndimage import gaussian_filter1d
 
@@ -195,43 +198,51 @@ class mmCIFStructure:
             self._atom_table = atom_table
         return self._atom_table
 
-    def view(self, hue="chain", hue_norm=(0, 100), colormap="RdYlBu", **kwargs):
+    def view(self, hue="plddt", **kwargs):
         """
-        Simple visualization in jupyter using NGLView.
+        Visualize the structure in Jupyter using ipymolstar (PDBeMolstar).
+
+        Parameters
+        ----------
+        hue : str, default="plddt"
+            'plddt' (or 'atom_plddt', 'bfactor') for pLDDT coloring,
+            'chain' for chain-based coloring.
+        **kwargs
+            Passed to PDBeMolstar (e.g. theme, hide_water, alphafold_view).
         """
         try:
-            import nglview as nv
+            from ipymolstar import PDBeMolstar
         except ImportError:
-            raise ImportError("Please install nglview to visualize model.") from None
+            raise ImportError(
+                "Visualization requires ipymolstar: pip install ipymolstar"
+            ) from None
 
-        use_bfactor = True
-        if isinstance(hue, str):
-            if hue == "chain":
-                # default hue is chain
-                use_bfactor = False
-            elif hue.lower() in ("atom_plddt", "plddt"):
-                hue = "bfactor"
-            elif hue == "bfactor":
-                pass
-            else:
-                raise ValueError(
-                    f"Unknown hue: {hue}, possible values: 'chain', 'atom_plddt'"
-                )
-        else:
-            raise ValueError("hue must be a string.")
-
-        # Visualize using NGLView
-        view = nv.show_biopython(self.structure, **kwargs)
-
-        if use_bfactor:
-            view.clear_representations()
-            view.add_representation(
-                "cartoon",
-                color="bfactor",
-                colorScale=colormap,  # Uses the Viridis colormap
-                colorDomain=hue_norm,  # Maps pLDDT values correctly
+        hue_lower = hue.lower() if isinstance(hue, str) else ""
+        if hue_lower not in ("chain", "plddt", "atom_plddt", "bfactor"):
+            raise ValueError(
+                f"hue must be one of 'chain', 'plddt', 'atom_plddt', 'bfactor'; got {hue!r}"
             )
-        return view
+        alphafold_view = hue_lower != "chain"
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".cif", delete=False
+            ) as tmp:
+                tmp_path = tmp.name
+            io_obj = MMCIFIO()
+            io_obj.set_structure(self.structure)
+            io_obj.save(tmp_path)
+            with open(tmp_path, "rb") as f:
+                mmcif_bytes = f.read()
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+        custom_data = {"data": mmcif_bytes, "format": "cif", "binary": False}
+        kwargs = dict(kwargs)
+        kwargs.setdefault("alphafold_view", alphafold_view)
+        return PDBeMolstar(custom_data=custom_data, **kwargs)
 
     def get_residue_ave_plddts(self):
         """Get residue atom average pLDDT."""
