@@ -238,12 +238,21 @@ class AF3Result:
         plddt["pLDDT"] = plddt["pLDDT"].round().astype("uint8")
 
         # add chain name, size, seq
-        chain_size = plddt["chain"].value_counts().sort_index()
+        ave_plddt = (
+            self.get_residue_ave_plddts()
+        )  # we must use ave_plddt to get all protein and dna chains
+        chain_size = ave_plddt["chain"].value_counts().sort_index()
         chains = chain_size.index
         chain_seqs = {}
         for chain in chains:
             chain_seq = plddt.loc[plddt["chain"] == chain, "residue_name"]
             chain_seq = "".join(self.converter.triple_to_single(chain_seq).tolist())
+            if len(chain_seq) == 0:
+                # dna chain, use ave_plddt to get the sequence
+                chain_seq = ave_plddt.loc[
+                    ave_plddt["chain"] == chain, "residue_name"
+                ].str[-1]
+                chain_seq = "".join(chain_seq.tolist())
             chain_seqs[chain] = chain_seq
         self.summary_data["chain_size"] = chain_size.values.tolist()
         self.summary_data["chains"] = chains.tolist()
@@ -421,8 +430,6 @@ def truncate_templates(templates: list, start: int, end: int, min_length=10) -> 
 
 
 class AF3Input:
-    chain_idmap = {}
-
     def __init__(
         self,
         name,
@@ -439,6 +446,8 @@ class AF3Input:
         See documentation for more information:
         https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md
         """
+        self.chain_idmap = {}
+
         if isinstance(modelSeeds, int):
             modelSeeds = [modelSeeds]
         if sequences is None:
@@ -657,6 +666,7 @@ class AF3Input:
             af3_cache_dir = _LOCAL_DEFAULT["msa_cache_dir"]
 
         af3_input = AF3Input(name=name, **kwargs)
+        af3_input.chain_idmap = {}
         for seq_dict in design:
             for seq_type, seq_list in seq_dict.items():
                 seq_and_repeats = list(pd.Series(seq_list).value_counts().items())
@@ -711,13 +721,19 @@ class AF3Input:
             return final_path
 
         runner = AF3Runner()
-        # temp AF3 input/output path will be saved in a temp dir
+        if delete_temp:
+            # temp AF3 input/output path will be saved in a temp dir
+            _output_dir = None
+        else:
+            _output_dir = save_dir / f"{self.name}_af3_inference"
+            _output_dir.mkdir(parents=True, exist_ok=True)
         # only minimum results of the best model will be returned here
         result = runner.af3_inference_no_data_pipeline(
             self,
             return_minimum=return_minimum,
             delete_temp=delete_temp,
             verbose=verbose,
+            output_dir=_output_dir,
         )
 
         result["chain_idmap"] = self.chain_idmap
