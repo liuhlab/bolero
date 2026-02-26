@@ -528,3 +528,300 @@ class DNASynthesisFactory:
         else:
             raise ValueError(f"Invalid mode: {self.default_mode}")
         return onehot
+
+
+def random_mutations(
+    seq_one_hot: torch.Tensor,
+    n_mut_pos: int,
+    start: int | None = None,
+    end: int | None = None,
+) -> torch.Tensor:
+    """
+    Create random mutations on the given DNA one-hot encoding.
+    Each mutation is guaranteed to change the base (no silent same-base "mutations").
+
+    Parameters
+    ----------
+    seq_one_hot : torch.Tensor
+        Input DNA sequence one-hot encoding. Shape: (4, seq_len).
+    n_mut_pos : int
+        Number of mutation positions to create.
+    start : int, optional
+        Start (inclusive) of the window in which to mutate. Default 0.
+    end : int, optional
+        End (exclusive) of the window in which to mutate. Default seq_len.
+
+    Returns
+    -------
+    torch.Tensor
+        Cloned sequence with same shape (4, seq_len) and random mutations at
+        n_mut_pos (or fewer if window is smaller) random positions within
+        [start, end).
+    """
+    out = seq_one_hot.clone()
+    _, seq_len = seq_one_hot.shape
+    start = 0 if start is None else start
+    end = seq_len if end is None else end
+    window_len = end - start
+    n_mut_pos = min(max(0, n_mut_pos), window_len)
+    if n_mut_pos == 0:
+        return out
+
+    indices_in_window = torch.randperm(window_len, device=seq_one_hot.device)[
+        :n_mut_pos
+    ]
+    mut_positions = start + indices_in_window
+    current_bases = seq_one_hot.argmax(dim=0)[mut_positions]
+    offset = torch.randint(1, 4, (n_mut_pos,), device=seq_one_hot.device)
+    new_bases = (current_bases + offset) % 4
+
+    out[:, mut_positions] = 0
+    out[new_bases, mut_positions] = 1
+    return out
+
+
+def back_mutate_sequence(
+    mutated_one_hot: torch.Tensor,
+    reference_one_hot: torch.Tensor,
+    back_mutation_rate: float = 0.2,
+    min_diff_pos: int = 3,
+) -> torch.Tensor:
+    """
+    Examine position differences between mutated and reference one-hot encodings.
+    At each differing position, with probability back_mutation_rate, revert the
+    mutated base to the reference base.
+
+    Parameters
+    ----------
+    mutated_one_hot : torch.Tensor
+        Mutated one-hot encoding. Shape: (4, seq_len).
+    reference_one_hot : torch.Tensor
+        Reference one-hot encoding. Shape: (4, seq_len).
+    back_mutation_rate : float
+        Probability of reverting a differing position to the reference base.
+
+    Returns
+    -------
+    torch.Tensor
+        The same tensor as mutated_one_hot, modified in-place. Shape: (4, seq_len).
+    """
+    differs = (mutated_one_hot != reference_one_hot).any(dim=0)
+    diff_indices = differs.nonzero(as_tuple=True)[0]
+    if diff_indices.numel() < min_diff_pos:
+        return mutated_one_hot
+    n_diff = diff_indices.numel()
+    do_revert = torch.rand(n_diff, device=mutated_one_hot.device) < back_mutation_rate
+    for i, pos in enumerate(diff_indices):
+        if do_revert[i]:
+            mutated_one_hot[:, pos] = reference_one_hot[:, pos]
+    return mutated_one_hot
+
+
+class DNAEvolutionFactory:
+    """
+    Beam-search DNA evolution: maintain a pool of parent sequences and produce
+    mutated batches for scoring, then update the pool with the top-scoring
+    sequences.
+
+    Workflow
+    --------
+    1. Initialize with initial one-hot sequence(s) and evolution parameters.
+    2. Call :meth:`get_regions_onehot` to get a batch of mutated sequences
+       (batch_size, 4, seq_len) for the predictor to score.
+    3. Select the top sequences by your criterion and call
+       :meth:`update_current_one_hot` with that tensor.
+    4. Repeat from step 2 for the next evolution round.
+
+    The number of mutations per sequence is derived from the evolution window
+    length and mutation_rate. Mutations are applied only within the evolution
+    window [evolution_window_start, evolution_window_end).
+
+    Parameters
+    ----------
+    input_one_hot : torch.Tensor
+        Initial DNA one-hot encoding. Shape ``(4, seq_len)`` or
+        ``(batch, 4, seq_len)``. If 2D, treated as a single parent and
+        converted to ``(1, 4, seq_len)``.
+    evolution_window_start : int
+        Start (inclusive) of the evolution window. Used only to compute
+        the number of mutations per sequence.
+    evolution_window_end : int
+        End (exclusive) of the evolution window. Must be > evolution_window_start.
+    mutation_rate : float, optional
+        Fraction of the window length to mutate per sequence, in (0, 1).
+        Number of mutations = max(1, mutation_rate * (eend - estart)).
+        Default is 0.01.
+    back_mutation_rate : float, optional
+        Probability of reverting a differing position to the reference base.
+        Default is 0.5.
+
+    Attributes
+    ----------
+    seq_len : int
+        Sequence length.
+    n_mutations : int
+        Number of random mutation positions applied per sequence per round.
+    """
+
+    def __init__(
+        self,
+        input_sequence: str,
+        evolution_window_start: int,
+        evolution_window_end: int,
+        mutation_rate: float = 0.01,
+        device: str = "cuda",
+        back_mutation_rate: float = 0.2,
+        _min_diff_pos_when_back_mutate: int = 3,
+        **kwargs,
+    ):
+        if isinstance(input_sequence, str):
+            input_one_hot = one_hot_encoding_torch(input_sequence, batch_dim=True)
+        else:
+            input_one_hot = input_sequence
+        input_one_hot = input_one_hot.to(device)
+
+        if input_one_hot.ndim == 2:
+            input_one_hot = input_one_hot.unsqueeze(0)
+        assert input_one_hot.ndim == 3, (
+            f"Input must be 2D (4, seq_len) or 3D (batch, 4, seq_len), "
+            f"got {input_one_hot.ndim}D"
+        )
+        assert (
+            input_one_hot.shape[1] == 4
+        ), f"One-hot must have 4 channels (ACGT), got {input_one_hot.shape[1]}"
+
+        self.seq_len = int(input_one_hot.shape[2])
+        self.estart = int(evolution_window_start)
+        self.eend = int(evolution_window_end)
+        assert self.eend > self.estart, (
+            f"evolution_window_end must be > evolution_window_start, "
+            f"got {self.eend} <= {self.estart}"
+        )
+        self.mutation_rate = float(mutation_rate)
+        self.back_mutation_rate = float(back_mutation_rate)
+        self._min_diff_pos_when_back_mutate = int(_min_diff_pos_when_back_mutate)
+        assert (
+            0 < self.mutation_rate < 1
+        ), f"mutation_rate must be in (0, 1), got {self.mutation_rate}"
+        window_len = self.eend - self.estart
+        self.n_mutations = max(1, int(self.mutation_rate * window_len))
+
+        self.input_one_hot = input_one_hot.clone()
+        self._current_one_hot = input_one_hot.clone()
+        self._mutation_cache = set()
+        return
+
+    def get_regions_onehot(
+        self, batch_size: int = 32, add_ref: bool = True
+    ) -> torch.Tensor:
+        """
+        Generate a batch of mutated sequences from the current parent pool.
+
+        Each of the batch_size sequences is produced by taking a parent from
+        the pool (cycled by index) and applying n_mutations random mutations.
+        Parents are selected in round-robin when batch_size > pool size.
+
+        Parameters
+        ----------
+        batch_size: int
+            Number of mutated sequences to return per call.
+        add_ref: bool
+            Whether to add the current sequence to the batch.
+
+        Returns
+        -------
+        new_batch: torch.Tensor
+            One-hot batch of shape (batch_size, 4, seq_len), same device/dtype
+            as the current pool.
+        """
+        device = self._current_one_hot.device
+        n_parents = self._current_one_hot.shape[0]
+        new_batch = []
+        # first, add current sequence to new batch,
+        # to allow the model to score the current sequence
+        # and able to discard the mutation if there is no improvement
+        if add_ref:
+            for _cur_seq in self._current_one_hot:
+                new_batch.append(_cur_seq)
+
+        # second, add additional mutated sequences to new batch
+        i = 0
+        while len(new_batch) < batch_size:
+            # create random mutations
+            parent_idx = i % n_parents
+            parent = self._current_one_hot[parent_idx]
+            mutated = random_mutations(
+                parent, self.n_mutations, start=self.estart, end=self.eend
+            )
+
+            # random back mutation
+            input_idx = (
+                i % self.input_one_hot.shape[0]
+            )  # always be 0 if there is only one input sequence
+            mutated = back_mutate_sequence(
+                mutated_one_hot=mutated,
+                reference_one_hot=self.input_one_hot[input_idx],
+                back_mutation_rate=self.back_mutation_rate,
+                min_diff_pos=self._min_diff_pos_when_back_mutate,
+            )
+
+            # check if the mutation is already in the cache
+            mutated_seq = characters(mutated)
+            if mutated_seq in self._mutation_cache:
+                continue
+            self._mutation_cache.add(mutated_seq)
+            new_batch.append(mutated)
+            i += 1
+        new_batch = torch.stack(new_batch, dim=0)
+        return new_batch.to(device)
+
+    def get_evolution_sequence(self, new_batch: torch.Tensor) -> list[str]:
+        """
+        Get the DNA sequence at the evolution window positions for the given batch.
+
+        Parameters
+        ----------
+        new_batch: torch.Tensor
+            One-hot batch of shape (batch_size, 4, seq_len), same device/dtype
+            as the current pool.
+
+        Returns
+        -------
+        current_evolution_sequence: list[str]
+            List of DNA sequences at the evolution window positions for the given batch.
+            Shape: (batch_size,).
+        """
+        return [
+            characters(mutated[:, self.estart : self.eend]) for mutated in new_batch
+        ]
+
+    def update_current_one_hot(self, one_hot: torch.Tensor) -> None:
+        """
+        Set the current parent pool to the given sequences (e.g. top-k from
+        the last batch after scoring).
+
+        Parameters
+        ----------
+        one_hot : torch.Tensor
+            One-hot sequences to use as parents for the next round. Shape
+            (n, 4, seq_len) with n typically equal to n_top_regions. seq_len
+            must match self.seq_len.
+        """
+        if one_hot.ndim == 2:
+            one_hot = one_hot.unsqueeze(0)
+        assert (
+            one_hot.ndim == 3
+            and one_hot.shape[1] == 4
+            and one_hot.shape[2] == self.seq_len
+        ), f"one_hot must have shape (n, 4, {self.seq_len}), got {one_hot.shape}"
+        self._current_one_hot = one_hot.clone()
+        return
+
+    def reset_current_one_hot(self) -> None:
+        """
+        Reset the current one-hot to the input one-hot.
+        """
+        self._current_one_hot = self.input_one_hot.clone()
+        self._mutation_cache = set()
+        print("Reset current one-hot and mutation cache")
+        return

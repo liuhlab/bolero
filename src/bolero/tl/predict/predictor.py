@@ -21,7 +21,7 @@ from bolero.utils import minimize_overlap_regions, understand_regions
 
 from .callbacks import CALLBACK_NAME_TO_CLASS, MetricCallback
 from .datamanager import GenericGenomeDataManager
-from .dna_gen import DNASynthesisFactory
+from .dna_gen import DNAEvolutionFactory, DNASynthesisFactory
 from .task_aggregate import AggregateMixin
 from .utils import get_device, load_config, validate_region
 
@@ -73,12 +73,16 @@ class GenericPredictor:
         }
 
         _genome = self.config["genome"]
-        if isinstance(_genome, dict):
-            self.genome = DNASynthesisFactory(
-                genome_fastas=_genome, **self.config.get("genome_kwargs", {})
-            )
+        _genome_kwargs = self.config.get("genome_kwargs", {})
+        if _genome_kwargs.get("mode", None) == "evolution":
+            self.genome = DNAEvolutionFactory(**_genome_kwargs)
         else:
-            self.genome = Genome(_genome)
+            if isinstance(_genome, dict):
+                self.genome = DNASynthesisFactory(
+                    genome_fastas=_genome, **_genome_kwargs
+                )
+            else:
+                self.genome = Genome(_genome)
 
         self.device = get_device()
 
@@ -88,7 +92,7 @@ class GenericPredictor:
         self._dm = None
 
         use_regions = self._train_config["use_regions"]
-        if isinstance(self.genome, DNASynthesisFactory):
+        if isinstance(self.genome, (DNASynthesisFactory, DNAEvolutionFactory)):
             # When using DNASynthesisFactory, we expect the factor class to handle borzoi regions and gene regions
             self.borzoi_regions = None
             # However, we still need borzoi_gene_regions for gene count prediction,

@@ -2484,6 +2484,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         cond_embedding_key="__conditionemb__:cond1",
         batch_size=16,
         ypred_key="__ypred__:cond1",
+        share_data_key="__shared_data__:cond1",
         crop=True,
         gene_mode=False,
     ):
@@ -2495,7 +2496,7 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
         cell_emb = batch[cell_embedding_key]
         if getattr(self, "has_shared_data", False):
             # cond0 and cond1 has the same shared data value
-            shared_data = batch["__shared_data__:cond1"].to(cell_emb.dtype)
+            shared_data = batch[share_data_key].to(cell_emb.dtype)
             if shared_data.ndim == 1:
                 shared_data = shared_data.unsqueeze(1)
                 # shared_data shape (bs, 1)
@@ -2710,6 +2711,208 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
             collate_fn=_collate_fn,
         )
         return dataloader
+
+    def _create_evolution_fn_and_dataloader(
+        self,
+        batch_size,
+        max_batches,
+        dna_key,
+        embedding_key,
+    ):
+        def _collate_fn(batch):
+            # rename keys
+            batch["__dna__"] = batch.pop(dna_key)
+            batch["__embedding__"] = batch.pop(embedding_key)
+            for key in batch.keys():
+                value = batch[key]
+                if isinstance(value, torch.Tensor):
+                    batch[key] = value.to(self.device)
+            return batch
+
+        pseudobulk_info_keys = [embedding_key]
+        if self.has_cond_emb:
+            pseudobulk_info_keys.append("__conditionemb__")
+        if getattr(self, "has_shared_data", False):
+            pseudobulk_info_keys.append("__shared_data__")
+
+        dataloader = self.datamanager.get_evolution_dataloader(
+            batch_size=batch_size,
+            max_batches=max_batches,
+            pseudobulk_info_keys=pseudobulk_info_keys,
+            collate_fn=_collate_fn,
+        )
+        return dataloader
+
+    def get_evolution_dataloader(
+        self,
+        batch_size,
+        max_batches,
+        dna_key,
+        embedding_key,
+        rank_pred_fn,
+        top_k,
+        forward_batch_size=16,
+    ) -> Generator:
+        """
+        Get the dataloader for directed DNA evolution.
+
+        Parameters
+        ----------
+        batch_size: int
+            Number of regions to process in each batch.
+        max_batches: int
+            Number of batches to process.
+        dna_key: str
+            Key for the DNA one-hot encoding in the batch.
+        embedding_key: str
+            Key for the embedding in the batch.
+        rank_pred_fn: callable
+            Function to rank the predicted values. This function should take a batch as input, calculate the rank based on the predicted values and return the rank.
+            The rank should be a np.array of shape (n_region, ) with smaller values indicating better performance.
+        top_k: int
+            Number of top regions to select. selected based on rank < top_k.
+
+        Returns
+        -------
+        dataloader: Generator
+            Generator that yields batches of DNA one-hot encoding.
+
+        Notes
+        -----
+        This dataloader is used to perform directed DNA evolution.
+        It will iterate over the batches and select the top k regions based on the predicted values.
+        The selected regions' DNA one-hot encoding will be saved to the self.datamanager._onehot_encoder.
+        The self.datamanager._onehot_encoder will be used to generate the next batch of DNA one-hot encoding.
+        """
+        dataloader = self._create_evolution_fn_and_dataloader(
+            batch_size=batch_size,
+            max_batches=max_batches,
+            dna_key=dna_key,
+            embedding_key=embedding_key,
+        )
+
+        pid_array = np.array(self.pseudobulk_manager.pseudobulk_ids)
+
+        # trigger model load
+        _ = self.model
+
+        # 4. Inference and callback
+        for batch in dataloader:
+            batch["pseudobulk_ids"] = pid_array
+
+            with torch.inference_mode():
+                # Inference step
+                step_fn = self._model_prediction_step
+                batch = step_fn(
+                    batch,
+                    cell_embedding_key="__embedding__",
+                    cond_embedding_key="__conditionemb__",
+                    # this batch size is the mini batch size for forward pass, limited by GPU memory
+                    # returned batch will always have full batch size based on `batch_size` parameter
+                    batch_size=forward_batch_size,
+                    ypred_key="__ypred__",
+                    share_data_key="__shared_data__",
+                )
+
+                # calculate rank based on predicted values
+                rank = rank_pred_fn(batch)  # shape (n_region, )
+                top_k_region_idx = rank < top_k
+
+                # select top k regions' DNA one-hot
+                top_k_regions_onehot = batch["__dna__"][top_k_region_idx]
+                self.datamanager._onehot_encoder.update_current_one_hot(
+                    top_k_regions_onehot
+                )
+            yield batch
+
+    def evolution_task(
+        self,
+        output_dir,
+        rank_pred_fn: callable,
+        save_keys: list[str],
+        top_k: int = 5,
+        pseudobulk_ids=None,
+        batch_size=32,
+        max_batches=50,
+        dna_key="dna",
+        embedding_key="embedding",
+        n_experiments=10,
+    ):
+        """
+        Evolution task for Borzoi. Perform directed DNA evolution.
+
+        Parameters
+        ----------
+        output_dir: str
+            The output directory to save the results.
+        rank_pred_fn: callable
+            Function to rank the predicted values. This function should take a batch as input, calculate the rank based on the predicted values and return the rank.
+            The rank should be a np.array of shape (n_region, ) with smaller values indicating better performance.
+        top_k: int
+            Number of top regions to select. selected based on rank < top_k.
+        pseudobulk_ids: list[str]
+            The pseudobulk ids to use. If None, use all pseudobulk ids.
+        batch_size: int
+            The batch size for evolution.
+        max_batches: int
+            Number of batches to process.
+        dna_key: str
+            Key for the DNA one-hot encoding in the batch.
+        embedding_key: str
+            Key for the embedding in the batch.
+        """
+        output_dir = pathlib.Path(output_dir).absolute().resolve()
+        batch_dir = output_dir / "batch"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+
+        config_path = output_dir / "config.joblib.gz"
+        self._save_task_configs(
+            task_config={
+                "top_k": top_k,
+                "batch_size": batch_size,
+                "max_batches": max_batches,
+                "dna_key": dna_key,
+                "embedding_key": embedding_key,
+                "n_experiments": n_experiments,
+            },
+            output_path=config_path,
+        )
+
+        for exp_id in range(n_experiments):
+            exp_batch_dir = batch_dir / f"exp_{exp_id}"
+            exp_batch_dir.mkdir(parents=True, exist_ok=True)
+            success_flag = exp_batch_dir / "success.flag"
+            if success_flag.exists():
+                print(f"Experiment {exp_id} already completed, skipping.")
+                continue
+            else:
+                # clean up batch files if any
+                for file in exp_batch_dir.glob("batch_*.joblib.gz"):
+                    file.unlink()
+                print(f"Experiment {exp_id} starting...")
+
+            dataloader = self.get_evolution_dataloader(
+                batch_size=batch_size,
+                max_batches=max_batches,
+                dna_key=dna_key,
+                embedding_key=embedding_key,
+                rank_pred_fn=rank_pred_fn,
+                top_k=top_k,
+            )
+
+            # data to save for each batch
+            for idx, batch in enumerate(dataloader):
+                if idx == 0 and exp_id == 0:
+                    self._print_batch(batch, prefix="Dataloader")
+
+                self._save_batch(
+                    batch=batch, batch_dir=exp_batch_dir, idx=idx, save_keys=save_keys
+                )
+
+            # after experiment completed, reset the one-hot encoder for new experiment
+            self.datamanager._onehot_encoder.reset_current_one_hot()
+            success_flag.touch()
+        return
 
     def _get_default_stats_keys(self):
         STATS_KEYS = [

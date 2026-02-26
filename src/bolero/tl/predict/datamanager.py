@@ -14,7 +14,7 @@ import torch
 from bolero.pp.genome import FastaOneHot, Genome
 from bolero.tl.dataset.parquet_db import GenomeParquetDB
 
-from .dna_gen import DNASynthesisFactory
+from .dna_gen import DNAEvolutionFactory, DNASynthesisFactory
 from .utils import convert_np_to_torch, get_device
 
 
@@ -319,10 +319,13 @@ class GenericGenomeDataManager:
         genome_kwargs: dict[str, Any] = None,
     ):
         genome_kwargs = genome_kwargs or {}
-        if isinstance(genome, dict):
-            self.genome = DNASynthesisFactory(genome_fastas=genome, **genome_kwargs)
+        if genome_kwargs.get("mode", None) == "evolution":
+            self.genome = DNAEvolutionFactory(**genome_kwargs)
         else:
-            self.genome = Genome(genome) if isinstance(genome, str) else genome
+            if isinstance(genome, dict):
+                self.genome = DNASynthesisFactory(genome_fastas=genome, **genome_kwargs)
+            else:
+                self.genome = Genome(genome) if isinstance(genome, str) else genome
 
         # Pseudobulk records
         self.pseudobulk_manager = None
@@ -339,6 +342,8 @@ class GenericGenomeDataManager:
 
     def _create_one_hot_encoder(self):
         if isinstance(self.genome, DNASynthesisFactory):
+            onehot_encoder = self.genome
+        elif isinstance(self.genome, DNAEvolutionFactory):
             onehot_encoder = self.genome
         else:
             onehot_encoder = FastaOneHot(
@@ -689,3 +694,41 @@ class GenericGenomeDataManager:
             device=self.device,
             collate_fn=collate_fn,
         )
+
+    def get_evolution_dataloader(
+        self,
+        batch_size: int = 32,
+        max_batches: int = 100,
+        pseudobulk_info_keys: list[str] = None,
+        collate_fn: callable = None,
+        add_ref_to_batch: bool = True,
+        **kwargs,
+    ) -> Generator:
+        """
+        Prepare batches for a list of regions.
+        """
+        if pseudobulk_info_keys is not None:
+            pseudobulk_info = self._prepare_pseudobulk_info(
+                info_keys=pseudobulk_info_keys,
+                pids=None,
+            )
+
+        for round_idx in range(max_batches):
+            batch_data = {"region": ["darwin:0-524288"] * batch_size}
+            mutated_dna = self._onehot_encoder.get_regions_onehot(
+                batch_size=batch_size, add_ref=add_ref_to_batch
+            )
+            batch_data["dna"] = mutated_dna
+            batch_data["region_name"] = self._onehot_encoder.get_evolution_sequence(
+                mutated_dna
+            )
+            batch_data["round_idx"] = round_idx
+
+            # add pseudobulk information
+            if pseudobulk_info_keys is not None:
+                batch_data.update(pseudobulk_info)
+
+            batch_data = convert_np_to_torch(batch_data)
+            if collate_fn is not None:
+                batch_data = collate_fn(batch_data)
+            yield batch_data
