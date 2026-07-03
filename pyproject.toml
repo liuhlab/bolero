@@ -175,7 +175,13 @@ packages = ["src/bolero", "src/sbatch"]
 # ---------------------------------------------------------------------------
 [tool.pixi.workspace]            # older pixi (<0.39): [tool.pixi.project]
 channels = ["conda-forge", "bioconda"]
-platforms = [{ platform = "linux-64", cuda = "12" }] # cuda=12 → select CUDA-12.x builds
+platforms = ["linux-64"]
+
+# CUDA is required only by the default feature (pytorch); scoping it here (rather
+# than on `platforms`) keeps the no-default-feature `docs` environment CUDA-free,
+# so docs build on GPU-less machines / CI runners.
+[tool.pixi.system-requirements]
+cuda = "12"
 
 # bolero itself, editable — pulls in [project.dependencies] from PyPI
 [tool.pixi.pypi-dependencies]
