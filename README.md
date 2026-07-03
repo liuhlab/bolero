@@ -15,24 +15,16 @@ Please refer to the [documentation][link-docs]. In particular, the
 
 ## Installation
 
-You need to have Python 3.10 or newer installed on your system. If you don't have
-Python installed, we recommend installing [Miniforge](https://github.com/conda-forge/miniforge).
+`bolero` uses [pixi](https://pixi.sh) to manage its environment. Install pixi, then:
 
 ```bash
-# 1. Create a environment named bolero
-mamba env create -f environment.yaml
-# OR if you use conda
-# conda env create -f environment.yaml
-# Note that conda can be very slow in solving complex dependencies
-
-# 2. Install this package
-pip install bolero
-
-# or install the package with dev mode
-git clone https://github.com/lhqing/bolero.git
+git clone https://github.com/liuhlab/bolero.git
 cd bolero
-pip install -e ".[dev,test]"
+pixi install            # runtime env; or `pixi install -e dev` for tests/docs/lint/notebooks
 ```
+
+See [Installation](docs/installation.md) for GPU/CUDA and optional-dependency (`ray`,
+`flash-attn`) notes.
 
 ## Release notes
 
@@ -49,5 +41,5 @@ If you found a bug, please use the [issue tracker][issue-tracker].
 [scverse-discourse]: https://discourse.scverse.org/
 [issue-tracker]: https://github.com/lhqing/bolero/issues
 [changelog]: https://bolero.readthedocs.io/latest/changelog.html
-[link-docs]: https://bolero.readthedocs.io
-[link-api]: https://bolero.readthedocs.io/latest/api.html
+[link-docs]: https://liuhlab.github.io/bolero/
+[link-api]: https://liuhlab.github.io/bolero/

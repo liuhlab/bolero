@@ -14,14 +14,13 @@ maintainers = [
     { name = "Hanqing Liu", email = "hanqingliu@fas.harvard.edu" },
     { name = "Hanchen Wang", email = "hanchenw.au@gmail.com" },
 ]
-urls.Documentation = "https://bolero.readthedocs.io/"
+urls.Documentation = "https://liuhlab.github.io/bolero/"
 urls.Source = "https://github.com/lhqing/bolero"
 urls.Home-page = "https://github.com/lhqing/bolero"
 dependencies = [
     "anndata",
     "beartype",
     "biopython",
-    "bolero_process",
     "captum",
     "cooler",
     "click",
@@ -49,7 +48,7 @@ dependencies = [
     "wandb",
     "vector_quantize_pytorch",
     "xarray",
-    # "ray", # do not add ray as a dependency, install it separately otherwise skypilot will have issue
+    # "ray==2.34", # do not add ray as a dependency; install it separately pinned to 2.34 (see docs/installation.md) otherwise skypilot will have issue
     "zarr",
 ]
 
@@ -57,21 +56,19 @@ dependencies = [
 mysbatch = "sbatch.main:submitter"
 
 [project.optional-dependencies]
-dev = ["pre-commit", "twine>=4.0.2"]
+dev = ["pre-commit", "twine>=4.0.2", "black", "isort"]
 doc = [
-    "docutils>=0.8,!=0.18.*,!=0.19.*",
-    "sphinx>=4",
-    "sphinx-book-theme>=1.0.0",
-    "myst-nb",
-    "sphinxcontrib-bibtex>=1.0.0",
-    "sphinx-autodoc-typehints",
-    "sphinxext-opengraph",
-    # For notebooks
-    "ipykernel",
-    "ipython",
-    "sphinx-copybutton",
-    "pandas",
-    "jupyterlab",
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",       # API docs from numpy-style docstrings
+    "mkdocs-jupyter",             # render notebooks
+    "pymdown-extensions",
+]
+notebook = [
+    "papermill",
+    "jupyterlab-code-formatter",
+    "jupyterlab-execute-time",
+    "qnorm",
 ]
 test = ["pytest", "coverage"]
 
@@ -167,17 +164,75 @@ convention = "numpy"
 "tests/*" = ["D"]
 "*/__init__.py" = ["F401"]
 
-[tool.cruft]
-skip = [
-    "tests",
-    "src/**/__init__.py",
-    "src/**/basic.py",
-    "docs/api.md",
-    "docs/changelog.md",
-    "docs/references.bib",
-    "docs/references.md",
-    "docs/notebooks/example.ipynb",
-]
-
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bolero", "src/sbatch"]
+
+# ---------------------------------------------------------------------------
+# pixi
+# ---------------------------------------------------------------------------
+[tool.pixi.workspace]            # older pixi (<0.39): [tool.pixi.project]
+channels = ["conda-forge", "bioconda"]
+platforms = [{ platform = "linux-64", cuda = "12" }] # cuda=12 → select CUDA-12.x builds
+
+# bolero itself, editable — pulls in [project.dependencies] from PyPI
+[tool.pixi.pypi-dependencies]
+bolero = { path = ".", editable = true }
+
+# conda-provided stack (system tools, compiled scientific libs, bioinformatics, GPU)
+[tool.pixi.dependencies]
+python = "3.11.*"
+pip = "*"
+# deep learning (GPU, CUDA 12.x from conda-forge; build glob forces the cuda build)
+cuda-version = "12.*"
+pytorch = { version = "2.4.*", build = "cuda*" }
+torchvision = { version = "*", build = "cuda*" }
+# bioinformatics / system tools (bioconda)
+bedtools = "*"
+samtools = "*"
+htslib = "*"
+pysam = "*"
+deeptools = "*"
+cooler = "*"
+snakemake = "*"
+# scientific stack (conda binaries)
+numpy = "*"
+pandas = "*"
+scipy = "*"
+scikit-learn = "*"
+scikit-image = "*"
+matplotlib = "*"
+seaborn = "*"
+pyarrow = "*"
+dask = "*"
+scanpy = "*"
+pynndescent = "*"
+biopython = "*"
+xarray = "*"
+zarr = "*"
+# notebooks
+jupyterlab = "*"
+ipywidgets = "*"
+
+# give the standalone `docs` environment its own interpreter (the doc feature
+# otherwise only carries the pypi mkdocs tooling)
+[tool.pixi.feature.doc.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.doc.tasks]
+docs-serve = "mkdocs serve"
+docs-build = "mkdocs build --strict"
+docs-deploy = "mkdocs gh-deploy --force" # build & push to the gh-pages branch
+
+[tool.pixi.feature.dev.tasks]
+lint = "pre-commit run --all-files"
+
+[tool.pixi.feature.test.tasks]
+test = "coverage run -m pytest -v --color=yes"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev", "test", "notebook"], solve-group = "default" }
+docs = { features = ["doc"], no-default-feature = true } # lightweight: no torch/CUDA

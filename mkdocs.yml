@@ -1,0 +1,17 @@
+site_name: bolero
+site_url: https://liuhlab.github.io/bolero/
+repo_url: https://github.com/liuhlab/bolero
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
