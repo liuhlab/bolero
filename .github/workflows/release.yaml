@@ -20,7 +20,7 @@ jobs:
 
     steps:
       # build python package and deploy to pypi
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       - name: Set up Python
         uses: actions/setup-python@v3
         with:
