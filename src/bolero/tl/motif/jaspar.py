@@ -40,8 +40,6 @@ JASPAR_VERTEBRATES_CLUSTER_PATH = (
 # JASPAR 2024 CORE motif database
 _JASPAR_URL_BASE = "https://jaspar.elixir.no/download/data/2024/CORE"
 JASPAR_URLS = {
-    "CisBP_Mouse_FigR": f"{PKG_DATA_PATH}/figr/CisBP_Mouse_FigR",
-    "CisBP_Human_FigR": f"{PKG_DATA_PATH}/figr/CisBP_Human_FigR",
     "JASPAR2024_CORE_nematodes": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_nematodes_non-redundant_pfms_jaspar.zip",
     "JASPAR2024_CORE_diatoms": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_diatoms_non-redundant_pfms_jaspar.zip",
     "JASPAR2024_CORE_insects": f"{_JASPAR_URL_BASE}/JASPAR2024_CORE_insects_non-redundant_pfms_jaspar.zip",
