@@ -23,8 +23,9 @@ cd bolero
 pixi install            # runtime env; or `pixi install -e dev` for tests/docs/lint/notebooks
 ```
 
-See [Installation](docs/installation.md) for GPU/CUDA and optional-dependency (`ray`,
-`flash-attn`) notes.
+`pixi install` sets up the full GPU stack (PyTorch + CUDA, `ray`, `flash-attn`,
+`triton`) — no manual steps. After installing, run `bolero.print_environments()` to
+check the install. See [Installation](docs/installation.md) for GPU/CUDA details.
 
 ## Release notes
 

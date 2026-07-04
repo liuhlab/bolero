@@ -390,6 +390,68 @@ def init(
     return
 
 
+def print_environments(file=None) -> None:
+    """
+    Print bolero, key dependencies, and GPU/CUDA status.
+
+    Handy for verifying a fresh install and for attaching to bug reports. Reports
+    the bolero version, interpreter, platform, PyTorch/CUDA status with any GPUs,
+    and the versions of the manually-managed extras (``ray``, ``flash-attn``).
+
+    Parameters
+    ----------
+    file : optional
+        A writable file-like object passed through to ``print``. Default is None,
+        i.e. standard output.
+    """
+    import platform
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    import bolero
+
+    def _version(dist_name: str) -> str:
+        try:
+            return _pkg_version(dist_name)
+        except PackageNotFoundError:
+            return "not installed"
+
+    lines = [
+        "----- bolero environment -----",
+        f"{'bolero':<16}: {bolero.__version__}",
+        f"{'python':<16}: {platform.python_version()}",
+        f"{'platform':<16}: {platform.platform()}",
+    ]
+
+    import torch
+
+    lines.append(f"{'torch':<16}: {torch.__version__}")
+    lines.append(f"{'torch CUDA':<16}: {torch.version.cuda}")
+    cuda_available = torch.cuda.is_available()
+    lines.append(f"{'CUDA available':<16}: {cuda_available}")
+    if cuda_available:
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            mem_gb = props.total_memory / 1024**3
+            lines.append(f"{'  GPU ' + str(i):<16}: {props.name} ({mem_gb:.0f} GB)")
+
+    # flash-attn import is what actually matters (the compiled extension must load),
+    # not merely the installed metadata.
+    try:
+        import flash_attn
+
+        flash_attn_status = f"{flash_attn.__version__} (import OK)"
+    except ImportError:
+        flash_attn_status = "not installed"
+    lines.append(f"{'flash-attn':<16}: {flash_attn_status}")
+
+    for dist_name in ("ray", "numpy", "pandas", "scvi-tools", "transformers"):
+        lines.append(f"{dist_name:<16}: {_version(dist_name)}")
+
+    print("\n".join(lines), file=file)
+    return
+
+
 def validate_config(config, default_config, allow_extra_keys=True):
     """
     Validate the config dictionary against the default config dictionary.

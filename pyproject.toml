@@ -48,7 +48,6 @@ dependencies = [
     "wandb",
     "vector_quantize_pytorch",
     "xarray",
-    # "ray==2.34", # do not add ray as a dependency; install it separately pinned to 2.34 (see docs/installation.md) otherwise skypilot will have issue
     "zarr",
 ]
 
@@ -173,29 +172,35 @@ packages = ["src/bolero", "src/sbatch"]
 # ---------------------------------------------------------------------------
 # pixi
 # ---------------------------------------------------------------------------
-[tool.pixi.workspace]            # older pixi (<0.39): [tool.pixi.project]
+[tool.pixi.workspace]
 channels = ["conda-forge", "bioconda"]
 platforms = ["linux-64"]
 
-# CUDA is required only by the default feature (pytorch); scoping it here (rather
-# than on `platforms`) keeps the no-default-feature `docs` environment CUDA-free,
-# so docs build on GPU-less machines / CI runners.
+# Scoped to the default feature (not `platforms`) so the `docs` env stays CUDA-free.
 [tool.pixi.system-requirements]
 cuda = "12"
 
-# bolero itself, editable — pulls in [project.dependencies] from PyPI
 [tool.pixi.pypi-dependencies]
 bolero = { path = ".", editable = true }
+ray = "==2.34"
 
-# conda-provided stack (system tools, compiled scientific libs, bioinformatics, GPU)
 [tool.pixi.dependencies]
 python = "3.11.*"
 pip = "*"
-# deep learning (GPU, CUDA 12.x from conda-forge; build glob forces the cuda build)
-cuda-version = "12.*"
+
+# Deep learning (GPU). cuda-version is the CUDA build target, not a minimum driver:
+# 12.6 is conda-forge's lowest `triton` build, so it runs on the widest range of
+# drivers (installs on CUDA >= 12.0). See docs/installation.md for the full policy.
+cuda-version = "12.6.*"
 pytorch = { version = "2.4.*", build = "cuda*" }
 torchvision = { version = "*", build = "cuda*" }
-# bioinformatics / system tools (bioconda)
+# flash-attn (+ triton, its rotary backend) from conda-forge so the C++ ABI matches
+# conda-forge PyTorch; cuda-cudart-dev provides the cuda.h that triton JIT needs.
+flash-attn = "*"
+triton = "*"
+cuda-cudart-dev = "*"
+
+# Bioinformatics / system tools (bioconda)
 bedtools = "*"
 samtools = "*"
 htslib = "*"
@@ -203,7 +208,8 @@ pysam = "*"
 deeptools = "*"
 cooler = "*"
 snakemake = "*"
-# scientific stack (conda binaries)
+
+# Scientific stack
 numpy = "*"
 pandas = "*"
 scipy = "*"
@@ -218,12 +224,12 @@ pynndescent = "*"
 biopython = "*"
 xarray = "*"
 zarr = "*"
-# notebooks
+
+# Notebooks
 jupyterlab = "*"
 ipywidgets = "*"
 
-# give the standalone `docs` environment its own interpreter (the doc feature
-# otherwise only carries the pypi mkdocs tooling)
+# Standalone `docs` env needs its own interpreter (the doc feature is pypi-only).
 [tool.pixi.feature.doc.dependencies]
 python = "3.11.*"
 
