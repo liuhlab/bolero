@@ -11,7 +11,6 @@ from bolero.pp.genome_chunk_dataset import (
     ChromSparseDataset,
     GenomeALLCDataset,
     GenomeBigWigDataset,
-    SingleCellCutsiteDataset,
     SnapAnnDataDataset,
 )
 
@@ -62,34 +61,6 @@ class GenomeChunkDatasetGenerator:
         self.uniform_dataset_dict = {
             # prefix: {ds_class, ds_kwargs, remote_kwargs}
         }
-
-    def add_zarr(self, prefix, path, barcode_whitelist=None, **ds_kwargs):
-        """
-        Add Zarr datasets.
-
-        Parameters
-        ----------
-        kwargs : Dict[str, str]
-            The dataset name and the path to the Zarr file.
-
-        """
-        assert _path_exists(path)
-        if prefix in self.uniform_dataset_dict:
-            raise ValueError(f"Dataset with name {prefix} already exists.")
-        self.uniform_dataset_dict[prefix] = {
-            "ds_class": SingleCellCutsiteDataset,
-            "ds_kwargs": {
-                "name": prefix,
-                "zarr_path": path,
-                "barcode_whitelist": barcode_whitelist,
-                **ds_kwargs,
-            },
-            "remote_kwargs": {
-                "memory": 15 * 1024**3,
-                "resources": {"bolero_dataset_gen": 10},
-            },
-        }
-        return
 
     def add_bigwig(self, prefix, name, path, sparse=True, compress_level=5, **kwargs):
         """
