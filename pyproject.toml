@@ -164,6 +164,9 @@ convention = "numpy"
 "*/__init__.py" = ["F401"]
 
 [tool.hatch.version]
+# This package uses Calendar Versioning (CalVer): tag releases as vYYYY.MM.DD
+# (e.g. v2026.07.10). The version is derived from the latest git tag by hatch-vcs,
+# so the scheme is set by how releases are tagged.
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
@@ -174,11 +177,10 @@ packages = ["src/bolero", "src/sbatch"]
 # ---------------------------------------------------------------------------
 [tool.pixi.workspace]
 channels = ["conda-forge", "bioconda"]
-platforms = ["linux-64"]
-
-# Scoped to the default feature (not `platforms`) so the `docs` env stays CUDA-free.
-[tool.pixi.system-requirements]
-cuda = "12"
+# The rich `linux-64-cuda` entry pins the `__cuda` virtual package for the solver.
+# GPU environments opt into it via the `gpu` feature (below) so the `docs` env,
+# which stays on plain `linux-64`, remains CUDA-free and buildable on GPU-less CI.
+platforms = ["linux-64", { name = "linux-64-cuda", platform = "linux-64", cuda = "12" }]
 
 [tool.pixi.pypi-dependencies]
 bolero = { path = ".", editable = true }
@@ -228,8 +230,22 @@ zarr = "*"
 # Notebooks
 jupyterlab = "*"
 ipywidgets = "*"
+ipykernel = "*"
+
+# Default-environment tasks.
+[tool.pixi.tasks]
+# Register the default env as a Jupyter kernel named `bolero`.
+install-kernel = "python -m ipykernel install --user --name bolero --display-name bolero"
+
+# Carries only the CUDA-pinned platform; added to the GPU environments below.
+[tool.pixi.feature.gpu]
+platforms = ["linux-64-cuda"]
 
 # Standalone `docs` env needs its own interpreter (the doc feature is pypi-only).
+# Restricted to plain `linux-64` so it never requires the `__cuda` virtual package.
+[tool.pixi.feature.doc]
+platforms = ["linux-64"]
+
 [tool.pixi.feature.doc.dependencies]
 python = "3.11.*"
 
@@ -245,6 +261,6 @@ lint = "pre-commit run --all-files"
 test = "coverage run -m pytest -v --color=yes"
 
 [tool.pixi.environments]
-default = { solve-group = "default" }
-dev = { features = ["dev", "test", "notebook"], solve-group = "default" }
+default = { features = ["gpu"], solve-group = "default" }
+dev = { features = ["gpu", "dev", "test", "notebook"], solve-group = "default" }
 docs = { features = ["doc"], no-default-feature = true } # lightweight: no torch/CUDA

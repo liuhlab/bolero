@@ -55,3 +55,5 @@ rune/*
 # inference reult
 **/*.npy
 **/*.txt
+
+paper/
