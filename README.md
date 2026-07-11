@@ -1,46 +1,26 @@
 # bolero
 
-[![Tests][badge-tests]][link-tests]
-[![Documentation][badge-docs]][link-docs]
+**Bolero: predicting cell-state-specific gene regulation from DNA sequence.**
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/liuhlab/bolero/test.yaml?branch=main
-[link-tests]: https://github.com/liuhlab/bolero/actions/workflows/test.yaml
-[badge-docs]: https://img.shields.io/readthedocs/bolero
+A cell-state-conditioned sequence-to-function model — a frozen Borzoi/Flashzoi backbone
+with conditional LoRA adapters — that predicts cell-state-specific chromatin accessibility
+and transcript abundance from DNA sequence.
 
-## Getting started
-
-Please refer to the [documentation][link-docs]. In particular, the
-
--   [API documentation][link-api].
+Documentation: <https://liuhlab.github.io/bolero/>
 
 ## Installation
 
-`bolero` uses [pixi](https://pixi.sh) to manage its environment. Install pixi, then:
+`bolero` uses [pixi](https://pixi.sh), which sets up the full GPU stack (PyTorch + CUDA,
+`ray`, `flash-attn`) in one step:
 
 ```bash
 git clone https://github.com/liuhlab/bolero.git
 cd bolero
-pixi install            # runtime env; or `pixi install -e dev` for tests/docs/lint/notebooks
+pixi install            # runtime env; or: pixi install -e dev
 ```
 
-`pixi install` sets up the full GPU stack (PyTorch + CUDA, `ray`, `flash-attn`,
-`triton`) — no manual steps. After installing, run `bolero.print_environments()` to
-check the install. See [Installation](docs/installation.md) for GPU/CUDA details.
+See [docs/installation.md](docs/installation.md) for details.
 
-## Release notes
+---
 
-See the [changelog][changelog].
-
-## Contact
-
-If you found a bug, please use the [issue tracker][issue-tracker].
-
-## Citation
-
-> t.b.a
-
-[scverse-discourse]: https://discourse.scverse.org/
-[issue-tracker]: https://github.com/liuhlab/bolero/issues
-[changelog]: https://bolero.readthedocs.io/latest/changelog.html
-[link-docs]: https://liuhlab.github.io/bolero/
-[link-api]: https://liuhlab.github.io/bolero/
+> README and documentation are a work in progress.
