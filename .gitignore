@@ -57,3 +57,5 @@ rune/*
 **/*.txt
 
 paper/
+working_dir
+working_dir/

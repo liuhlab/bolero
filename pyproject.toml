@@ -15,8 +15,8 @@ maintainers = [
     { name = "Hanchen Wang", email = "hanchenw.au@gmail.com" },
 ]
 urls.Documentation = "https://liuhlab.github.io/bolero/"
-urls.Source = "https://github.com/lhqing/bolero"
-urls.Home-page = "https://github.com/lhqing/bolero"
+urls.Source = "https://github.com/liuhlab/bolero"
+urls.Home-page = "https://github.com/liuhlab/bolero"
 dependencies = [
     "anndata",
     "beartype",
@@ -185,6 +185,9 @@ platforms = ["linux-64", { name = "linux-64-cuda", platform = "linux-64", cuda =
 [tool.pixi.pypi-dependencies]
 bolero = { path = ".", editable = true }
 ray = "==2.34"
+# Companion registry package (datasets, model zoo, QTL/DA metadata). Pulled from
+# git; it is deliberately lightweight (no GPU stack) and runs inside this env.
+bolerodata = { git = "https://github.com/liuhlab/bolerodata.git", branch = "main" }
 
 [tool.pixi.dependencies]
 python = "3.11.*"

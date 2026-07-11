@@ -16,6 +16,28 @@ Borzoi/Flashzoi genomics transformer and trained on Bolero-10M (10.8M cells, 36 
 The manuscript lives in `paper/Draft.md` (with figure PNGs) — read it for the scientific
 framing. Note `paper/` is git-ignored (local reference only).
 
+## Companion package: bolerodata
+
+This project spans **two repos**. `bolero` (this repo) is the **main** package: the model,
+training, inference, interpretation code and the pixi environment (PyTorch/CUDA, Ray,
+flash-attn). Its companion, [`bolerodata`](https://github.com/liuhlab/bolerodata) (local
+clone usually at `../bolerodata`), is a **lightweight registry** for the *data behind the
+model*: the single-cell datasets (Bolero-10M), the trained model zoo, QTL collections and
+differential-accessibility records — mapping short keys to on-disk artifacts under the lab's
+`$STANDARD_DIR` data lake.
+
+- `bolerodata` is listed as a **git-based pixi dependency** in this repo's
+  `[tool.pixi.pypi-dependencies]`, so `pixi install` brings it in. It carries no GPU stack
+  and is meant to run **inside this environment**. (It is not a PyPI/`[project.dependencies]`
+  dependency, so a plain `pip install bolero` from PyPI does not pull it.)
+- The dependency is **one-directional at the environment level but cyclic at the API level**:
+  `bolerodata` imports `bolero` (mostly lazily) to build `Genome` objects, predictors
+  (`bolero.tl.predict`), and IGV browsers (`bolero.pl.igv`). Keep `bolero`'s imports of
+  `bolerodata` (if any) lazy to avoid an import cycle.
+- **Scope split:** model / sequence / training / inference / attribution machinery → here in
+  `bolero`. "Which datasets / models / QTLs / DA records exist and where their files are" →
+  `bolerodata`. See `bolerodata/CLAUDE.md` for its internals.
+
 ## Important: the manuscript is the source of truth for what's "real"
 
 This is a research code base that grew during the project, so it contains **vestigial and

@@ -525,6 +525,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
+      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/ff/a5d48de4771e2403a8ef26a20dc7457b1c8f7e398ff0caf9c0cad8805f89/duckdb-1.5.4-cp311-cp311-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/11/b1/71a477adc7c36e5fb628245dfbdea2166feae310757dea848d02bd0689fd/frozenlist-1.8.0-cp311-cp311-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
@@ -1095,6 +1096,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
+      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/08/9c41fb51ab5b43eb21674aff13df270e8ba6c4b29c8624e328dc7a9482af/distlib-0.4.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/06/3a/7c448bc623fcdfa96672531beb5a616ea5e64f6975955254d7731ffb0ad9/black-26.5.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -9451,6 +9453,24 @@ packages:
   - jupyterlab-execute-time ; extra == 'notebook'
   - papermill ; extra == 'notebook'
   - qnorm ; extra == 'notebook'
+  - coverage ; extra == 'test'
+  - pytest ; extra == 'test'
+  requires_python: '>=3.10'
+- pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
+  name: bolerodata
+  version: 0.1.dev68+g091040821
+  requires_dist:
+  - anndata
+  - joblib
+  - pandas
+  - tqdm
+  - pre-commit ; extra == 'dev'
+  - twine>=4.0.2 ; extra == 'dev'
+  - mkdocs ; extra == 'doc'
+  - mkdocs-jupyter ; extra == 'doc'
+  - mkdocs-material ; extra == 'doc'
+  - mkdocstrings[python] ; extra == 'doc'
+  - pymdown-extensions ; extra == 'doc'
   - coverage ; extra == 'test'
   - pytest ; extra == 'test'
   requires_python: '>=3.10'
