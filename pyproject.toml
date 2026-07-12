@@ -37,6 +37,7 @@ dependencies = [
     "pyranges",
     "seaborn",
     "session-info",
+    "snapatac2==2.9.0",
     "tangermeme",
     "tmtoolkit",
     "tqdm",
@@ -188,6 +189,9 @@ ray = "==2.34"
 # Companion registry package (datasets, model zoo, QTL/DA metadata). Pulled from
 # git; it is deliberately lightweight (no GPU stack) and runs inside this env.
 bolerodata = { git = "https://github.com/liuhlab/bolerodata.git", branch = "main" }
+# SEACells metacell calling (CPU path only). Our fork relaxes the upstream's old,
+# exact version pins so it co-installs cleanly with the GPU stack here.
+SEACells = { git = "https://github.com/liuhlab/SEACells_pixi.git", branch = "main" }
 
 [tool.pixi.dependencies]
 python = "3.11.*"
@@ -210,6 +214,10 @@ bedtools = "*"
 samtools = "*"
 htslib = "*"
 pysam = "*"
+# pyfaidx is pulled in transitively by conda (deeptools etc.), which otherwise
+# grabs the latest (0.9.x). Cap it below 0.9 so the conda-pinned version stays
+# compatible with snapatac2 2.9.0 (which requires pyfaidx<0.9).
+pyfaidx = "<0.9"
 deeptools = "*"
 cooler = "*"
 snakemake = "*"
