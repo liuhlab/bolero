@@ -59,3 +59,12 @@ rune/*
 paper/
 working_dir
 working_dir/
+
+# In docs/tutorials keep only prose + notebooks; ignore every generated data
+# artifact (h5ad/h5mu/feather/model dirs/... produced by running the notebooks).
+docs/tutorials/**
+!docs/tutorials/**/
+!docs/tutorials/**/*.md
+!docs/tutorials/**/*.ipynb
+# ...but never track notebook checkpoints
+docs/tutorials/**/.ipynb_checkpoints/

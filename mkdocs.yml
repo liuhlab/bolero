@@ -19,5 +19,5 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Embedding & Meta Cell:
-      - Cell embedding: tutorials/01_cell_embedding.ipynb
-      - Meta cells: tutorials/02_meta_cell.ipynb
+      - Cell embedding: tutorials/embedding_and_meta_cell/01_cell_embedding.ipynb
+      - Meta cells: tutorials/embedding_and_meta_cell/02_meta_cell.ipynb
