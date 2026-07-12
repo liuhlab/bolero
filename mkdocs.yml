@@ -11,7 +11,13 @@ plugins:
       handlers:
         python:
           paths: [src]
+  - mkdocs-jupyter:
+      execute: false # render the committed notebook outputs; never re-run
+      include_source: true
 
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Embedding & Meta Cell:
+      - Cell embedding: tutorials/01_cell_embedding.ipynb
+      - Meta cells: tutorials/02_meta_cell.ipynb
