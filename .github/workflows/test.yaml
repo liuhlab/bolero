@@ -50,12 +50,4 @@ jobs:
           MPLBACKEND: agg
           PLATFORM: ${{ matrix.os }}
           DISPLAY: :42
-        run: pixi run -e dev coverage run -m pytest -v --color=yes
-
-      - name: Report coverage
-        run: pixi run -e dev coverage report
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+        run: pixi run -e dev pytest -v --color=yes
