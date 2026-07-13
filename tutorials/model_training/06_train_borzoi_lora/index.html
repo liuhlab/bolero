@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/">
+        <link rel="canonical" href="https://liuhlab.github.io/bolero/tutorials/model_training/06_train_borzoi_lora/">
       
       
-        <link rel="prev" href="../03_meta_cell_adata/">
+        <link rel="prev" href="../../meta_cell_adata_and_parquet/05_pseudobulk_and_reference/">
       
       
-        <link rel="next" href="../05_pseudobulk_and_reference/">
+        <link rel="next" href="../07_train_multi_dataset_atac/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Parquet dataset - bolero</title>
+        <title>Train a single-dataset Bolero model - bolero</title>
       
     
     
@@ -68,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#parquet-dataset" class="md-skip">
+        <a href="#train-a-single-dataset-bolero-model" class="md-skip">
           Skip to content
         </a>
       
@@ -104,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Parquet dataset
+              Train a single-dataset Bolero model
             
           </span>
         </div>
@@ -385,20 +385,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -419,7 +417,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -437,7 +435,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../03_meta_cell_adata/" class="md-nav__link">
+      <a href="../../meta_cell_adata_and_parquet/03_meta_cell_adata/" class="md-nav__link">
         
   
   
@@ -462,6 +460,118 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meta_cell_adata_and_parquet/04_parquet_dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parquet dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meta_cell_adata_and_parquet/05_pseudobulk_and_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pseudobulks &amp; reference signal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Training
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Training
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
     
   
   
@@ -481,7 +591,7 @@
   <span class="md-ellipsis">
     
   
-    Parquet dataset
+    Train a single-dataset Bolero model
   
 
     
@@ -499,7 +609,7 @@
   <span class="md-ellipsis">
     
   
-    Parquet dataset
+    Train a single-dataset Bolero model
   
 
     
@@ -536,10 +646,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-cell-metacell-map" class="md-nav__link">
+  <a href="#configure-the-run" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1 — Cell → metacell map
+        Configure the run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure the run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-frozen-flashzoi-backbone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The frozen Flashzoi backbone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-the-trainer-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build the trainer config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train
       
     </span>
   </a>
@@ -547,10 +696,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-sum-fragments-into-a-metacell-csc-store" class="md-nav__link">
+  <a href="#inspect-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2 — Sum fragments into a metacell CSC store
+        Inspect the model
       
     </span>
   </a>
@@ -558,54 +707,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-build-the-32-bp-parquet-dataset" class="md-nav__link">
+  <a href="#the-production-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3 — Build the 32 bp parquet dataset
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#whats-inside-the-parquet-dataset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's inside the parquet dataset
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#demo-1-decode-one-meta-region-into-a-matrix" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Demo 1 — Decode one meta-region into a matrix
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#demo-2-random-access-with" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Demo 2 — Random access with
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#housekeeping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Housekeeping
+        The production configuration
       
     </span>
   </a>
@@ -628,117 +733,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05_pseudobulk_and_reference/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Pseudobulks &amp; reference signal
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Model Training
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Model Training
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../model_training/06_train_borzoi_lora/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Train a single-dataset Bolero model
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../model_training/07_train_multi_dataset_atac/" class="md-nav__link">
+      <a href="../07_train_multi_dataset_atac/" class="md-nav__link">
         
   
   
@@ -766,7 +761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../model_training/08_train_multi_dataset_gene/" class="md-nav__link">
+      <a href="../08_train_multi_dataset_gene/" class="md-nav__link">
         
   
   
@@ -832,10 +827,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-cell-metacell-map" class="md-nav__link">
+  <a href="#configure-the-run" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1 — Cell → metacell map
+        Configure the run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configure the run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-frozen-flashzoi-backbone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The frozen Flashzoi backbone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build-the-trainer-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build the trainer config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train
       
     </span>
   </a>
@@ -843,10 +877,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-sum-fragments-into-a-metacell-csc-store" class="md-nav__link">
+  <a href="#inspect-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2 — Sum fragments into a metacell CSC store
+        Inspect the model
       
     </span>
   </a>
@@ -854,54 +888,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-build-the-32-bp-parquet-dataset" class="md-nav__link">
+  <a href="#the-production-configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3 — Build the 32 bp parquet dataset
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#whats-inside-the-parquet-dataset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's inside the parquet dataset
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#demo-1-decode-one-meta-region-into-a-matrix" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Demo 1 — Decode one meta-region into a matrix
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#demo-2-random-access-with" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Demo 2 — Random access with
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#housekeeping" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Housekeeping
+        The production configuration
       
     </span>
   </a>
@@ -1649,32 +1639,52 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=81c5acb6">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=50b1ac7b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="parquet-dataset">Parquet dataset<a class="anchor-link" href="#parquet-dataset">¶</a></h1><p>The metacell AnnDatas from the <a href="03_meta_cell_adata.ipynb">previous page</a> summarize accessibility
-<em>per peak</em>. To train on DNA sequence, Bolero instead needs accessibility at <strong>base resolution
-across the whole genome</strong>. This page builds that store — a <strong>parquet dataset</strong> (a "parquet_db") —
-for <strong>ChromiumPBMC</strong>, then shows what it contains and how to read it.</p>
-<p>The build has two stages: sum each metacell's SnapATAC2 fragment insertions into a per-chromosome
-sparse matrix, then tile the genome into fixed windows and write each window as one compressed row
-of a parquet file. We build the <strong>32 bp</strong> resolution used in the paper; the same builder produces
-other resolutions by changing three numbers.</p>
+<h1 id="train-a-single-dataset-bolero-model">Train a single-dataset Bolero model<a class="anchor-link" href="#train-a-single-dataset-bolero-model">¶</a></h1><p>The previous section turned <strong>ChromiumPBMC</strong> into the units a Bolero model trains on:
+a base-resolution <a href="../meta_cell_adata_and_parquet/04_parquet_dataset.ipynb">32 bp parquet store</a>
+and a set of <a href="../meta_cell_adata_and_parquet/05_pseudobulk_and_reference.ipynb">coverage-matched pseudobulks</a> —
+each carrying a cell-state embedding, a coverage scale, and a sampling weight. This page trains
+the model on that <strong>single dataset</strong> — the simplest way to see the whole training loop end to end.</p>
 <blockquote>
-<p><strong>Where the data comes from.</strong> <code>DATASETS["ChromiumPBMC"]</code> resolves the per-sample SnapATAC2
-fragment files (<code>.snap_file_table</code>) and the genome (<code>hg38</code>). The cell → metacell assignment is
-read from <code>adata.multivi.with_coords.h5ad</code> produced two pages back.</p>
-<p><strong>This is a heavy step.</strong> It reads genome-wide fragments for every cell and writes a multi-GB
-dataset, so it wants many CPUs. Run it in place from its own folder.</p>
+<p><strong>Single dataset vs. the full model.</strong> The model in the paper is trained jointly across the
+entire <strong>Bolero-10M</strong> corpus (dozens of datasets over several species). That <strong>multi-dataset</strong>
+recipe reuses everything here but adds per-dataset conditioning and a genome embedding; it is
+covered in the next two pages (<a href="07_train_multi_dataset_atac.ipynb">multi-dataset ATAC</a>,
+<a href="08_train_multi_dataset_gene.ipynb">+ gene</a>). Start here to learn the mechanics on one dataset.</p>
+</blockquote>
+<p><strong>What the model is.</strong> Bolero is a frozen <a href="https://www.biorxiv.org/content/10.1101/2024.12.18.629121v1">Flashzoi</a>/Borzoi
+genomics transformer wrapped in per-layer <strong>conditional LoRA adapters</strong>: the adapter's low-rank
+weights are <em>generated on the fly</em> by small MLPs from a cell-state embedding, so every pseudobulk
+gets its own effective network. The backbone weights stay frozen — training only fits the LoRA
+MLPs and the output head. Here the head is the <strong>count / accessibility</strong> head (softplus +
+Poisson-multinomial), and <code>signal_model=True</code> adds the base-resolution signal model on top.</p>
+<p><strong>How the pseudobulks condition it.</strong> Each training example is a <strong>pair</strong> <code>(p0, p1)</code> drawn by the
+<code>EnsemblePairedPseudobulker</code> you validated on page 05: <code>p1</code> is one coverage-matched pseudobulk (a
+specific cell state), <code>p0</code> is an on-the-fly ensemble background. Their 30-dim embeddings are
+concatenated (30 + 30 → <strong>60</strong>) into the reference→target vector every LoRA MLP reads.</p>
+<p><strong>In / out.</strong></p>
+<ul>
+<li><strong>Inputs</strong> — the 32 bp parquet store and the pseudobulk records from the previous section, plus
+a frozen Flashzoi <strong>fold-0</strong> base checkpoint (see below).</li>
+<li><strong>Outputs</strong> — LoRA checkpoints and epoch state under <code>model/</code> (git-ignored).</li>
+</ul>
+<blockquote>
+<p>This notebook <strong>runs in place</strong> and reads the artifacts you built earlier in the series via
+relative paths (<code>../meta_cell_adata_and_parquet/</code>). It is a <strong>quick-demo</strong> configuration — a
+handful of tiny batches so the whole loop finishes in a few minutes. The
+<a href="#the-production-configuration">production configuration</a> for a real single-dataset run is
+given below.</p>
 </blockquote>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bc56cb18">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d049a88c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1685,7 +1695,7 @@ dataset, so it wants many CPUs. Run it in place from its own folder.</p>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c6ed1d03">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3f16b3e3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1703,41 +1713,35 @@ dataset, so it wants many CPUs. Run it in place from its own folder.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-
-<span class="kn">import</span><span class="w"> </span><span class="nn">anndata</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow.parquet</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pq</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">csr_matrix</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.pp.ray_chunk_dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">GenomeChunkDatasetGenerator</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.pp.snap_adata</span><span class="w"> </span><span class="kn">import</span> <span class="n">AdataPseudobulkMerger</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.dataset.parquet_db</span><span class="w"> </span><span class="kn">import</span> <span class="n">GenomeParquetDB</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.dataset.sc_transforms</span><span class="w"> </span><span class="kn">import</span> <span class="n">compressed_bytes_to_array</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">BorzoiLoRATrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.pseudobulk.paired_pseudobulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">EnsemblePairedPseudobulker</span>
 
-<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+<span class="c1"># The trainer logs to Weights &amp; Biases. For this demo we disable uploads so it runs without a</span>
+<span class="c1"># login; for a real run, remove this line (or set WANDB_MODE="online") and use your own project.</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"offline"</span>
+
+<span class="c1"># Ray backs the streaming data pipeline (parquet -&gt; CSR -&gt; pseudobulk -&gt; one-hot). num_cpus and</span>
+<span class="c1"># object_store_memory_gb scale with the machine; these suit a single-GPU node with the data lake.</span>
+<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">object_store_memory_gb</span><span class="o">=</span><span class="mi">48</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from pathlib import Path
-
-import anndata
-import joblib
-import numpy as np
-import pandas as pd
-import pyarrow.parquet as pq
-from scipy.sparse import csr_matrix
+<div class="clipboard-copy-txt" id="cell-1">import os
+from pathlib import Path
 
 from bolero import init
-from bolero.pp.ray_chunk_dataset import GenomeChunkDatasetGenerator
-from bolero.pp.snap_adata import AdataPseudobulkMerger
-from bolero.tl.dataset.parquet_db import GenomeParquetDB
-from bolero.tl.dataset.sc_transforms import compressed_bytes_to_array
-from bolerodata import DATASETS
+from bolero.tl.model.borzoi.train import BorzoiLoRATrainer
+from bolero.tl.pseudobulk.paired_pseudobulk import EnsemblePairedPseudobulker
 
-init(num_cpus=32)</div>
+# The trainer logs to Weights &amp; Biases. For this demo we disable uploads so it runs without a
+# login; for a real run, remove this line (or set WANDB_MODE="online") and use your own project.
+os.environ["WANDB_MODE"] = "offline"
+
+# Ray backs the streaming data pipeline (parquet -&gt; CSR -&gt; pseudobulk -&gt; one-hot). num_cpus and
+# object_store_memory_gb scale with the machine; these suit a single-GPU node with the data lake.
+init(num_cpus=16, object_store_memory_gb=48)</div>
 </div>
 </div>
 </div>
@@ -1749,15 +1753,28 @@ init(num_cpus=32)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:08:06,232	INFO worker.py:1781 -- Started a local Ray instance.
+<pre>2026-07-13 11:26:54,784	INFO worker.py:1781 -- Started a local Ray instance.
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3727d80a">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="configure-the-run">Configure the run<a class="anchor-link" href="#configure-the-run">¶</a></h2><p>Everything the trainer needs is a flat config dict. We first name the paths — the two inputs from
+the previous section, plus the frozen backbone — then derive the embedding widths from the
+pseudobulk records so the model is sized to match the data.</p>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=191318eb">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=6178e399">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1775,55 +1792,68 @@ init(num_cpus=32)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration --------------------------------------------------------------</span>
 <span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>   <span class="c1"># per-cell, carries obs["meta_cell"]</span>
+<span class="n">DATA_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../meta_cell_adata_and_parquet"</span><span class="p">)</span>   <span class="c1"># artifacts built in the previous section</span>
 
-<span class="c1"># 32 bp coverage -- the resolution used for the paper.</span>
-<span class="n">WINDOW_SIZE</span> <span class="o">=</span> <span class="mi">600_000</span>     <span class="c1"># bp spanned by each stored meta-region (one parquet row)</span>
-<span class="n">STEP_SIZE</span> <span class="o">=</span> <span class="mi">200_000</span>       <span class="c1"># stride between meta-regions (windows overlap)</span>
-<span class="n">RESOLUTION</span> <span class="o">=</span> <span class="mi">32</span>           <span class="c1"># bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row</span>
+<span class="n">FOLD</span> <span class="o">=</span> <span class="mi">0</span>                     <span class="c1"># chromosome cross-validation fold (hg38_splits)</span>
+<span class="n">TARGET_COV</span> <span class="o">=</span> <span class="mi">5_000_000</span>       <span class="c1"># must match the pseudobulk records built on page 05</span>
 
-<span class="n">CSC_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">_csc_dataset"</span>                   <span class="c1"># intermediate per-metacell CSC store</span>
-<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-</span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2">bp"</span>   <span class="c1"># the final parquet_db</span>
-<span class="n">PREFIX</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.MetaCell"</span>                       <span class="c1"># parquet column-name prefix</span>
+<span class="c1"># inputs from the previous section</span>
+<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-32bp"</span>                                <span class="c1"># page 04</span>
+<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"pseudobulk_records_and_cond.cov</span><span class="si">{</span><span class="n">TARGET_COV</span><span class="si">}</span><span class="s2">.joblib"</span>   <span class="c1"># page 05</span>
 
-<span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
+<span class="c1"># frozen Flashzoi backbone (see the note below on where this comes from)</span>
+<span class="n">BASE_CHECKPOINT</span> <span class="o">=</span> <span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"</span>
+
+<span class="c1"># run identity + where checkpoints land</span>
+<span class="n">SAVENAME</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-atac-signal-fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">"</span>
+<span class="n">WANDB_PROJECT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"BorzoiSignal-</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">"</span>
+
+<span class="k">assert</span> <span class="n">PARQUET_DIR</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="o">.</span><span class="n">exists</span><span class="p">(),</span> <span class="s2">"run the previous section first"</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
+<div class="clipboard-copy-txt" id="cell-2"># --- Configuration --------------------------------------------------------------
 DATASET_NAME = "ChromiumPBMC"
-INPUT_ADATA = "adata.multivi.with_coords.h5ad"   # per-cell, carries obs["meta_cell"]
+DATA_DIR = Path("../meta_cell_adata_and_parquet")   # artifacts built in the previous section
 
-# 32 bp coverage -- the resolution used for the paper.
-WINDOW_SIZE = 600_000     # bp spanned by each stored meta-region (one parquet row)
-STEP_SIZE = 200_000       # stride between meta-regions (windows overlap)
-RESOLUTION = 32           # bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row
+FOLD = 0                     # chromosome cross-validation fold (hg38_splits)
+TARGET_COV = 5_000_000       # must match the pseudobulk records built on page 05
 
-CSC_DIR = f"{DATASET_NAME}_csc_dataset"                   # intermediate per-metacell CSC store
-PARQUET_DIR = f"{DATASET_NAME}-MetaCell-{RESOLUTION}bp"   # the final parquet_db
-PREFIX = f"{DATASET_NAME}.MetaCell"                       # parquet column-name prefix
+# inputs from the previous section
+PARQUET_DIR = DATA_DIR / f"{DATASET_NAME}-MetaCell-32bp"                                # page 04
+PSEUDOBULK_RECORDS = DATA_DIR / f"pseudobulk_records_and_cond.cov{TARGET_COV}.joblib"   # page 05
 
-dataset = DATASETS[DATASET_NAME]</div>
+# frozen Flashzoi backbone (see the note below on where this comes from)
+BASE_CHECKPOINT = "/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"
+
+# run identity + where checkpoints land
+SAVENAME = f"{DATASET_NAME}-atac-signal-fold{FOLD}"
+WANDB_PROJECT = f"BorzoiSignal-{DATASET_NAME}"
+
+assert PARQUET_DIR.exists() and PSEUDOBULK_RECORDS.exists(), "run the previous section first"</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=748ee2cd">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=539f40dd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-1-cell-metacell-map">Step 1 — Cell → metacell map<a class="anchor-link" href="#step-1-cell-metacell-map">¶</a></h2><p><code>AdataPseudobulkMerger</code> needs a table mapping each cell (by sample and barcode) to the metacell it
-belongs to. We read the per-cell metadata, keep <code>sample</code> + <code>meta_cell</code>, and strip the <code>{sample}+</code>
-prefix off the barcode so it matches the cell names in the SnapATAC2 files.</p>
+<h3 id="the-frozen-flashzoi-backbone">The frozen Flashzoi backbone<a class="anchor-link" href="#the-frozen-flashzoi-backbone">¶</a></h3><p><code>BASE_CHECKPOINT</code> points to the <strong>Flashzoi fold-0</strong> weights that Bolero freezes and adapts. Bolero
+uses the published <a href="https://www.biorxiv.org/content/10.1101/2024.12.18.629121v1">Flashzoi replicate</a>
+checkpoints (four cross-validation folds, on the Hugging Face Hub) with their state-dict keys
+<strong>renamed</strong> to match this repo's <code>Borzoi</code> module — hence the <code>.renamed.pt</code> file. Point
+<code>BASE_CHECKPOINT</code> at your local copy of the renamed fold-0 checkpoint; the fold here matches
+<code>FOLD = 0</code>, so the frozen backbone and the chromosome CV split agree.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3cbede65">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4e5ac03f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1841,35 +1871,25 @@ prefix off the barcode so it matches the cell names in the SnapATAC2 files.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">INPUT_ADATA</span><span class="p">)</span>
-<span class="n">cell_metadata</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span>
-<span class="n">n_meta_cells</span> <span class="o">=</span> <span class="n">cell_metadata</span><span class="p">[</span><span class="s2">"meta_cell"</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The paired pseudobulker (page 05) both sizes the model and, at train time, samples the (p0, p1)</span>
+<span class="c1"># pairs. Its metacell embedding is 30-dim; the reference-&gt;target concat doubles that to 60.</span>
+<span class="n">pseudobulker</span> <span class="o">=</span> <span class="n">EnsemblePairedPseudobulker</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">PSEUDOBULK_RECORDS</span><span class="p">))</span>
 
-<span class="n">pseudobulk_meta</span> <span class="o">=</span> <span class="n">cell_metadata</span><span class="p">[[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"meta_cell"</span><span class="p">]]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]</span>
-<span class="n">pseudobulk_meta</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"group"</span><span class="p">,</span> <span class="s2">"bc"</span><span class="p">]</span>
-<span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"bc"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"bc"</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">name</span><span class="p">:</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"+"</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+<span class="n">emb_input_features</span> <span class="o">=</span> <span class="n">pseudobulker</span><span class="o">.</span><span class="n">meta_cell_emb</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>   <span class="c1"># 30 -&gt; 60 (reference + target)</span>
+<span class="n">cond_emb_dim</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">pseudobulker</span><span class="o">.</span><span class="n">cond_emb_dims</span><span class="p">)</span>                <span class="c1"># {} for ChromiumPBMC (no conditions)</span>
 
-<span class="n">snap_file_dict</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">snap_file_table</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s2">"sample"</span><span class="p">)[</span><span class="s2">"snap_path"</span><span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
-<span class="n">snap_file_dict</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="n">s</span><span class="p">:</span> <span class="n">p</span> <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">snap_file_dict</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"sample"</span><span class="p">])</span>
-<span class="p">}</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">n_meta_cells</span><span class="si">}</span><span class="s2"> metacells across </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">snap_file_dict</span><span class="p">)</span><span class="si">}</span><span class="s2"> samples"</span><span class="p">)</span>
-<span class="n">pseudobulk_meta</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"emb_input_features:"</span><span class="p">,</span> <span class="n">emb_input_features</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"cond_emb_dim:"</span><span class="p">,</span> <span class="n">cond_emb_dim</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">adata = anndata.read_h5ad(INPUT_ADATA)
-cell_metadata = adata.obs
-n_meta_cells = cell_metadata["meta_cell"].nunique()
+<div class="clipboard-copy-txt" id="cell-3"># The paired pseudobulker (page 05) both sizes the model and, at train time, samples the (p0, p1)
+# pairs. Its metacell embedding is 30-dim; the reference-&gt;target concat doubles that to 60.
+pseudobulker = EnsemblePairedPseudobulker(str(PSEUDOBULK_RECORDS))
 
-pseudobulk_meta = cell_metadata[["sample", "meta_cell"]].reset_index().iloc[:, [1, 2, 0]]
-pseudobulk_meta.columns = ["sample", "group", "bc"]
-pseudobulk_meta["bc"] = pseudobulk_meta["bc"].map(lambda name: name.split("+")[-1])
+emb_input_features = pseudobulker.meta_cell_emb.shape[1] * 2   # 30 -&gt; 60 (reference + target)
+cond_emb_dim = dict(pseudobulker.cond_emb_dims)                # {} for ChromiumPBMC (no conditions)
 
-snap_file_dict = dataset.snap_file_table.set_index("sample")["snap_path"].dropna().to_dict()
-snap_file_dict = {
-    s: p for s, p in snap_file_dict.items() if s in set(pseudobulk_meta["sample"])
-}
-print(f"{n_meta_cells} metacells across {len(snap_file_dict)} samples")
-pseudobulk_meta.head()</div>
+print("emb_input_features:", emb_input_features)
+print("cond_emb_dim:", cond_emb_dim)</div>
 </div>
 </div>
 </div>
@@ -1881,90 +1901,31 @@ pseudobulk_meta.head()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>619 metacells across 4 samples
+<pre>emb_input_features: 60
+cond_emb_dim: {}
 </pre>
 </div>
 </div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th></th>
-<th>sample</th>
-<th>group</th>
-<th>bc</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<th>0</th>
-<td>pbmc_sorted_10k</td>
-<td>group5.1+SEACell-34</td>
-<td>AAACAGCCAAGGAATC-1</td>
-</tr>
-<tr>
-<th>1</th>
-<td>pbmc_sorted_10k</td>
-<td>group6+SEACell-1</td>
-<td>AAACAGCCAATCCCTT-1</td>
-</tr>
-<tr>
-<th>2</th>
-<td>pbmc_sorted_10k</td>
-<td>group5.1+SEACell-34</td>
-<td>AAACAGCCAATGCGCT-1</td>
-</tr>
-<tr>
-<th>3</th>
-<td>pbmc_sorted_10k</td>
-<td>group5.1+SEACell-27</td>
-<td>AAACAGCCACACTAAT-1</td>
-</tr>
-<tr>
-<th>4</th>
-<td>pbmc_sorted_10k</td>
-<td>group3+SEACell-28</td>
-<td>AAACAGCCACCAACCG-1</td>
-</tr>
-</tbody>
-</table>
 </div>
 </div>
 </div>
 </div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4d0bef06">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c905cb9d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-2-sum-fragments-into-a-metacell-csc-store">Step 2 — Sum fragments into a metacell CSC store<a class="anchor-link" href="#step-2-sum-fragments-into-a-metacell-csc-store">¶</a></h2><p><code>AdataPseudobulkMerger</code> streams the SnapATAC2 fragment matrices and sums the cells of each
-metacell, writing one sparse <code>metacell × base</code> matrix per chromosome (<code>insertion_&lt;chrom&gt;.csc.joblib</code>)
-under an intermediate directory. This is the expensive, genome-wide aggregation.</p>
+<h3 id="build-the-trainer-config">Build the trainer config<a class="anchor-link" href="#build-the-trainer-config">¶</a></h3><p><code>BorzoiLoRATrainer.make_config</code> merges these keys onto the dataset / model / trainer defaults and
+validates them. The block below is the <strong>quick-demo</strong> run: <code>max_epochs</code>, <code>warmup_steps</code>,
+<code>train_batches</code>, and <code>val_batches</code> are cut to tiny values so the full loop finishes in a few
+minutes. Everything else (batch size, learning rate, gradient accumulation, the count head, the
+signal model) uses the shipped defaults — the same ones a real run uses.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e6fd5dd2">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=494f6edc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1982,225 +1943,66 @@ under an intermediate directory. This is the expensive, genome-wide aggregation.
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">merger</span> <span class="o">=</span> <span class="n">AdataPseudobulkMerger</span><span class="p">(</span>
-    <span class="n">pseudobulk_meta</span><span class="o">=</span><span class="n">pseudobulk_meta</span><span class="p">,</span>
-    <span class="n">adata_path_dict</span><span class="o">=</span><span class="n">snap_file_dict</span><span class="p">,</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="n">CSC_DIR</span><span class="p">,</span>
-    <span class="n">sparse_format</span><span class="o">=</span><span class="s2">"csc"</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">merger</span><span class="o">.</span><span class="n">merge</span><span class="p">()</span>
-<span class="k">del</span> <span class="n">merger</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># run identity + outputs</span>
+    <span class="s2">"output_dir"</span><span class="p">:</span> <span class="s2">"model"</span><span class="p">,</span>
+    <span class="s2">"savename"</span><span class="p">:</span> <span class="n">SAVENAME</span><span class="p">,</span>
+    <span class="s2">"wandb_project"</span><span class="p">:</span> <span class="n">WANDB_PROJECT</span><span class="p">,</span>
+    <span class="s2">"wandb_job_type"</span><span class="p">:</span> <span class="s2">"lora"</span><span class="p">,</span>
+    <span class="s2">"wandb_name"</span><span class="p">:</span> <span class="n">SAVENAME</span><span class="p">,</span>
+    <span class="c1"># data (built in the previous section)</span>
+    <span class="s2">"dataset_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">PARQUET_DIR</span><span class="p">),</span>
+    <span class="s2">"fold_split_id"</span><span class="p">:</span> <span class="n">FOLD</span><span class="p">,</span>
+    <span class="s2">"pseudobulk_records"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">PSEUDOBULK_RECORDS</span><span class="p">),</span>
+    <span class="c1"># model</span>
+    <span class="s2">"base_checkpoint_path"</span><span class="p">:</span> <span class="n">BASE_CHECKPOINT</span><span class="p">,</span>
+    <span class="s2">"emb_input_features"</span><span class="p">:</span> <span class="n">emb_input_features</span><span class="p">,</span>
+    <span class="s2">"cond_emb_dim"</span><span class="p">:</span> <span class="n">cond_emb_dim</span><span class="p">,</span>
+    <span class="s2">"signal_model"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="c1"># ---- quick-demo overrides: a tiny run. See "The production configuration" below. ----</span>
+    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+    <span class="s2">"warmup_steps"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="s2">"train_batches"</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="s2">"val_batches"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="c1"># At the default "batch_size" of 4 training peaks at ~57 GB of GPU memory (fits an 80 GB</span>
+    <span class="c1"># H100). On a smaller GPU, lower it, e.g. "batch_size": 1.</span>
+<span class="p">}</span>
+
+<span class="n">config</span> <span class="o">=</span> <span class="n">BorzoiLoRATrainer</span><span class="o">.</span><span class="n">make_config</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">merger = AdataPseudobulkMerger(
-    pseudobulk_meta=pseudobulk_meta,
-    adata_path_dict=snap_file_dict,
-    output_dir=CSC_DIR,
-    sparse_format="csc",
-)
-merger.merge()
-del merger</div>
+<div class="clipboard-copy-txt" id="cell-4">config = {
+    # run identity + outputs
+    "output_dir": "model",
+    "savename": SAVENAME,
+    "wandb_project": WANDB_PROJECT,
+    "wandb_job_type": "lora",
+    "wandb_name": SAVENAME,
+    # data (built in the previous section)
+    "dataset_path": str(PARQUET_DIR),
+    "fold_split_id": FOLD,
+    "pseudobulk_records": str(PSEUDOBULK_RECORDS),
+    # model
+    "base_checkpoint_path": BASE_CHECKPOINT,
+    "emb_input_features": emb_input_features,
+    "cond_emb_dim": cond_emb_dim,
+    "signal_model": True,
+    # ---- quick-demo overrides: a tiny run. See "The production configuration" below. ----
+    "max_epochs": 3,
+    "warmup_steps": 10,
+    "train_batches": 50,
+    "val_batches": 10,
+    # At the default "batch_size" of 4 training peaks at ~57 GB of GPU memory (fits an 80 GB
+    # H100). On a smaller GPU, lower it, e.g. "batch_size": 1.
+}
+
+config = BorzoiLoRATrainer.make_config(**config)</div>
 </div>
 </div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>pseudobulk meta table: 4 samples, 619 groups, 45270 cells
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr3 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr14 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr15 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr2 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr18 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr21 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr22 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr4 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr16 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr9 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr10 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chrY groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr6 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr5 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr8 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr20 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr11 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr13 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chrX groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr7 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr1 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr19 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr17 groups merge
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dump insertion_chr12 groups merge
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3618836e">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-3-build-the-32-bp-parquet-dataset">Step 3 — Build the 32 bp parquet dataset<a class="anchor-link" href="#step-3-build-the-32-bp-parquet-dataset">¶</a></h2><p><code>GenomeChunkDatasetGenerator</code> tiles the genome into <code>WINDOW_SIZE</code>-bp windows (stepping every
-<code>STEP_SIZE</code> bp) and, for each window, sums the base-level coverage into <code>RESOLUTION</code>-bp bins and
-writes it as one compressed parquet row. <code>add_chrom_sparse(..., resolution=32)</code> is the knob that
-sets the bin size.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4c1226b5">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=35904908">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2218,31 +2020,21 @@ sets the bin size.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">num_rows_per_file</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">10_000</span> <span class="o">//</span> <span class="n">n_meta_cells</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
-
-<span class="n">generator</span> <span class="o">=</span> <span class="n">GenomeChunkDatasetGenerator</span><span class="p">(</span>
-    <span class="n">output_dir</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PARQUET_DIR</span><span class="si">}</span><span class="s2">/"</span><span class="p">,</span>
-    <span class="n">genome</span><span class="o">=</span><span class="n">dataset</span><span class="o">.</span><span class="n">genome</span><span class="p">,</span>
-    <span class="n">window_size</span><span class="o">=</span><span class="n">WINDOW_SIZE</span><span class="p">,</span>
-    <span class="n">step_size</span><span class="o">=</span><span class="n">STEP_SIZE</span><span class="p">,</span>
-    <span class="n">num_rows_per_file</span><span class="o">=</span><span class="n">num_rows_per_file</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">generator</span><span class="o">.</span><span class="n">add_chrom_sparse</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="n">PREFIX</span><span class="p">,</span> <span class="n">dataset_dir</span><span class="o">=</span><span class="n">CSC_DIR</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="n">RESOLUTION</span><span class="p">)</span>
-<span class="n">generator</span><span class="o">.</span><span class="n">generate</span><span class="p">()</span>
-<span class="k">del</span> <span class="n">generator</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># A few resolved values — the demo overrides plus the inherited defaults the real run keeps.</span>
+<span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">[</span>
+    <span class="s2">"mode"</span><span class="p">,</span> <span class="s2">"fold_split_id"</span><span class="p">,</span> <span class="s2">"signal_model"</span><span class="p">,</span> <span class="s2">"emb_input_features"</span><span class="p">,</span> <span class="s2">"cond_emb_dim"</span><span class="p">,</span>
+    <span class="s2">"lr"</span><span class="p">,</span> <span class="s2">"batch_size"</span><span class="p">,</span> <span class="s2">"accumulate_grad"</span><span class="p">,</span>
+    <span class="s2">"max_epochs"</span><span class="p">,</span> <span class="s2">"warmup_steps"</span><span class="p">,</span> <span class="s2">"train_batches"</span><span class="p">,</span> <span class="s2">"val_batches"</span><span class="p">,</span>
+<span class="p">]:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">k</span><span class="si">:</span><span class="s2">20s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">config</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">num_rows_per_file = max(10_000 // n_meta_cells, 5)
-
-generator = GenomeChunkDatasetGenerator(
-    output_dir=f"{PARQUET_DIR}/",
-    genome=dataset.genome,
-    window_size=WINDOW_SIZE,
-    step_size=STEP_SIZE,
-    num_rows_per_file=num_rows_per_file,
-)
-generator.add_chrom_sparse(prefix=PREFIX, dataset_dir=CSC_DIR, resolution=RESOLUTION)
-generator.generate()
-del generator</div>
+<div class="clipboard-copy-txt" id="cell-5"># A few resolved values — the demo overrides plus the inherited defaults the real run keeps.
+for k in [
+    "mode", "fold_split_id", "signal_model", "emb_input_features", "cond_emb_dim",
+    "lr", "batch_size", "accumulate_grad",
+    "max_epochs", "warmup_steps", "train_batches", "val_batches",
+]:
+    print(f"{k:20s} {config[k]}")</div>
 </div>
 </div>
 </div>
@@ -2254,714 +2046,42 @@ del generator</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr1
+<pre>mode                 lora
+fold_split_id        0
+signal_model         True
+emb_input_features   60
+cond_emb_dim         {}
+lr                   5e-05
+batch_size           4
+accumulate_grad      2
+max_epochs           3
+warmup_steps         10
+train_batches        50
+val_batches          10
 </pre>
 </div>
 </div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr10
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr11
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr12
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr13
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr14
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr15
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr16
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr17
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr18
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr19
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr2
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr20
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr21
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr22
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr3
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr4
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr5
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr6
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr7
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr8
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chr9
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chrX
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Processing ChromiumPBMC.MetaCell chrY
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr1.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:06,715	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:06,716	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr10.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:07,791	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:07,791	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr11.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:08,425	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:08,426	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr12.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:09,101	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:09,102	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr13.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:09,571	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:09,572	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr14.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:10,059	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:10,060	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr15.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:10,569	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:10,570	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr16.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:11,115	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:11,115	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr17.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:11,792	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:11,793	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr18.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:12,300	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:12,300	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr19.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:12,869	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:12,869	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr2.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:13,662	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:13,662	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr20.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:14,250	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:14,250	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr21.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:14,659	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:14,659	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr22.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:15,108	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:15,108	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr3.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:15,767	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:15,768	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr4.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:16,408	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:16,409	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr5.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:16,996	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:16,997	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr6.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:17,640	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:17,641	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr7.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:18,306	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:18,307	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr8.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:18,890	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:18,891	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chr9.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:19,471	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:19,471	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chrX.
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:19,967	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:19,967	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:20,285	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-12_20-08-03_897060_1845820/logs/ray-data
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-12 20:18:20,285	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; TaskPoolMapOperator[Write]
-</pre>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Creating dataset for chromosome chrY.
-</pre>
-</div>
-</div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bef3c8bb">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2f8262de">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<blockquote>
-<p><strong>Other resolutions.</strong> The same builder produces any resolution. For the 1 bp store used
-elsewhere, set <code>WINDOW_SIZE = 100_000</code>, <code>STEP_SIZE = 90_000</code>, <code>RESOLUTION = 1</code> and rerun Step 3
-into a <code>-MetaCell-1bp</code> directory. We build only 32 bp here because that is what the paper's model
-uses.</p>
-</blockquote>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=62e70051">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="whats-inside-the-parquet-dataset">What's inside the parquet dataset<a class="anchor-link" href="#whats-inside-the-parquet-dataset">¶</a></h2><p>A parquet_db is a <strong>directory of parquet files</strong>, partitioned by chromosome, plus three small
-sidecar files. Each <strong>row</strong> of a parquet file is one genomic window ("meta-region") holding a
-<strong>gzip-compressed CSR matrix</strong> of shape <code>(metacells, bins)</code>. The matrix is split across four binary
-columns following the grammar <code>"{prefix}:{part}+{dtype}"</code> — the CSR <code>indices</code>, <code>indptr</code>, <code>data</code>,
-and <code>shape</code> — alongside a <code>region</code> string like <code>chr1:0-600000</code>.</p>
-<p>The sidecars are: <code>config.joblib</code> (the build parameters), <code>row_names.joblib</code> (the metacell order of
-every matrix's rows), and <code>parquet_row_regions.feather</code> (the region → file lookup used for random
-access).</p>
+<h2 id="train">Train<a class="anchor-link" href="#train">¶</a></h2><p>Constructing the trainer loads the frozen backbone, freezes everything except the output head,
+swaps the Linear/Conv layers for conditional-LoRA variants, and prints the model plus its
+trainable-parameter count. <code>trainer.train()</code> then runs the fit loop — building the Ray data
+pipeline, training and validating per epoch, and writing checkpoints under <code>model/</code>. A
+<code>...success.flag</code> file is dropped on completion, so re-running the cell is a no-op (delete the flag
+to retrain).</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0dbe3b67">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=df8c7963">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2979,29 +2099,11 @@ access).</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">root</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">PARQUET_DIR</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"top level:"</span><span class="p">,</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">root</span><span class="o">.</span><span class="n">iterdir</span><span class="p">())[:</span><span class="mi">12</span><span class="p">])</span>
-
-<span class="c1"># the metacell order shared by every stored matrix's rows</span>
-<span class="n">row_names</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">root</span> <span class="o">/</span> <span class="s2">"row_names.joblib"</span><span class="p">)</span>
-<span class="n">metacells</span> <span class="o">=</span> <span class="n">row_names</span><span class="p">[</span><span class="n">PREFIX</span><span class="p">]</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">metacells</span><span class="p">)</span><span class="si">}</span><span class="s2"> metacell rows, e.g. </span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="n">metacells</span><span class="p">[:</span><span class="mi">3</span><span class="p">])</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-
-<span class="c1"># schema of one parquet file</span>
-<span class="n">example_file</span> <span class="o">=</span> <span class="nb">next</span><span class="p">((</span><span class="n">root</span> <span class="o">/</span> <span class="s2">"chr1"</span><span class="p">)</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*.parquet"</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">pq</span><span class="o">.</span><span class="n">read_schema</span><span class="p">(</span><span class="n">example_file</span><span class="p">))</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">BorzoiLoRATrainer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">root = Path(PARQUET_DIR)
-print("top level:", sorted(p.name for p in root.iterdir())[:12])
-
-# the metacell order shared by every stored matrix's rows
-row_names = joblib.load(root / "row_names.joblib")
-metacells = row_names[PREFIX]
-print(f"{len(metacells)} metacell rows, e.g. {list(metacells[:3])}")
-
-# schema of one parquet file
-example_file = next((root / "chr1").glob("*.parquet"))
-print(pq.read_schema(example_file))</div>
+<div class="clipboard-copy-txt" id="cell-6">trainer = BorzoiLoRATrainer(config)
+trainer.train()</div>
 </div>
 </div>
 </div>
@@ -3013,21 +2115,829 @@ print(pq.read_schema(example_file))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>top level: ['chr1', 'chr10', 'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 'chr16', 'chr17', 'chr18', 'chr19', 'chr2']
-619 metacell rows, e.g. ['group0+SEACell-0', 'group0+SEACell-1', 'group0+SEACell-2']
-ChromiumPBMC.MetaCell:indices+uint32: binary
-ChromiumPBMC.MetaCell:indptr+uint32: binary
-ChromiumPBMC.MetaCell:data+float32: binary
-ChromiumPBMC.MetaCell:shape+uint32: binary
-region: string
+<pre>Using single GPU for training
+Create BorzoiDataset with config:
+  dataset_path: ../meta_cell_adata_and_parquet/ChromiumPBMC-MetaCell-32bp
+  dna_window: 524288
+  pos_resolution: 32
+  use_regions: borzoi
+  train_region_step_sample: True
+  n_pseudobulks: 10
+  paired_data: True
+  paired_mode: ensemble
+  reverse_complement: True
+  rc_mode: random
+  max_jitter: 3
+  shuffle_files: True
+  batch_size: 4
+  min_cov: 0
+  normalize_cov: True
+  reduce_resolution: False
+  read_parquet_kwargs: None
+  deg_list: None
+  gene_data_path: None
+  qtl_data_path: None
+  _multihead: False
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Tracking run with wandb version 0.28.0
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: W&amp;B syncing is set to <span class="ansi-bold">`offline`</span> in this directory. Run <span class="ansi-bold">`wandb online`</span> or set <span class="ansi-bold">WANDB_MODE=online</span> to enable cloud syncing.
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run data is saved locally in <span class="ansi-magenta-intense-fg ansi-bold">/large_storage/zhoulab/hanliu/pkg/liuhlab/bolero/docs/tutorials/model_training/wandb/offline-run-20260713_112657-erbg54ng</span>
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: View this run in the terminal with <span class="ansi-bold">`wandb leet`</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-yellow-fg">WARNING</span> URL not available in offline run
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Setting up model from config
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Loading base model weights from: /home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Condition embedding is not used.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Model does not have gene_count_output_head, skip
+Input shape:
+x: torch.Size([1, 4, 524288])
+embedding: torch.Size([1, 60])
+signal: torch.Size([1, 1, 16384])
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>===========================================================================================================================================================
+Layer (type (var_name))                                                          Input Shape               Output Shape              Param #
+===========================================================================================================================================================
+BorzoiLoRA (BorzoiLoRA)                                                          --                        [1, 1, 16352]             81,665
+├─ConvDna (conv_dna)                                                             [1, 4, 524288]            [1, 512, 262144]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 4, 524288]            [1, 512, 524288]          31,232
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 30, 60]               545,032
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 512, 30]              4,029,952
+│    │    └─Dropout (lora_dropout)                                               [1, 512, 524288]          [1, 512, 524288]          --
+│    └─MaxPool1d (max_pool)                                                      [1, 512, 524288]          [1, 512, 262144]          --
+├─SequentialwithArgs (res_tower)                                                 [1, 512, 262144]          [1, 1280, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 512, 262144]          [1, 608, 262144]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 512, 262144]          [1, 512, 262144]          (1,024)
+│    │    └─GELU (activation)                                                    [1, 512, 262144]          [1, 512, 262144]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 512, 262144]          [1, 608, 262144]          26,147,232
+│    └─MaxPool1d (1)                                                             [1, 608, 262144]          [1, 608, 131072]          --
+│    └─ConvBlock (2)                                                             [1, 608, 131072]          [1, 736, 131072]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 608, 131072]          [1, 608, 131072]          (1,216)
+│    │    └─GELU (activation)                                                    [1, 608, 131072]          [1, 608, 131072]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 608, 131072]          [1, 736, 131072]          31,516,000
+│    └─MaxPool1d (3)                                                             [1, 736, 131072]          [1, 736, 65536]           --
+│    └─ConvBlock (4)                                                             [1, 736, 65536]           [1, 896, 65536]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 736, 65536]           [1, 736, 65536]           (1,472)
+│    │    └─GELU (activation)                                                    [1, 736, 65536]           [1, 736, 65536]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 736, 65536]           [1, 896, 65536]           38,744,000
+│    └─MaxPool1d (5)                                                             [1, 896, 65536]           [1, 896, 32768]           --
+│    └─ConvBlock (6)                                                             [1, 896, 32768]           [1, 1056, 32768]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 896, 32768]           [1, 896, 32768]           (1,792)
+│    │    └─GELU (activation)                                                    [1, 896, 32768]           [1, 896, 32768]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 896, 32768]           [1, 1056, 32768]          47,579,360
+│    └─MaxPool1d (7)                                                             [1, 1056, 32768]          [1, 1056, 16384]          --
+│    └─ConvBlock (8)                                                             [1, 1056, 16384]          [1, 1280, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1056, 16384]          [1, 1056, 16384]          (2,112)
+│    │    └─GELU (activation)                                                    [1, 1056, 16384]          [1, 1056, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1056, 16384]          [1, 1280, 16384]          57,502,144
+├─Sequential (signal_encoder)                                                    [1, 1, 16384]             [1, 1280, 16384]          --
+│    └─Conv1d (0)                                                                [1, 1, 16384]             [1, 128, 16384]           512
+│    └─GroupNorm (1)                                                             [1, 128, 16384]           [1, 128, 16384]           256
+│    └─SiLU (2)                                                                  [1, 128, 16384]           [1, 128, 16384]           --
+│    └─Conv1d (3)                                                                [1, 128, 16384]           [1, 512, 16384]           197,120
+│    └─GroupNorm (4)                                                             [1, 512, 16384]           [1, 512, 16384]           1,024
+│    └─SiLU (5)                                                                  [1, 512, 16384]           [1, 512, 16384]           --
+│    └─Conv1d (6)                                                                [1, 512, 16384]           [1, 1280, 16384]          1,967,360
+│    └─GroupNorm (7)                                                             [1, 1280, 16384]          [1, 1280, 16384]          2,560
+├─SequentialwithArgs (unet1)                                                     [1, 1280, 16384]          [1, 1536, 8192]           --
+│    └─MaxPool1d (0)                                                             [1, 1280, 16384]          [1, 1280, 8192]           --
+│    └─ConvBlock (1)                                                             [1, 1280, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1280, 8192]           [1, 1280, 8192]           (2,560)
+│    │    └─GELU (activation)                                                    [1, 1280, 8192]           [1, 1280, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1280, 8192]           [1, 1536, 8192]           71,183,360
+├─MaxPool1d (_max_pool)                                                          [1, 1536, 8192]           [1, 1536, 4096]           --
+├─ConvBlock (horizontal_conv0)                                                   [1, 1280, 16384]          [1, 1536, 16384]          --
+│    └─BatchNorm1d (norm)                                                        [1, 1280, 16384]          [1, 1280, 16384]          (2,560)
+│    └─GELU (activation)                                                         [1, 1280, 16384]          [1, 1280, 16384]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1280, 16384]          [1, 1536, 16384]          1,967,616
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 60]                   [1, 30, 1280]             9,951,232
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 60]                   [1, 1536, 30]             11,924,992
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 16384]          [1, 1536, 16384]          --
+├─ConvBlock (horizontal_conv1)                                                   [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─BatchNorm1d (norm)                                                        [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    └─GELU (activation)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1536, 8192]           [1, 1536, 8192]           2,360,832
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 60]                   [1, 30, 1536]             11,924,992
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 60]                   [1, 1536, 30]             11,924,992
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 8192]           [1, 1536, 8192]           --
+├─SequentialwithArgs (transformer)                                               [1, 4096, 1536]           [1, 4096, 1536]           --
+│    └─TransformerLayer (0)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (1)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (2)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (3)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (4)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (5)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (6)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+│    └─TransformerLayer (7)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,145,920
+├─SequentialwithArgs (upsampling_unet1)                                          [1, 1536, 4096]           [1, 1536, 8192]           --
+│    └─ConvBlock (0)                                                             [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 4096]           [1, 1536, 4096]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 4096]           [1, 1536, 4096]           26,210,816
+│    └─Upsample (1)                                                              [1, 1536, 4096]           [1, 1536, 8192]           --
+├─ConvBlock (separable1)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (norm)                                                           [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (activation)                                                     [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 8192]           [1, 1536, 8192]           12,035,162
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 8192]           [1, 1536, 8192]           10,420,736
+├─SequentialwithArgs (upsampling_unet0)                                          [1, 1536, 8192]           [1, 1536, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 8192]           [1, 1536, 8192]           26,210,816
+│    └─Upsample (1)                                                              [1, 1536, 8192]           [1, 1536, 16384]          --
+├─ConvBlock (separable0)                                                         [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (norm)                                                           [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (activation)                                                     [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 16384]          [1, 1536, 16384]          12,035,162
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 16384]          [1, 1536, 16384]          10,420,736
+├─SequentialwithArgs (final_joined_convs)                                        [1, 1536, 16384]          [1, 1920, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 16384]          [1, 1920, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 16384]          [1, 1536, 16384]          (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 16384]          [1, 1536, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 16384]          [1, 1920, 16384]          56,407,424
+│    └─Dropout (1)                                                               [1, 1920, 16384]          [1, 1920, 16384]          --
+│    └─GELU (2)                                                                  [1, 1920, 16384]          [1, 1920, 16384]          --
+├─TargetLengthCrop (crop)                                                        [1, 1920, 16384]          [1, 1920, 16352]          --
+├─OutputHead (final_output_head)                                                 [1, 1920, 16352]          [1, 1, 16352]             --
+│    └─ConditionalLoRAConv (0)                                                   [1, 1920, 16352]          [1, 1, 16352]             1,921
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 1, 1920]              575,872
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 1, 1]                 82,689
+│    │    └─Dropout (lora_dropout)                                               [1, 1, 16352]             [1, 1, 16352]             --
+│    └─Softplus (1)                                                              [1, 1, 16352]             [1, 1, 16352]             --
+===========================================================================================================================================================
+Total params: 1,189,177,183
+Trainable params: 1,011,818,015
+Non-trainable params: 177,359,168
+Total mult-adds (Units.GIGABYTES): 36.48
+===========================================================================================================================================================
+Input size (MB): 8.45
+Forward/backward pass size (MB): 2786.34
+Params size (MB): 4039.50
+Estimated Total Size (MB): 6834.30
+===========================================================================================================================================================
+Total model parameters 1189177183, trainable parameters 1011818015
+EMA is not used.
+Current epoch: 1, max epochs: 3.
+Get dataloader with train mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': 300, 'drop_last': True, 'batch_size': 4}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:27:10,662	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:27:10,663	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(ReverseComplement)-&gt;MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=208]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [4/50] Ave Loss: 0.904; Ave Corr: 0.342 Last grad norm: 59.7296 Last batch Loss: 0.997 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [9/50] Ave Loss: 0.799; Ave Corr: 0.429 Last grad norm: 2.4741 Last batch Loss: 0.818 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/large_storage/zhoulab/hanliu/pkg/liuhlab/bolero/.pixi/envs/dev/lib/python3.11/site-packages/torch/optim/lr_scheduler.py:232: UserWarning: The epoch parameter in `scheduler.step()` was not necessary and is being deprecated where possible. Please use `scheduler.step()` to step the scheduler. During the deprecation, if epoch is different from None, the closed form is used instead of the new chainable form, where available. Please open an issue if you are unable to replicate your use case: https://github.com/pytorch/pytorch/issues/new/choose.
+  warnings.warn(EPOCH_DEPRECATION_WARNING, UserWarning)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [14/50] Ave Loss: 0.790; Ave Corr: 0.440 Last grad norm: 1.0000 Last batch Loss: 1.225 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [19/50] Ave Loss: 0.761; Ave Corr: 0.478 Last grad norm: 0.4631 Last batch Loss: 0.904 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [24/50] Ave Loss: 0.737; Ave Corr: 0.473 Last grad norm: 0.6218 Last batch Loss: 0.228 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [29/50] Ave Loss: 0.747; Ave Corr: 0.540 Last grad norm: 0.4189 Last batch Loss: 1.123 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [34/50] Ave Loss: 0.743; Ave Corr: 0.567 Last grad norm: 0.4239 Last batch Loss: 0.362 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [39/50] Ave Loss: 0.721; Ave Corr: 0.571 Last grad norm: 0.1920 Last batch Loss: 0.247 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [44/50] Ave Loss: 0.718; Ave Corr: 0.572 Last grad norm: 2.9624 Last batch Loss: 0.829 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [49/50] Ave Loss: 0.719; Ave Corr: 0.594 Last grad norm: 0.3752 Last batch Loss: 0.736 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:28:23,054	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:28:23,055	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=132]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': None, 'drop_last': True, 'batch_size': 12}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 0 [4/10] Mean Loss: 0.177; Mean Track Corr: 0.761; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 0 [9/10] Mean Loss: 0.867; Mean Track Corr: 0.796; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training)   1 Loss: 0.708; Mean Corr. : 0.603; Learning rate 4.996001119891201e-05.
+ - (Validation) 1 Loss: 0.904; Mean Corr. : 0.795.
+Saving best checkpoint...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Current epoch: 2, max epochs: 3.
+Get dataloader with train mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:29:34,125	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:29:34,125	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(ReverseComplement)-&gt;MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=208]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': 300, 'drop_last': True, 'batch_size': 4}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [4/50] Ave Loss: 1.345; Ave Corr: 0.705 Last grad norm: 0.4607 Last batch Loss: 1.383 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [9/50] Ave Loss: 1.131; Ave Corr: 0.730 Last grad norm: 0.4595 Last batch Loss: 1.181 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [14/50] Ave Loss: 1.112; Ave Corr: 0.745 Last grad norm: 0.2796 Last batch Loss: 0.846 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [19/50] Ave Loss: 1.179; Ave Corr: 0.765 Last grad norm: 0.3771 Last batch Loss: 1.253 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [24/50] Ave Loss: 1.267; Ave Corr: 0.771 Last grad norm: 0.8018 Last batch Loss: 1.763 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [29/50] Ave Loss: 1.286; Ave Corr: 0.777 Last grad norm: 0.8005 Last batch Loss: 1.121 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [34/50] Ave Loss: 1.262; Ave Corr: 0.781 Last grad norm: 0.1984 Last batch Loss: 1.478 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [39/50] Ave Loss: 1.220; Ave Corr: 0.781 Last grad norm: 0.4207 Last batch Loss: 1.629 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [44/50] Ave Loss: 1.211; Ave Corr: 0.786 Last grad norm: 0.1720 Last batch Loss: 1.671 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 1 [49/50] Ave Loss: 1.223; Ave Corr: 0.788 Last grad norm: 0.5341 Last batch Loss: 1.004 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:30:44,417	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:30:44,417	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=132]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': None, 'drop_last': True, 'batch_size': 12}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-yellow-fg">(raylet)</span> [2026-07-13 11:31:28,634 E 2404099 2404099] (raylet) worker.cc:176: Failed to send wait complete: RpcError: RPC Error message: Socket closed; RPC Error details: 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 1 [4/10] Mean Loss: 0.517; Mean Track Corr: 0.781; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 1 [9/10] Mean Loss: 0.547; Mean Track Corr: 0.857; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training)   2 Loss: 1.229; Mean Corr. : 0.791; Learning rate 4.9908064012353764e-05.
+ - (Validation) 2 Loss: 0.519; Mean Corr. : 0.858.
+Saving best checkpoint...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Current epoch: 3, max epochs: 3.
+Get dataloader with train mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:32:01,307	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:32:01,308	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(ReverseComplement)-&gt;MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=208]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': 300, 'drop_last': True, 'batch_size': 4}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [4/50] Ave Loss: 0.415; Ave Corr: 0.838 Last grad norm: 0.1225 Last batch Loss: 0.047 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [9/50] Ave Loss: 0.345; Ave Corr: 0.843 Last grad norm: 0.2270 Last batch Loss: 0.357 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [14/50] Ave Loss: 0.303; Ave Corr: 0.853 Last grad norm: 0.0924 Last batch Loss: 0.401 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [19/50] Ave Loss: 0.331; Ave Corr: 0.823 Last grad norm: 0.1433 Last batch Loss: 0.049 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [24/50] Ave Loss: 0.306; Ave Corr: 0.813 Last grad norm: 0.0884 Last batch Loss: 0.350 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [29/50] Ave Loss: 0.359; Ave Corr: 0.768 Last grad norm: 0.3019 Last batch Loss: 1.441 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [34/50] Ave Loss: 0.356; Ave Corr: 0.762 Last grad norm: 0.1228 Last batch Loss: 0.219 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [39/50] Ave Loss: 0.363; Ave Corr: 0.777 Last grad norm: 0.1721 Last batch Loss: 0.777 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [44/50] Ave Loss: 0.376; Ave Corr: 0.781 Last grad norm: 0.2931 Last batch Loss: 0.089 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 2 [49/50] Ave Loss: 0.425; Ave Corr: 0.800 Last grad norm: 0.2538 Last batch Loss: 0.739 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:33:11,206	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:33:11,206	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=132]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': None, 'drop_last': True, 'batch_size': 12}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 2 [4/10] Mean Loss: 0.552; Mean Track Corr: 0.886; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 2 [9/10] Mean Loss: 0.624; Mean Track Corr: 0.868; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training)   3 Loss: 0.418; Mean Corr. : 0.797; Learning rate 4.9856160045506116e-05.
+ - (Validation) 3 Loss: 0.610; Mean Corr. : 0.869.
+Saving best checkpoint...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Load and update state dict from checkpoint file: /large_storage/zhoulab/hanliu/pkg/liuhlab/bolero/docs/tutorials/model_training/model/ChromiumPBMC-atac-signal-fold0.lora.best_checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:34:47,553	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-07-13_11-26-52_473225_2403210/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 11:34:47,554	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[ReadParquet-&gt;Filter(region_length_filter)-&gt;Map(CompressedBytesToTensor)] -&gt; ActorPoolMapOperator[FlatMap(GeneratePairedPseudobulk)] -&gt; ActorPoolMapOperator[FlatMap(GenerateRegions)] -&gt; ActorPoolMapOperator[MapBatches(MaskBlacklistAndClamp)] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; TaskPoolMapOperator[MapBatches(_region_to_global_coords)] -&gt; LimitOperator[limit=372]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'prefetch_batches': 3, 'local_shuffle_buffer_size': None, 'drop_last': True, 'batch_size': 12}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [4/10] Mean Loss: 1.188; Mean Track Corr: 0.872; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [9/10] Mean Loss: 1.591; Mean Track Corr: 0.839; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [14/10] Mean Loss: 1.114; Mean Track Corr: 0.838; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [19/10] Mean Loss: 1.002; Mean Track Corr: 0.850; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [24/10] Mean Loss: 1.270; Mean Track Corr: 0.845; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 3 [29/10] Mean Loss: 1.247; Mean Track Corr: 0.848; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run history:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                    train/learning_rate ▁▆████████████████████████████
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: train/train_corr_ChromiumPBMC.MetaCell ▁▂▂▃▃▄▄▄▄▄▆▆▇▇▇▇▇▇▇▇████▇▇▇▇▇▇
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                       train/train_loss ▅▄▆▄▂▅▂▂▄▄▆▆▄▆█▅▇▇█▅▁▂▂▁▂▇▂▄▁▄
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:           train/train_loss_multinomial ▄▄▅▄▂▅▂▂▄▄▆▆▄▆█▅▇▇█▅▁▂▂▁▂▇▂▄▁▄
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:               train/train_loss_poisson ▆▆▅▆█▄▇▇▅▅▂▃▅▄▁▃▂▂▁▄█▇▆█▇▃▇▅▇▅
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:            train/train_total_grad_norm █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     val/val_corr_ChromiumPBMC.MetaCell ▁▇█
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                           val/val_loss █▁▃
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:               val/val_loss_multinomial █▁▃
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                   val/val_loss_poisson ▁█▆
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run summary:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:              final_test_corr 0.84729
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:              final_test_loss 1.26526
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:  final_test_loss_multinomial 1.84384
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:      final_test_loss_poisson -1.77229
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:             final_valid_corr 0.86911
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:             final_valid_loss 0.61025
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: final_valid_loss_multinomial 0.88474
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     final_valid_loss_poisson -0.83082
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                      success True
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:          train/learning_rate 5e-05
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                           +9 ...
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: You can sync this run to the cloud by running:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-bold">wandb sync /large_storage/zhoulab/hanliu/pkg/liuhlab/bolero/docs/tutorials/model_training/wandb/offline-run-20260713_112657-erbg54ng</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Find logs at: <span class="ansi-magenta-intense-fg ansi-bold">./wandb/offline-run-20260713_112657-erbg54ng/logs</span>
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=461d2192">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="inspect-the-model">Inspect the model<a class="anchor-link" href="#inspect-the-model">¶</a></h2><p>Two objects are worth looking at: the <strong>frozen base backbone</strong> — the plain Flashzoi/Borzoi trunk
+that Bolero loads from <code>BASE_CHECKPOINT</code> and never updates — and the <strong>full Bolero model</strong> the
+trainer just built on top of it (the same trunk, with conditional-LoRA adapters swapped into its
+Linear/Conv layers, plus the output head and the signal model). Comparing the two shows where the
+<strong>trainable</strong> parameters actually live.</p>
+</div>
+</div>
+</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2ff18936">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b5487e31">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3045,13 +2955,31 @@ region: string
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># region -&gt; file lookup that powers random access</span>
-<span class="n">regions</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="n">root</span> <span class="o">/</span> <span class="s2">"parquet_row_regions.feather"</span><span class="p">)</span>
-<span class="n">regions</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">Borzoi</span><span class="p">,</span> <span class="n">model_summary</span>
+
+<span class="n">device</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">device</span>
+
+<span class="c1"># The frozen backbone on its own (~177M params): DNA stem -&gt; residual conv tower + U-net -&gt;</span>
+<span class="c1"># transformer -&gt; separable up-convs -&gt; the 1920-channel trunk. This standalone copy is not frozen</span>
+<span class="c1"># yet (torchinfo reports 0 non-trainable), but it is exactly the architecture BASE_CHECKPOINT</span>
+<span class="c1"># fills, and these ~177M weights are the slice Bolero holds frozen inside the full model below.</span>
+<span class="n">base_model</span> <span class="o">=</span> <span class="n">Borzoi</span><span class="o">.</span><span class="n">create_from_config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">model_summary</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7"># region -&gt; file lookup that powers random access
-regions = pd.read_feather(root / "parquet_row_regions.feather")
-regions.head()</div>
+<div class="clipboard-copy-txt" id="cell-7">import torch
+
+from bolero.tl.model.borzoi.model import Borzoi, model_summary
+
+device = trainer.device
+
+# The frozen backbone on its own (~177M params): DNA stem -&gt; residual conv tower + U-net -&gt;
+# transformer -&gt; separable up-convs -&gt; the 1920-channel trunk. This standalone copy is not frozen
+# yet (torchinfo reports 0 non-trainable), but it is exactly the architecture BASE_CHECKPOINT
+# fills, and these ~177M weights are the slice Bolero holds frozen inside the full model below.
+base_model = Borzoi.create_from_config(config).to(device)
+print(model_summary(base_model, depth=1))</div>
 </div>
 </div>
 </div>
@@ -3060,86 +2988,40 @@ regions.head()</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
-<div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-<thead>
-<tr style="text-align: right;">
-<th></th>
-<th>region</th>
-<th>parquet_file</th>
-<th>row_id_in_parquet</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<th>0</th>
-<td>chr4:108000000-108600000</td>
-<td>chr4/64_000036_000000.parquet</td>
-<td>0</td>
-</tr>
-<tr>
-<th>1</th>
-<td>chr4:108200000-108800000</td>
-<td>chr4/64_000036_000000.parquet</td>
-<td>1</td>
-</tr>
-<tr>
-<th>2</th>
-<td>chr4:108400000-109000000</td>
-<td>chr4/64_000036_000000.parquet</td>
-<td>2</td>
-</tr>
-<tr>
-<th>3</th>
-<td>chr4:108600000-109200000</td>
-<td>chr4/64_000036_000000.parquet</td>
-<td>3</td>
-</tr>
-<tr>
-<th>4</th>
-<td>chr4:108800000-109400000</td>
-<td>chr4/64_000036_000000.parquet</td>
-<td>4</td>
-</tr>
-</tbody>
-</table>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>=========================================================================================================
+Layer (type (var_name))                                                          Param #
+=========================================================================================================
+Borzoi (Borzoi)                                                                  --
+├─ConvDna (conv_dna)                                                             31,232
+├─MaxPool1d (_max_pool)                                                          --
+├─SequentialwithArgs (res_tower)                                                 18,592,672
+├─SequentialwithArgs (unet1)                                                     9,834,496
+├─SequentialwithArgs (transformer)                                               132,243,456
+├─ConvBlock (horizontal_conv0)                                                   1,970,176
+├─ConvBlock (horizontal_conv1)                                                   2,363,904
+├─Upsample (upsample)                                                            --
+├─SequentialwithArgs (upsampling_unet1)                                          2,363,904
+├─ConvBlock (separable1)                                                         2,365,440
+├─SequentialwithArgs (upsampling_unet0)                                          2,363,904
+├─ConvBlock (separable0)                                                         2,365,440
+├─TargetLengthCrop (crop)                                                        --
+├─SequentialwithArgs (final_joined_convs)                                        2,954,112
+=========================================================================================================
+Total params: 177,448,736
+Trainable params: 177,448,736
+Non-trainable params: 0
+=========================================================================================================
+</pre>
 </div>
 </div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=43aa7e15">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="demo-1-decode-one-meta-region-into-a-matrix">Demo 1 — Decode one meta-region into a matrix<a class="anchor-link" href="#demo-1-decode-one-meta-region-into-a-matrix">¶</a></h2><p>At the lowest level, reading the dataset means decompressing the four CSR arrays of a row and
-rebuilding the sparse matrix. <code>bolero.tl.dataset.sc_transforms.compressed_bytes_to_array</code> is the
-one-line helper (<code>np.frombuffer(gzip.decompress(b), dtype)</code>); the data loader uses exactly this.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a495fa93">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=50d2c66d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3157,41 +3039,15 @@ one-line helper (<code>np.frombuffer(gzip.decompress(b), dtype)</code>); the dat
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">table</span> <span class="o">=</span> <span class="n">pq</span><span class="o">.</span><span class="n">read_table</span><span class="p">(</span><span class="n">example_file</span><span class="p">)</span>
-
-<span class="c1"># pick the first meta-region that actually has coverage (telomeric windows are empty)</span>
-<span class="n">row_i</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span>
-    <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">table</span><span class="o">.</span><span class="n">num_rows</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">table</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:data+float32"</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">as_py</span><span class="p">(),</span> <span class="s2">"float32"</span><span class="p">)</span><span class="o">.</span><span class="n">size</span>
-<span class="p">)</span>
-<span class="n">row</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="n">row_i</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to_pydict</span><span class="p">()</span>
-
-<span class="n">indices</span> <span class="o">=</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:indices+uint32"</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"uint32"</span><span class="p">)</span>
-<span class="n">indptr</span> <span class="o">=</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:indptr+uint32"</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"uint32"</span><span class="p">)</span>
-<span class="n">data</span> <span class="o">=</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:data+float32"</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"float32"</span><span class="p">)</span>
-<span class="n">shape</span> <span class="o">=</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:shape+uint32"</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"uint32"</span><span class="p">)</span>
-
-<span class="n">mat</span> <span class="o">=</span> <span class="n">csr_matrix</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">indptr</span><span class="p">),</span> <span class="n">shape</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">shape</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">row</span><span class="p">[</span><span class="s1">'region'</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> -&gt; </span><span class="si">{</span><span class="n">mat</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">mat</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">mat</span><span class="o">.</span><span class="n">nnz</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> nonzero entries"</span><span class="p">)</span>
-<span class="c1"># rows = metacells (row_names order); columns = 32 bp bins (18750 = 600000 / 32)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># The full model. On one GPU it is the module itself; multi-GPU training would wrap it in</span>
+<span class="c1"># DataParallel, so unwrap defensively.</span>
+<span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">model_summary</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">table = pq.read_table(example_file)
-
-# pick the first meta-region that actually has coverage (telomeric windows are empty)
-row_i = next(
-    i for i in range(table.num_rows)
-    if compressed_bytes_to_array(table[f"{PREFIX}:data+float32"][i].as_py(), "float32").size
-)
-row = table.slice(row_i, 1).to_pydict()
-
-indices = compressed_bytes_to_array(row[f"{PREFIX}:indices+uint32"][0], "uint32")
-indptr = compressed_bytes_to_array(row[f"{PREFIX}:indptr+uint32"][0], "uint32")
-data = compressed_bytes_to_array(row[f"{PREFIX}:data+float32"][0], "float32")
-shape = compressed_bytes_to_array(row[f"{PREFIX}:shape+uint32"][0], "uint32")
-
-mat = csr_matrix((data, indices, indptr), shape=tuple(shape))
-print(f"{row['region'][0]} -&gt; {mat.shape} {mat.dtype}, {mat.nnz:,} nonzero entries")
-# rows = metacells (row_names order); columns = 32 bp bins (18750 = 600000 / 32)</div>
+<div class="clipboard-copy-txt" id="cell-8"># The full model. On one GPU it is the module itself; multi-GPU training would wrap it in
+# DataParallel, so unwrap defensively.
+model = getattr(trainer.model, "module", trainer.model)
+print(model_summary(model, depth=1))</div>
 </div>
 </div>
 </div>
@@ -3203,29 +3059,38 @@ print(f"{row['region'][0]} -&gt; {mat.shape} {mat.dtype}, {mat.nnz:,} nonzero en
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>chr1:97200000-97800000 -&gt; (619, 18750) float32, 76,355 nonzero entries
+<pre>=========================================================================================================
+Layer (type (var_name))                                                          Param #
+=========================================================================================================
+BorzoiLoRA (BorzoiLoRA)                                                          81,665
+├─ConvDna (conv_dna)                                                             4,606,216
+├─SequentialwithArgs (res_tower)                                                 201,496,352
+├─Sequential (signal_encoder)                                                    2,168,832
+├─SequentialwithArgs (unet1)                                                     71,185,920
+├─MaxPool1d (_max_pool)                                                          --
+├─ConvBlock (horizontal_conv0)                                                   23,846,400
+├─ConvBlock (horizontal_conv1)                                                   26,213,888
+├─SequentialwithArgs (transformer)                                               705,167,360
+├─SequentialwithArgs (upsampling_unet1)                                          26,213,888
+├─ConvBlock (separable1)                                                         22,455,898
+├─SequentialwithArgs (upsampling_unet0)                                          26,213,888
+├─ConvBlock (separable0)                                                         22,455,898
+├─SequentialwithArgs (final_joined_convs)                                        56,410,496
+├─TargetLengthCrop (crop)                                                        --
+├─OutputHead (final_output_head)                                                 660,482
+=========================================================================================================
+Total params: 1,189,177,183
+Trainable params: 1,011,818,015
+Non-trainable params: 177,359,168
+=========================================================================================================
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9681e804">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="demo-2-random-access-with-genomeparquetdb">Demo 2 — Random access with <code>GenomeParquetDB</code><a class="anchor-link" href="#demo-2-random-access-with-genomeparquetdb">¶</a></h2><p>You rarely decode rows by hand. <code>GenomeParquetDB</code> wraps the parquet_db with a DuckDB region index:
-give it any genomic region and it finds the right file(s), decompresses, and slices out the exact
-window at the dataset's resolution. <code>iter_batches</code> yields dense metacell × bin arrays — the shape
-Bolero's data loader (<code>bolero.tl.dataset.ray_dataset.RayGenomeChunkDataset</code>) feeds to the model.</p>
-</div>
-</div>
-</div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=467cffc2">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=eb85e05d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3243,33 +3108,45 @@ Bolero's data loader (<code>bolero.tl.dataset.ray_dataset.RayGenomeChunkDataset<
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">db</span> <span class="o">=</span> <span class="n">GenomeParquetDB</span><span class="p">(</span><span class="n">dataset_dir</span><span class="o">=</span><span class="n">PARQUET_DIR</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Walk the top-level components and split each into total vs. trainable parameters. The backbone</span>
+<span class="c1"># modules carry a large frozen weight plus a small conditional-LoRA adapter (the trainable part);</span>
+<span class="c1"># the heads are fully trainable.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">count_params</span><span class="p">(</span><span class="n">module</span><span class="p">):</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span>
+    <span class="n">trainable</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">module</span><span class="o">.</span><span class="n">parameters</span><span class="p">()</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">total</span><span class="p">,</span> <span class="n">trainable</span>
 
-<span class="c1"># a 100 kb window inside a region we know is covered (reuse the one found above)</span>
-<span class="n">chrom</span><span class="p">,</span> <span class="n">span</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s2">"region"</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">":"</span><span class="p">)</span>
-<span class="n">start</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">span</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"-"</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="mi">100_000</span>
-<span class="n">region</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">chrom</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">start</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">100_000</span><span class="si">}</span><span class="s2">"</span>
 
-<span class="n">result</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">query_regions</span><span class="p">([</span><span class="n">region</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">coverage</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="n">PREFIX</span><span class="p">]</span>                     <span class="c1"># CSR: metacells x bins for this window</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">region</span><span class="p">,</span> <span class="s2">"-&gt;"</span><span class="p">,</span> <span class="n">coverage</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="mi">100_000</span><span class="si">}</span><span class="s2"> bp / </span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="mi">100_000</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> bins)"</span><span class="p">)</span>
-
-<span class="n">batch</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">iter_batches</span><span class="p">([</span><span class="n">region</span><span class="p">],</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">({</span><span class="n">k</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">batch</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">"region"</span><span class="p">})</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'component'</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'class'</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'params'</span><span class="si">:</span><span class="s2">&gt;14s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">'trainable'</span><span class="si">:</span><span class="s2">&gt;13s</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">78</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
+    <span class="n">total</span><span class="p">,</span> <span class="n">trainable</span> <span class="o">=</span> <span class="n">count_params</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">total</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">continue</span>   <span class="c1"># e.g. the crop layer holds no parameters</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">total</span><span class="si">:</span><span class="s2">14,d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainable</span><span class="si">:</span><span class="s2">13,d</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">78</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'TOTAL'</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">''</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">total_params</span><span class="si">:</span><span class="s2">14,d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainable_params</span><span class="si">:</span><span class="s2">13,d</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">trainable fraction: </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainable_params</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">trainer</span><span class="o">.</span><span class="n">total_params</span><span class="si">:</span><span class="s2">.2%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">db = GenomeParquetDB(dataset_dir=PARQUET_DIR)
+<div class="clipboard-copy-txt" id="cell-9"># Walk the top-level components and split each into total vs. trainable parameters. The backbone
+# modules carry a large frozen weight plus a small conditional-LoRA adapter (the trainable part);
+# the heads are fully trainable.
+def count_params(module):
+    total = sum(p.numel() for p in module.parameters())
+    trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+    return total, trainable
 
-# a 100 kb window inside a region we know is covered (reuse the one found above)
-chrom, span = row["region"][0].split(":")
-start = int(span.split("-")[0]) + 100_000
-region = f"{chrom}:{start}-{start + 100_000}"
 
-result = db.query_regions([region])[0]
-coverage = result[PREFIX]                     # CSR: metacells x bins for this window
-print(region, "-&gt;", coverage.shape, f"({100_000} bp / {RESOLUTION} = {100_000 // RESOLUTION} bins)")
-
-batch = next(db.iter_batches([region], batch_size=1))
-print({k: np.asarray(v).shape for k, v in batch.items() if k != "region"})</div>
+print(f"{'component':22s} {'class':26s} {'params':&gt;14s} {'trainable':&gt;13s}")
+print("-" * 78)
+for name, child in model.named_children():
+    total, trainable = count_params(child)
+    if total == 0:
+        continue   # e.g. the crop layer holds no parameters
+    print(f"{name:22s} {type(child).__name__:26s} {total:14,d} {trainable:13,d}")
+print("-" * 78)
+print(f"{'TOTAL':22s} {'':26s} {trainer.total_params:14,d} {trainer.trainable_params:13,d}")
+print(f"\ntrainable fraction: {trainer.trainable_params / trainer.total_params:.2%}")</div>
 </div>
 </div>
 </div>
@@ -3281,8 +3158,26 @@ print({k: np.asarray(v).shape for k, v in batch.items() if k != "region"})</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>chr1:97300000-97400000 -&gt; (619, 3125) (100000 bp / 32 = 3125 bins)
-{'ChromiumPBMC.MetaCell': (1, 619, 3125)}
+<pre>component              class                              params     trainable
+------------------------------------------------------------------------------
+conv_dna               ConvDna                         4,606,216     4,575,496
+res_tower              SequentialwithArgs            201,496,352   182,908,256
+unet1                  SequentialwithArgs             71,185,920    61,352,960
+transformer            SequentialwithArgs            705,167,360   572,997,632
+horizontal_conv0       ConvBlock                      23,846,400    21,877,760
+horizontal_conv1       ConvBlock                      26,213,888    23,851,520
+upsampling_unet1       SequentialwithArgs             26,213,888    23,851,520
+separable1             ConvBlock                      22,455,898    20,091,994
+upsampling_unet0       SequentialwithArgs             26,213,888    23,851,520
+separable0             ConvBlock                      22,455,898    20,091,994
+final_joined_convs     SequentialwithArgs             56,410,496    53,458,304
+final_output_head      OutputHead                        660,482       658,562
+signal_encoder         Sequential                      2,168,832     2,168,832
+cond_emb_module        ConditionEmbeddingModuleNoEffect         81,665        81,665
+------------------------------------------------------------------------------
+TOTAL                                              1,189,177,183 1,011,818,015
+
+trainable fraction: 85.09%
 </pre>
 </div>
 </div>
@@ -3290,30 +3185,85 @@ print({k: np.asarray(v).shape for k, v in batch.items() if k != "region"})</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4ea30d6d">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2e554d89">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="housekeeping">Housekeeping<a class="anchor-link" href="#housekeeping">¶</a></h2><p><code>ChromiumPBMC_csc_dataset/</code> is only an intermediate — the parquet dataset is self-contained, so the
-CSC store can be deleted once you're satisfied with the build. This notebook leaves it in place;
-remove it manually when you no longer need it, e.g. <code>shutil.rmtree(CSC_DIR)</code>.</p>
+<p>Reading the table top to bottom follows a sequence through the model:</p>
+<ul>
+<li><strong><code>conv_dna</code></strong> — the DNA stem: one-hot 524,288 bp in, first convolutional features out.</li>
+<li><strong><code>res_tower</code>, <code>unet1</code>, <code>horizontal_conv0/1</code></strong> — the residual convolution tower and U-net that
+downsample the sequence to the 32 bp bin grid while building a multi-scale representation.</li>
+<li><strong><code>transformer</code></strong> — the 8 flash-attention layers, the largest block in the network. In the base
+backbone it is ~132M params; in the full model it reports <strong>~705M</strong>, because the conditional-LoRA
+<strong>generators</strong> that produce its per-layer adapter weights are nested inside it. Its trainable
+count (~573M) is those generators; the ~132M base attention / MLP weights are the frozen remainder.</li>
+<li><strong><code>separable1</code>, <code>separable0</code>, <code>upsampling_unet0/1</code>, <code>final_joined_convs</code></strong> — separable
+up-convolutions that return to the 16,384-bin output grid, ending in the shared <strong>1920-channel</strong>
+trunk. (<code>crop</code> carries no parameters and is skipped.)</li>
+<li><strong><code>final_output_head</code></strong> — the count / accessibility head (softplus); fully trainable.</li>
+<li><strong><code>signal_encoder</code>, <code>cond_emb_module</code></strong> — the signal model, present because <code>signal_model=True</code>.
+<code>cond_emb_module</code> turns the paired pseudobulk embedding (and any conditions) into the vector every
+adapter generator reads; both are fully trainable. With no conditions, ChromiumPBMC's is a
+<code>...NoEffect</code> module.</li>
+</ul>
+<p>The contrast between the two summaries is the point. The <strong>frozen</strong> part is the ~177M-parameter base
+backbone — the <code>Non-trainable params</code> line in the full summary. Everything else — the
+conditional-LoRA generator MLPs nested inside each backbone module, plus the heads and the signal
+model — is <strong>trainable</strong>, and it is <em>not</em> small: adding it takes the model from <strong>~177M to ~1.19B</strong>
+parameters, so <strong>~85%</strong> of the full network is trained. Bolero's conditional LoRA is a genuine
+hypernetwork that regenerates the frozen backbone's effective weights for each cell state, not a thin
+low-rank patch bolted on top.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7f8ec621">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=46d69697">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="the-production-configuration">The production configuration<a class="anchor-link" href="#the-production-configuration">¶</a></h2><p>The single-dataset run behind the paper is the <strong>same config with the four demo overrides removed</strong>
+— i.e. the full number of batches per epoch, over more epochs. Concretely:</p>
+<div class="highlight"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># ... identical identity / data / model keys as above ...</span>
+    <span class="s2">"signal_model"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>        <span class="c1"># the four quick-demo lines below are simply dropped:</span>
+    <span class="c1"># "warmup_steps": 500,   #   trainer default  (demo used 10)</span>
+    <span class="c1"># "train_batches": 5000, #   trainer default  (demo used 50)</span>
+    <span class="c1"># "val_batches": 300,    #   trainer default  (demo used 10)</span>
+<span class="p">}</span>
+</pre></div>
+<p>Leaving <code>warmup_steps</code>, <code>train_batches</code>, and <code>val_batches</code> unset lets them fall back to their
+defaults (<strong>500 / 5000 / 300</strong>). At those settings each epoch takes <strong>~50 min on an H100 80 GB
+GPU</strong>, so a full <strong>20-epoch</strong> run is roughly <strong>~17 hours</strong>. At the default <code>batch_size</code> of 4 the
+model peaks at <strong>~57 GB of GPU memory</strong>, so it fits comfortably on an 80 GB H100 — lower <code>batch_size</code>
+if you have less. Everything else — learning rate, the count head, the signal model — is unchanged
+from the demo.</p>
+<p>For real runs, drop the <code>WANDB_MODE="offline"</code> line from the setup cell (or set it to <code>"online"</code>)
+and log to your own W&amp;B project to track the training and validation curves.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e9b610e5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <hr/>
-<p><code>ChromiumPBMC-MetaCell-32bp/</code> now holds Bolero's base-resolution training signal for this dataset:
-a metacell × 32 bp coverage matrix for every genomic window, random-accessible by region. This
-random-access layer is exactly what the training and inference data loaders
-(<code>RayGenomeChunkDataset</code>, <code>GenericGenomeDataManager</code>) are built on.</p>
+<p>You now have a trained, cell-state–conditioned Bolero model for <strong>ChromiumPBMC</strong> under <code>model/</code>:
+the frozen Flashzoi backbone plus conditional-LoRA adapters and the accessibility head, fit on the
+pseudobulks built in the previous section — the whole training loop on a single dataset.</p>
+<p>The paper's final model scales this same recipe to the <strong>entire Bolero-10M corpus</strong>. The next two
+pages show that multi-dataset training and what changes at scale: joint training across dozens of
+datasets and several genomes with per-dataset conditioning
+(<a href="07_train_multi_dataset_atac.ipynb">multi-dataset ATAC</a>), then adding the <strong>gene-expression</strong> task
+on top (<a href="08_train_multi_dataset_gene.ipynb">+ gene</a>).</p>
 </div>
 </div>
 </div>

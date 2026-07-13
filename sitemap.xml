@@ -24,4 +24,20 @@
          <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/</loc>
          <lastmod>2026-07-13</lastmod>
     </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/model_training/06_train_borzoi_lora/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/model_training/07_train_multi_dataset_atac/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/model_training/08_train_multi_dataset_gene/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
 </urlset>
