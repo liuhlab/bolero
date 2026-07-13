@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 
 from bolero.pp.genome import FastaOneHotNoParallel
-from bolero.tl.topic.region_embedding import RegionEmbedder
 
 
 class CropRegionsWithJitter:
@@ -270,54 +269,6 @@ class ReverseComplementMinusStrand:
             data[k] = np.stack(flip_data_col[k])
         data["is_reverse_comp"] = is_reverse_comp
         return data
-
-
-class BatchRegionEmbedding:
-    """Embed the region information in the data dictionary."""
-
-    def __init__(
-        self,
-        embedding: np.ndarray,
-        region_key: str = "region",
-    ) -> None:
-        """
-        Initialize the BatchRegionEmbedding transform.
-
-        Parameters
-        ----------
-        embedding : np.ndarray
-            The embedding array.
-        region_key : str, optional
-            The key to access the region information in the data dictionary. Defaults to "region".
-        pop_region_key : bool, optional
-            Whether to remove the region key from the data dictionary after embedding. Defaults to True.
-        """
-        embedding = embedding.copy().astype(np.float32)
-        self.embedder = RegionEmbedder()
-        self.embedder.add_predefined_embedding(embedding)
-        self.region_key = region_key
-
-    def __call__(self, data_dict: dict) -> dict:
-        """
-        Apply the BatchRegionEmbedding transform to the input data.
-
-        Parameters
-        ----------
-        data_dict : dict
-            The input data dictionary.
-
-        Returns
-        -------
-        dict
-            The modified data dictionary with the region embedding added.
-        """
-        regions = data_dict[self.region_key]
-        if isinstance(regions, str):
-            regions = pd.Index([regions])
-        data_dict["region_embedding"] = np.array(
-            self.embedder(regions, predefined=True)
-        )
-        return data_dict
 
 
 class AddChannels:
