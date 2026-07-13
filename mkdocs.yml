@@ -21,3 +21,6 @@ nav:
   - Embedding & Meta Cell:
       - Cell embedding: tutorials/embedding_and_meta_cell/01_cell_embedding.ipynb
       - Meta cells: tutorials/embedding_and_meta_cell/02_meta_cell.ipynb
+  - Meta Cell AnnData & Parquet:
+      - Meta cell AnnData: tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata.ipynb
+      - Parquet dataset: tutorials/meta_cell_adata_and_parquet/04_parquet_dataset.ipynb
