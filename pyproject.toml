@@ -208,6 +208,9 @@ torchvision = { version = "*", build = "cuda*" }
 flash-attn = "*"
 triton = "*"
 cuda-cudart-dev = "*"
+# GPU array/sparse backend for the chromVAR AP-1 deviations (tl/chromvar); the
+# build is selected against the cuda-version pin above.
+cupy = "*"
 
 # Bioinformatics / system tools (bioconda)
 bedtools = "*"
