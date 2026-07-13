@@ -36,7 +36,7 @@ jobs:
       # checkout need to be first
       - uses: actions/checkout@v4
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@v0.10.0
         with:
           environments: dev
           cache: true

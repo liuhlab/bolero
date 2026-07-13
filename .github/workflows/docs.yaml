@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0 # gh-deploy needs history to update the gh-pages branch
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@v0.10.0
         with:
           environments: docs
           cache: true
