@@ -31,6 +31,10 @@ jobs:
     env:
       OS: ${{ matrix.os }}
       PYTHON: ${{ matrix.python }}
+      # Mock the CUDA virtual package so the CUDA-pinned env installs on the
+      # GPU-less runner. Must be job-level so setup-pixi's `pixi install` sees it
+      # (not just the later Test step). The flash-attn tests skip without a GPU.
+      CONDA_OVERRIDE_CUDA: "12.1"
 
     steps:
       # checkout need to be first
@@ -46,7 +50,6 @@ jobs:
           MPLBACKEND: agg
           PLATFORM: ${{ matrix.os }}
           DISPLAY: :42
-          CONDA_OVERRIDE_CUDA: "12.1" # install CUDA-pinned env on the GPU-less runner
         run: pixi run -e dev coverage run -m pytest -v --color=yes
 
       - name: Report coverage
