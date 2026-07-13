@@ -30,15 +30,25 @@ cd bolero
 From the repo root:
 
 ```bash
-pixi install            # runtime environment
+pixi install            # default runtime environment (full GPU stack)
 ```
 
-This downloads all pinned packages and installs `bolero`. To also get the
-development tools (tests, docs, linting, notebooks), use the `dev` environment:
+This resolves and installs every pinned dependency — PyTorch + CUDA, Ray,
+flash-attn, scvi-tools — plus `bolero` itself. Two companion packages are pulled
+straight from **git** during this step, so you need network/git access:
 
-```bash
-pixi install -e dev
-```
+- [`bolerodata`](https://github.com/liuhlab/bolerodata) — the dataset / model-zoo
+  registry that maps short keys to on-disk artifacts in the lab data lake.
+- [`SEACells`](https://github.com/liuhlab/SEACells_pixi) — a lightly-repinned fork
+  used for metacell construction (CPU).
+
+The project defines three environments; install whichever you need:
+
+| Environment | Install | Contents |
+| --- | --- | --- |
+| `default` | `pixi install` | runtime: full GPU stack (torch + CUDA, Ray, flash-attn) |
+| `dev` | `pixi install -e dev` | adds tests, linting, notebooks, JupyterLab |
+| `docs` | `pixi install -e docs` | lightweight, **CUDA-free** — builds the docs site only |
 
 ## 4. Run bolero
 
