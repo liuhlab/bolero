@@ -1,3 +1,11 @@
+"""Build AlphaFold3 inputs, run inference, and read back AF3 result bundles.
+
+Workflow: assemble an :class:`AF3Input` (proteins with cached MSA/templates, DNA,
+ligands), run it with :meth:`AF3Input.infer` (which drives :class:`AF3Runner` over a
+Singularity image, data-pipeline-free), then load the compact result with
+:class:`AF3ResultMinimum` (or :class:`AF3Result` for a full AF3 output directory).
+"""
+
 import itertools
 import json
 import pathlib
@@ -5,6 +13,7 @@ import re
 import string
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from itertools import combinations, combinations_with_replacement
 
 import joblib
@@ -13,6 +22,8 @@ import pandas as pd
 
 from .code import converter
 from .mmcif import mmCIFStructure
+
+StrPath = str | pathlib.Path
 
 _LOCAL_DEFAULT = {
     "af3_code_dir": "/large_storage/zhoulab/hanliu/wmb/ref/af3/alphafold3/",
@@ -26,16 +37,18 @@ _LOCAL_DEFAULT = {
 }
 
 
-def _json_load(path):
+def _json_load(path: StrPath) -> dict:
     with open(path) as f:
         data = json.load(f)
     return data
 
 
-def get_chain_interval(chain_ids):
+def get_chain_interval(chain_ids: list[str]) -> dict[str, tuple[int, int]]:
     """
-    Get start end interval for a list of chain name.
-    e.g., ["A", "A", "A", "A", "B", "B", "B"]
+    Get the (start, end) index interval spanned by each chain in a token list.
+
+    Chains are assumed contiguous, e.g. ``["A", "A", "A", "B", "B"]`` ->
+    ``{"A": (0, 3), "B": (3, 5)}``.
     """
     arr = np.array(chain_ids)
     change_indices = (
@@ -46,15 +59,22 @@ def get_chain_interval(chain_ids):
         change_indices, len(arr)
     )  # Last segment ends at the last index
     intervals = {
-        arr[start]: (start, end) for start, end in zip(start_indices, end_indices)
+        str(arr[start]): (int(start), int(end))
+        for start, end in zip(start_indices, end_indices)
     }
     return intervals
 
 
 class AF3Result:
-    """AlphaFold3 result object"""
+    """
+    Read-access to a full AlphaFold3 output directory.
 
-    def __init__(self, output_dir, chain_idmap=None):
+    Wraps the ``*_summary_confidences.json``, ``*_confidences.json``, ``*_data.json``
+    and ``*_model.cif`` files produced by one AF3 run. ``chain_idmap`` optionally maps
+    chain IDs back to source identifiers (gene/protein IDs, sequences, ligand codes).
+    """
+
+    def __init__(self, output_dir: StrPath, chain_idmap: dict | None = None) -> None:
         self.output_dir = pathlib.Path(output_dir)
         self.run_name = self._get_run_name()
 
@@ -69,7 +89,7 @@ class AF3Result:
         self.converter = converter
         self.chain_idmap = chain_idmap if chain_idmap is not None else {}
 
-    def _get_run_name(self):
+    def _get_run_name(self) -> str:
         _input_jsons = list(self.output_dir.glob("*_data.json"))
         assert (
             len(_input_jsons) == 1
@@ -93,21 +113,21 @@ class AF3Result:
     def _model_path(self):
         return self.output_dir / f"{self.run_name}_model.cif"
 
-    def _load_data(self):
+    def _load_data(self) -> tuple[dict, dict]:
         summary_data = _json_load(self._summary_confidences_path)
         confidences_data = _json_load(self._confidences_path)
         return summary_data, confidences_data
 
     @property
-    def input_data(self):
-        """Input data."""
+    def input_data(self) -> "AF3Input":
+        """The :class:`AF3Input` reconstructed from the run's ``*_data.json``."""
         if self._input_data is None:
             self._input_data = AF3Input.load(self._input_data_path)
         return self._input_data
 
     @property
-    def atom_plddts(self):
-        """Atom pLDDT."""
+    def atom_plddts(self) -> dict:
+        """Per-chain array of atom pLDDT values."""
         confidences_data = self.confidences_data
 
         atom_df = pd.DataFrame(
@@ -120,37 +140,38 @@ class AF3Result:
         return atom_plddts
 
     @property
-    def atom_table(self):
-        """Atom table."""
+    def atom_table(self) -> pd.DataFrame:
+        """Per-atom table from the model structure."""
         return self.structure.atom_table
 
-    def get_residue_ave_plddts(self):
-        """Get residue atom average pLDDT."""
+    def get_residue_ave_plddts(self) -> pd.DataFrame:
+        """Get per-residue pLDDT averaged over the residue's atoms."""
         return self.structure.get_residue_ave_plddts()
 
-    def get_residue_ca_plddts(self):
-        """Get residue alpha carbon (CA) pLDDT."""
+    def get_residue_ca_plddts(self) -> pd.DataFrame:
+        """Get per-residue pLDDT taken from the alpha-carbon (CA) atom."""
         return self.structure.get_residue_ca_plddts()
 
     @property
-    def contact_probs(self):
-        """Contact probabilities."""
+    def contact_probs(self) -> np.ndarray:
+        """Token-by-token contact probability matrix (symmetrized, float16)."""
         if self._contact_probs is None:
             data = np.array(self.confidences_data["contact_probs"])
             self._contact_probs = ((data + data.T) / 2).astype("float16")
         return self._contact_probs
 
     @property
-    def pae(self):
-        """Predicted alignment error (PAE)."""
+    def pae(self) -> np.ndarray:
+        """Token-by-token predicted alignment error (symmetrized, float16)."""
         if self._pae is None:
             data = np.array(self.confidences_data["pae"])
-            self._pae = ((data + data.T) / 2).astype("float16")
+            # integer average, matching AF3ResultMinimum.pae
+            self._pae = ((data + data.T) // 2).astype("float16")
         return self._pae
 
     @property
-    def chain_intervals(self):
-        """Chain intervals."""
+    def chain_intervals(self) -> dict[str, tuple[int, int]]:
+        """Map each chain name to its (start, end) token interval."""
         if self._chain_intervals is None:
             self._chain_intervals = get_chain_interval(
                 self.confidences_data["token_chain_ids"]
@@ -158,62 +179,61 @@ class AF3Result:
         return self._chain_intervals
 
     @property
-    def chain_names(self):
+    def chain_names(self) -> list[str]:
         """List of chain names."""
         return list(self.chain_intervals.keys())
 
-    def _get_chain_pair_contact_probs(self, chain1, chain2):
-        start1, end1 = self.chain_intervals[chain1]
-        start2, end2 = self.chain_intervals[chain2]
-        return self.contact_probs[start1:end1, start2:end2].copy()
-
-    def _get_chain_pair_pae(self, chain1, chain2):
-        start1, end1 = self.chain_intervals[chain1]
-        start2, end2 = self.chain_intervals[chain2]
-        return self.pae[start1:end1, start2:end2].copy()
-
-    def _get_chain_pairs(self, replace=False):
+    def _get_chain_pairs(self, replace: bool = False) -> list[tuple[str, str]]:
         if replace:
             return list(combinations_with_replacement(self.chain_names, 2))
         else:
             return list(combinations(self.chain_names, 2))
 
-    def get_pairwise_contact_probs(self, self_pair=False):
-        """Get chain pair contact probabilities."""
-        pairs = self._get_chain_pairs(replace=self_pair)
-        contact_probs = {
-            pair: self._get_chain_pair_contact_probs(*pair) for pair in pairs
-        }
-        return contact_probs
+    def _get_pairwise(
+        self, matrix: np.ndarray, self_pair: bool
+    ) -> dict[tuple[str, str], np.ndarray]:
+        """Slice ``matrix`` into a per-chain-pair sub-matrix dict."""
+        pairwise = {}
+        for chain1, chain2 in self._get_chain_pairs(replace=self_pair):
+            start1, end1 = self.chain_intervals[chain1]
+            start2, end2 = self.chain_intervals[chain2]
+            pairwise[chain1, chain2] = matrix[start1:end1, start2:end2].copy()
+        return pairwise
 
-    def get_pairwise_pae(self, self_pair=False):
-        """Get chain pair predicted alignment error (PAE)."""
-        pairs = self._get_chain_pairs(replace=self_pair)
-        pae = {pair: self._get_chain_pair_pae(*pair) for pair in pairs}
-        return pae
+    def get_pairwise_contact_probs(
+        self, self_pair: bool = False
+    ) -> dict[tuple[str, str], np.ndarray]:
+        """Contact-probability sub-matrix for each chain pair (keyed by chain pair)."""
+        return self._get_pairwise(self.contact_probs, self_pair)
+
+    def get_pairwise_pae(
+        self, self_pair: bool = False
+    ) -> dict[tuple[str, str], np.ndarray]:
+        """PAE sub-matrix for each chain pair (keyed by chain pair)."""
+        return self._get_pairwise(self.pae, self_pair)
 
     @property
-    def structure(self):
-        """The structure object."""
+    def structure(self) -> mmCIFStructure:
+        """The parsed mmCIF structure object."""
         if self._structure is None:
             self._structure = mmCIFStructure(self._model_path)
         return self._structure
 
     @property
-    def num_atoms(self):
+    def num_atoms(self) -> int:
         """Number of atoms."""
         return len(self.confidences_data["atom_plddts"])
 
     @property
-    def num_tokens(self):
-        """Number of residues."""
+    def num_tokens(self) -> int:
+        """Number of tokens (residues / nucleotides)."""
         return len(self.confidences_data["token_res_ids"])
 
     def view(self, **kwargs):
-        """View the structure."""
+        """View the structure (see :meth:`mmCIFStructure.view`)."""
         return self.structure.view(**kwargs)
 
-    def get_minimum_results(self):
+    def get_minimum_results(self) -> dict:
         """
         Get minimum results and save in a single dict.
 
@@ -245,8 +265,9 @@ class AF3Result:
         chains = chain_size.index
         chain_seqs = {}
         for chain in chains:
-            chain_seq = plddt.loc[plddt["chain"] == chain, "residue_name"]
-            chain_seq = "".join(self.converter.triple_to_single(chain_seq).tolist())
+            chain_res = np.asarray(plddt.loc[plddt["chain"] == chain, "residue_name"])
+            single = self.converter.triple_to_single(chain_res)
+            chain_seq = "".join(np.asarray(single).tolist())
             if len(chain_seq) == 0:
                 # dna chain, use ave_plddt to get the sequence
                 chain_seq = ave_plddt.loc[
@@ -275,20 +296,28 @@ class AF3Result:
 
 
 class AF3ResultMinimum(AF3Result):
-    def __init__(self, minimum_path):
+    """
+    Load the compact result bundle written by :meth:`AF3Input.infer`.
+
+    Reads a single joblib dict (as produced by :meth:`AF3Result.get_minimum_results`)
+    instead of a full AF3 output directory, reconstructing PAE / contact / structure
+    access from the stored ``uint8`` arrays and embedded mmCIF content.
+    """
+
+    def __init__(self, minimum_path: str) -> None:
         self.minimum_path = minimum_path
         self.content = joblib.load(minimum_path)
         self._structure = None
         self.chain_idmap = self.content.get("chain_idmap", {})
 
     @property
-    def chain_names(self):
+    def chain_names(self) -> list[str]:
         """List of chain names."""
         return self.content["chains"]
 
     @property
-    def chain_intervals(self):
-        """Chain intervals."""
+    def chain_intervals(self) -> dict[str, tuple[int, int]]:
+        """Map each chain name to its (start, end) token interval."""
         chain_intervals = {}
         cur_start = 0
         for chain, chain_size in zip(
@@ -299,29 +328,30 @@ class AF3ResultMinimum(AF3Result):
         return chain_intervals
 
     @property
-    def pae(self):
-        """Predicted alignment error (PAE) symetric."""
+    def pae(self) -> np.ndarray:
+        """Predicted alignment error (PAE), symmetrized from the stored uint8 matrix."""
         pae = self.content["pae"]
         pae = (pae + pae.T) // 2
         return pae
 
     @property
-    def contact_probs(self):
-        """Contact probabilities symetric."""
+    def contact_probs(self) -> np.ndarray:
+        """Contact probabilities, symmetrized and rescaled from the stored uint8 matrix."""
         contact_probs = self.content["contact_prob"]
         contact_probs = (contact_probs + contact_probs.T) / 200
         contact_probs = contact_probs.astype("float16")
         return contact_probs
 
     @property
-    def structure(self):
-        """The structure object."""
+    def structure(self) -> mmCIFStructure:
+        """The structure object, parsed from the embedded mmCIF content."""
         if self._structure is None:
             self._structure = mmCIFStructure(self.content["mmcif"])
         return self._structure
 
 
 def _id_generator():
+    """Yield chain IDs A, B, ... Z, AA, AB, ... (up to length 4)."""
     alphabet = string.ascii_uppercase  # 'A' to 'Z'
     length = 1
 
@@ -331,8 +361,8 @@ def _id_generator():
         length += 1
 
 
-def _truncate_long_strings(obj, max_length=30):
-    """Recursively truncate long string values in JSON objects."""
+def _truncate_long_strings(obj, max_length: int = 30):
+    """Recursively truncate long string values in JSON objects (for printing)."""
     if isinstance(obj, dict):
         return {
             k: (
@@ -350,7 +380,8 @@ def _truncate_long_strings(obj, max_length=30):
         return obj
 
 
-def _get_gene_af3_cache_path(gene, genome, af3_cache_dir):
+def _get_gene_af3_cache_path(gene: str, genome, af3_cache_dir: str) -> str:
+    """Resolve the cached MSA/template joblib path for a gene or protein accession."""
     record = genome.get_gene_protein_sequence(gene, sel_longest=True)
     if record is None:
         acc = gene  # assume gene is a protein accession
@@ -364,8 +395,8 @@ def _get_gene_af3_cache_path(gene, genome, af3_cache_dir):
     return af3_cache_path
 
 
-def truncate_single_msa_seq(seq, start, end):
-    """Function to get truncated MSA sequence (ignoring lowercase insertions)."""
+def truncate_single_msa_seq(seq: str, start: int, end: int) -> str:
+    """Slice one A3M row to columns [start, end), ignoring lowercase insertions."""
     # encode char
     arr = np.frombuffer(seq.encode(), dtype=np.uint8)
     # pos not in lower char [a-z] (insertions)
@@ -381,14 +412,19 @@ def truncate_a3m_msa(unpaired_msa: str, start: int, end: int) -> str:
     """
     Truncate an A3M MSA string to a given start and end slice, handling variable sequence lengths.
 
-    Args:
-        unpaired_msa (str): A3M formatted MSA string.
-        start (int): 0-based start index (inclusive).
-        end (int): 0-based end index (exclusive).
+    Parameters
+    ----------
+    unpaired_msa : str
+        A3M formatted MSA string.
+    start : int
+        0-based start index (inclusive).
+    end : int
+        0-based end index (exclusive).
 
     Returns
     -------
-        str: Truncated A3M formatted MSA string.
+    str
+        Truncated A3M formatted MSA string.
     """
     lines = unpaired_msa.strip().split("\n")
 
@@ -401,19 +437,27 @@ def truncate_a3m_msa(unpaired_msa: str, start: int, end: int) -> str:
     return "\n".join(new_lines)
 
 
-def truncate_templates(templates: list, start: int, end: int, min_length=10) -> list:
+def truncate_templates(
+    templates: list, start: int, end: int, min_length: int = 10
+) -> list:
     """
     Truncates a list of template dictionaries to match the given start and end slice.
 
-    Args:
-        templates (list): A list of templates in AlphaFold 3 format.
-        start (int): The 0-based start index (inclusive).
-        end (int): The 0-based end index (exclusive).
-        min_length (int): Only include truncated templates with usable indices > min_length.
+    Parameters
+    ----------
+    templates : list
+        A list of templates in AlphaFold 3 format.
+    start : int
+        The 0-based start index (inclusive).
+    end : int
+        The 0-based end index (exclusive).
+    min_length : int
+        Only include truncated templates with usable indices > min_length.
 
     Returns
     -------
-        list: The truncated template list.
+    list
+        The truncated template list.
     """
     truncated_templates = []
     for template in templates:
@@ -430,16 +474,26 @@ def truncate_templates(templates: list, start: int, end: int, min_length=10) -> 
 
 
 class AF3Input:
+    """
+    Builder for an AlphaFold3 input JSON.
+
+    Add chains with :meth:`add_protein` / :meth:`add_protein_from_cache`,
+    :meth:`add_dna`, :meth:`add_ligand_ccd` / :meth:`add_ligand_smiles` (or build the
+    whole thing at once with :meth:`from_design`), then :meth:`dump` the JSON or
+    :meth:`infer` directly. ``chain_idmap`` records what each auto-assigned chain ID
+    corresponds to (gene/protein ID, DNA sequence, ligand code).
+    """
+
     def __init__(
         self,
-        name,
-        modelSeeds=1,
-        sequences=None,
-        bondedAtomPairs=None,
-        userCCD=None,
-        dialect="alphafold3",
-        version=2,
-    ):
+        name: str,
+        modelSeeds: int | list[int] = 1,
+        sequences: list[dict] | None = None,
+        bondedAtomPairs: list | None = None,
+        userCCD: str | None = None,
+        dialect: str = "alphafold3",
+        version: int = 2,
+    ) -> None:
         """
         Init AF3Input json data.
 
@@ -480,7 +534,7 @@ class AF3Input:
         self._id_generator = _id_generator()
         return
 
-    def _get_next_chain_id(self):
+    def _get_next_chain_id(self) -> str:
         while True:
             try:
                 _id = next(self._id_generator)
@@ -492,25 +546,47 @@ class AF3Input:
                 ) from None
         return _id
 
-    def _prepare_chain_id(self, chain_id=None, repeat=1):
+    def _prepare_chain_id(
+        self, chain_id: str | list[str] | None = None, repeat: int = 1
+    ) -> str | list[str]:
         if chain_id is None:
-            chain_id = [self._get_next_chain_id() for _ in range(repeat)]
-        for _id in chain_id:
-            assert _id not in self._chain_ids, f"Chain ID {chain_id} already exists."
+            ids = [self._get_next_chain_id() for _ in range(repeat)]
+        elif isinstance(chain_id, str):
+            ids = [chain_id]
+        else:
+            ids = list(chain_id)
+        for _id in ids:
+            assert _id not in self._chain_ids, f"Chain ID {_id} already exists."
             self._chain_ids.add(_id)
-        if len(chain_id) == 1:
-            chain_id = chain_id[0]
-        return chain_id
+        # return a bare str for a single chain, else the list (AF3 accepts both)
+        return ids[0] if len(ids) == 1 else ids
 
-    def add_protein(self, sequence, chain_id=None, repeat=1, **kwargs):
+    def add_protein(
+        self,
+        sequence: str,
+        chain_id: str | list[str] | None = None,
+        repeat: int = 1,
+        **kwargs,
+    ) -> str | list[str]:
         """
-        Add protein to AF3Input.
+        Add a protein chain to AF3Input.
 
-        Args:
-            pid: Protein ID
-            sequence: Protein sequence
-            repeat: Make number of copies for this chain in the model
-            **kwargs: Additional keyword arguments
+        Parameters
+        ----------
+        sequence : str
+            Protein sequence.
+        chain_id : list of str, optional
+            Explicit chain IDs; auto-assigned when omitted.
+        repeat : int
+            Number of copies of this chain in the model.
+        **kwargs
+            Extra fields for the AF3 ``protein`` entry (e.g. ``unpairedMsa``,
+            ``pairedMsa``, ``templates``).
+
+        Returns
+        -------
+        str or list of str
+            The assigned chain ID(s).
         """
         chain_id = self._prepare_chain_id(chain_id, repeat)
         protein = {"protein": {"id": chain_id, "sequence": sequence}}
@@ -520,15 +596,30 @@ class AF3Input:
 
     def add_protein_from_cache(
         self,
-        prot_id,
-        cache_data,
-        chain_id=None,
-        repeat=1,
-        truncate_region=None,
-        min_template_length=10,
-    ):
+        prot_id: str,
+        cache_data: dict | str,
+        chain_id: str | list[str] | None = None,
+        repeat: int = 1,
+        truncate_region: Sequence[int] | None = None,
+        min_template_length: int = 10,
+    ) -> None:
         """
-        Add protein with MSA and template cache from a file.
+        Add a protein chain with precomputed MSA and templates.
+
+        Parameters
+        ----------
+        prot_id : str
+            Source identifier recorded in ``chain_idmap`` for the added chain(s).
+        cache_data : dict or str
+            Cache dict, or a path to a joblib file holding one.
+        chain_id : list of str, optional
+            Explicit chain IDs; auto-assigned when omitted.
+        repeat : int
+            Number of copies of this chain.
+        truncate_region : tuple of int, optional
+            ``(start, end)`` to truncate the sequence, MSA and templates to.
+        min_template_length : int
+            Minimum retained length for a truncated template to be kept.
         """
         if isinstance(cache_data, dict):
             data = cache_data
@@ -542,19 +633,24 @@ class AF3Input:
                 chain_data = self.truncate_protein_chain_data(
                     chain_data, truncate_region, min_template_length=min_template_length
                 )
-            chain_id = self.add_protein(chain_id=chain_id, repeat=repeat, **chain_data)
-            if isinstance(chain_id, list):
-                chain_ids.extend(chain_id)
+            # don't reuse `chain_id`: each cache entry gets its own id(s)
+            new_id = self.add_protein(chain_id=chain_id, repeat=repeat, **chain_data)
+            if isinstance(new_id, list):
+                chain_ids.extend(new_id)
             else:
-                chain_ids.append(chain_id)
+                chain_ids.append(new_id)
 
-        for chain_id in chain_ids:
-            self.chain_idmap[chain_id] = prot_id
+        for cid in chain_ids:
+            self.chain_idmap[cid] = prot_id
         return
 
     @staticmethod
-    def truncate_protein_chain_data(chain_data, truncate_region, min_template_length):
-        """Truncate protein chain MSA and templates."""
+    def truncate_protein_chain_data(
+        chain_data: dict,
+        truncate_region: Sequence[int],
+        min_template_length: int,
+    ) -> dict:
+        """Truncate a protein chain's sequence, MSA and templates in place."""
         start, end = truncate_region
         chain_data["unpairedMsa"] = truncate_a3m_msa(
             chain_data["unpairedMsa"], start, end
@@ -568,18 +664,27 @@ class AF3Input:
 
     def add_dna(
         self,
-        sequence,
-        chain_id=None,
-        repeat=1,
-        modifications: list[dict] = None,
-        add_rc_strand=True,
-    ):
+        sequence: str,
+        chain_id: str | list[str] | None = None,
+        repeat: int = 1,
+        modifications: list[dict] | None = None,
+        add_rc_strand: bool = True,
+    ) -> None:
         """
-        Add DNA to AF3Input.
+        Add a DNA chain to AF3Input.
 
-        Args:
-            sequence: DNA sequence
-            modifications: List of modifications, each modification is a dict with keys:
+        Parameters
+        ----------
+        sequence : str
+            DNA sequence (upper-cased internally).
+        chain_id : list of str, optional
+            Explicit chain IDs; auto-assigned when omitted.
+        repeat : int
+            Number of copies of this chain.
+        modifications : list of dict, optional
+            AF3 DNA modification entries.
+        add_rc_strand : bool
+            If True, also add the reverse-complement strand as a separate chain.
         """
         sequence = sequence.upper()
 
@@ -592,47 +697,63 @@ class AF3Input:
             rc_sequence = sequence.translate(str.maketrans("ATCG", "TAGC"))[::-1]
             self.add_dna(sequence=rc_sequence, repeat=repeat, add_rc_strand=False)
 
-        if repeat == 1:
-            chain_id = [chain_id]
-        for _id in chain_id:
+        ids = [chain_id] if isinstance(chain_id, str) else chain_id
+        for _id in ids:
             self.chain_idmap[_id] = sequence
         return
 
-    def add_ligand_ccd(self, ccdCodes, chain_id=None, repeat=1):
+    def add_ligand_ccd(
+        self,
+        ccdCodes: str | list[str],
+        chain_id: str | list[str] | None = None,
+        repeat: int = 1,
+    ) -> None:
         """
-        Add ligand to AF3Input.
+        Add a ligand to AF3Input by CCD code.
 
-        Args:
-            ccdCodes: List of chemical component dictionary codes
+        Parameters
+        ----------
+        ccdCodes : str or list of str
+            Chemical Component Dictionary code(s).
+        chain_id : list of str, optional
+            Explicit chain IDs; auto-assigned when omitted.
+        repeat : int
+            Number of copies of this ligand.
         """
         chain_id = self._prepare_chain_id(chain_id, repeat)
         if isinstance(ccdCodes, str):
             ccdCodes = [ccdCodes]
         ligand = {"ligand": {"id": chain_id, "ccdCodes": ccdCodes}}
         self.json_data["sequences"].append(ligand)
-        if repeat == 1:
-            chain_id = [chain_id]
-        for _id in chain_id:
+        ids = [chain_id] if isinstance(chain_id, str) else chain_id
+        for _id in ids:
             self.chain_idmap[_id] = ccdCodes
         return
 
-    def add_ligand_smiles(self, smiles, chain_id=None, repeat=1):
+    def add_ligand_smiles(
+        self, smiles: str, chain_id: str | list[str] | None = None, repeat: int = 1
+    ) -> None:
         """
-        Add ligand to AF3Input.
+        Add a ligand to AF3Input by SMILES string.
 
-        Args:
-            smiles: SMILES string
+        Parameters
+        ----------
+        smiles : str
+            SMILES string.
+        chain_id : list of str, optional
+            Explicit chain IDs; auto-assigned when omitted.
+        repeat : int
+            Number of copies of this ligand.
         """
         chain_id = self._prepare_chain_id(chain_id, repeat)
         ligand = {"ligand": {"id": chain_id, "smiles": smiles}}
         self.json_data["sequences"].append(ligand)
-        if repeat == 1:
-            chain_id = [chain_id]
-        for _id in chain_id:
+        ids = [chain_id] if isinstance(chain_id, str) else chain_id
+        for _id in ids:
             self.chain_idmap[_id] = smiles
         return
 
-    def dump(self, path):
+    def dump(self, path: StrPath) -> None:
         """
         Dump AF3Input json data to a file.
         """
@@ -641,7 +762,7 @@ class AF3Input:
         return
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: StrPath) -> "AF3Input":
         """
         Load AF3Input json data from a file.
         """
@@ -650,36 +771,46 @@ class AF3Input:
         return cls(**json_data)
 
     @classmethod
-    def from_design(cls, name, design, genome, af3_cache_dir=None, **kwargs):
+    def from_design(
+        cls,
+        name: str,
+        design: list[dict],
+        genome,
+        af3_cache_dir: str | None = None,
+        **kwargs,
+    ) -> "AF3Input":
         """
-        Create AF3Input from design list.
+        Create AF3Input from a design list.
 
-        Example design list:
-        # repeated names will be merged atuomatically in the input json
+        Each design entry maps a sequence type to a list of items; repeated items are
+        merged into a single multi-copy chain. Proteins are resolved through the MSA/
+        template cache and may carry a ``GENE:start-end`` suffix to truncate them.
 
-        design = [
-            {"protein": ["Fos", "Fos", "Jun", "Jun"]},
-            {"DNA": ["TGACTCA", "TGACGTCA", "CACTGGCT"]},
-        ]
+        Example
+        -------
+        >>> design = [
+        ...     {"protein": ["Fos", "Fos", "Jun", "Jun"]},
+        ...     {"DNA": ["TGACTCA", "TGACGTCA", "CACTGGCT"]},
+        ... ]
         """
         if af3_cache_dir is None:
             af3_cache_dir = _LOCAL_DEFAULT["msa_cache_dir"]
+        if af3_cache_dir is None:
+            raise ValueError("No MSA cache dir provided and no local default found.")
 
         af3_input = AF3Input(name=name, **kwargs)
-        af3_input.chain_idmap = {}
         for seq_dict in design:
             for seq_type, seq_list in seq_dict.items():
                 seq_and_repeats = list(pd.Series(seq_list).value_counts().items())
                 match seq_type.lower():
                     case "protein":
                         for prot, repeat in seq_and_repeats:
-                            prot, *truncate_region = prot.split(":")
-                            if len(truncate_region) == 1:
-                                truncate_region = list(
-                                    map(int, truncate_region[0].split("-"))
-                                )
-                            else:
-                                truncate_region = None
+                            prot, *truncate = str(prot).split(":")
+                            truncate_region = (
+                                list(map(int, truncate[0].split("-")))
+                                if len(truncate) == 1
+                                else None
+                            )
                             af3_cache_path = _get_gene_af3_cache_path(
                                 prot, genome, af3_cache_dir
                             )
@@ -691,13 +822,13 @@ class AF3Input:
                             )
                     case "dna":
                         for seq, repeat in seq_and_repeats:
-                            af3_input.add_dna(sequence=seq, repeat=repeat)
+                            af3_input.add_dna(sequence=str(seq), repeat=repeat)
                     case "ligand_ccd" | "ligand":
                         for lig, repeat in seq_and_repeats:
-                            af3_input.add_ligand_ccd(lig, repeat=repeat)
+                            af3_input.add_ligand_ccd(str(lig), repeat=repeat)
                     case "ligand_smiles":
                         for lig, repeat in seq_and_repeats:
-                            af3_input.add_ligand_smiles(lig, repeat=repeat)
+                            af3_input.add_ligand_smiles(str(lig), repeat=repeat)
         return af3_input
 
     def __repr__(self):
@@ -707,10 +838,33 @@ class AF3Input:
         return print_str
 
     def infer(
-        self, save_dir, return_minimum=True, delete_temp=True, verbose=False, redo=False
-    ):
+        self,
+        save_dir: StrPath,
+        return_minimum: bool = True,
+        delete_temp: bool = True,
+        verbose: bool = False,
+        redo: bool = False,
+    ) -> pathlib.Path:
         """
-        Run AlphaFold3 inference with no data pipeline.
+        Run AlphaFold3 inference (no data pipeline) and save the result bundle.
+
+        Parameters
+        ----------
+        save_dir : str or Path
+            Directory to write ``{name}_af3_inference.gz`` into.
+        return_minimum : bool
+            Save only the compact minimum result (see :meth:`AF3Result.get_minimum_results`).
+        delete_temp : bool
+            Delete the raw AF3 output dir; set False to keep it for debugging.
+        verbose : bool
+            Stream AF3 stdout/stderr instead of capturing it.
+        redo : bool
+            Recompute even if the output file already exists.
+
+        Returns
+        -------
+        pathlib.Path
+            Path to the saved result bundle.
         """
         save_dir = pathlib.Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -727,7 +881,8 @@ class AF3Input:
         else:
             _output_dir = save_dir / f"{self.name}_af3_inference"
             _output_dir.mkdir(parents=True, exist_ok=True)
-        # only minimum results of the best model will be returned here
+        # only minimum results of the best model will be returned here;
+        # the minimum result already carries chain_idmap (from get_minimum_results)
         result = runner.af3_inference_no_data_pipeline(
             self,
             return_minimum=return_minimum,
@@ -735,8 +890,6 @@ class AF3Input:
             verbose=verbose,
             output_dir=_output_dir,
         )
-
-        result["chain_idmap"] = self.chain_idmap
 
         joblib.dump(result, temp_path)
         temp_path.rename(final_path)
@@ -762,49 +915,57 @@ python /root/alphafold3/run_alphafold.py \
 
 
 class AF3Runner:
+    """
+    Run AlphaFold3 inference via its Singularity image with ``--norun_data_pipeline``.
+
+    Paths default to the lab-local locations in ``_LOCAL_DEFAULT`` and must all exist.
+    """
+
     def __init__(
         self,
-        af3_code_dir=None,
-        af3_model_dir=None,
-        af3_db_dir=None,
-        af3_singularity_sif=None,
-    ):
-        self.af3_code_dir = (
-            af3_code_dir if af3_code_dir else _LOCAL_DEFAULT["af3_code_dir"]
+        af3_code_dir: str | None = None,
+        af3_model_dir: str | None = None,
+        af3_db_dir: str | None = None,
+        af3_singularity_sif: str | None = None,
+    ) -> None:
+        self.af3_code_dir = self._resolve_path(
+            af3_code_dir, _LOCAL_DEFAULT["af3_code_dir"], "AF3 code dir"
         )
-        assert pathlib.Path(
-            self.af3_code_dir
-        ).exists(), "AF3 path not provided or not exist."
-        self.af3_model_dir = (
-            af3_model_dir if af3_model_dir else _LOCAL_DEFAULT["af3_model_dir"]
+        self.af3_model_dir = self._resolve_path(
+            af3_model_dir, _LOCAL_DEFAULT["af3_model_dir"], "Model dir"
         )
-        assert pathlib.Path(
-            self.af3_model_dir
-        ).exists(), "Model dir not provided or not exist."
-        self.af3_db_dir = af3_db_dir if af3_db_dir else _LOCAL_DEFAULT["af3_db_dir"]
-        assert pathlib.Path(
-            self.af3_db_dir
-        ).exists(), "Database dir not provided or not exist."
-        self.af3_singularity_sif = (
-            af3_singularity_sif
-            if af3_singularity_sif
-            else _LOCAL_DEFAULT["af3_singularity_sif"]
+        self.af3_db_dir = self._resolve_path(
+            af3_db_dir, _LOCAL_DEFAULT["af3_db_dir"], "Database dir"
         )
-        assert pathlib.Path(
-            self.af3_singularity_sif
-        ).exists(), "Singularity SIF not provided or not exist."
-        return
+        self.af3_singularity_sif = self._resolve_path(
+            af3_singularity_sif,
+            _LOCAL_DEFAULT["af3_singularity_sif"],
+            "Singularity SIF",
+        )
+
+    @staticmethod
+    def _resolve_path(value: str | None, default: str | None, what: str) -> str:
+        """Return ``value`` or the local ``default``, asserting the path exists."""
+        path = value or default
+        assert (
+            path and pathlib.Path(path).exists()
+        ), f"{what} not provided or not exist."
+        return path
 
     def af3_inference_no_data_pipeline(
         self,
-        af3_input,
-        output_dir=None,
-        return_minimum=True,
-        delete_temp=True,
-        verbose=False,
-    ):
+        af3_input: "AF3Input",
+        output_dir: StrPath | None = None,
+        return_minimum: bool = True,
+        delete_temp: bool = True,
+        verbose: bool = False,
+    ) -> "dict | AF3Result":
         """
         Run AlphaFold3 inference with no data pipeline.
+
+        Writes the input JSON and run script into ``output_dir`` (a temp dir when
+        None), executes the Singularity command, then returns the parsed result —
+        the compact dict when ``return_minimum`` else an :class:`AF3Result`.
         """
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix="af3_")

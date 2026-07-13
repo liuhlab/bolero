@@ -1,3 +1,5 @@
+"""Parse mmCIF structures and derive pLDDT segments, PAE and residue contacts."""
+
 import gzip
 import io
 import os
@@ -11,12 +13,16 @@ import seaborn as sns
 import torch
 from Bio.PDB.mmcifio import MMCIFIO
 from Bio.PDB.MMCIFParser import MMCIFParser
+from Bio.PDB.Structure import Structure
+from matplotlib.figure import Figure
 from scipy.ndimage import gaussian_filter1d
 
 from .code import converter
 
 
-def merge_segments(segments, min_size=50):
+def merge_segments(
+    segments: list[list[float]], min_size: int = 50
+) -> list[list[float]]:
     """
     Recursively merge sorted segments so that each merged segment spans at least min_size.
     """
@@ -29,6 +35,7 @@ def merge_segments(segments, min_size=50):
     mid = start + total / 2
     # Locate the segment that covers the midpoint
     mid_i = 0
+    s, e = segments[0]
     for s, e in segments:
         if s <= mid <= e:
             break
@@ -53,23 +60,31 @@ def merge_segments(segments, min_size=50):
 
 
 def segment_protein_chain_plddt(
-    ca_plddt_scores, threshold=70, smoothing_sigma=5, min_region_size=50
-):
+    ca_plddt_scores: np.ndarray,
+    threshold: float = 70,
+    smoothing_sigma: int = 5,
+    min_region_size: int = 50,
+) -> pd.DataFrame:
     """
     Segments a protein chain into contiguous regions based on AlphaFold pLDDT scores.
     Ensures all segments are at least `min_region_size` by merging small ones with the previous segment.
 
     Parameters
     ----------
-        ca_plddt_scores (numpy array): 1D array of pLDDT values for each C-alpha position.
-        threshold (float): pLDDT cutoff to define structured vs. disordered regions.
-        smoothing_sigma (int): Gaussian smoothing factor to reduce noise.
-        min_region_size (int): Minimum size of any segment.
+    ca_plddt_scores : np.ndarray
+        1D array of pLDDT values for each C-alpha position.
+    threshold : float
+        pLDDT cutoff to define structured vs. disordered regions.
+    smoothing_sigma : int
+        Gaussian smoothing factor to reduce noise.
+    min_region_size : int
+        Minimum size of any segment.
 
     Returns
     -------
-        list of tuples: Segments as (start, end, mean_pLDDT, is_folded), where
-                        `start` is inclusive and `end` is exclusive (Python slicing).
+    pd.DataFrame
+        Segments with columns ``start`` (inclusive), ``end`` (exclusive, Python
+        slicing), and ``mean_plddt``.
     """
     # Smooth the pLDDT scores
     smoothed_plddt = gaussian_filter1d(ca_plddt_scores, sigma=smoothing_sigma)
@@ -94,15 +109,16 @@ def segment_protein_chain_plddt(
 
     # add mean lddt to each segment
     for i, (start, end) in enumerate(merged_segments):
-        mean_pLDDT = np.mean(ca_plddt_scores[start:end])
+        mean_pLDDT = float(np.mean(ca_plddt_scores[int(start) : int(end)]))
         merged_segments[i].append(mean_pLDDT)
-    merged_segments = pd.DataFrame(
-        merged_segments, columns=["start", "end", "mean_plddt"]
+    return pd.DataFrame(
+        merged_segments, columns=pd.Index(["start", "end", "mean_plddt"])
     )
-    return merged_segments
 
 
-def plot_plddt_segments(all_segments, ca_atom_table):
+def plot_plddt_segments(
+    all_segments: pd.DataFrame, ca_atom_table: pd.DataFrame
+) -> None:
     """Plot pLDDT segments on top of raw pLDDT scores."""
     n_chain = len(all_segments["chain"].unique())
     _, axes = plt.subplots(
@@ -114,7 +130,8 @@ def plot_plddt_segments(all_segments, ca_atom_table):
         chain_table = ca_atom_table[ca_atom_table["chain"] == chain].reset_index(
             drop=True
         )
-        ax.plot(chain_table["pLDDT"], label="Raw pLDDT", alpha=0.7)
+        ax.plot(np.asarray(chain_table["pLDDT"]), label="Raw pLDDT", alpha=0.7)
+        end = 0
         for _, (start, end, score, _) in chain_segments.iterrows():
             ax.hlines(
                 y=score,
@@ -137,9 +154,9 @@ def plot_plddt_segments(all_segments, ca_atom_table):
     plt.show()
 
 
-def get_segments_mean_pae(pae, segments):
+def get_segments_mean_pae(pae: np.ndarray, segments: pd.DataFrame) -> pd.DataFrame:
     """
-    Get mean PAE for each segment pair.
+    Get mean PAE for each segment pair (segment-by-segment matrix).
     """
     seg_pae = {}
     for seg_a, (starta, enda, *_) in segments.iterrows():
@@ -150,26 +167,30 @@ def get_segments_mean_pae(pae, segments):
 
 
 class mmCIFStructure:
-    def __init__(self, mmcif_path, name="structure"):
-        mmcif_path = str(mmcif_path)
-        if "\n" in mmcif_path:
-            # assume mmcif_path is the actual mmcif content
-            self.structure = MMCIFParser().get_structure(name, io.StringIO(mmcif_path))
-        else:
-            if str(mmcif_path).endswith(".gz"):
-                with gzip.open(mmcif_path, "rt") as f:
-                    self.structure = MMCIFParser().get_structure(name, f)
-            else:
-                self.structure = MMCIFParser().get_structure(name, mmcif_path)
+    """Thin wrapper over a Biopython structure parsed from an mmCIF file or string."""
 
-        self._atom_table = None
-        self.pae = None
+    def __init__(self, mmcif_path: str | os.PathLike, name: str = "structure") -> None:
+        mmcif_path = str(mmcif_path)
+        parser = MMCIFParser()
+        if "\n" in mmcif_path:
+            # a newline means mmcif_path is the mmCIF content itself, not a path
+            structure = parser.get_structure(name, io.StringIO(mmcif_path))
+        elif mmcif_path.endswith(".gz"):
+            with gzip.open(mmcif_path, "rt") as f:
+                structure = parser.get_structure(name, f)
+        else:
+            structure = parser.get_structure(name, mmcif_path)
+        assert structure is not None, "Failed to parse mmCIF structure."
+
+        self.structure: Structure = structure
+        self._atom_table: pd.DataFrame | None = None
+        self.pae: np.ndarray | None = None
         self.converter = converter
         self.residual_offset = 0
 
     @property
-    def atom_table(self):
-        """Atom table."""
+    def atom_table(self) -> pd.DataFrame:
+        """Per-atom table (atom_name, residue_chain_ids, residue_name, chain, pLDDT)."""
         if self._atom_table is None:
             atom_to_token = []
             for model in self.structure:
@@ -185,20 +206,21 @@ class mmCIFStructure:
                                     atom.bfactor,
                                 ]
                             )
-            atom_table = pd.DataFrame(
+            self._atom_table = pd.DataFrame(
                 atom_to_token,
-                columns=[
-                    "atom_name",
-                    "residue_chain_ids",
-                    "residue_name",
-                    "chain",
-                    "pLDDT",
-                ],
+                columns=pd.Index(
+                    [
+                        "atom_name",
+                        "residue_chain_ids",
+                        "residue_name",
+                        "chain",
+                        "pLDDT",
+                    ]
+                ),
             )
-            self._atom_table = atom_table
         return self._atom_table
 
-    def view(self, hue="plddt", **kwargs):
+    def view(self, hue: str = "plddt", **kwargs):
         """
         Visualize the structure in Jupyter using ipymolstar (PDBeMolstar).
 
@@ -211,7 +233,7 @@ class mmCIFStructure:
             Passed to PDBeMolstar (e.g. theme, hide_water, alphafold_view).
         """
         try:
-            from ipymolstar import PDBeMolstar
+            from ipymolstar import PDBeMolstar  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "Visualization requires ipymolstar: pip install ipymolstar"
@@ -244,8 +266,8 @@ class mmCIFStructure:
         kwargs.setdefault("alphafold_view", alphafold_view)
         return PDBeMolstar(custom_data=custom_data, **kwargs)
 
-    def get_residue_ave_plddts(self):
-        """Get residue atom average pLDDT."""
+    def get_residue_ave_plddts(self) -> pd.DataFrame:
+        """Get per-residue pLDDT averaged over all of the residue's atoms."""
         res_plddt = (
             self.atom_table.groupby(["chain", "residue_chain_ids", "residue_name"])[
                 "pLDDT"
@@ -255,17 +277,18 @@ class mmCIFStructure:
         )
         return res_plddt
 
-    def get_residue_ca_plddts(self):
-        """Get residue alpha carbon (CA) pLDDT."""
+    def get_residue_ca_plddts(self) -> pd.DataFrame:
+        """Get per-residue pLDDT taken from the alpha-carbon (CA) atom."""
         ca_plddt = self.atom_table[self.atom_table["atom_name"] == "CA"].reset_index(
             drop=True
         )
+        assert isinstance(ca_plddt, pd.DataFrame)
         ca_plddt.pop("atom_name")
         return ca_plddt
 
-    def plot_plddt_and_pae(self):
-        """Plot pLDDT and PAE."""
-        plddt = self.get_residue_ca_plddts()["pLDDT"].values
+    def plot_plddt_and_pae(self) -> Figure:
+        """Plot the pLDDT profile alongside the PAE matrix (if ``pae`` is set)."""
+        plddt = np.asarray(self.get_residue_ca_plddts()["pLDDT"])
         pae = self.pae
         length = plddt.size
 
@@ -293,21 +316,30 @@ class mmCIFStructure:
         return fig
 
     def get_protein_plddt_segments(
-        self, threshold=70, smoothing_sigma=5, min_region_size=30, plot=False
-    ):
+        self,
+        threshold: float = 70,
+        smoothing_sigma: int = 5,
+        min_region_size: int = 30,
+        plot: bool = False,
+    ) -> pd.DataFrame:
         """
-        Get protein folding segments based on pLDDT scores.
+        Get protein folding segments (per chain) based on pLDDT scores.
 
         Parameters
         ----------
-            threshold (float): pLDDT cutoff to define structured vs. disordered regions.
-            smoothing_sigma (int): Gaussian smoothing factor to reduce noise.
-            min_region_size (int): Minimum size of any segment.
-            plot (bool): Whether to plot the results.
+        threshold : float
+            pLDDT cutoff to define structured vs. disordered regions.
+        smoothing_sigma : int
+            Gaussian smoothing factor to reduce noise.
+        min_region_size : int
+            Minimum size of any segment.
+        plot : bool
+            Whether to plot the results.
 
         Returns
         -------
-            pd.DataFrame: Segmented regions with columns (start, end, mean_pLDDT, is_folded, chain).
+        pd.DataFrame
+            Segmented regions with columns (start, end, mean_plddt, chain).
         """
         atom_table = self.atom_table
         ca_atom_table = atom_table[atom_table["atom_name"] == "CA"]
@@ -315,7 +347,7 @@ class mmCIFStructure:
         all_segments = []
         for chain, chain_table in ca_atom_table.groupby("chain"):
             segments = segment_protein_chain_plddt(
-                chain_table["pLDDT"].values,
+                np.asarray(chain_table["pLDDT"]),
                 threshold=threshold,
                 smoothing_sigma=smoothing_sigma,
                 min_region_size=min_region_size,
@@ -325,16 +357,16 @@ class mmCIFStructure:
         all_segments = pd.concat(all_segments)
 
         if plot:
-            plot_plddt_segments(all_segments, self.get_residue_ca_plddts()["pLDDT"])
+            plot_plddt_segments(all_segments, self.get_residue_ca_plddts())
         return all_segments
 
-    def get_sequence(self):
-        """Get the protein sequence of the structure."""
-        residule = self.get_residue_ca_plddts()["residue_name"]
-        seq = "".join(self.converter.triple_to_single(residule).values)
-        return seq
+    def get_sequence(self) -> str:
+        """Get the single-letter protein sequence of the structure."""
+        residule = np.asarray(self.get_residue_ca_plddts()["residue_name"])
+        single = self.converter.triple_to_single(residule)
+        return "".join(np.asarray(single).tolist())
 
-    def get_protein_chain_data(self):
+    def get_protein_chain_data(self) -> dict:
         """
         Get chain data dict of protein residues information and coordinates.
 
@@ -391,28 +423,32 @@ class mmCIFStructure:
         atom_threshold: float = 4.0,
         intra_chain: bool = False,
         intra_chain_min_aa_dist: int = 5,
-    ) -> dict:
+    ) -> pd.DataFrame:
         """
         Calculates all pairwise residue-residue interactions between different chains.
-        For every pair of residues (from different chains whose Ca atoms are within
-        `ca_threshold`, the function computes the minimum atom-atom distance between
-        the two residues.
+
+        For every pair of residues (from different chains) whose Ca atoms are within
+        ``ca_threshold``, the function computes the minimum atom-atom distance between
+        the two residues, then keeps pairs below ``atom_threshold``. Runs on GPU when
+        available.
 
         Parameters
         ----------
-        mmCIF_file (str): Path to the mmCIF file.
-        ca_threshold (float): Distance threshold (in angstrom) for Ca-Ca pre-filtering.
-        atom_threshold (float): Distance threshold (in angstrom) for atom-atom distance.
-        intra_chain (bool): If True, include intra-chain contacts.
-        intra_chain_min_aa_dist (int): Minimum distance between residues in the same chain to be considered a contact.
-            This parameter is used to filter out contacts between too close residues in the same chain,
-            which is in contact due to closure or just secondary structure.
-            The contact from this function refers to 3D long-range contacts.
+        ca_threshold : float
+            Distance threshold (in angstrom) for Ca-Ca pre-filtering.
+        atom_threshold : float
+            Distance threshold (in angstrom) for the reported atom-atom distance.
+        intra_chain : bool
+            If True, also include intra-chain contacts.
+        intra_chain_min_aa_dist : int
+            Minimum sequence separation between residues in the same chain to be
+            considered a contact. Filters out neighbors that are close merely due to
+            backbone closure or secondary structure, keeping 3D long-range contacts.
 
         Returns
         -------
-        contacts (dict): Keys are tuples of ((chain1, residue_id1), (chain2, residue_id2))
-                        and values are the minimum atom-atom distance between these residues.
+        pd.DataFrame
+            Columns ``chain1, residue_id1, chain2, residue_id2, min_atom_dist``.
         """
         chain_data = self.get_protein_chain_data()
 
@@ -486,8 +522,11 @@ class mmCIFStructure:
                 )
         contacts = pd.DataFrame(
             contacts,
-            columns=["chain1", "residue_id1", "chain2", "residue_id2", "min_atom_dist"],
+            columns=pd.Index(
+                ["chain1", "residue_id1", "chain2", "residue_id2", "min_atom_dist"]
+            ),
         )
         # apply atom threshold
         contacts = contacts[contacts["min_atom_dist"] < atom_threshold].copy()
+        assert isinstance(contacts, pd.DataFrame)
         return contacts

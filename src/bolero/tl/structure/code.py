@@ -1,5 +1,10 @@
+"""Vectorized conversion between amino-acid / nucleotide code representations."""
+
 import numpy as np
 import pandas as pd
+
+# Query/return containers supported by AACodeConverter.
+Codes = str | list | np.ndarray | pd.Index | pd.Series
 
 
 class AACodeConverter:
@@ -8,7 +13,7 @@ class AACodeConverter:
     three-letter code, and single-letter code) as well as DNA and RNA bases.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the amino acid and nucleotide code table as a Pandas DataFrame."""
         data = [
             ("Alanine", "Ala", "A"),
@@ -39,27 +44,33 @@ class AACodeConverter:
             ("Uracil", "U", "U"),
         ]
 
-        self.aa_df = pd.DataFrame(data, columns=["name", "triple", "single"])
+        self.aa_df = pd.DataFrame(data, columns=pd.Index(["name", "triple", "single"]))
+        # NOTE: only forward directions are exposed. The reverse single-letter
+        # mappings are intentionally omitted because single-letter codes collide
+        # between amino acids and nucleotides (e.g. "A" = Ala and Adenine).
         self.mapping = {
             "name_to_triple": self.aa_df.set_index("name")["triple"].to_dict(),
             "name_to_single": self.aa_df.set_index("name")["single"].to_dict(),
             "triple_to_name": self.aa_df.set_index("triple")["name"].to_dict(),
             "triple_to_single": self.aa_df.set_index("triple")["single"].to_dict(),
-            "single_to_name": self.aa_df.set_index("single")["name"].to_dict(),
-            "single_to_triple": self.aa_df.set_index("single")["triple"].to_dict(),
         }
 
-    def _convert(self, query, mapping_dict):
+    def _convert(self, query: Codes, mapping_dict: dict) -> Codes | None:
         """
         Internal function to perform efficient vectorized mapping of queries.
 
-        Args:
-            query (str, list, np.array, pd.Index, pd.Series): The input query.
-            mapping_dict (dict): The dictionary used for mapping values.
+        Parameters
+        ----------
+        query : str, list, np.ndarray, pd.Index, or pd.Series
+            The input query. Matching is case-insensitive.
+        mapping_dict : dict
+            The dictionary used for mapping values.
 
         Returns
         -------
-            str, list, np.array, pd.Index, pd.Series: Converted values in the same type as input.
+        str, list, np.ndarray, pd.Index, pd.Series, or None
+            Converted values in the same container type as the input. Unmapped
+            entries become ``None`` (scalar) or ``NaN`` (vectorized).
         """
         if isinstance(query, str):
             return mapping_dict.get(query.capitalize(), None)
@@ -80,29 +91,22 @@ class AACodeConverter:
                 "Unsupported input type. Must be str, list, np.ndarray, pd.Index, or pd.Series."
             )
 
-    def name_to_triple(self, query):
+    def name_to_triple(self, query: Codes) -> Codes | None:
         """Convert amino acid full name to three-letter code."""
         return self._convert(query, self.mapping["name_to_triple"])
 
-    def name_to_single(self, query):
+    def name_to_single(self, query: Codes) -> Codes | None:
         """Convert amino acid full name to single-letter code."""
         return self._convert(query, self.mapping["name_to_single"])
 
-    def triple_to_name(self, query):
+    def triple_to_name(self, query: Codes) -> Codes | None:
         """Convert three-letter amino acid code to full name."""
         return self._convert(query, self.mapping["triple_to_name"])
 
-    def triple_to_single(self, query):
+    def triple_to_single(self, query: Codes) -> Codes | None:
         """Convert three-letter amino acid code to single-letter code."""
         return self._convert(query, self.mapping["triple_to_single"])
 
-    def single_to_name(self, query):
-        """Convert single-letter amino acid code to full name."""
-        return self._convert(query, self.mapping["single_to_name"])
 
-    def single_to_triple(self, query):
-        """Convert single-letter amino acid code to three-letter code."""
-        return self._convert(query, self.mapping["single_to_triple"])
-
-
+# Shared, stateless converter instance reused across the structure module.
 converter = AACodeConverter()

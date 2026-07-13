@@ -1,3 +1,5 @@
+"""Access a local AlphaFold DB (AFDB) mirror of precomputed monomer structures."""
+
 import pathlib
 import re
 
@@ -8,18 +10,23 @@ from .code import converter
 from .mmcif import get_segments_mean_pae, mmCIFStructure, segment_protein_chain_plddt
 
 
-def find_seq_overlap(seq1, seq2, min_match=5):
+def find_seq_overlap(seq1: str, seq2: str, min_match: int = 5) -> int | None:
     """
     Find the offset of seq2 in seq1.
 
-    Args:
-        seq1 (str): The reference sequence.
-        seq2 (str): The query sequence.
-        min_match (int): Initial number of characters to search.
+    Parameters
+    ----------
+    seq1 : str
+        The reference sequence.
+    seq2 : str
+        The query sequence.
+    min_match : int
+        Initial number of characters to search.
 
     Returns
     -------
-        int or None: The unique offset if found and verified, otherwise None.
+    int or None
+        The unique offset if found and verified, otherwise None.
     """
     for length in range(min_match, len(seq2) + 1):
         fragment = seq2[:length]  # Take progressively longer fragments
@@ -43,7 +50,14 @@ def find_seq_overlap(seq1, seq2, min_match=5):
 
 
 class AFDB:
-    def __init__(self, db_dir):
+    """
+    Local AlphaFold DB store indexed by ``metadata.feather``.
+
+    Long proteins are split into overlapping 200-residue frames (``F1``, ``F2``,
+    ...); each frame has its own mmCIF and (optional) PAE file on disk.
+    """
+
+    def __init__(self, db_dir: str) -> None:
         self.db_dir = pathlib.Path(db_dir)
         metadata = pd.read_feather(self.db_dir / "metadata.feather")
         self.uniprot_frame_count = metadata.value_counts("uniprot_id")
@@ -54,7 +68,7 @@ class AFDB:
         )
         self.converter = converter
 
-    def get_structure(self, prot_id, frame=None):
+    def get_structure(self, prot_id: str, frame: int | None = None) -> mmCIFStructure:
         """
         Get structure for a protein in AFDB with a uniprot ID and frame number.
 
@@ -79,24 +93,32 @@ class AFDB:
             ), f"Multiple frames for {prot_id}, please specify frame"
             frame = 1
         offset = int(200 * (frame - 1))
-        frame = f"F{frame}"
+        frame_key = f"F{frame}"
 
-        mmcif_file = self.metadata.loc[(prot_id, frame), "mmcif_file"]
+        mmcif_file = self.metadata.loc[(prot_id, frame_key), "mmcif_file"]
         structure = mmCIFStructure(self.db_dir / "mmcif" / mmcif_file)
 
         # residule offset
         structure.residual_offset = offset
 
-        pae_file = self.metadata.loc[(prot_id, frame), "pae_file"]
+        pae_file = self.metadata.loc[(prot_id, frame_key), "pae_file"]
         if isinstance(pae_file, str):
             structure.pae = np.load(self.db_dir / "pae" / pae_file)["data"]
         return structure
 
     def get_structure_segments(
-        self, prot_id, min_region_size=30, threshold=70, smoothing_sigma=5
-    ):
+        self,
+        prot_id: str,
+        min_region_size: int = 30,
+        threshold: int = 70,
+        smoothing_sigma: int = 5,
+    ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
         """
         Get structure segments for a protein in AFDB with a uniprot ID.
+
+        Combines pLDDT across frames (dropping the 200-residue overlaps) before
+        segmenting. Cross-frame PAE is not supported, so ``segment_pae`` is ``None``
+        for multi-frame proteins.
 
         Parameters
         ----------
@@ -113,8 +135,8 @@ class AFDB:
         -------
         segments : pd.DataFrame
             Segments of the protein
-        segment_pae : pd.DataFrame
-            PAE of the segments
+        segment_pae : pd.DataFrame or None
+            Mean PAE between segments, or None when unavailable.
         """
         frame_count = self.uniprot_frame_count[prot_id]
 
@@ -152,23 +174,23 @@ class AFDB:
             ), "residue position is not unique after merge frames"
         else:
             # only a single frame for the whole protein
-            full_plddt = structure.get_residue_ca_plddts()
+            full_plddt = structures[-1].get_residue_ca_plddts()
 
         # create pLDDT segments
         segments = segment_protein_chain_plddt(
-            full_plddt["pLDDT"].values,
+            np.asarray(full_plddt["pLDDT"]),
             min_region_size=min_region_size,
             threshold=threshold,
             smoothing_sigma=smoothing_sigma,
         )
-        segments["chain"] = full_plddt["chain"].values[0]
+        segments["chain"] = np.asarray(full_plddt["chain"])[0]
 
         # get segment mean pae
         if frame_count > 1:
             print("Multiple frames PAE not supported yet")
             pae = None
         else:
-            pae = structure.pae
+            pae = structures[-1].pae
         if pae is not None:
             segment_pae = get_segments_mean_pae(pae, segments)
         else:
