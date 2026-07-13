@@ -16,4 +16,12 @@
          <loc>https://liuhlab.github.io/bolero/tutorials/embedding_and_meta_cell/02_meta_cell/</loc>
          <lastmod>2026-07-13</lastmod>
     </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/</loc>
+         <lastmod>2026-07-13</lastmod>
+    </url>
 </urlset>
