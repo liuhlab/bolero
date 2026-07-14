@@ -859,6 +859,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/re2-2024.07.02-h9925aae_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rpds-py-2026.6.3-py311h1baac5b_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.3.7-py311h7145743_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/s2n-1.5.14-h6c98b2b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/scikit-image-0.26.0-np2py311h2a99c40_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/scikit-learn-1.9.0-np2py311ha15b03d_0.conda
@@ -5621,6 +5622,21 @@ packages:
   run_exports: {}
   size: 299898
   timestamp: 1782831307838
+- conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.3.7-py311h7145743_0.conda
+  sha256: bd1c25bed979b2022bbdb93acc9fe48a4107536d8897d34ee4b618d3f0ba8c18
+  md5: 68d0518377e72b76d9cd2ec6ebdd4e16
+  depends:
+  - libgcc-ng >=12
+  - libstdcxx-ng >=12
+  - python >=3.11,<3.12.0a0
+  - python_abi 3.11.* *_cp311
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/ruff?source=hash-mapping
+  run_exports: {}
+  size: 6403291
+  timestamp: 1712962073237
 - conda: https://conda.anaconda.org/conda-forge/linux-64/s2n-1.5.14-h6c98b2b_0.conda
   sha256: 39419e07dc5d2b49cea1c8550320d04dda49bfced41d535518b5620d6240e2ff
   md5: efab4ad81ba5731b2fefa0ab4359e884

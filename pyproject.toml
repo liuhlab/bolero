@@ -268,6 +268,13 @@ docs-serve = "mkdocs serve"
 docs-build = "mkdocs build --strict"
 docs-deploy = "mkdocs gh-deploy --force" # build & push to the gh-pages branch
 
+[tool.pixi.feature.dev.dependencies]
+# Pin ruff to the version used by the ruff-pre-commit hook (v0.3.7) so a directly
+# invoked `ruff` (and JupyterLab's code formatter) reads the same pyproject.toml
+# `[tool.ruff]` config — notably `format.docstring-code-format`, which the old
+# transitive ruff (0.1.1, pulled by jupyterlab-code-formatter) does not recognize.
+ruff = "0.3.7.*"
+
 [tool.pixi.feature.dev.tasks]
 lint = "pre-commit run --all-files"
 
