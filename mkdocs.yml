@@ -29,3 +29,7 @@ nav:
       - Single dataset: tutorials/model_training/06_train_borzoi_lora.ipynb
       - Multi-dataset (ATAC): tutorials/model_training/07_train_multi_dataset_atac.ipynb
       - Multi-dataset (+ gene): tutorials/model_training/08_train_multi_dataset_gene.ipynb
+  - Prediction & Variant Effect:
+      - Predicting accessibility: tutorials/prediction/09_prediction_task.ipynb
+      - Variant effect (caQTL & eQTL): tutorials/prediction/10_qtl_task.ipynb
+      - DNA attribution: tutorials/prediction/11_attribution_task.ipynb
