@@ -69,8 +69,10 @@ def _create_seqlet_ds(batch, batch_attr_regions):
     seqlets_info = batch["seqlets_info"]
     seqlets_info["attr_region"] = batch_attr_regions.index[seqlets_info["example_idx"]]
     seqlets_info["attr_region"] = seqlets_info["attr_region"].astype("category")
-    seqlets_info["attr_region_chrom"] = seqlets_info["attr_region"].map(
-        batch_attr_regions["Chromosome"]
+    seqlets_info["attr_region_chrom"] = (
+        seqlets_info["attr_region"]
+        .map(batch_attr_regions["Chromosome"])
+        .astype(str)  # avoid categorical dtype, which the zarr writer rejects
     )
     seqlets_info["attr_region_start"] = (
         seqlets_info["attr_region"].map(batch_attr_regions["Start"]).astype(int)
@@ -102,8 +104,10 @@ def _create_ref_alt_seqlet_ds(ref_batch, alt_batch, batch_attr_regions):
     seqlets_info = pd.concat([ref_seqlets_info, alt_seqlets_info])
     seqlets_info["attr_region"] = batch_attr_regions.index[seqlets_info["example_idx"]]
     seqlets_info["attr_region"] = seqlets_info["attr_region"].astype("category")
-    seqlets_info["attr_region_chrom"] = seqlets_info["attr_region"].map(
-        batch_attr_regions["Chromosome"]
+    seqlets_info["attr_region_chrom"] = (
+        seqlets_info["attr_region"]
+        .map(batch_attr_regions["Chromosome"])
+        .astype(str)  # avoid categorical dtype, which the zarr writer rejects
     )
     seqlets_info["attr_region_start"] = (
         seqlets_info["attr_region"].map(batch_attr_regions["Start"]).astype(int)
