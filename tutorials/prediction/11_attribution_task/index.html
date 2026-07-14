@@ -8,13 +8,11 @@
       
       
       
-        <link rel="canonical" href="https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata/">
+        <link rel="canonical" href="https://liuhlab.github.io/bolero/tutorials/prediction/11_attribution_task/">
       
       
-        <link rel="prev" href="../../embedding_and_meta_cell/02_meta_cell/">
+        <link rel="prev" href="../10_qtl_task/">
       
-      
-        <link rel="next" href="../04_parquet_dataset/">
       
       
         
@@ -25,7 +23,7 @@
     
     
       
-        <title>Meta cell AnnData - bolero</title>
+        <title>Per-base DNA attribution - bolero</title>
       
     
     
@@ -68,7 +66,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#meta-cell-anndata" class="md-skip">
+        <a href="#per-base-dna-attribution" class="md-skip">
           Skip to content
         </a>
       
@@ -104,7 +102,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Meta cell AnnData
+              Per-base DNA attribution
             
           </span>
         </div>
@@ -385,20 +383,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -419,7 +415,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -434,37 +430,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Meta cell AnnData
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../meta_cell_adata_and_parquet/03_meta_cell_adata/" class="md-nav__link">
         
   
   
@@ -480,81 +449,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-1-metacell-metadata-coordinates" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1 — Metacell metadata &amp; coordinates
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-2-metacell-atac-peak-counts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2 — Metacell ATAC peak counts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-metacell-rna-gene-counts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3 — Metacell RNA gene counts
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#check-coverage-per-metacell" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Check — coverage per metacell
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -567,7 +461,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../04_parquet_dataset/" class="md-nav__link">
+      <a href="../../meta_cell_adata_and_parquet/04_parquet_dataset/" class="md-nav__link">
         
   
   
@@ -595,7 +489,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../05_pseudobulk_and_reference/" class="md-nav__link">
+      <a href="../../meta_cell_adata_and_parquet/05_pseudobulk_and_reference/" class="md-nav__link">
         
   
   
@@ -765,18 +659,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
           <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
@@ -797,7 +693,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -815,7 +711,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../prediction/09_prediction_task/" class="md-nav__link">
+      <a href="../09_prediction_task/" class="md-nav__link">
         
   
   
@@ -843,7 +739,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../prediction/10_qtl_task/" class="md-nav__link">
+      <a href="../10_qtl_task/" class="md-nav__link">
         
   
   
@@ -868,10 +764,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../prediction/11_attribution_task/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-base DNA attribution
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -887,6 +810,103 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-and-cell-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model and cell state
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-input-which-regions-to-attribute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The input: which regions to attribute
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-the-attribution-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run the attribution task
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-task-wrote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the task wrote
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot-a-per-base-attribution-logo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plot: a per-base attribution logo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attributing-a-variant-ref-vs-alt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributing a variant (ref vs alt)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -937,10 +957,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-metacell-metadata-coordinates" class="md-nav__link">
+  <a href="#model-and-cell-state" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1 — Metacell metadata &amp; coordinates
+        Model and cell state
       
     </span>
   </a>
@@ -948,10 +968,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-metacell-atac-peak-counts" class="md-nav__link">
+  <a href="#the-input-which-regions-to-attribute" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2 — Metacell ATAC peak counts
+        The input: which regions to attribute
       
     </span>
   </a>
@@ -959,10 +979,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-metacell-rna-gene-counts" class="md-nav__link">
+  <a href="#run-the-attribution-task" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3 — Metacell RNA gene counts
+        Run the attribution task
       
     </span>
   </a>
@@ -970,10 +990,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#check-coverage-per-metacell" class="md-nav__link">
+  <a href="#what-the-task-wrote" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Check — coverage per metacell
+        What the task wrote
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot-a-per-base-attribution-logo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plot: a per-base attribution logo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#attributing-a-variant-ref-vs-alt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributing a variant (ref vs alt)
       
     </span>
   </a>
@@ -1721,47 +1763,30 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bbc5e347">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3993ff8d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="meta-cell-anndata">Meta cell AnnData<a class="anchor-link" href="#meta-cell-anndata">¶</a></h1><p>The <a href="../embedding_and_meta_cell/02_meta_cell.ipynb">previous section</a> assigned every cell to a
-<strong>metacell</strong> — a small, homogeneous SEACells group. This page pools the single cells of each
-metacell into compact per-metacell <strong>AnnData</strong> objects that summarize the dataset at metacell
-resolution: the tables Bolero uses for pseudobulk construction, evaluation, and its RNA head.</p>
-<p>Using <strong>ChromiumPBMC</strong> (a 10x Multiome PBMC dataset) as the worked example, we build three files:</p>
-<ol>
-<li><strong>Metadata &amp; coordinates</strong> — one row per metacell, with aggregated cell metadata and a
-representative embedding / UMAP coordinate.</li>
-<li><strong>ATAC peak counts</strong> — metacell × peak accessibility, summed from single cells.</li>
-<li><strong>RNA gene counts</strong> — metacell × gene expression, summed from single cells.</li>
-</ol>
+<h1 id="per-base-dna-attribution">Per-base DNA attribution<a class="anchor-link" href="#per-base-dna-attribution">¶</a></h1><p>Prediction gives a number; <strong>attribution</strong> explains it. For a chosen cell state, Bolero collapses its
+conditional-LoRA weights into a plain DNA→accessibility model and runs
+<a href="https://captum.ai/">captum</a>'s <code>InputXGradient</code> on it: the gradient of the predicted peak signal with
+respect to the one-hot input, times the input. The result is a <strong>per-base contribution score</strong> — how
+much each nucleotide pushes the prediction up or down — which reads as a sequence logo of the motifs
+the model is using.</p>
+<p>This page shows <strong>how to ask for attribution over a region</strong> and <strong>what the task writes out</strong>.</p>
 <blockquote>
-<p><strong>Where the data comes from.</strong> The single-cell RNA / ATAC counts are resolved from the companion
-registry <a href="https://github.com/liuhlab/bolerodata"><code>bolerodata</code></a>: <code>DATASETS["ChromiumPBMC"]</code>
-exposes the per-sample peak AnnDatas (<code>.peak_adata_path</code>) and the RNA raw-count AnnData
-(<code>.gene_adata_path</code>), so you never hard-code file paths.</p>
-<p><strong>Run in place.</strong> This notebook reads <code>adata.multivi.with_coords.h5ad</code> written by the previous
-page and writes its three outputs into the current directory. Run it from its own folder.</p>
+<p><strong>This page uses the <code>bolerodata</code> model zoo</strong>, so it runs in the lab environment; the committed
+outputs are what you would see. The mechanics are the same for any trained model, including the
+self-contained one from the <a href="09_prediction_task.ipynb">prediction page</a>.</p>
 </blockquote>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e25207e2">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="setup">Setup<a class="anchor-link" href="#setup">¶</a></h2>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=f84f48a7">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4108d973">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1779,50 +1804,64 @@ page and writes its three outputs into the current directory. Run it from its ow
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">simplefilter</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="kn">import</span><span class="w"> </span><span class="nn">anndata</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.sparse</span><span class="w"> </span><span class="kn">import</span> <span class="n">csr_matrix</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.pp.snap_adata</span><span class="w"> </span><span class="kn">import</span> <span class="n">CSRRowMerge</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">understand_regions</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.pl.seqlogo</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttributionPlotter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MODELS</span>
 
-<span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">"font.sans-serif"</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"DejaVu Sans"</span><span class="p">]</span>   <span class="c1"># use a font that ships with the env</span>
-<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"matplotlib.font_manager"</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
+<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">object_store_memory_gb</span><span class="o">=</span><span class="mi">48</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">import logging
-from pathlib import Path
-from warnings import simplefilter
+<div class="clipboard-copy-txt" id="cell-1">import os
 
-import anndata
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from scipy.sparse import csr_matrix
+import xarray as xr
 
-from bolero.pp.snap_adata import CSRRowMerge
-from bolero.utils import understand_regions
-from bolerodata import DATASETS
+from bolero import init
+from bolero.pl.seqlogo import AttributionPlotter
+from bolerodata import MODELS
 
-simplefilter("ignore")
-plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]   # use a font that ships with the env
-logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)</div>
+init(num_cpus=16, object_store_memory_gb=48)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-07-13 20:30:50,876	INFO worker.py:1781 -- Started a local Ray instance.
+</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=ed5e19fc">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1cc89c3c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="model-and-cell-state">Model and cell state<a class="anchor-link" href="#model-and-cell-state">¶</a></h2><p>Attribution is <strong>cell-state-specific</strong>: the model is collapsed onto one pseudobulk's embedding before
+the gradient is taken. We load the atlas accessibility model conditioned on brain cell states and pick
+a single cell state to attribute for (<code>pseudobulk_ids</code>).</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7f7e74f5">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1840,49 +1879,57 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
-<span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">EMB_KEY</span> <span class="o">=</span> <span class="s2">"X_multivi"</span>           <span class="c1"># cell embedding produced by 01_cell_embedding (MULTIVI)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">MODELS</span><span class="p">[</span><span class="s2">"Borzoi10M"</span><span class="p">]</span>
+<span class="n">model</span><span class="o">.</span><span class="n">dataset</span> <span class="o">=</span> <span class="s2">"HumanBrainDev"</span>
 
-<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>   <span class="c1"># per-cell, carries obs["meta_cell"]</span>
-<span class="n">METADATA_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.metadata.h5ad"</span>   <span class="c1"># obs + X_emb / X_umap + uns["meta_cell_to_cells"]</span>
-<span class="n">PEAK_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.peak_count.h5ad"</span>     <span class="c1"># metacell x peak   (ATAC)</span>
-<span class="n">GENE_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.gene_count.h5ad"</span>     <span class="c1"># metacell x gene   (RNA)</span>
-
-<span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
+<span class="n">CELL_STATE</span> <span class="o">=</span> <span class="s2">"group6-pseudobulk3"</span>
+<span class="n">pred</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">create_predictor</span><span class="p">(</span><span class="n">nosignal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="o">=</span><span class="p">[</span><span class="n">CELL_STATE</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"attributing for cell state:"</span><span class="p">,</span> <span class="n">CELL_STATE</span><span class="p">,</span> <span class="s2">"of"</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
-DATASET_NAME = "ChromiumPBMC"
-EMB_KEY = "X_multivi"           # cell embedding produced by 01_cell_embedding (MULTIVI)
+<div class="clipboard-copy-txt" id="cell-2">model = MODELS["Borzoi10M"]
+model.dataset = "HumanBrainDev"
 
-INPUT_ADATA = "adata.multivi.with_coords.h5ad"   # per-cell, carries obs["meta_cell"]
-METADATA_H5AD = "metacell.metadata.h5ad"   # obs + X_emb / X_umap + uns["meta_cell_to_cells"]
-PEAK_H5AD = "metacell.peak_count.h5ad"     # metacell x peak   (ATAC)
-GENE_H5AD = "metacell.gene_count.h5ad"     # metacell x gene   (RNA)
-
-dataset = DATASETS[DATASET_NAME]</div>
+CELL_STATE = "group6-pseudobulk3"
+pred = model.create_predictor(nosignal=True, pseudobulk_ids=[CELL_STATE])
+print("attributing for cell state:", CELL_STATE, "of", model.dataset.name)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>attributing for cell state: group6-pseudobulk3 of HumanBrainDev
+</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1b46e98b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5e8e05ef">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-1-metacell-metadata-coordinates">Step 1 — Metacell metadata &amp; coordinates<a class="anchor-link" href="#step-1-metacell-metadata-coordinates">¶</a></h2><p>For each metacell we pick the cell nearest its embedding centroid as a <strong>representative</strong> and
-reuse that cell's embedding and UMAP coordinate for the metacell. Categorical metadata is carried
-over by majority vote and counts are summed, giving one clean <code>obs</code> row per metacell. The exact
-cell membership is stored in <code>uns["meta_cell_to_cells"]</code> so the next steps can pool the underlying
-single cells.</p>
+<h2 id="the-input-which-regions-to-attribute">The input: which regions to attribute<a class="anchor-link" href="#the-input-which-regions-to-attribute">¶</a></h2><p><code>regions_per_pseudobulk</code> says <em>where</em> to compute attribution. It accepts either:</p>
+<ul>
+<li>a <strong>BED / DataFrame</strong> of regions (<code>Chromosome</code>, <code>Start</code>, <code>End</code>) — used for every cell state. Each is
+centered and padded to the model's 524,288 bp window; the center 1,024 bp is scored.</li>
+<li>a <strong><code>dict{pseudobulk_id: regions}</code></strong> — different regions per cell state.</li>
+</ul>
+<p>A real run passes many peaks (e.g. <code>DATASETS[...].peak_bed_path</code>). Here we attribute one example ATAC
+peak so the demo is quick.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=315259bd">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=070e7183">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -1900,105 +1947,17 @@ single cells.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">group_centroid</span><span class="p">(</span><span class="n">cell_coords</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Return the index of the cell closest to the centroid of a group."""</span>
-    <span class="n">center</span> <span class="o">=</span> <span class="n">cell_coords</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-    <span class="n">nearest</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">cell_coords</span><span class="o">.</span><span class="n">values</span> <span class="o">-</span> <span class="n">center</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">argmin</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">cell_coords</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="n">nearest</span><span class="p">]</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">get_group_centroids</span><span class="p">(</span><span class="n">embedding</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">groupby</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Map each group (metacell) to its centroid-representative cell."""</span>
-    <span class="k">return</span> <span class="n">embedding</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="n">groupby</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">group_centroid</span><span class="p">)</span>
-
-
-<span class="c1"># how to summarize each cell-metadata column onto the metacell</span>
-<span class="n">most_frequent</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">s</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">AGG</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"cluster"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"subclass"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"class"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"age"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"age_int"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"tissue"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"donor"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"DissectionRegion"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"n_fragments"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"tsse"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"n_umis"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"n_genes"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span>
-<span class="p">}</span>
-
-<span class="c1"># Skip the (re)generation if the output already exists -- just load it.</span>
-<span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-    <span class="n">meta_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">INPUT_ADATA</span><span class="p">)</span>
-    <span class="n">embedding</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="n">EMB_KEY</span><span class="p">],</span> <span class="n">index</span><span class="o">=</span><span class="n">adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
-    <span class="n">umap</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">"X_umap"</span><span class="p">],</span> <span class="n">index</span><span class="o">=</span><span class="n">adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
-
-    <span class="n">reps</span> <span class="o">=</span> <span class="n">get_group_centroids</span><span class="p">(</span><span class="n">embedding</span><span class="p">,</span> <span class="n">groupby</span><span class="o">=</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"meta_cell"</span><span class="p">])</span>
-    <span class="n">agg</span> <span class="o">=</span> <span class="p">{</span><span class="n">col</span><span class="p">:</span> <span class="n">how</span> <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">how</span> <span class="ow">in</span> <span class="n">AGG</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">columns</span><span class="p">}</span>
-    <span class="n">meta_obs</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">reps</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
-
-    <span class="n">meta_cell_to_cells</span> <span class="o">=</span> <span class="p">{</span>
-        <span class="n">mc</span><span class="p">:</span> <span class="n">cells</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-        <span class="k">for</span> <span class="n">mc</span><span class="p">,</span> <span class="n">cells</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-    <span class="p">}</span>
-
-    <span class="n">meta_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
-        <span class="n">obs</span><span class="o">=</span><span class="n">meta_obs</span><span class="p">,</span>
-        <span class="n">var</span><span class="o">=</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">index</span><span class="o">=</span><span class="p">[</span><span class="s2">"null"</span><span class="p">]),</span>
-        <span class="n">obsm</span><span class="o">=</span><span class="p">{</span><span class="s2">"X_emb"</span><span class="p">:</span> <span class="n">embedding</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span>
-              <span class="s2">"X_umap"</span><span class="p">:</span> <span class="n">umap</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">},</span>
-        <span class="n">uns</span><span class="o">=</span><span class="p">{</span><span class="s2">"meta_cell_to_cells"</span><span class="p">:</span> <span class="n">meta_cell_to_cells</span><span class="p">},</span>
-    <span class="p">)</span>
-    <span class="n">meta_adata</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">n_obs</span><span class="si">}</span><span class="s2"> metacells"</span><span class="p">)</span>
-<span class="n">meta_adata</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">EXAMPLE_PEAK</span> <span class="o">=</span> <span class="s2">"chr10:120505130-120505630"</span>     <span class="c1"># an accessible ATAC peak</span>
+<span class="n">chrom</span><span class="p">,</span> <span class="n">coords</span> <span class="o">=</span> <span class="n">EXAMPLE_PEAK</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">":"</span><span class="p">)</span>
+<span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">coords</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"-"</span><span class="p">))</span>
+<span class="n">regions</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">"Chromosome"</span><span class="p">:</span> <span class="p">[</span><span class="n">chrom</span><span class="p">],</span> <span class="s2">"Start"</span><span class="p">:</span> <span class="p">[</span><span class="n">start</span><span class="p">],</span> <span class="s2">"End"</span><span class="p">:</span> <span class="p">[</span><span class="n">end</span><span class="p">]})</span>
+<span class="n">regions</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">def group_centroid(cell_coords: pd.DataFrame) -&gt; str:
-    """Return the index of the cell closest to the centroid of a group."""
-    center = cell_coords.values.mean(axis=0)
-    nearest = np.linalg.norm(cell_coords.values - center, axis=1).argmin()
-    return cell_coords.index[nearest]
-
-
-def get_group_centroids(embedding: pd.DataFrame, groupby) -&gt; pd.Series:
-    """Map each group (metacell) to its centroid-representative cell."""
-    return embedding.groupby(groupby, observed=True).apply(group_centroid)
-
-
-# how to summarize each cell-metadata column onto the metacell
-most_frequent = lambda s: s.dropna().value_counts().index[0]
-AGG = {
-    "cluster": most_frequent, "subclass": most_frequent, "class": most_frequent,
-    "age": most_frequent, "age_int": most_frequent, "tissue": most_frequent,
-    "donor": most_frequent, "DissectionRegion": most_frequent,
-    "n_fragments": "sum", "tsse": "mean", "n_umis": "sum", "n_genes": "mean",
-}
-
-# Skip the (re)generation if the output already exists -- just load it.
-if Path(METADATA_H5AD).exists():
-    meta_adata = anndata.read_h5ad(METADATA_H5AD)
-else:
-    adata = anndata.read_h5ad(INPUT_ADATA)
-    embedding = pd.DataFrame(adata.obsm[EMB_KEY], index=adata.obs_names)
-    umap = pd.DataFrame(adata.obsm["X_umap"], index=adata.obs_names)
-
-    reps = get_group_centroids(embedding, groupby=adata.obs["meta_cell"])
-    agg = {col: how for col, how in AGG.items() if col in adata.obs.columns}
-    meta_obs = adata.obs.groupby("meta_cell", observed=True).agg(agg).reindex(reps.index)
-
-    meta_cell_to_cells = {
-        mc: cells.index.tolist()
-        for mc, cells in adata.obs.groupby("meta_cell", observed=True)
-    }
-
-    meta_adata = anndata.AnnData(
-        obs=meta_obs,
-        var=pd.DataFrame(index=["null"]),
-        obsm={"X_emb": embedding.loc[reps.values].values,
-              "X_umap": umap.loc[reps.values].values},
-        uns={"meta_cell_to_cells": meta_cell_to_cells},
-    )
-    meta_adata.write_h5ad(METADATA_H5AD)
-
-print(f"{meta_adata.n_obs} metacells")
-meta_adata</div>
+<div class="clipboard-copy-txt" id="cell-3">EXAMPLE_PEAK = "chr10:120505130-120505630"     # an accessible ATAC peak
+chrom, coords = EXAMPLE_PEAK.split(":")
+start, end = map(int, coords.split("-"))
+regions = pd.DataFrame({"Chromosome": [chrom], "Start": [start], "End": [end]})
+regions</div>
 </div>
 </div>
 </div>
@@ -2007,43 +1966,60 @@ meta_adata</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>619 metacells
-</pre>
-</div>
-</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>AnnData object with n_obs × n_vars = 619 × 1
-    obs: 'cluster', 'subclass', 'class', 'age', 'age_int', 'tissue', 'donor', 'DissectionRegion', 'n_fragments', 'tsse', 'n_umis', 'n_genes'
-    uns: 'meta_cell_to_cells'
-    obsm: 'X_emb', 'X_umap'</pre>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>Chromosome</th>
+<th>Start</th>
+<th>End</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>0</th>
+<td>chr10</td>
+<td>120505130</td>
+<td>120505630</td>
+</tr>
+</tbody>
+</table>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1951fd03">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8ef7db7b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-2-metacell-atac-peak-counts">Step 2 — Metacell ATAC peak counts<a class="anchor-link" href="#step-2-metacell-atac-peak-counts">¶</a></h2><p>We invert <code>meta_cell_to_cells</code> into a cell → metacell map and sum single-cell peak counts within
-each metacell using <strong><code>CSRRowMerge</code></strong> — the same helper Bolero uses in its fragment pipeline. It
-builds a sparse selector matrix <code>P</code> (metacell × cell) and returns <code>P @ X</code>, adding every cell's row
-into its metacell's row in a single sparse matmul. ChromiumPBMC's ATAC counts are split across four
-per-sample AnnDatas (resolved from <code>dataset.peak_adata_path</code>), so we accumulate the per-file
-results. Peak names like <code>chr1:100-600</code> are parsed into a proper <code>var</code> bed with <code>understand_regions</code>.</p>
+<h2 id="run-the-attribution-task">Run the attribution task<a class="anchor-link" href="#run-the-attribution-task">¶</a></h2>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=629000cc">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=54b40982">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2061,111 +2037,19 @@ results. Peak names like <code>chr1:100-600</code> are parsed into a proper <cod
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">meta_cell_to_cells</span> <span class="o">=</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">uns</span><span class="p">[</span><span class="s2">"meta_cell_to_cells"</span><span class="p">]</span>
-<span class="n">cell_to_metacell</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span>
-    <span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">mc</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">cells</span><span class="p">)</span> <span class="k">for</span> <span class="n">mc</span><span class="p">,</span> <span class="n">cells</span> <span class="ow">in</span> <span class="n">meta_cell_to_cells</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pred</span><span class="o">.</span><span class="n">attribution_task</span><span class="p">(</span>
+    <span class="s2">"attribution_task_output"</span><span class="p">,</span>
+    <span class="n">regions_per_pseudobulk</span><span class="o">=</span><span class="n">regions</span><span class="p">,</span>   <span class="c1"># or a dict {pseudobulk_id: regions} for per-state regions</span>
+    <span class="n">mode</span><span class="o">=</span><span class="s2">"attribution"</span><span class="p">,</span>
+    <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
 <span class="p">)</span>
-
-<span class="c1"># fixed metacell row order shared by the peak and gene count matrices</span>
-<span class="n">metacell_order</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Index</span><span class="p">(</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
-<span class="n">row_of</span> <span class="o">=</span> <span class="p">{</span><span class="n">mc</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">mc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">metacell_order</span><span class="p">)}</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">sum_by_metacell</span><span class="p">(</span><span class="n">single_adata</span><span class="p">,</span> <span class="n">cell_to_metacell</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""Sum single cells into a (n_metacell, n_feature) matrix with CSRRowMerge.</span>
-
-<span class="sd">    CSRRowMerge turns a {cell_row -&gt; metacell_row} plan into a sparse selector</span>
-<span class="sd">    matrix P (metacell x cell) and returns ``P @ X`` -- every cell's row added into</span>
-<span class="sd">    its metacell's row in one sparse matmul, aligned to ``metacell_order``.</span>
-<span class="sd">    """</span>
-    <span class="n">n_out</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">metacell_order</span><span class="p">)</span>
-    <span class="n">keep</span> <span class="o">=</span> <span class="n">single_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">cell_to_metacell</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">keep</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">csr_matrix</span><span class="p">((</span><span class="n">n_out</span><span class="p">,</span> <span class="n">single_adata</span><span class="o">.</span><span class="n">n_vars</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span>
-    <span class="n">part</span> <span class="o">=</span> <span class="n">single_adata</span><span class="p">[</span><span class="n">keep</span><span class="p">]</span>
-    <span class="n">part</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">to_memory</span><span class="p">()</span> <span class="k">if</span> <span class="n">single_adata</span><span class="o">.</span><span class="n">isbacked</span> <span class="k">else</span> <span class="n">part</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
-    <span class="n">metacells</span> <span class="o">=</span> <span class="n">cell_to_metacell</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">part</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
-    <span class="n">merge_plan</span> <span class="o">=</span> <span class="p">{</span><span class="n">cell_row</span><span class="p">:</span> <span class="n">row_of</span><span class="p">[</span><span class="n">mc</span><span class="p">]</span> <span class="k">for</span> <span class="n">cell_row</span><span class="p">,</span> <span class="n">mc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">metacells</span><span class="p">)}</span>
-    <span class="n">merger</span> <span class="o">=</span> <span class="n">CSRRowMerge</span><span class="p">(</span><span class="n">merge_plan</span><span class="p">,</span> <span class="n">n_input</span><span class="o">=</span><span class="n">part</span><span class="o">.</span><span class="n">n_obs</span><span class="p">,</span> <span class="n">n_output</span><span class="o">=</span><span class="n">n_out</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">merger</span><span class="p">(</span><span class="n">part</span><span class="o">.</span><span class="n">X</span><span class="o">.</span><span class="n">tocsr</span><span class="p">())</span>
-
-
-<span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">PEAK_H5AD</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-    <span class="n">peak_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">PEAK_H5AD</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">peak_total</span><span class="p">,</span> <span class="n">peak_names</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span>
-    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">peak_adata_path</span><span class="p">)</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">"*.h5ad"</span><span class="p">)):</span>
-        <span class="n">part</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">backed</span><span class="o">=</span><span class="s2">"r"</span><span class="p">)</span>
-        <span class="n">peak_names</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">var_names</span> <span class="k">if</span> <span class="n">peak_names</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">peak_names</span>
-        <span class="n">mat</span> <span class="o">=</span> <span class="n">sum_by_metacell</span><span class="p">(</span><span class="n">part</span><span class="p">,</span> <span class="n">cell_to_metacell</span><span class="p">)</span>
-        <span class="n">peak_total</span> <span class="o">=</span> <span class="n">mat</span> <span class="k">if</span> <span class="n">peak_total</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">peak_total</span> <span class="o">+</span> <span class="n">mat</span>
-
-    <span class="n">peak_bed</span> <span class="o">=</span> <span class="n">understand_regions</span><span class="p">(</span><span class="n">peak_names</span><span class="p">)</span>
-    <span class="n">peak_bed</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">peak_bed</span><span class="p">[</span><span class="s2">"Name"</span><span class="p">]</span>
-    <span class="n">peak_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
-        <span class="n">X</span><span class="o">=</span><span class="n">peak_total</span><span class="o">.</span><span class="n">toarray</span><span class="p">(),</span>
-        <span class="n">obs</span><span class="o">=</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
-        <span class="n">var</span><span class="o">=</span><span class="n">peak_bed</span><span class="p">,</span>
-        <span class="n">obsm</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">obsm</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
-        <span class="n">uns</span><span class="o">=</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">uns</span><span class="p">,</span>
-    <span class="p">)</span>
-    <span class="n">peak_adata</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="n">PEAK_H5AD</span><span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="s2">"peak count adata:"</span><span class="p">,</span> <span class="n">peak_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="n">peak_adata</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">meta_cell_to_cells = meta_adata.uns["meta_cell_to_cells"]
-cell_to_metacell = pd.concat(
-    [pd.Series(mc, index=cells) for mc, cells in meta_cell_to_cells.items()]
-)
-
-# fixed metacell row order shared by the peak and gene count matrices
-metacell_order = pd.Index(meta_adata.obs_names)
-row_of = {mc: i for i, mc in enumerate(metacell_order)}
-
-
-def sum_by_metacell(single_adata, cell_to_metacell):
-    """Sum single cells into a (n_metacell, n_feature) matrix with CSRRowMerge.
-
-    CSRRowMerge turns a {cell_row -&gt; metacell_row} plan into a sparse selector
-    matrix P (metacell x cell) and returns ``P @ X`` -- every cell's row added into
-    its metacell's row in one sparse matmul, aligned to ``metacell_order``.
-    """
-    n_out = len(metacell_order)
-    keep = single_adata.obs_names.isin(cell_to_metacell.index)
-    if keep.sum() == 0:
-        return csr_matrix((n_out, single_adata.n_vars), dtype="float32")
-    part = single_adata[keep]
-    part = part.to_memory() if single_adata.isbacked else part.copy()
-    metacells = cell_to_metacell.reindex(part.obs_names)
-    merge_plan = {cell_row: row_of[mc] for cell_row, mc in enumerate(metacells)}
-    merger = CSRRowMerge(merge_plan, n_input=part.n_obs, n_output=n_out)
-    return merger(part.X.tocsr())
-
-
-if Path(PEAK_H5AD).exists():
-    peak_adata = anndata.read_h5ad(PEAK_H5AD)
-else:
-    peak_total, peak_names = None, None
-    for path in sorted(Path(dataset.peak_adata_path).glob("*.h5ad")):
-        part = anndata.read_h5ad(path, backed="r")
-        peak_names = part.var_names if peak_names is None else peak_names
-        mat = sum_by_metacell(part, cell_to_metacell)
-        peak_total = mat if peak_total is None else peak_total + mat
-
-    peak_bed = understand_regions(peak_names)
-    peak_bed.index = peak_bed["Name"]
-    peak_adata = anndata.AnnData(
-        X=peak_total.toarray(),
-        obs=meta_adata.obs.copy(),
-        var=peak_bed,
-        obsm={k: v.copy() for k, v in meta_adata.obsm.items()},
-        uns=meta_adata.uns,
-    )
-    peak_adata.write_h5ad(PEAK_H5AD)
-
-print("peak count adata:", peak_adata.shape)
-peak_adata</div>
+<div class="clipboard-copy-txt" id="cell-4">pred.attribution_task(
+    "attribution_task_output",
+    regions_per_pseudobulk=regions,   # or a dict {pseudobulk_id: regions} for per-state regions
+    mode="attribution",
+    batch_size=4,
+)</div>
 </div>
 </div>
 </div>
@@ -2177,38 +2061,96 @@ peak_adata</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>peak count adata: (619, 227031)
+<pre>mode:  attribution
+qtl_type:  None
+Save keys: ['region', 'pseudobulk_id', 'region_name', 'seqlets_info', 'seqlets_dna', 'seqlets_attr', 'seqlets_attr1d', '__dna__:attr', '__dna__:attr_seq']
+Saving batches to /large_storage/zhoulab/hanliu/pkg/liuhlab/bolero/docs/tutorials/prediction/attribution_task_output/batch
 </pre>
 </div>
 </div>
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>AnnData object with n_obs × n_vars = 619 × 227031
-    obs: 'cluster', 'subclass', 'class', 'age', 'age_int', 'tissue', 'donor', 'DissectionRegion', 'n_fragments', 'tsse', 'n_umis', 'n_genes'
-    var: 'Chromosome', 'Start', 'End', 'Name'
-    uns: 'meta_cell_to_cells'
-    obsm: 'X_emb', 'X_umap'</pre>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Loading base model weights from: /home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Model does not have gene_count_output_head, skip
+Loading checkpoint from /large_storage/zhoulab/hanliu/250907-MultiDatasetModel/Bolero10M/model/251103-Bolero10M_atac_fold0-final.lora.best_checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>==========
+Dataloader Batch Schema:
+- HumanBrainDev.MetaCell:cov_scale: &lt;class 'torch.Tensor'&gt; torch.Size([1]) torch.float64 cuda:0
+- __conditionemb__: &lt;class 'torch.Tensor'&gt; torch.Size([1, 1, 3]) torch.float32 cuda:0
+- __dna__: &lt;class 'torch.Tensor'&gt; torch.Size([1, 4, 524288]) torch.uint8 cuda:0
+- __dna__:attr: &lt;class 'numpy.ndarray'&gt; (1, 4, 1024) float32
+- __dna__:attr_seq: &lt;class 'numpy.ndarray'&gt; (1, 4, 1024) float32
+- __embedding__: &lt;class 'torch.Tensor'&gt; torch.Size([1, 60]) torch.float32 cuda:0
+- full_attr1d: &lt;class 'scipy.sparse._coo.coo_matrix'&gt; (1, 1024)
+- full_attr_list: &lt;class 'list'&gt; 1
+- pseudobulk_id: &lt;class 'str'&gt; ensemble|data:data-0
+- reference: &lt;class 'torch.Tensor'&gt; torch.Size([1, 16384]) torch.float32 cuda:0
+- region: &lt;class 'numpy.ndarray'&gt; (1,) &lt;U25
+- region_name: &lt;class 'numpy.ndarray'&gt; (1,) &lt;U25
+- seqlets_attr: &lt;class 'numpy.ndarray'&gt; (7, 4, 50) float16
+- seqlets_attr1d: &lt;class 'numpy.ndarray'&gt; (7, 50) float16
+- seqlets_dna: &lt;class 'numpy.ndarray'&gt; (7, 4, 50) bool
+- seqlets_info: &lt;class 'pandas.core.frame.DataFrame'&gt; (7, 7)
+==========
+
+Total time: 4.88s
+Inference time: 1.70s or 1.701s per batch
+Callback time: 2.69s or 2.695s per batch
+(total 1 batches)
+
+==========
+Saved Batch Schema:
+- __dna__:attr: &lt;class 'numpy.ndarray'&gt; (1, 4, 1024) float32
+- __dna__:attr_seq: &lt;class 'numpy.ndarray'&gt; (1, 4, 1024) float32
+- pseudobulk_id: &lt;class 'str'&gt; ensemble|data:data-0
+- region: &lt;class 'numpy.ndarray'&gt; (1,) &lt;U25
+- region_name: &lt;class 'numpy.ndarray'&gt; (1,) &lt;U25
+- seqlets_attr: &lt;class 'numpy.ndarray'&gt; (7, 4, 50) float16
+- seqlets_attr1d: &lt;class 'numpy.ndarray'&gt; (7, 50) float16
+- seqlets_dna: &lt;class 'numpy.ndarray'&gt; (7, 4, 50) bool
+- seqlets_info: &lt;class 'pandas.core.frame.DataFrame'&gt; (7, 7)
+==========
+
+</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=33a96970">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5604a50d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="step-3-metacell-rna-gene-counts">Step 3 — Metacell RNA gene counts<a class="anchor-link" href="#step-3-metacell-rna-gene-counts">¶</a></h2><p>ChromiumPBMC is multiome, so the same cells also carry RNA. We apply the identical
-sum-by-metacell aggregation to the single-cell gene-count AnnData (<code>dataset.gene_adata_path</code>) to
-get metacell × gene expression, which feeds Bolero's RNA (gene-count) head.</p>
+<h2 id="what-the-task-wrote">What the task wrote<a class="anchor-link" href="#what-the-task-wrote">¶</a></h2><p>The task saves a <strong>region-level</strong> and a <strong>seqlet-level</strong> view, each as a feather index + a zarr array:</p>
+<ul>
+<li><strong><code>attribution_regions.feather</code></strong> — the coordinates of each attributed region and the
+<code>pseudobulk_id</code> (cell state) it was computed for.</li>
+<li><strong><code>region_attribution_and_seq.zarr</code></strong> — <code>__dna__:attr</code> = the per-base contribution scores with dims
+<code>(region, base, position)</code> = <code>(N, 4, 1024)</code>, and <code>__dna__:attr_seq</code> = the matching one-hot sequence.</li>
+<li><strong><code>seqlets_info.feather</code> / <code>seqlets_attribution_and_seq.zarr</code></strong> — the high-attribution stretches
+("seqlets") that Bolero automatically calls out of each region as candidate motif instances.</li>
+</ul>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=1a4cdc18">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=79acd81c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2226,39 +2168,35 @@ get metacell × gene expression, which feeds Bolero's RNA (gene-count) head.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">if</span> <span class="n">Path</span><span class="p">(</span><span class="n">GENE_H5AD</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-    <span class="n">gene_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">GENE_H5AD</span><span class="p">)</span>
-<span class="k">else</span><span class="p">:</span>
-    <span class="n">cell_gene_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">gene_adata_path</span><span class="p">)</span>
-    <span class="n">gene_total</span> <span class="o">=</span> <span class="n">sum_by_metacell</span><span class="p">(</span><span class="n">cell_gene_adata</span><span class="p">,</span> <span class="n">cell_to_metacell</span><span class="p">)</span>
-    <span class="n">gene_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
-        <span class="n">X</span><span class="o">=</span><span class="n">gene_total</span><span class="o">.</span><span class="n">toarray</span><span class="p">(),</span>
-        <span class="n">obs</span><span class="o">=</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
-        <span class="n">var</span><span class="o">=</span><span class="n">cell_gene_adata</span><span class="o">.</span><span class="n">var</span><span class="p">,</span>
-        <span class="n">obsm</span><span class="o">=</span><span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">obsm</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
-        <span class="n">uns</span><span class="o">=</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">uns</span><span class="p">,</span>
-    <span class="p">)</span>
-    <span class="n">gene_adata</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="n">GENE_H5AD</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">out</span> <span class="o">=</span> <span class="s2">"attribution_task_output"</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"output files:"</span><span class="p">,</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">out</span><span class="p">)))</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"gene count adata:"</span><span class="p">,</span> <span class="n">gene_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="n">gene_adata</span>
+<span class="n">attr_regions</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">/attribution_regions.feather"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">attribution_regions.feather:"</span><span class="p">,</span> <span class="n">attr_regions</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"cell states:"</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">attr_regions</span><span class="p">[</span><span class="s2">"pseudobulk_id"</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">()))</span>
+
+<span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">/region_attribution_and_seq.zarr"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"__dna__:attr    "</span><span class="p">,</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">dims</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"__dna__:attr_seq"</span><span class="p">,</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">dims</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+
+<span class="n">seqlets</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">/seqlets_info.feather"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">seqlets_info.feather:"</span><span class="p">,</span> <span class="n">seqlets</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="n">seqlets</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">if Path(GENE_H5AD).exists():
-    gene_adata = anndata.read_h5ad(GENE_H5AD)
-else:
-    cell_gene_adata = anndata.read_h5ad(dataset.gene_adata_path)
-    gene_total = sum_by_metacell(cell_gene_adata, cell_to_metacell)
-    gene_adata = anndata.AnnData(
-        X=gene_total.toarray(),
-        obs=meta_adata.obs.copy(),
-        var=cell_gene_adata.var,
-        obsm={k: v.copy() for k, v in meta_adata.obsm.items()},
-        uns=meta_adata.uns,
-    )
-    gene_adata.write_h5ad(GENE_H5AD)
+<div class="clipboard-copy-txt" id="cell-5">out = "attribution_task_output"
+print("output files:", sorted(os.listdir(out)))
 
-print("gene count adata:", gene_adata.shape)
-gene_adata</div>
+attr_regions = pd.read_feather(f"{out}/attribution_regions.feather")
+print("\nattribution_regions.feather:", attr_regions.shape)
+print("cell states:", list(attr_regions["pseudobulk_id"].unique()))
+
+ds = xr.open_zarr(f"{out}/region_attribution_and_seq.zarr")
+print("__dna__:attr    ", ds["__dna__:attr"].dims, tuple(ds["__dna__:attr"].shape))
+print("__dna__:attr_seq", ds["__dna__:attr_seq"].dims, tuple(ds["__dna__:attr_seq"].shape))
+
+seqlets = pd.read_feather(f"{out}/seqlets_info.feather")
+print("\nseqlets_info.feather:", seqlets.shape)
+seqlets.head(3)</div>
 </div>
 </div>
 </div>
@@ -2270,39 +2208,126 @@ gene_adata</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>gene count adata: (619, 36601)
+<pre>output files: ['attribution_regions.feather', 'batch', 'config.joblib.gz', 'region_attribution_and_seq.zarr', 'seqlets_attribution_and_seq.zarr', 'seqlets_info.feather']
+
+attribution_regions.feather: (1, 6)
+cell states: ['group6-pseudobulk3']
+__dna__:attr     ('region', 'base', 'position') (1, 4, 1024)
+__dna__:attr_seq ('region', 'base', 'position') (1, 4, 1024)
+
+seqlets_info.feather: (7, 10)
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>AnnData object with n_obs × n_vars = 619 × 36601
-    obs: 'cluster', 'subclass', 'class', 'age', 'age_int', 'tissue', 'donor', 'DissectionRegion', 'n_fragments', 'tsse', 'n_umis', 'n_genes'
-    var: 'gene_ids', 'feature_types', 'genome', 'interval', 'gene_name'
-    uns: 'meta_cell_to_cells'
-    obsm: 'X_emb', 'X_umap'</pre>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>start</th>
+<th>end</th>
+<th>attribution</th>
+<th>p-value</th>
+<th>flank_start</th>
+<th>flank_end</th>
+<th>attr_region</th>
+<th>attr_region_chrom</th>
+<th>attr_region_start</th>
+<th>pseudobulk_id</th>
+</tr>
+<tr>
+<th>seqlet</th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>0</th>
+<td>432</td>
+<td>443</td>
+<td>19.802734</td>
+<td>0.000194</td>
+<td>412</td>
+<td>462</td>
+<td>chr10:120505130-120505630</td>
+<td>chr10</td>
+<td>120504868</td>
+<td>group6-pseudobulk3</td>
+</tr>
+<tr>
+<th>1</th>
+<td>380</td>
+<td>385</td>
+<td>6.085938</td>
+<td>0.000227</td>
+<td>357</td>
+<td>407</td>
+<td>chr10:120505130-120505630</td>
+<td>chr10</td>
+<td>120504868</td>
+<td>group6-pseudobulk3</td>
+</tr>
+<tr>
+<th>2</th>
+<td>690</td>
+<td>698</td>
+<td>11.014648</td>
+<td>0.000278</td>
+<td>669</td>
+<td>719</td>
+<td>chr10:120505130-120505630</td>
+<td>chr10</td>
+<td>120504868</td>
+<td>group6-pseudobulk3</td>
+</tr>
+</tbody>
+</table>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8ac489c6">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d8fef13a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="check-coverage-per-metacell">Check — coverage per metacell<a class="anchor-link" href="#check-coverage-per-metacell">¶</a></h2><p>Pooling lifts each metacell from single-cell sparsity to usable pseudobulk depth. The per-metacell
-<strong>total fragment count</strong> (<code>obs["n_fragments"]</code>, summed over the pooled cells) alongside the total
-ATAC peak signal confirms the aggregation produced well-covered pseudobulks, and that all three
-files agree on the metacell set.</p>
+<h2 id="plot-a-per-base-attribution-logo">Plot: a per-base attribution logo<a class="anchor-link" href="#plot-a-per-base-attribution-logo">¶</a></h2><p>We pull the region's <code>(4, 1024)</code> attribution and one-hot sequence, zoom into the central window, and
+draw the logo. Letter height is the base's contribution; tall stacks are the sequence the model
+"reads" (a motif). <code>AttributionPlotter</code> takes the attribution <code>(4, L)</code> and the sequence <code>(L, 4)</code>.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8042a722">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=29624acd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2320,29 +2345,35 @@ files agree on the metacell set.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">frag_depth</span> <span class="o">=</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"n_fragments"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
-<span class="n">peak_depth</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">peak_adata</span><span class="o">.</span><span class="n">X</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">attr</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>        <span class="c1"># (4, 1024)</span>
+<span class="n">seq</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>      <span class="c1"># (4, 1024)</span>
 
-<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mf">2.6</span><span class="p">),</span> <span class="n">ncols</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">histplot</span><span class="p">(</span><span class="n">frag_depth</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
-<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"total fragments / metacell"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">"n_fragments"</span><span class="p">)</span>
-<span class="n">sns</span><span class="o">.</span><span class="n">histplot</span><span class="p">(</span><span class="n">peak_depth</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
-<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"ATAC peak counts / metacell"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">"total peak counts"</span><span class="p">)</span>
+<span class="n">flank</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">center</span> <span class="o">=</span> <span class="n">attr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="mi">2</span>
+<span class="n">sl</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">center</span> <span class="o">-</span> <span class="n">flank</span><span class="p">,</span> <span class="n">center</span> <span class="o">+</span> <span class="n">flank</span><span class="p">)</span>
+<span class="n">attr_win</span> <span class="o">=</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span> <span class="o">-</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># mean-normalize per position</span>
+<span class="n">seq_win</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">sl</span><span class="p">]</span>                                  <span class="c1"># (2*flank, 4)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"metadata:"</span><span class="p">,</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"| peak:"</span><span class="p">,</span> <span class="n">peak_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"| gene:"</span><span class="p">,</span> <span class="n">gene_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-<span class="k">assert</span> <span class="nb">list</span><span class="p">(</span><span class="n">peak_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">(</span><span class="n">gene_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mf">2.2</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">AttributionPlotter</span><span class="p">(</span><span class="s2">"hg38"</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">attribution</span><span class="o">=</span><span class="n">attr_win</span><span class="p">,</span> <span class="n">sequence</span><span class="o">=</span><span class="n">seq_win</span><span class="p">,</span> <span class="n">rectangle_ratio</span><span class="o">=</span><span class="mf">0.75</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">EXAMPLE_PEAK</span><span class="si">}</span><span class="s2">   |   </span><span class="si">{</span><span class="n">CELL_STATE</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="sa">f</span><span class="s2">"position (center +/- </span><span class="si">{</span><span class="n">flank</span><span class="si">}</span><span class="s2"> bp)"</span><span class="p">,</span>
+       <span class="n">ylabel</span><span class="o">=</span><span class="s2">"attribution"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">frag_depth = meta_adata.obs["n_fragments"].to_numpy()
-peak_depth = np.asarray(peak_adata.X.sum(axis=1)).ravel()
+<div class="clipboard-copy-txt" id="cell-6">idx = 0
+attr = ds["__dna__:attr"].isel(region=idx).values.astype(float)        # (4, 1024)
+seq = ds["__dna__:attr_seq"].isel(region=idx).values.astype(float)      # (4, 1024)
 
-fig, axes = plt.subplots(figsize=(6, 2.6), ncols=2, dpi=150, constrained_layout=True)
-sns.histplot(frag_depth, bins=40, ax=axes[0])
-axes[0].set(title="total fragments / metacell", xlabel="n_fragments")
-sns.histplot(peak_depth, bins=40, ax=axes[1])
-axes[1].set(title="ATAC peak counts / metacell", xlabel="total peak counts")
+flank = 100
+center = attr.shape[1] // 2
+sl = slice(center - flank, center + flank)
+attr_win = attr[:, sl] - attr[:, sl].mean(axis=0)   # mean-normalize per position
+seq_win = seq.T[sl]                                  # (2*flank, 4)
 
-print("metadata:", meta_adata.shape, "| peak:", peak_adata.shape, "| gene:", gene_adata.shape)
-assert list(peak_adata.obs_names) == list(gene_adata.obs_names)</div>
+fig, ax = plt.subplots(figsize=(10, 2.2), dpi=150, constrained_layout=True)
+AttributionPlotter("hg38").plot(ax=ax, attribution=attr_win, sequence=seq_win, rectangle_ratio=0.75)
+ax.set(title=f"{EXAMPLE_PEAK}   |   {CELL_STATE}", xlabel=f"position (center +/- {flank} bp)",
+       ylabel="attribution")</div>
 </div>
 </div>
 </div>
@@ -2351,34 +2382,51 @@ assert list(peak_adata.obs_names) == list(gene_adata.obs_names)</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>metadata: (619, 1) | peak: (619, 227031) | gene: (619, 36601)
-</pre>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>[Text(0.5, 1.0, 'chr10:120505130-120505630   |   group6-pseudobulk3'),
+ Text(0.5, 0, 'position (center +/- 100 bp)'),
+ Text(0, 0.5, 'attribution')]</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedImage jp-OutputArea-output" tabindex="0">
-<img alt="No description has been provided for this image" class="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA5UAAAGXCAYAAAAj/3TxAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjksIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvJkbTWQAAAAlwSFlzAAAXEgAAFxIBZ5/SUgAAQ69JREFUeJzt3Qt4FNX5+PE35CKSBlQqCLkIGiAgQlAUkFRQBEotoIEWK1YSKFAt2oL9URBSxVgVSrRVq8ULFLzUCkkBW6mAYiXUUESpF0wVuYSQEBQVMAiEZP7Pe/rfNZfN7jJssrO738/zDOzOzsyemdnMO++cM2eiLMuyBAAAAAAAG1rYmQkAAAAAAJJKAAAAAMBpoaYSAAAAAGAbSSUAAAAAwDaSSgAAAACAbSSVAAAAAADbSCoBAAAAALaRVAIAAAAAbCOpBAAAAADYRlIJAAAAALCNpBIAAAAAYBtJJQAAAADANpJKAAAAAIBtJJUAAAAAANtIKhHRXn/9dYmKipLdu3d7ne7RRx+V5ORkadGihfziF79otvIh/H5j+r++1/EAEKk4FsLbb0Hf/+lPf2IjhRCSSjhGVlaWDB482Na8TXnwKS8vl5///Ofyy1/+Uvbt2ye5ubkSCe6++27p1KlTwJb34osvyvnnny/BoOuh6wMAwfbFF19IfHy8tG7dWr766qs6J9XehtrH4zVr1kh0dLRcddVVjX7Pli1b5Ic//KF06NBBzjjjDDN/ZmYmF7QCSM87dN8Eyr///W9p1aqVVFZWSnPT8y89DwPsIqkEfPjkk0+kpqZGRo0aZYJzQkJCg2ksy5ITJ06wLb0oKCiQ66+/nm0EQCI9ERkwYIBcfPHF8txzz5lx2hJGL2C6ht/97ndmfO1xmiS6/PGPf5Q77rjDJCHFxcUNvkOXe8UVV0jLli1lxYoVsmPHDlm5cqVcdtllMmXKlGZcW5xqnBw2bJi56ACEHAtwgJ/97GeW/hxrD0uWLDGfHThwwLrpppusc845x2rZsqXVr18/67XXXnPPGx8f32Be9fnnn5v5UlJSzHwXXnihlZOTYx0/ftw974YNG8z0u3bt8liuu+66q8Gy33zzTVM2fb1x40br0ksvteLi4qxnnnnGr+9Uzz77rHXBBRdYZ5xxhjVgwADrpZdeMsvT8rjo+9///vdmed/61res8847z3rsscfMsqZPn261bdvWat++vTVv3rw6y66qqjLjOnfubMrQvXt3M19NTY17mvPPP9+aM2eOdccdd5jl6LbNzs62vvrqK/P5b3/72wbrrdtCrVy50kpPT7fOPPNMq02bNtZll11mvf32217377Fjx6yEhATrjTfeaHSaplrfiy66qMG66P7WzydPnmylpqaa+XSf6e/w8OHDdZa/Y8cO6wc/+IH799ejRw/rL3/5i/vzTz75xBozZox11llnme1xzTXXWNu2bWv0N6b/19/XACJHWlqaiQFPPvmkOZZ64ooxnuzdu9eKjY21SkpKrPHjx1u/+MUv6nxeVlZmjs8TJ070OL/Gqca4jlcakzQ2aYzSOFb7mOeKy1lZWda3v/1tc7zWaWsf0/w5vno6Fj7++ONmeX/9618bLWNFRYVZN40HGnu1fBo7ah+zR48ebbVu3dpq1aqVNWTIEOudd97xGfc1LrrinBo0aJA1YcIE64EHHrA6duxolnfdddeZdVfLly9vEFt0eqXnBldccYVZFx169epl/eMf/7B86dKli7Vs2bJGP9cy3nnnndbtt99unX322WbQcwzd3r/5zW+sDh06mHG6rTU21vboo4+a357uU90v99xzj3XixAnz2bXXXttgXVz7Rc8VNO7pttTl629u//79p7RPfP1ePP0Wap8HIjSQVMIRNND88Ic/NAea8vJyMxw9etR8NnDgQHNA04PNBx98YN1yyy0moH744Yfug5kefH73u9+551X6vx5kt2zZYg5Y+fn51rnnnmvdfffdfieVR44cMfPpNP/+97/NMvUg7Ar4l1xyibV27Vpr586dJpD7852bN2+2oqKirFmzZlnFxcUmSdMDvKcDqs67aNEi6+OPP7bmzp1r5vve975n3XfffdZHH31kkied7tVXX3XPpwf2iy++2HrllVdMufRkQJOdP/7xj3UCk4779a9/bcrwt7/9zSR9+l5VVlaahDMpKcm9TXVbaCDRbX///febZEr3wfPPP2+9++67Xvfv6tWrTbCprq5udJqmWt/PPvvMrIeuj2tdTp48acoye/Zs61//+pfZVxrwdT9o4HPRadu1a2cNHjzYJMS6zrqtCgoK3L89TX6nTp1q/ec//zHbctq0aSbBdAVdkkoALnpBVJMTjW8a9/REvaio6JSSSj1ODx061Lxev369SSJc8VLpybzOq0nnqXIdr/QinR7n9Jimx84WLVq4Lx5+/fXX5mJdZmamiXV6vL733ntNbHjvvffMNP4cX2snEpoU6fR68VDnaYyupyZGmqS5jvm6Df70pz+5L2DqBduMjAwTa/UCn5ZTt9Gnn356ykmlxpIpU6aYcw+NARpLbr75Zvd36XmHLssVW7788ksTX/T7NPH773//a2KXJsneLqoqjaO6Db/44otGp3HF7voxUeOkfp/GZD3viImJsZ5++mn3fJpAJicnm32q2+zll1827/U8ROl36vmXnoe51sV1MVznff3118320nXQC8lXXXWV3/vEn98LSWV4IKmEY+gVPj2I1w/AesCsfZVR6dVd1xXBU7miNX/+fHMl0N+ksrFpXAG/dnLj73f+6Ec/MrWttenVWU9JpSbQLnrVUa8+jxgxos68umxXYNCDuSZirgO1i9bk6UG9dmAaNmxYnWkmTZpkgoqLBledrratW7eacu3Zs8c6FXoioYmXN029vrVPFhqjCalexXUlv5rYaqJbv/bSRS8WaE11bXpypCc1WturSCoBuOhJu9bguWjLjNqJlq+kUhOWxMRE67nnnnMfb7QW0HUCr/Q4qhcJ7XAdrzRZqU2Pc1pWpd+lF9Pq14RpoqE1ZP4eX12JhCYiWvuliawmYd489dRTpiassRi0ePFi8x2ui8uupEbL64oBp5JUarJU+2Jobm6uqa3ztp8OHjxoxv3zn/+0ToXGk+HDh3udRsvoKSbqhffarZH0osMNN9zgvkisFy+09rm2pUuXmlpD13yumllfNFnX9du3b59f+8Sf3wtJZXiICXbzW8Cb999/X9q0aSPp6el1xl955ZVSWFjodV69DzIvL0/+/Oc/y969e+Xrr7+WkydPmvGB0q9fv1P+zg8//LBBh0R6f40nffr0cb+OiYmRc889t844pfd5VlRUmNdvvfWWub+zf//+dabRMvwvb/vGpZdeWud9YmKivPbaa17Xt3fv3uZ+j4suukiGDBliOonQjh/0fqDG6HevXr3abBNfmnJ9PVm8eLE88cQTppMM7TCjurpajh8/Lvv375eOHTvK1q1bzbI93Uer9H6m//znP/Ktb32rznjd7x9//LHP7wcQOQ4cOGDua6zdw2V2drZ8//vfl4ceekjOOussn8vQY6keq1z3p2snMRMmTDD3WOr/So99p9t5jN6PWVtGRoa88cYb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HjzGjh0rffv2lZ49e8r06dPd8+7atcvMp+N/+tOfyvnnny+lpaXuMtx1113Sv39/c4DRA8+oUaNMU4o77rjDvQwdf/XVV8ull15qlvXee++Z8XfffbdkZWXJNddcIxdeeKH7athvf/tbKSsrM+VOT0+XEydOmO+56KKLzLoOHTq0CbcsItnLL78sy5cvN787/b3+97//lY8//liqqqpMcNUg+vbbb8vIkSNl4sSJwS4uEBY05ugFTv2703jgapanMUmP+ddee63s37/f/D3+8Y9/lD/84Q9m2hUrVsjWrVtNXNEYpPFw7dq1Pr9v8ODBJkbp8vXesBdeeMH9mf799+vXzyxLY+ShQ4fM+Pvuu08uu+wy873f//735eDBgw2Wqxdue/fuLR9++GGDz1577TVT86Of63K02aD69a9/beKrDrUT69q1rLottMyupFrX96abbpLu3bvL9773PTl27Jhs2LBBVq9ebWqYtIz/+te/TJKp20/f6/fu2bPnFPcMItHLzR0H9Z5KAMGjf4Z//vOfzesFCxZYP/nJT7xOHx0d7X69ZMkS69vf/rZVXl7uHvfZZ5+Z/6urq63Ro0db//jHP8z7kSNHWk888YR5/dJLL5nv3bt3r7sML774onk9ffp0KzU11Tp48KB17NgxKzk52dq1a5d14sQJq1+/flZpaamZrqioyLr88svN67vuusvq06ePdfToUeurr76y2rdv7172+eef7379+eefW126dDFlc70HAqX230ZmZqb117/+tcE0+/fvt8455xz3+8rKSqtNmzbsBKAJ/g41hiQlJVlbt2417xcuXGiNGzfOHTdyc3Pd0x46dMjEGaVxpnPnzh6XWdugQYOsG264waqpqTHznHfeedaBAwes4uJi65prrjHfrx544AFr5syZdWKkysvLs2bNmuWOp5MmTbLWr19vpaenm7hX36effmp17NjR2r59u3l/5MgR8x2rVq2yBgwYYH399ddmuOyyy6w1a9Y0KPvGjRtNmdWGDRusVq1aWZ988ol5f+2111rPPvuseT1hwgTrmWeecc/Xq1cvq6SkxLzWOKvfATgtDjZ9I3UAXmlbdr2KqvTq5yuvvHJKW2zIkCFy3nnnud8/8cQT8uKLL5qrxQcOHDDt7LWmcOPGje6ruHp19uyzz65Thuuvv9681ita5eXlcs4555j32iuYNovQnsI++OADc6XZ5fPPP3e/1vFnnnmmea1XXXUe7YmsttatW5th0qRJpkx6ZRZoCiNGjJDHH39cvvvd70rLli3Nb1p/5/q3ojUJb731lqndWLdunak5BxB4WjOif3Na+6j02D9//nyP02qM0Xsat2/fbmr3tCXNZ599Jt/+9re9fsePf/xj87etHZRoaxtt6qctc95//31TU6m0ZkZb8yit+bv//vvNfWXa8kdjnIt+tnnzZnNcqB1XXYqKisx3aIxT3/rWt9y1juPHjzfHGnXjjTeaGk09/nij2+WCCy4wr7XWU8vtyaBBgyQ7O9ucK2j8Tk5O9rpcIBhxkKQSCLIWLVpIbGyseR0dHe1Xr121uYKa+uc//yn5+fnmPpWEhATTLEib03hSu+NnLYOriY6+PuOMM+p8pmXS6bVpqzaZ8KT2PI2th45/8803Tfm0Xb92OqTLa9OmzSmtM1Db1KlT5e9//7u5kKIXMvQChzat05NSDZgaROPj401zcQ2mGmT15LayslLOOusseeqpp9igQBPw9IAB/Xv0RJt7apL1l7/8xUzTtm3bRuOXNzqvfu+4cePMPf21HT9+3NyqoYmnxrOXXnrJ9FPg0qlTJ9m7d6+888475oTcn/XxtZ4aQ/Vzfa/ff6pxU+ntLlombRL8ne98R5577jnTdBZwUhzknkogjGgvq3pw0IRS7xPRBNNFayw1ECnt9evLL788pWXr1Vy9srt+/XrzXoNkYwlmbVozqfMp/V/LpbWrCxYsMFfOXPd1Anbp87X0d6S/Sf1f32sA1Xt9tbZC7/3VGgZXjYT2nqwXN/QeYb3A4ap1AHD6WrVqJUePHjWv9W9O76HU+7bU008/LVdddVWD2OCKX1rbqH+7eo9l7ZYw3jzzzDPmb3/fvn3m71xr/PR+zr/+9a/u+KLlKS4uNkmq9oipPV3qybeWp7aOHTuaC56//OUvPbYaGjBggPkO172WWruqiaKu07PPPmte63c8//zz7vXU/gtcsbKgoMCvdaq/bbSvBb039Fe/+pUMGzbMr9iLyLLIAXGQpBIII9rEQWsutRmD3vyvTWZc9Irt4sWLzc3a2ixHe/7SwOUvrU3VzgJ+85vfmI4C9Ds08Pty6623ms6E9ErZF198YW4M1w4HdNDXND0EgPDx85//3NzKofFIa+I0wdJn4ukx/9VXX3XXHl533XWm5k1jgyZbs2bNMp3oaOK2adMmSUlJ8ev7tPmo1t5pEvfggw/Kueeea06Q9bV2OKfxSpus6u0b2ipGH6Og4/TiZu2mry5ay6OJpXY6pM0Ca9OmuJrEapNbXYZ2XKfJn36Pdjyn8VUHbaLqavqqF1C1Az3toEdrivyhTWkfe+wxkyDrib8+S1CbK+rtKRUVFSa+A04TpTdWBrsQAJqeXqnVmkFtiqM90E2ePNljz3YAAIQCTdS093RtiQMguLinEogQ2vRBO0HQ5hBxcXGmXT0AAABwuqipBBxIb5h+9NFH64zT+yS1B1cAAADASUgqAQAAAAC20VEPAAAAAMA2kkoAAAAAgG0klQAAAAAA20gqAQAAAAC2kVQCAAAAAGwjqQQAAAAA2EZSCQAAAACwjaQSAAAAAGAbSSUAAAAAwDaSSgAAAACAbSSVAAAAAADbSCoBAAAAALaRVAIAAAAAxK7/B+FMoW9M2ivTAAAAAElFTkSuQmCC"/>
+<img alt="No description has been provided for this image" class="" src="data:image/png;base64,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AAAAUCKE9gAAsBZNnz49rrjiivz4+9//fv588803x/e+973/eN2zZ8+O888/Pz4Mjz76aPz+97+PD1tra2vsueeea3zdnDlz4oADDig+b2xsjKOPPjqGDRsWO+20U8ybNy8vf+GFF2L8+PGx1VZbxeGHHx7Lli3rsJ777ruvw3rW5Oyzz46nn366W/8mAABYm4T2AACwFn3ta1+LiRMndgjtDz300BwW/6e+853vxKRJk2Jdh/bNzc1dXu/f/va32HHHHVf7mjPPPPN9Qfsll1wS9fX18dxzz8XUqVPj1FNPzctPO+20mDx5cjz//PMxfPjwfFLkP/HVr341vv3tb/9H6wAAgA+T0B4AAFbhyiuvzAF7quweOnRosap9yZIluQp8m222iXHjxsWDDz6Yl991110xZsyYGD16dJxyyinR0tIS55xzTvzkJz+JE088Md555528vrTeFOYnv/71r2PbbbeNUaNGxbnnntvh5+69994xYsSIOO+88963bY888khsvPHGsdFGG+XnKdhO60g///bbby9uT6pS32677XK439TU1Om6X3311TjrrLPimmuuiauuuipef/31OOSQQ2L77bePT33qU/HEE0/k9aWQPIXnqcK9MyeccELccMMNHZalbVlT5fsee+wRJ5100vu+L+2zJH3/ww8/HCtWrIj7778/jjzyyLw8vQd33nnn+9b32muvxYQJE2LkyJE5lE/V/qt6LzfbbLNcrf/MM8+sdhsBAGBdEdoDAMBq/PWvf83BcAquL7/88vj73/+eK+ZTe5annnoqrr766hwep0A8VWxfd9118c9//jMqKiri8ccfL64nfW/fvn1za5yCJ598Mgf6qc1N+p577703/vCHPxQr39Nr089PPy+1i2nvj3/8Y+yyyy7FcD6F2Wl9N910Uw7W33zzzRxMp+Vz586Nt956K2688cZO173JJpvk16Z/x3HHHRdTpkyJM844I39fCvNPP/304s9NJxhuueWWLo+Z1K7mk5/85Gpfc+CBB+bgvr1UYZ/2cZL25cCBA2PRokUxYMCAqKmpycu32GKLePnll9+3vtTuJlXqp/cntd0pbG9n72Wy8847xz333NPlfxMAAKxN1Wt17QAAUOZSoJwq2pP9998/HnrooRzwXnvttXlZqmIfNGhQPPvss7HffvvFscceG0cddVSupE9fax/SryyF9Icddlj0798/P//CF74QM2fOzBXzn/70p2PDDTfMy9P6Fy9enIPrgtQeZtddd+2wnqqqqlxpn8LotJ7HHnssPv7xj+fXLF++PAfuW265Zafrbi+dBEiV7QVpvQUHH3xwl/fdK6+8kk8I1NXVxT777BPz58/P1e5d6cNfWVkZ1dXVHZ4nKy9r/7wgnSRIvfCTI444Ir9n6aqIzt7L1LpnyJAhKu0BACgZQnsAAOiiFBKnqu/UpqVQ7Z2ktjcpmP7Rj34UX/nKV3I1d2ov8/Of/3y161vVepL2y9PPTC1e2kutdwpSIF9ok5O8+OKLuTI/tZVJVwIUWsak9dxxxx1rXHe6aiBdJZBelx7/61//Kn6ts5D8M5/5TA69U9V7OqGR+vWn1jbpJEMKxwsnFrojVdG/9NJLuX1NoSXR4MGDY+HChXl703ankwCFcH51/fdTb/xVvZftnwMAQClwZAoAAKtx9913x9tvv51bs9x2222x55575o9CGJ56y6dgOPVJTx+pav4b3/hGDrLbh92dhe2pJUxqZ5PC+oaGhtxaZ9999+3S+5Eq6lMle/v1pDA7VdmnNjep5cusWbNiwYIF+eRAqsRP7XNWJVXTF1rwpPVdf/31+XFqM/PjH/94tduSbmCb1p2q6C+88ML8+Fvf+lZe/tnPfjY+iPYnHFKf/N133z0H62nbbr311rz8sssui4MOOuh935taAqUrEdIJh9/97ne5yn9V72XhhEahFQ8AAPQ0oT0AAKxGCuJTuDt27Ngcxqew/Lvf/W7uQ59arkyePDnfwDVVbaf+9HvttVe+wWsK7I8//vgO69ptt91yBX5BCtaPOeaY2GGHHfL6UyuX9JquSDeSfeCBB/Ljz33uc3k70/akCvcZM2bE5ptvHj/4wQ9yyJ2Wp9Y9hZC6M2lbUiuf1PZn+vTp+Qa56UauKTDvSjublaWTEG+88UaxUr67Tj755FxJn7bhggsuKJ44mDZtWt6etI9TAF+4WW17H/vYx/I+Se9V+ncX+uV39l4m6UbC6XUAAFAKKlpXvhYWAADIrrzyynzz0hRil6IJEybk6vz2rXHo3nuZWvpMmjSpWzfXBQCAtUmlPQAAlKlUcX7xxRf39GaUtYsuuijOO++8nt4MAAAoUmkPAAAAAAAlQqU9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAACUCKE9AAAAAABEafh/bLVCgDOrygIAAAAASUVORK5CYII="/>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=df28baba">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ac2cda90">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="attributing-a-variant-ref-vs-alt">Attributing a variant (ref vs alt)<a class="anchor-link" href="#attributing-a-variant-ref-vs-alt">¶</a></h2><p>The same task can attribute the <strong>two alleles of a variant</strong> instead of a plain region: pass the
+caQTL/eQTL table (built as on the <a href="10_qtl_task.ipynb">variant-effect page</a>) and a <code>qtl_type</code>. The
+output zarr then carries a <code>genotype</code> axis (ref / alt), and the <strong>difference</strong> <code>ref − alt</code> of the
+per-base attribution shows the motif a SNV creates or destroys:</p>
+<div class="highlight"><pre><span></span><span class="n">pred</span><span class="o">.</span><span class="n">attribution_task</span><span class="p">(</span>
+    <span class="s2">"variant_attr_output"</span><span class="p">,</span>
+    <span class="n">regions_per_pseudobulk</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>        <span class="c1"># regions are taken from the variant table</span>
+    <span class="n">qtl_table</span><span class="o">=</span><span class="s2">"variant_caqtl_format.feather"</span><span class="p">,</span>
+    <span class="n">qtl_type</span><span class="o">=</span><span class="s2">"caqtl"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="s2">"variant_attr_output/region_attribution_and_seq.zarr"</span><span class="p">)</span>
+<span class="n">ref_attr</span><span class="p">,</span> <span class="n">alt_attr</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">genotype</span><span class="o">=</span><span class="p">[</span><span class="s2">"ref"</span><span class="p">,</span> <span class="s2">"alt"</span><span class="p">])</span>
+<span class="n">delta</span> <span class="o">=</span> <span class="n">ref_attr</span> <span class="o">-</span> <span class="n">alt_attr</span>             <span class="c1"># per-base attribution change from the variant</span>
+</pre></div>
+<p>Plot <code>ref_attr</code>, <code>alt_attr</code>, and <code>delta</code> as three stacked logos to read the allelic motif change.</p>
 <hr/>
-<p>You now have three metacell AnnData files for ChromiumPBMC — <code>metacell.metadata.h5ad</code>,
-<code>metacell.peak_count.h5ad</code>, and <code>metacell.gene_count.h5ad</code> — summarizing the dataset at metacell
-resolution. The next page, <a href="04_parquet_dataset.ipynb">Parquet dataset</a>, goes the other direction:
-it sums the raw fragment insertions into a <strong>base-resolution</strong> coverage store that Bolero trains on.</p>
+<p>Across these three pages you have run the same trained model in its three main modes — <strong>predict</strong> a
+track, <strong>score</strong> a variant, and <strong>attribute</strong> a prediction to individual bases — and, in each case,
+seen exactly what to feed in and what comes out. From here, the attribution outputs feed the motif and
+footprinting tools in <code>bolero.tl.motif</code> / <code>bolero.tl.footprint</code>.</p>
 </div>
 </div>
 </div>
