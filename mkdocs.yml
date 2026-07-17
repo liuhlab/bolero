@@ -19,21 +19,21 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Embedding & Meta Cell:
-      - Cell embedding: tutorials/embedding_and_meta_cell/01_cell_embedding.ipynb
-      - Meta cells: tutorials/embedding_and_meta_cell/02_meta_cell.ipynb
+      - "01. Cell embedding": tutorials/embedding_and_meta_cell/01_cell_embedding.ipynb
+      - "02. Meta cells": tutorials/embedding_and_meta_cell/02_meta_cell.ipynb
   - Meta Cell AnnData & Parquet:
-      - Meta cell AnnData: tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata.ipynb
-      - Parquet dataset: tutorials/meta_cell_adata_and_parquet/04_parquet_dataset.ipynb
-      - Pseudobulks & reference signal: tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference.ipynb
+      - "03. Meta cell AnnData": tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata.ipynb
+      - "04. Parquet dataset": tutorials/meta_cell_adata_and_parquet/04_parquet_dataset.ipynb
+      - "05. Pseudobulks & reference signal": tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference.ipynb
   - Model Training:
-      - Single dataset: tutorials/model_training/06_train_borzoi_lora.ipynb
-      - Multi-dataset (ATAC): tutorials/model_training/07_train_multi_dataset_atac.ipynb
-      - Multi-dataset (+ gene): tutorials/model_training/08_train_multi_dataset_gene.ipynb
+      - "06. Single dataset": tutorials/model_training/06_train_borzoi_lora.ipynb
+      - "07. Multi-dataset (ATAC)": tutorials/model_training/07_train_multi_dataset_atac.ipynb
+      - "08. Multi-dataset (+ gene)": tutorials/model_training/08_train_multi_dataset_gene.ipynb
   - Prediction & Variant Effect:
-      - Predicting accessibility: tutorials/prediction/09_prediction_task.ipynb
-      - Variant effect (caQTL & eQTL): tutorials/prediction/10_qtl_task.ipynb
-      - DNA attribution: tutorials/prediction/11_attribution_task.ipynb
+      - "09. Predicting accessibility": tutorials/prediction/09_prediction_task.ipynb
+      - "10. Variant effect (caQTL & eQTL)": tutorials/prediction/10_qtl_task.ipynb
+      - "11. DNA attribution": tutorials/prediction/11_attribution_task.ipynb
   - Score Model (Bolero-Score):
-      - chromVAR TF activity: tutorials/score_model/12_chromvar_score.ipynb
-      - Train the score model: tutorials/score_model/13_train_score_model.ipynb
-      - Predict with the score model: tutorials/score_model/14_predict_score_model.ipynb
+      - "12. chromVAR TF activity": tutorials/score_model/12_chromvar_score.ipynb
+      - "13. Train the score model": tutorials/score_model/13_train_score_model.ipynb
+      - "14. Predict with the score model": tutorials/score_model/14_predict_score_model.ipynb
