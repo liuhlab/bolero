@@ -2,54 +2,66 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://liuhlab.github.io/bolero/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/installation/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/embedding_and_meta_cell/01_cell_embedding/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/embedding_and_meta_cell/02_meta_cell/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/model_training/06_train_borzoi_lora/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/model_training/07_train_multi_dataset_atac/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/model_training/08_train_multi_dataset_gene/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/prediction/09_prediction_task/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/prediction/10_qtl_task/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://liuhlab.github.io/bolero/tutorials/prediction/11_attribution_task/</loc>
-         <lastmod>2026-07-14</lastmod>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/score_model/12_chromvar_score/</loc>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/score_model/13_train_score_model/</loc>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://liuhlab.github.io/bolero/tutorials/score_model/14_predict_score_model/</loc>
+         <lastmod>2026-07-17</lastmod>
     </url>
 </urlset>
