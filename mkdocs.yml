@@ -37,3 +37,5 @@ nav:
       - "12. chromVAR TF activity": tutorials/score_model/12_chromvar_score.ipynb
       - "13. Train the score model": tutorials/score_model/13_train_score_model.ipynb
       - "14. Predict with the score model": tutorials/score_model/14_predict_score_model.ipynb
+  - Cross-species:
+      - "15. Cross-species prediction": tutorials/cross_species/15_cross_species_prediction.ipynb
