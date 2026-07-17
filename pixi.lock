@@ -528,6 +528,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
+      - pypi: git+https://github.com/liuhlab/MOODS_pixi.git?branch=master#875b4da5621d2aa12083381581fdd580f39efc8b
       - pypi: git+https://github.com/liuhlab/SEACells_pixi.git?branch=main#a0a00d779ab5f51b9b005aeb251922fe6119f566
       - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
@@ -1125,6 +1126,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
+      - pypi: git+https://github.com/liuhlab/MOODS_pixi.git?branch=master#875b4da5621d2aa12083381581fdd580f39efc8b
       - pypi: git+https://github.com/liuhlab/SEACells_pixi.git?branch=main#a0a00d779ab5f51b9b005aeb251922fe6119f566
       - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
@@ -9591,6 +9593,10 @@ packages:
   - coverage ; extra == 'test'
   - pytest ; extra == 'test'
   requires_python: '>=3.10'
+- pypi: git+https://github.com/liuhlab/MOODS_pixi.git?branch=master#875b4da5621d2aa12083381581fdd580f39efc8b
+  name: moods-python
+  version: 1.9.4.1
+  requires_python: '>=3.7'
 - pypi: git+https://github.com/liuhlab/SEACells_pixi.git?branch=main#a0a00d779ab5f51b9b005aeb251922fe6119f566
   name: seacells
   version: 0.3.3

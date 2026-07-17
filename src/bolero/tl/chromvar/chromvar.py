@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import scipy
 import scipy.sparse as sparse
 from anndata import AnnData
@@ -95,6 +96,198 @@ def sample_bg_peaks(
         trans_norm_mat, bs=bs, w=w, niterations=niterations
     )
     return knn_idx
+
+
+def _parse_peak_regions(adata):
+    """Parse peak coordinates from an AnnData into a BED-like DataFrame.
+
+    Uses ``adata.var[["Chromosome", "Start", "End"]]`` when present, otherwise parses
+    ``adata.var_names`` written as ``"chrom:start-end"``.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Peak-by-cell (or cell-by-peak) object whose ``var`` indexes the peaks.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``Chromosome``, ``Start``, ``End``, ``Name`` indexed by ``adata.var_names``.
+    """
+    var = adata.var
+    if {"Chromosome", "Start", "End"}.issubset(var.columns):
+        bed = var[["Chromosome", "Start", "End"]].copy()
+        bed["Start"] = bed["Start"].astype(int)
+        bed["End"] = bed["End"].astype(int)
+    else:
+        chroms, starts, ends = [], [], []
+        for name in adata.var_names.astype(str):
+            chrom, sep, coords = name.rpartition(":")
+            start, dash, end = coords.partition("-")
+            if not (sep and dash):
+                raise ValueError(
+                    f"Cannot parse peak coordinate from var name {name!r}; expected "
+                    "'chrom:start-end' or Chromosome/Start/End columns in adata.var."
+                )
+            chroms.append(chrom)
+            starts.append(int(start))
+            ends.append(int(end))
+        bed = pd.DataFrame(
+            {"Chromosome": chroms, "Start": starts, "End": ends},
+            index=adata.var_names,
+        )
+    bed["Name"] = adata.var_names.astype(str)
+    return bed
+
+
+def get_peak_bias(adata, genome, base_order=None):
+    """
+    Compute per-peak GC content and the overall background nucleotide frequency.
+
+    This is the bolero-native replacement for scPrinter's ``get_peak_bias``: it fills
+    ``adata.var["gc_content"]`` (used, together with per-peak read depth, to sample
+    matched background peaks via :func:`sample_bg_peaks`) and ``adata.uns["bg_freq"]``
+    (the genome-wide-over-peaks A/C/G/T frequency used as the MOODS background for
+    motif matching in :func:`scan_peak_motifs`).
+
+    Peak sequences are read directly from the genome FASTA (``genome.fasta_path``) with
+    ``pyfaidx``; only A/C/G/T are counted (``N`` and other symbols are ignored).
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Peak object; peaks are taken from ``adata.var`` (see :func:`_parse_peak_regions`).
+    genome : bolero.pp.genome.Genome
+        Genome providing ``fasta_path`` for the same assembly the peaks are on.
+    base_order : str, optional
+        Base order for ``bg_freq``. Defaults to ``bolero.pp.seq.DEFAULT_ONE_HOT_ORDER``
+        (``"ACGT"``), matching the order expected by MOODS.
+
+    Returns
+    -------
+    None
+        ``adata`` is modified in place (``var["gc_content"]``, ``uns["bg_freq"]``).
+    """
+    from pyfaidx import Fasta
+
+    from bolero.pp.seq import DEFAULT_ONE_HOT_ORDER
+
+    order = base_order or DEFAULT_ONE_HOT_ORDER
+    base_to_idx = {b: i for i, b in enumerate(order)}
+
+    bed = _parse_peak_regions(adata)
+    counts = np.zeros((bed.shape[0], 4), dtype=np.int64)
+    fasta = Fasta(str(genome.fasta_path), sequence_always_upper=True)
+    try:
+        chroms = bed["Chromosome"].to_numpy()
+        starts = bed["Start"].to_numpy()
+        ends = bed["End"].to_numpy()
+        for i in trange(bed.shape[0], desc="Reading peak sequences"):
+            seq = str(fasta[chroms[i]][int(starts[i]) : int(ends[i])])
+            for base, idx in base_to_idx.items():
+                counts[i, idx] = seq.count(base)
+    finally:
+        fasta.close()
+
+    total = counts.sum(axis=1)
+    gc = (counts[:, base_to_idx["G"]] + counts[:, base_to_idx["C"]]) / np.maximum(
+        total, 1
+    )
+    adata.var["gc_content"] = pd.Series(gc, index=adata.var_names)
+
+    bg = counts.sum(axis=0).astype("float64")
+    adata.uns["bg_freq"] = bg / bg.sum()
+    return
+
+
+def scan_peak_motifs(
+    adata,
+    genome,
+    motif_path=None,
+    motif_db="JASPAR2024_CORE_vertebrates",
+    bg=None,
+    pvalue=5e-5,
+    pseudocount=0.8,
+    n_jobs=16,
+    mode="motifmatchr",
+    verbose=True,
+):
+    """
+    Match motifs against each peak and store the hit matrix on ``adata``.
+
+    This is the bolero-native replacement for scPrinter's ``Motifs.chromvar_scan``: it
+    scans the peaks with :class:`bolero.tl.motif.scan.Motifs` (a MOODS motifmatchr port)
+    and fills ``adata.varm["motif_match"]`` (a ``float32`` peak-by-motif 0/1 matrix) and
+    ``adata.uns["motif_name"]`` (the JASPAR matrix ids), the inputs
+    :func:`compute_deviations` needs.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Peak object; peaks are taken from ``adata.var`` (see :func:`_parse_peak_regions`).
+    genome : bolero.pp.genome.Genome
+        Genome providing ``fasta_path`` for the same assembly the peaks are on.
+    motif_path : str or pathlib.Path, optional
+        JASPAR-format PFM file. If ``None``, a cached copy of ``motif_db`` is fetched via
+        :func:`bolero.tl.motif.jaspar.get_jaspar_motif_file`.
+    motif_db : str, optional
+        JASPAR database key used when ``motif_path`` is ``None``. Default
+        ``"JASPAR2024_CORE_vertebrates"``.
+    bg : tuple of float or str, optional
+        Background nucleotide frequency (A/C/G/T). If ``None``, uses
+        ``adata.uns["bg_freq"]`` when available (from :func:`get_peak_bias`), else
+        ``"even"``.
+    pvalue : float, optional
+        Motif match p-value threshold. Default ``5e-5`` (motifmatchr default).
+    pseudocount : float, optional
+        Pseudocount for the PFMs. Default ``0.8`` (motifmatchr default).
+    n_jobs : int, optional
+        Number of processes for scanning. Default ``16``.
+    mode : {"motifmatchr", "moods"}, optional
+        Motif-matching mode. Default ``"motifmatchr"``.
+    verbose : bool, optional
+        Whether to show a scanning progress bar. Default ``True``.
+
+    Returns
+    -------
+    None
+        ``adata`` is modified in place (``varm["motif_match"]``, ``uns["motif_name"]``).
+    """
+    from bolero.tl.motif.scan import Motifs
+
+    if motif_path is None:
+        from bolero.tl.motif.jaspar import get_jaspar_motif_file
+
+        motif_path = get_jaspar_motif_file(motif_db)
+
+    if bg is None:
+        bg = adata.uns["bg_freq"] if "bg_freq" in adata.uns else "even"
+    if not isinstance(bg, str):
+        bg = tuple(float(x) for x in np.asarray(bg).reshape(-1))
+
+    def _jaspar_id(name):
+        # header names look like "MA0478.2\tFOSL2"; keep the JASPAR matrix id
+        return name.split("\t")[0].split(" ")[0]
+
+    motifs = Motifs(
+        str(motif_path),
+        str(genome.fasta_path),
+        bg=bg,
+        motif_name_func=_jaspar_id,
+        n_jobs=n_jobs,
+        pseudocount=pseudocount,
+        pvalue=pvalue,
+        mode=mode,
+    )
+    motifs.prep_scanner(None, pseudocount=pseudocount, pvalue=pvalue)
+
+    bed = _parse_peak_regions(adata)
+    hits = motifs.scan(bed, verbose=verbose)["hit"]
+    # align to adata.var order and store
+    hits = hits.loc[adata.var_names.astype(str)]
+    adata.varm["motif_match"] = hits.values.astype("float32")
+    adata.uns["motif_name"] = np.asarray(hits.columns)
+    return
 
 
 def scipy_to_cupy_sparse(sparse_matrix):

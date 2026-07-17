@@ -33,3 +33,7 @@ nav:
       - Predicting accessibility: tutorials/prediction/09_prediction_task.ipynb
       - Variant effect (caQTL & eQTL): tutorials/prediction/10_qtl_task.ipynb
       - DNA attribution: tutorials/prediction/11_attribution_task.ipynb
+  - Score Model (Bolero-Score):
+      - chromVAR TF activity: tutorials/score_model/12_chromvar_score.ipynb
+      - Train the score model: tutorials/score_model/13_train_score_model.ipynb
+      - Predict with the score model: tutorials/score_model/14_predict_score_model.ipynb

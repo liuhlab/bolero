@@ -192,6 +192,9 @@ bolerodata = { git = "https://github.com/liuhlab/bolerodata.git", branch = "main
 # SEACells metacell calling (CPU path only). Our fork relaxes the upstream's old,
 # exact version pins so it co-installs cleanly with the GPU stack here.
 SEACells = { git = "https://github.com/liuhlab/SEACells_pixi.git", branch = "main" }
+# MOODS motif scanner (used by bolero.tl.motif / the chromVAR peak motif matching).
+# Our fork ships a scikit-build-core/CMake build so it installs cleanly from git here.
+MOODS-python = { git = "https://github.com/liuhlab/MOODS_pixi.git", branch = "master" }
 
 [tool.pixi.dependencies]
 python = "3.11.*"

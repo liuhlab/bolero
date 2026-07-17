@@ -8,6 +8,7 @@ import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 from pathlib import Path
+from typing import Literal
 
 import MOODS
 import MOODS.parsers
@@ -17,7 +18,6 @@ import numpy as np
 import pandas as pd
 from pyfaidx import Fasta
 from tqdm.auto import trange
-from typing_extensions import Literal
 
 
 def consecutive(data, stepsize=1):
@@ -544,7 +544,11 @@ class Motifs:
 
         if pseudocount != self.pseudocount or pvalue != self.pvalue:
             # motif = self.all_motifs[select]
-            motif = [motif for motif, keep in zip(self.all_motifs, select) if keep]
+            motif = [
+                motif
+                for motif, keep in zip(self.all_motifs, select, strict=False)
+                if keep
+            ]
             # Each TF gets a matrix for the + and for the - strand, and a corresponding threshold
             matrices_p, threshold_p, matrices_m, threshold_m = (
                 self._prepare_moods_settings(motif, self.bg, pseudocount, pvalue)
@@ -743,12 +747,17 @@ class Motifs:
             ("motif_end", 8),
         ]
         maps = {k: [[] for _ in range(len(peaks_iter))] for k in keys_and_indices}
-        motif = [motif for motif, keep in zip(self.all_motifs, self.select) if keep]
+        motif = [
+            motif
+            for motif, keep in zip(self.all_motifs, self.select, strict=False)
+            if keep
+        ]
         motifs_length = [m.length for m in motif]
         motifs_name = [m.name for m in motif]
         name2id = {name: i for i, name in enumerate(motifs_name)}
 
         peaks_iter = np.array(peaks_iter)
+        bar = None
         if verbose:
             bar = trange(len(peaks_iter) * 2)
 

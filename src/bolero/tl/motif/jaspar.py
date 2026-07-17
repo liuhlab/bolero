@@ -4,7 +4,6 @@ import tempfile
 import warnings
 
 import joblib
-import logomaker
 import numpy as np
 import pandas as pd
 import pyBigWig
@@ -116,6 +115,67 @@ def dump_jaspar_motif_pwm_dict_from_file(db_name, jaspar_file, output_dir="."):
     return
 
 
+def get_jaspar_motif_file(db="JASPAR2024_CORE_vertebrates", save_dir=None):
+    """
+    Download a JASPAR CORE database and cache it as a single JASPAR-format PFM file.
+
+    The returned file holds the integer position-frequency matrices in the plain
+    JASPAR text format read by :func:`bolero.tl.motif.scan.parse_jaspar`, so it can be
+    fed directly to :class:`bolero.tl.motif.scan.Motifs`. This provides a
+    dependency-light, reproducible motif source (no external motif scanner needed) for
+    peak-level motif matching, e.g. the chromVAR pipeline in
+    :mod:`bolero.tl.chromvar`.
+
+    Parameters
+    ----------
+    db : str, optional
+        JASPAR database key, one of :data:`JASPAR_URLS`. Default
+        ``"JASPAR2024_CORE_vertebrates"``.
+    save_dir : str or pathlib.Path, optional
+        Directory to cache the concatenated PFM file in. Defaults to
+        ``<bolero save dir>/jaspar``.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the cached ``<db>_pfms.jaspar`` file.
+    """
+    if db not in JASPAR_URLS:
+        raise ValueError(
+            f"Unknown JASPAR database {db!r}, choose from {sorted(JASPAR_URLS)}"
+        )
+
+    if save_dir is None:
+        save_dir = pathlib.Path(get_default_save_dir(None)) / "jaspar"
+    save_dir = pathlib.Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    out_path = save_dir / f"{db}_pfms.jaspar"
+    if out_path.exists():
+        return out_path
+
+    jaspar_url = JASPAR_URLS[db]
+    db_name = jaspar_url.split("/")[-1].split(".")[0]
+    records = []
+    with tempfile.TemporaryDirectory(prefix="bolero_") as tmp_dir:
+        subprocess.run(f"wget {jaspar_url} -P {tmp_dir}", shell=True, check=True)
+        subprocess.run(
+            f"unzip {tmp_dir}/{db_name}.zip -d {tmp_dir}", shell=True, check=True
+        )
+        for p in sorted(pathlib.Path(tmp_dir).glob("*.jaspar")):
+            with open(p) as handle:
+                records.extend(motifs.parse(handle, "jaspar"))
+
+    temp_path = out_path.parent / (out_path.name + ".temp")
+    with open(temp_path, "w") as f:
+        for motif in records:
+            f.write(f">{motif.matrix_id}\t{motif.name}\n")
+            for base in "ACGT":
+                counts = " ".join(str(int(round(x))) for x in motif.counts[base])
+                f.write(f"{base} [ {counts} ]\n")
+    temp_path.rename(out_path)
+    return out_path
+
+
 def _calc_row_entropy(row):
     row = row[row > 0]
     e = -np.sum(row * np.log2(row))
@@ -201,6 +261,8 @@ class JASPARMotif:
         pwm_info = pd.DataFrame(pwm_info, columns=self.pwm.columns)
 
         # Create a sequence logo
+        import logomaker
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=FutureWarning)
             logo = logomaker.Logo(pwm_info, ax=ax, **kwargs)
