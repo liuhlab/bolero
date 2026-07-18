@@ -1119,6 +1119,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2015,7 +2265,7 @@ page and writes its three outputs into the current directory. Run it from its ow
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span>
 
 <span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">"font.sans-serif"</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"DejaVu Sans"</span><span class="p">]</span>   <span class="c1"># use a font that ships with the env</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">"font.sans-serif"</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"DejaVu Sans"</span><span class="p">]</span>  <span class="c1"># use a font that ships with the env</span>
 <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"matplotlib.font_manager"</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import logging
@@ -2034,7 +2284,7 @@ from bolero.utils import understand_regions
 from bolerodata import DATASETS
 
 simplefilter("ignore")
-plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]   # use a font that ships with the env
+plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]  # use a font that ships with the env
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)</div>
 </div>
 </div>
@@ -2062,23 +2312,27 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
 <span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">EMB_KEY</span> <span class="o">=</span> <span class="s2">"X_multivi"</span>           <span class="c1"># cell embedding produced by 01_cell_embedding (MULTIVI)</span>
+<span class="n">EMB_KEY</span> <span class="o">=</span> <span class="s2">"X_multivi"</span>  <span class="c1"># cell embedding produced by 01_cell_embedding (MULTIVI)</span>
 
-<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>   <span class="c1"># per-cell, carries obs["meta_cell"]</span>
-<span class="n">METADATA_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.metadata.h5ad"</span>   <span class="c1"># obs + X_emb / X_umap + uns["meta_cell_to_cells"]</span>
-<span class="n">PEAK_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.peak_count.h5ad"</span>     <span class="c1"># metacell x peak   (ATAC)</span>
-<span class="n">GENE_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.gene_count.h5ad"</span>     <span class="c1"># metacell x gene   (RNA)</span>
+<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>  <span class="c1"># per-cell, carries obs["meta_cell"]</span>
+<span class="n">METADATA_H5AD</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"metacell.metadata.h5ad"</span>  <span class="c1"># obs + X_emb / X_umap + uns["meta_cell_to_cells"]</span>
+<span class="p">)</span>
+<span class="n">PEAK_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.peak_count.h5ad"</span>  <span class="c1"># metacell x peak   (ATAC)</span>
+<span class="n">GENE_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.gene_count.h5ad"</span>  <span class="c1"># metacell x gene   (RNA)</span>
 
 <span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
 DATASET_NAME = "ChromiumPBMC"
-EMB_KEY = "X_multivi"           # cell embedding produced by 01_cell_embedding (MULTIVI)
+EMB_KEY = "X_multivi"  # cell embedding produced by 01_cell_embedding (MULTIVI)
 
-INPUT_ADATA = "adata.multivi.with_coords.h5ad"   # per-cell, carries obs["meta_cell"]
-METADATA_H5AD = "metacell.metadata.h5ad"   # obs + X_emb / X_umap + uns["meta_cell_to_cells"]
-PEAK_H5AD = "metacell.peak_count.h5ad"     # metacell x peak   (ATAC)
-GENE_H5AD = "metacell.gene_count.h5ad"     # metacell x gene   (RNA)
+INPUT_ADATA = "adata.multivi.with_coords.h5ad"  # per-cell, carries obs["meta_cell"]
+METADATA_H5AD = (
+    "metacell.metadata.h5ad"  # obs + X_emb / X_umap + uns["meta_cell_to_cells"]
+)
+PEAK_H5AD = "metacell.peak_count.h5ad"  # metacell x peak   (ATAC)
+GENE_H5AD = "metacell.gene_count.h5ad"  # metacell x gene   (RNA)
 
 dataset = DATASETS[DATASET_NAME]</div>
 </div>
@@ -2135,10 +2389,18 @@ single cells.</p>
 <span class="c1"># how to summarize each cell-metadata column onto the metacell</span>
 <span class="n">most_frequent</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">s</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="n">AGG</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"cluster"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"subclass"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"class"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"age"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"age_int"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"tissue"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"donor"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span> <span class="s2">"DissectionRegion"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
-    <span class="s2">"n_fragments"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"tsse"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"n_umis"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"n_genes"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span>
+    <span class="s2">"cluster"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"subclass"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"class"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"age"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"age_int"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"tissue"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"donor"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"DissectionRegion"</span><span class="p">:</span> <span class="n">most_frequent</span><span class="p">,</span>
+    <span class="s2">"n_fragments"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span>
+    <span class="s2">"tsse"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span>
+    <span class="s2">"n_umis"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span>
+    <span class="s2">"n_genes"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span>
 <span class="p">}</span>
 
 <span class="c1"># Skip the (re)generation if the output already exists -- just load it.</span>
@@ -2151,7 +2413,9 @@ single cells.</p>
 
     <span class="n">reps</span> <span class="o">=</span> <span class="n">get_group_centroids</span><span class="p">(</span><span class="n">embedding</span><span class="p">,</span> <span class="n">groupby</span><span class="o">=</span><span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"meta_cell"</span><span class="p">])</span>
     <span class="n">agg</span> <span class="o">=</span> <span class="p">{</span><span class="n">col</span><span class="p">:</span> <span class="n">how</span> <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">how</span> <span class="ow">in</span> <span class="n">AGG</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">col</span> <span class="ow">in</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">columns</span><span class="p">}</span>
-    <span class="n">meta_obs</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">reps</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+    <span class="n">meta_obs</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span><span class="n">agg</span><span class="p">)</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">reps</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
+    <span class="p">)</span>
 
     <span class="n">meta_cell_to_cells</span> <span class="o">=</span> <span class="p">{</span>
         <span class="n">mc</span><span class="p">:</span> <span class="n">cells</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
@@ -2161,8 +2425,10 @@ single cells.</p>
     <span class="n">meta_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
         <span class="n">obs</span><span class="o">=</span><span class="n">meta_obs</span><span class="p">,</span>
         <span class="n">var</span><span class="o">=</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">index</span><span class="o">=</span><span class="p">[</span><span class="s2">"null"</span><span class="p">]),</span>
-        <span class="n">obsm</span><span class="o">=</span><span class="p">{</span><span class="s2">"X_emb"</span><span class="p">:</span> <span class="n">embedding</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span>
-              <span class="s2">"X_umap"</span><span class="p">:</span> <span class="n">umap</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">},</span>
+        <span class="n">obsm</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">"X_emb"</span><span class="p">:</span> <span class="n">embedding</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span>
+            <span class="s2">"X_umap"</span><span class="p">:</span> <span class="n">umap</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">reps</span><span class="o">.</span><span class="n">values</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span>
+        <span class="p">},</span>
         <span class="n">uns</span><span class="o">=</span><span class="p">{</span><span class="s2">"meta_cell_to_cells"</span><span class="p">:</span> <span class="n">meta_cell_to_cells</span><span class="p">},</span>
     <span class="p">)</span>
     <span class="n">meta_adata</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span>
@@ -2185,10 +2451,18 @@ def get_group_centroids(embedding: pd.DataFrame, groupby) -&gt; pd.Series:
 # how to summarize each cell-metadata column onto the metacell
 most_frequent = lambda s: s.dropna().value_counts().index[0]
 AGG = {
-    "cluster": most_frequent, "subclass": most_frequent, "class": most_frequent,
-    "age": most_frequent, "age_int": most_frequent, "tissue": most_frequent,
-    "donor": most_frequent, "DissectionRegion": most_frequent,
-    "n_fragments": "sum", "tsse": "mean", "n_umis": "sum", "n_genes": "mean",
+    "cluster": most_frequent,
+    "subclass": most_frequent,
+    "class": most_frequent,
+    "age": most_frequent,
+    "age_int": most_frequent,
+    "tissue": most_frequent,
+    "donor": most_frequent,
+    "DissectionRegion": most_frequent,
+    "n_fragments": "sum",
+    "tsse": "mean",
+    "n_umis": "sum",
+    "n_genes": "mean",
 }
 
 # Skip the (re)generation if the output already exists -- just load it.
@@ -2201,7 +2475,9 @@ else:
 
     reps = get_group_centroids(embedding, groupby=adata.obs["meta_cell"])
     agg = {col: how for col, how in AGG.items() if col in adata.obs.columns}
-    meta_obs = adata.obs.groupby("meta_cell", observed=True).agg(agg).reindex(reps.index)
+    meta_obs = (
+        adata.obs.groupby("meta_cell", observed=True).agg(agg).reindex(reps.index)
+    )
 
     meta_cell_to_cells = {
         mc: cells.index.tolist()
@@ -2211,8 +2487,10 @@ else:
     meta_adata = anndata.AnnData(
         obs=meta_obs,
         var=pd.DataFrame(index=["null"]),
-        obsm={"X_emb": embedding.loc[reps.values].values,
-              "X_umap": umap.loc[reps.values].values},
+        obsm={
+            "X_emb": embedding.loc[reps.values].values,
+            "X_umap": umap.loc[reps.values].values,
+        },
         uns={"meta_cell_to_cells": meta_cell_to_cells},
     )
     meta_adata.write_h5ad(METADATA_H5AD)
@@ -2549,7 +2827,14 @@ files agree on the metacell set.</p>
 <span class="n">sns</span><span class="o">.</span><span class="n">histplot</span><span class="p">(</span><span class="n">peak_depth</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 <span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">"ATAC peak counts / metacell"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">"total peak counts"</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">"metadata:"</span><span class="p">,</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"| peak:"</span><span class="p">,</span> <span class="n">peak_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"| gene:"</span><span class="p">,</span> <span class="n">gene_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"metadata:"</span><span class="p">,</span>
+    <span class="n">meta_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+    <span class="s2">"| peak:"</span><span class="p">,</span>
+    <span class="n">peak_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+    <span class="s2">"| gene:"</span><span class="p">,</span>
+    <span class="n">gene_adata</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="k">assert</span> <span class="nb">list</span><span class="p">(</span><span class="n">peak_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span> <span class="o">==</span> <span class="nb">list</span><span class="p">(</span><span class="n">gene_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">frag_depth = meta_adata.obs["n_fragments"].to_numpy()
@@ -2561,7 +2846,14 @@ axes[0].set(title="total fragments / metacell", xlabel="n_fragments")
 sns.histplot(peak_depth, bins=40, ax=axes[1])
 axes[1].set(title="ATAC peak counts / metacell", xlabel="total peak counts")
 
-print("metadata:", meta_adata.shape, "| peak:", peak_adata.shape, "| gene:", gene_adata.shape)
+print(
+    "metadata:",
+    meta_adata.shape,
+    "| peak:",
+    peak_adata.shape,
+    "| gene:",
+    gene_adata.shape,
+)
 assert list(peak_adata.obs_names) == list(gene_adata.obs_names)</div>
 </div>
 </div>

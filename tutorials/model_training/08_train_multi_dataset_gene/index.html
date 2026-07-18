@@ -1130,6 +1130,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2094,13 +2344,23 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 <span class="n">ATAC_FINAL_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-final.lora.best_checkpoint.pt"</span>
 <span class="c1"># the trained gene checkpoint we load for the demo</span>
 <span class="n">GENE_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-gene.lora.best_checkpoint.pt"</span>
-<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
+<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
+<span class="p">)</span>
 
 <span class="c1"># per-dataset RNA data (log1p-CPM pseudobulk expression + highly-variable-gene lists)</span>
 <span class="n">GENE_DATA_DIR</span> <span class="o">=</span> <span class="s2">"/home/hanliu/data/250901-GeneCountPred/prepare/gene_data"</span>
 
 <span class="c1"># genomes, in the exact order used by the ATAC model (keeps the genome embedding consistent)</span>
-<span class="n">GENOMES</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"calJac4"</span><span class="p">,</span> <span class="s2">"hg38"</span><span class="p">,</span> <span class="s2">"mCalJac1.pat.X"</span><span class="p">,</span> <span class="s2">"mm10"</span><span class="p">,</span> <span class="s2">"monDom5.split"</span><span class="p">,</span> <span class="s2">"panPan3"</span><span class="p">,</span> <span class="s2">"rheMac10"</span><span class="p">]</span>
+<span class="n">GENOMES</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"calJac4"</span><span class="p">,</span>
+    <span class="s2">"hg38"</span><span class="p">,</span>
+    <span class="s2">"mCalJac1.pat.X"</span><span class="p">,</span>
+    <span class="s2">"mm10"</span><span class="p">,</span>
+    <span class="s2">"monDom5.split"</span><span class="p">,</span>
+    <span class="s2">"panPan3"</span><span class="p">,</span>
+    <span class="s2">"rheMac10"</span><span class="p">,</span>
+<span class="p">]</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
 MODEL_NAME = "Bolero10M"
@@ -2111,13 +2371,23 @@ INIT_CONFIG = f"model/250909-{MODEL_NAME}_atac_fold0-init.config.json"
 ATAC_FINAL_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-final.lora.best_checkpoint.pt"
 # the trained gene checkpoint we load for the demo
 GENE_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-gene.lora.best_checkpoint.pt"
-BASE_CKPT = f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"
+BASE_CKPT = (
+    f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"
+)
 
 # per-dataset RNA data (log1p-CPM pseudobulk expression + highly-variable-gene lists)
 GENE_DATA_DIR = "/home/hanliu/data/250901-GeneCountPred/prepare/gene_data"
 
 # genomes, in the exact order used by the ATAC model (keeps the genome embedding consistent)
-GENOMES = ["calJac4", "hg38", "mCalJac1.pat.X", "mm10", "monDom5.split", "panPan3", "rheMac10"]</div>
+GENOMES = [
+    "calJac4",
+    "hg38",
+    "mCalJac1.pat.X",
+    "mm10",
+    "monDom5.split",
+    "panPan3",
+    "rheMac10",
+]</div>
 </div>
 </div>
 </div>
@@ -2166,8 +2436,8 @@ no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) ar
 
 <span class="c1"># ATAC-only datasets borrow a related dataset's HVG list just to gene-center their regions</span>
 <span class="n">region_selection_for_atac_datasets</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"Zu2023Nature"</span><span class="p">:</span>  <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"MouseAging"</span><span class="p">:</span>    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
+    <span class="s2">"Zu2023Nature"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
+    <span class="s2">"MouseAging"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
     <span class="s2">"CBDevEvoMouse"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
     <span class="s2">"MouseBodyAtlas"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
     <span class="s2">"Li2023Science"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/HumanFirstTriBrain+None.top15000_hvg.joblib"</span><span class="p">,</span>
@@ -2178,7 +2448,11 @@ no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) ar
 <span class="k">for</span> <span class="n">dataset_key</span><span class="p">,</span> <span class="n">records</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
     <span class="n">dataset_name</span><span class="p">,</span> <span class="o">*</span><span class="n">subset</span> <span class="o">=</span> <span class="n">dataset_key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"+"</span><span class="p">)</span>
     <span class="n">subset</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">subset</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">subset</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+None"</span> <span class="k">if</span> <span class="n">subset</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">"Control"</span><span class="p">)</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+</span><span class="si">{</span><span class="n">subset</span><span class="si">}</span><span class="s2">"</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+None"</span>
+        <span class="k">if</span> <span class="n">subset</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">"Control"</span><span class="p">)</span>
+        <span class="k">else</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+</span><span class="si">{</span><span class="n">subset</span><span class="si">}</span><span class="s2">"</span>
+    <span class="p">)</span>
     <span class="n">gene_data_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.cond_pseudobulk.log1pCPM.feather"</span>
     <span class="n">deg_list_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.top15000_hvg.joblib"</span>
     <span class="k">if</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">(</span><span class="n">gene_data_path</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
@@ -2188,8 +2462,10 @@ no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) ar
 
 <span class="c1"># which datasets carry RNA (ATAC + Gene) vs. ATAC-only</span>
 <span class="n">task</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
-    <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">(</span><span class="s2">"ATAC + Gene"</span> <span class="k">if</span> <span class="s2">"gene_data_path"</span> <span class="ow">in</span> <span class="n">v</span> <span class="k">else</span> <span class="s2">"ATAC only"</span><span class="p">)</span>
-     <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="p">(</span><span class="s2">"ATAC + Gene"</span> <span class="k">if</span> <span class="s2">"gene_data_path"</span> <span class="ow">in</span> <span class="n">v</span> <span class="k">else</span> <span class="s2">"ATAC only"</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">}</span>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">task</span><span class="o">.</span><span class="n">value_counts</span><span class="p">())</span>
 <span class="n">task</span><span class="o">.</span><span class="n">to_frame</span><span class="p">(</span><span class="s2">"task"</span><span class="p">)</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
@@ -2203,8 +2479,8 @@ del dataset_records["CBDevEvoOpossum"]
 
 # ATAC-only datasets borrow a related dataset's HVG list just to gene-center their regions
 region_selection_for_atac_datasets = {
-    "Zu2023Nature":  f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
-    "MouseAging":    f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
+    "Zu2023Nature": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
+    "MouseAging": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
     "CBDevEvoMouse": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
     "MouseBodyAtlas": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
     "Li2023Science": f"{GENE_DATA_DIR}/HumanFirstTriBrain+None.top15000_hvg.joblib",
@@ -2215,7 +2491,11 @@ region_selection_for_atac_datasets = {
 for dataset_key, records in dataset_records.items():
     dataset_name, *subset = dataset_key.split("+")
     subset = None if len(subset) == 0 else subset[0]
-    key = f"{dataset_name}+None" if subset in (None, "Control") else f"{dataset_name}+{subset}"
+    key = (
+        f"{dataset_name}+None"
+        if subset in (None, "Control")
+        else f"{dataset_name}+{subset}"
+    )
     gene_data_path = f"{GENE_DATA_DIR}/{key}.cond_pseudobulk.log1pCPM.feather"
     deg_list_path = f"{GENE_DATA_DIR}/{key}.top15000_hvg.joblib"
     if pathlib.Path(gene_data_path).exists():
@@ -2225,8 +2505,10 @@ for dataset_key, records in dataset_records.items():
 
 # which datasets carry RNA (ATAC + Gene) vs. ATAC-only
 task = pd.Series(
-    {k: ("ATAC + Gene" if "gene_data_path" in v else "ATAC only")
-     for k, v in dataset_records.items()}
+    {
+        k: ("ATAC + Gene" if "gene_data_path" in v else "ATAC only")
+        for k, v in dataset_records.items()
+    }
 )
 print(task.value_counts())
 task.to_frame("task").head(10)</div>
@@ -2368,8 +2650,8 @@ would shrink those as on the single-dataset page.</p>
     <span class="c1"># gene task</span>
     <span class="s2">"use_regions"</span><span class="p">:</span> <span class="s2">"borzoi_gene"</span><span class="p">,</span>
     <span class="s2">"output_head_type"</span><span class="p">:</span> <span class="s2">"gene_count"</span><span class="p">,</span>
-    <span class="s2">"_genomes"</span><span class="p">:</span> <span class="n">GENOMES</span><span class="p">,</span>                       <span class="c1"># keep the genome embedding aligned with the ATAC model</span>
-    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">ATAC_FINAL_CKPT</span><span class="p">,</span>   <span class="c1"># continue from the trained ATAC model</span>
+    <span class="s2">"_genomes"</span><span class="p">:</span> <span class="n">GENOMES</span><span class="p">,</span>  <span class="c1"># keep the genome embedding aligned with the ATAC model</span>
+    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">ATAC_FINAL_CKPT</span><span class="p">,</span>  <span class="c1"># continue from the trained ATAC model</span>
     <span class="c1"># real training schedule</span>
     <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span>
     <span class="s2">"lr_total_steps"</span><span class="p">:</span> <span class="mi">4_000_000</span><span class="p">,</span>
@@ -2392,8 +2674,8 @@ would shrink those as on the single-dataset page.</p>
     # gene task
     "use_regions": "borzoi_gene",
     "output_head_type": "gene_count",
-    "_genomes": GENOMES,                       # keep the genome embedding aligned with the ATAC model
-    "lora_checkpoint_path": ATAC_FINAL_CKPT,   # continue from the trained ATAC model
+    "_genomes": GENOMES,  # keep the genome embedding aligned with the ATAC model
+    "lora_checkpoint_path": ATAC_FINAL_CKPT,  # continue from the trained ATAC model
     # real training schedule
     "max_epochs": 200,
     "lr_total_steps": 4_000_000,
@@ -2442,14 +2724,14 @@ training.</p>
 <span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span><span class="n">print_model</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">)</span>
-<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span><span class="n">GENE_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>   <span class="c1"># &lt;- the trained gene model</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span><span class="n">GENE_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># &lt;- the trained gene model</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint:"</span><span class="p">,</span> <span class="n">GENE_CKPT</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5">trainer = MultiBorzoiLoRATrainer(config)
 trainer._setup_model(print_model=False)
 
 model = getattr(trainer.model, "module", trainer.model)
-model.load_checkpoint_from_path(GENE_CKPT, strict=False)   # &lt;- the trained gene model
+model.load_checkpoint_from_path(GENE_CKPT, strict=False)  # &lt;- the trained gene model
 print("loaded trained checkpoint:", GENE_CKPT)</div>
 </div>
 </div>

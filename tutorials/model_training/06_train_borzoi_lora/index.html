@@ -1147,6 +1147,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2152,43 +2402,59 @@ pseudobulk records so the model is sized to match the data.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration --------------------------------------------------------------</span>
 <span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">DATA_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../meta_cell_adata_and_parquet"</span><span class="p">)</span>   <span class="c1"># artifacts built in the previous section</span>
+<span class="n">DATA_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span>
+    <span class="s2">"../meta_cell_adata_and_parquet"</span>
+<span class="p">)</span>  <span class="c1"># artifacts built in the previous section</span>
 
-<span class="n">FOLD</span> <span class="o">=</span> <span class="mi">0</span>                     <span class="c1"># chromosome cross-validation fold (hg38_splits)</span>
-<span class="n">TARGET_COV</span> <span class="o">=</span> <span class="mi">5_000_000</span>       <span class="c1"># must match the pseudobulk records built on page 05</span>
+<span class="n">FOLD</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># chromosome cross-validation fold (hg38_splits)</span>
+<span class="n">TARGET_COV</span> <span class="o">=</span> <span class="mi">5_000_000</span>  <span class="c1"># must match the pseudobulk records built on page 05</span>
 
 <span class="c1"># inputs from the previous section</span>
-<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-32bp"</span>                                <span class="c1"># page 04</span>
-<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"pseudobulk_records_and_cond.cov</span><span class="si">{</span><span class="n">TARGET_COV</span><span class="si">}</span><span class="s2">.joblib"</span>   <span class="c1"># page 05</span>
+<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-32bp"</span>  <span class="c1"># page 04</span>
+<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"pseudobulk_records_and_cond.cov</span><span class="si">{</span><span class="n">TARGET_COV</span><span class="si">}</span><span class="s2">.joblib"</span>
+<span class="p">)</span>  <span class="c1"># page 05</span>
 
 <span class="c1"># frozen Flashzoi backbone (see the note below on where this comes from)</span>
-<span class="n">BASE_CHECKPOINT</span> <span class="o">=</span> <span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"</span>
+<span class="n">BASE_CHECKPOINT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"</span>
+<span class="p">)</span>
 
 <span class="c1"># run identity + where checkpoints land</span>
 <span class="n">SAVENAME</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-atac-signal-fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">"</span>
 <span class="n">WANDB_PROJECT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"BorzoiSignal-</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">"</span>
 
-<span class="k">assert</span> <span class="n">PARQUET_DIR</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="o">.</span><span class="n">exists</span><span class="p">(),</span> <span class="s2">"run the previous section first"</span>
+<span class="k">assert</span> <span class="p">(</span>
+    <span class="n">PARQUET_DIR</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
+<span class="p">),</span> <span class="s2">"run the previous section first"</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration --------------------------------------------------------------
 DATASET_NAME = "ChromiumPBMC"
-DATA_DIR = Path("../meta_cell_adata_and_parquet")   # artifacts built in the previous section
+DATA_DIR = Path(
+    "../meta_cell_adata_and_parquet"
+)  # artifacts built in the previous section
 
-FOLD = 0                     # chromosome cross-validation fold (hg38_splits)
-TARGET_COV = 5_000_000       # must match the pseudobulk records built on page 05
+FOLD = 0  # chromosome cross-validation fold (hg38_splits)
+TARGET_COV = 5_000_000  # must match the pseudobulk records built on page 05
 
 # inputs from the previous section
-PARQUET_DIR = DATA_DIR / f"{DATASET_NAME}-MetaCell-32bp"                                # page 04
-PSEUDOBULK_RECORDS = DATA_DIR / f"pseudobulk_records_and_cond.cov{TARGET_COV}.joblib"   # page 05
+PARQUET_DIR = DATA_DIR / f"{DATASET_NAME}-MetaCell-32bp"  # page 04
+PSEUDOBULK_RECORDS = (
+    DATA_DIR / f"pseudobulk_records_and_cond.cov{TARGET_COV}.joblib"
+)  # page 05
 
 # frozen Flashzoi backbone (see the note below on where this comes from)
-BASE_CHECKPOINT = "/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"
+BASE_CHECKPOINT = (
+    "/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt"
+)
 
 # run identity + where checkpoints land
 SAVENAME = f"{DATASET_NAME}-atac-signal-fold{FOLD}"
 WANDB_PROJECT = f"BorzoiSignal-{DATASET_NAME}"
 
-assert PARQUET_DIR.exists() and PSEUDOBULK_RECORDS.exists(), "run the previous section first"</div>
+assert (
+    PARQUET_DIR.exists() and PSEUDOBULK_RECORDS.exists()
+), "run the previous section first"</div>
 </div>
 </div>
 </div>
@@ -2233,8 +2499,10 @@ checkpoints (four cross-validation folds, on the Hugging Face Hub) with their st
 <span class="c1"># pairs. Its metacell embedding is 30-dim; the reference-&gt;target concat doubles that to 60.</span>
 <span class="n">pseudobulker</span> <span class="o">=</span> <span class="n">EnsemblePairedPseudobulker</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">PSEUDOBULK_RECORDS</span><span class="p">))</span>
 
-<span class="n">emb_input_features</span> <span class="o">=</span> <span class="n">pseudobulker</span><span class="o">.</span><span class="n">meta_cell_emb</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>   <span class="c1"># 30 -&gt; 60 (reference + target)</span>
-<span class="n">cond_emb_dim</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">pseudobulker</span><span class="o">.</span><span class="n">cond_emb_dims</span><span class="p">)</span>                <span class="c1"># {} for ChromiumPBMC (no conditions)</span>
+<span class="n">emb_input_features</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">pseudobulker</span><span class="o">.</span><span class="n">meta_cell_emb</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>
+<span class="p">)</span>  <span class="c1"># 30 -&gt; 60 (reference + target)</span>
+<span class="n">cond_emb_dim</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">pseudobulker</span><span class="o">.</span><span class="n">cond_emb_dims</span><span class="p">)</span>  <span class="c1"># {} for ChromiumPBMC (no conditions)</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="s2">"emb_input_features:"</span><span class="p">,</span> <span class="n">emb_input_features</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"cond_emb_dim:"</span><span class="p">,</span> <span class="n">cond_emb_dim</span><span class="p">)</span>
@@ -2243,8 +2511,10 @@ checkpoints (four cross-validation folds, on the Hugging Face Hub) with their st
 # pairs. Its metacell embedding is 30-dim; the reference-&gt;target concat doubles that to 60.
 pseudobulker = EnsemblePairedPseudobulker(str(PSEUDOBULK_RECORDS))
 
-emb_input_features = pseudobulker.meta_cell_emb.shape[1] * 2   # 30 -&gt; 60 (reference + target)
-cond_emb_dim = dict(pseudobulker.cond_emb_dims)                # {} for ChromiumPBMC (no conditions)
+emb_input_features = (
+    pseudobulker.meta_cell_emb.shape[1] * 2
+)  # 30 -&gt; 60 (reference + target)
+cond_emb_dim = dict(pseudobulker.cond_emb_dims)  # {} for ChromiumPBMC (no conditions)
 
 print("emb_input_features:", emb_input_features)
 print("cond_emb_dim:", cond_emb_dim)</div>
@@ -2380,17 +2650,35 @@ config = BorzoiLoRATrainer.make_config(**config)</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># A few resolved values — the demo overrides plus the inherited defaults the real run keeps.</span>
 <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">[</span>
-    <span class="s2">"mode"</span><span class="p">,</span> <span class="s2">"fold_split_id"</span><span class="p">,</span> <span class="s2">"signal_model"</span><span class="p">,</span> <span class="s2">"emb_input_features"</span><span class="p">,</span> <span class="s2">"cond_emb_dim"</span><span class="p">,</span>
-    <span class="s2">"lr"</span><span class="p">,</span> <span class="s2">"batch_size"</span><span class="p">,</span> <span class="s2">"accumulate_grad"</span><span class="p">,</span>
-    <span class="s2">"max_epochs"</span><span class="p">,</span> <span class="s2">"warmup_steps"</span><span class="p">,</span> <span class="s2">"train_batches"</span><span class="p">,</span> <span class="s2">"val_batches"</span><span class="p">,</span>
+    <span class="s2">"mode"</span><span class="p">,</span>
+    <span class="s2">"fold_split_id"</span><span class="p">,</span>
+    <span class="s2">"signal_model"</span><span class="p">,</span>
+    <span class="s2">"emb_input_features"</span><span class="p">,</span>
+    <span class="s2">"cond_emb_dim"</span><span class="p">,</span>
+    <span class="s2">"lr"</span><span class="p">,</span>
+    <span class="s2">"batch_size"</span><span class="p">,</span>
+    <span class="s2">"accumulate_grad"</span><span class="p">,</span>
+    <span class="s2">"max_epochs"</span><span class="p">,</span>
+    <span class="s2">"warmup_steps"</span><span class="p">,</span>
+    <span class="s2">"train_batches"</span><span class="p">,</span>
+    <span class="s2">"val_batches"</span><span class="p">,</span>
 <span class="p">]:</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">k</span><span class="si">:</span><span class="s2">20s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">config</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5"># A few resolved values — the demo overrides plus the inherited defaults the real run keeps.
 for k in [
-    "mode", "fold_split_id", "signal_model", "emb_input_features", "cond_emb_dim",
-    "lr", "batch_size", "accumulate_grad",
-    "max_epochs", "warmup_steps", "train_batches", "val_batches",
+    "mode",
+    "fold_split_id",
+    "signal_model",
+    "emb_input_features",
+    "cond_emb_dim",
+    "lr",
+    "batch_size",
+    "accumulate_grad",
+    "max_epochs",
+    "warmup_steps",
+    "train_batches",
+    "val_batches",
 ]:
     print(f"{k:20s} {config[k]}")</div>
 </div>
@@ -3313,9 +3601,7 @@ Linear/Conv layers, plus the output head and the signal model). Comparing the tw
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">Borzoi</span><span class="p">,</span> <span class="n">model_summary</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">Borzoi</span><span class="p">,</span> <span class="n">model_summary</span>
 
 <span class="n">device</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">device</span>
 
@@ -3326,9 +3612,7 @@ Linear/Conv layers, plus the output head and the signal model). Comparing the tw
 <span class="n">base_model</span> <span class="o">=</span> <span class="n">Borzoi</span><span class="o">.</span><span class="n">create_from_config</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">model_summary</span><span class="p">(</span><span class="n">base_model</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">import torch
-
-from bolero.tl.model.borzoi.model import Borzoi, model_summary
+<div class="clipboard-copy-txt" id="cell-7">from bolero.tl.model.borzoi.model import Borzoi, model_summary
 
 device = trainer.device
 
@@ -3480,10 +3764,12 @@ Non-trainable params: 177,359,168
 <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_children</span><span class="p">():</span>
     <span class="n">total</span><span class="p">,</span> <span class="n">trainable</span> <span class="o">=</span> <span class="n">count_params</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">total</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="k">continue</span>   <span class="c1"># e.g. the crop layer holds no parameters</span>
+        <span class="k">continue</span>  <span class="c1"># e.g. the crop layer holds no parameters</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">child</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">total</span><span class="si">:</span><span class="s2">14,d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainable</span><span class="si">:</span><span class="s2">13,d</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"-"</span> <span class="o">*</span> <span class="mi">78</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'TOTAL'</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">''</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">total_params</span><span class="si">:</span><span class="s2">14,d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainable_params</span><span class="si">:</span><span class="s2">13,d</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="s1">'TOTAL'</span><span class="si">:</span><span class="s2">22s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="s1">''</span><span class="si">:</span><span class="s2">26s</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">total_params</span><span class="si">:</span><span class="s2">14,d</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainable_params</span><span class="si">:</span><span class="s2">13,d</span><span class="si">}</span><span class="s2">"</span>
+<span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">trainable fraction: </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainable_params</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">trainer</span><span class="o">.</span><span class="n">total_params</span><span class="si">:</span><span class="s2">.2%</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9"># Walk the top-level components and split each into total vs. trainable parameters. The backbone
@@ -3500,10 +3786,12 @@ print("-" * 78)
 for name, child in model.named_children():
     total, trainable = count_params(child)
     if total == 0:
-        continue   # e.g. the crop layer holds no parameters
+        continue  # e.g. the crop layer holds no parameters
     print(f"{name:22s} {type(child).__name__:26s} {total:14,d} {trainable:13,d}")
 print("-" * 78)
-print(f"{'TOTAL':22s} {'':26s} {trainer.total_params:14,d} {trainer.trainable_params:13,d}")
+print(
+    f"{'TOTAL':22s} {'':26s} {trainer.total_params:14,d} {trainer.trainable_params:13,d}"
+)
 print(f"\ntrainable fraction: {trainer.trainable_params / trainer.total_params:.2%}")</div>
 </div>
 </div>

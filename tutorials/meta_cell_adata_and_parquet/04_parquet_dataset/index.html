@@ -1152,6 +1152,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2135,31 +2385,31 @@ init(num_cpus=32)</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
 <span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>   <span class="c1"># per-cell, carries obs["meta_cell"]</span>
+<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>  <span class="c1"># per-cell, carries obs["meta_cell"]</span>
 
 <span class="c1"># 32 bp coverage -- the resolution used for the paper.</span>
-<span class="n">WINDOW_SIZE</span> <span class="o">=</span> <span class="mi">600_000</span>     <span class="c1"># bp spanned by each stored meta-region (one parquet row)</span>
-<span class="n">STEP_SIZE</span> <span class="o">=</span> <span class="mi">200_000</span>       <span class="c1"># stride between meta-regions (windows overlap)</span>
-<span class="n">RESOLUTION</span> <span class="o">=</span> <span class="mi">32</span>           <span class="c1"># bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row</span>
+<span class="n">WINDOW_SIZE</span> <span class="o">=</span> <span class="mi">600_000</span>  <span class="c1"># bp spanned by each stored meta-region (one parquet row)</span>
+<span class="n">STEP_SIZE</span> <span class="o">=</span> <span class="mi">200_000</span>  <span class="c1"># stride between meta-regions (windows overlap)</span>
+<span class="n">RESOLUTION</span> <span class="o">=</span> <span class="mi">32</span>  <span class="c1"># bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row</span>
 
-<span class="n">CSC_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">_csc_dataset"</span>                   <span class="c1"># intermediate per-metacell CSC store</span>
-<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-</span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2">bp"</span>   <span class="c1"># the final parquet_db</span>
-<span class="n">PREFIX</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.MetaCell"</span>                       <span class="c1"># parquet column-name prefix</span>
+<span class="n">CSC_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">_csc_dataset"</span>  <span class="c1"># intermediate per-metacell CSC store</span>
+<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-</span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2">bp"</span>  <span class="c1"># the final parquet_db</span>
+<span class="n">PREFIX</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.MetaCell"</span>  <span class="c1"># parquet column-name prefix</span>
 
 <span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
 DATASET_NAME = "ChromiumPBMC"
-INPUT_ADATA = "adata.multivi.with_coords.h5ad"   # per-cell, carries obs["meta_cell"]
+INPUT_ADATA = "adata.multivi.with_coords.h5ad"  # per-cell, carries obs["meta_cell"]
 
 # 32 bp coverage -- the resolution used for the paper.
-WINDOW_SIZE = 600_000     # bp spanned by each stored meta-region (one parquet row)
-STEP_SIZE = 200_000       # stride between meta-regions (windows overlap)
-RESOLUTION = 32           # bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row
+WINDOW_SIZE = 600_000  # bp spanned by each stored meta-region (one parquet row)
+STEP_SIZE = 200_000  # stride between meta-regions (windows overlap)
+RESOLUTION = 32  # bp per bin -&gt; WINDOW_SIZE // RESOLUTION bins per row
 
-CSC_DIR = f"{DATASET_NAME}_csc_dataset"                   # intermediate per-metacell CSC store
-PARQUET_DIR = f"{DATASET_NAME}-MetaCell-{RESOLUTION}bp"   # the final parquet_db
-PREFIX = f"{DATASET_NAME}.MetaCell"                       # parquet column-name prefix
+CSC_DIR = f"{DATASET_NAME}_csc_dataset"  # intermediate per-metacell CSC store
+PARQUET_DIR = f"{DATASET_NAME}-MetaCell-{RESOLUTION}bp"  # the final parquet_db
+PREFIX = f"{DATASET_NAME}.MetaCell"  # parquet column-name prefix
 
 dataset = DATASETS[DATASET_NAME]</div>
 </div>
@@ -2203,11 +2453,15 @@ prefix off the barcode so it matches the cell names in the SnapATAC2 files.</p>
 <span class="n">cell_metadata</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span>
 <span class="n">n_meta_cells</span> <span class="o">=</span> <span class="n">cell_metadata</span><span class="p">[</span><span class="s2">"meta_cell"</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span>
 
-<span class="n">pseudobulk_meta</span> <span class="o">=</span> <span class="n">cell_metadata</span><span class="p">[[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"meta_cell"</span><span class="p">]]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]</span>
+<span class="n">pseudobulk_meta</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">cell_metadata</span><span class="p">[[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"meta_cell"</span><span class="p">]]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]</span>
+<span class="p">)</span>
 <span class="n">pseudobulk_meta</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"group"</span><span class="p">,</span> <span class="s2">"bc"</span><span class="p">]</span>
 <span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"bc"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"bc"</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">name</span><span class="p">:</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"+"</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
 
-<span class="n">snap_file_dict</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">snap_file_table</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s2">"sample"</span><span class="p">)[</span><span class="s2">"snap_path"</span><span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+<span class="n">snap_file_dict</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">dataset</span><span class="o">.</span><span class="n">snap_file_table</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s2">"sample"</span><span class="p">)[</span><span class="s2">"snap_path"</span><span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+<span class="p">)</span>
 <span class="n">snap_file_dict</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">s</span><span class="p">:</span> <span class="n">p</span> <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">snap_file_dict</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">pseudobulk_meta</span><span class="p">[</span><span class="s2">"sample"</span><span class="p">])</span>
 <span class="p">}</span>
@@ -2218,11 +2472,15 @@ prefix off the barcode so it matches the cell names in the SnapATAC2 files.</p>
 cell_metadata = adata.obs
 n_meta_cells = cell_metadata["meta_cell"].nunique()
 
-pseudobulk_meta = cell_metadata[["sample", "meta_cell"]].reset_index().iloc[:, [1, 2, 0]]
+pseudobulk_meta = (
+    cell_metadata[["sample", "meta_cell"]].reset_index().iloc[:, [1, 2, 0]]
+)
 pseudobulk_meta.columns = ["sample", "group", "bc"]
 pseudobulk_meta["bc"] = pseudobulk_meta["bc"].map(lambda name: name.split("+")[-1])
 
-snap_file_dict = dataset.snap_file_table.set_index("sample")["snap_path"].dropna().to_dict()
+snap_file_dict = (
+    dataset.snap_file_table.set_index("sample")["snap_path"].dropna().to_dict()
+)
 snap_file_dict = {
     s: p for s, p in snap_file_dict.items() if s in set(pseudobulk_meta["sample"])
 }
@@ -3519,8 +3777,11 @@ one-line helper (<code>np.frombuffer(gzip.decompress(b), dtype)</code>); the dat
 
 <span class="c1"># pick the first meta-region that actually has coverage (telomeric windows are empty)</span>
 <span class="n">row_i</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span>
-    <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">table</span><span class="o">.</span><span class="n">num_rows</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span><span class="n">table</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:data+float32"</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">as_py</span><span class="p">(),</span> <span class="s2">"float32"</span><span class="p">)</span><span class="o">.</span><span class="n">size</span>
+    <span class="n">i</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">table</span><span class="o">.</span><span class="n">num_rows</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">compressed_bytes_to_array</span><span class="p">(</span>
+        <span class="n">table</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">PREFIX</span><span class="si">}</span><span class="s2">:data+float32"</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">as_py</span><span class="p">(),</span> <span class="s2">"float32"</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">size</span>
 <span class="p">)</span>
 <span class="n">row</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="n">row_i</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to_pydict</span><span class="p">()</span>
 
@@ -3537,8 +3798,11 @@ one-line helper (<code>np.frombuffer(gzip.decompress(b), dtype)</code>); the dat
 
 # pick the first meta-region that actually has coverage (telomeric windows are empty)
 row_i = next(
-    i for i in range(table.num_rows)
-    if compressed_bytes_to_array(table[f"{PREFIX}:data+float32"][i].as_py(), "float32").size
+    i
+    for i in range(table.num_rows)
+    if compressed_bytes_to_array(
+        table[f"{PREFIX}:data+float32"][i].as_py(), "float32"
+    ).size
 )
 row = table.slice(row_i, 1).to_pydict()
 
@@ -3609,8 +3873,13 @@ Bolero's data loader (<code>bolero.tl.dataset.ray_dataset.RayGenomeChunkDataset<
 <span class="n">region</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">chrom</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">start</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">start</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">100_000</span><span class="si">}</span><span class="s2">"</span>
 
 <span class="n">result</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">query_regions</span><span class="p">([</span><span class="n">region</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
-<span class="n">coverage</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="n">PREFIX</span><span class="p">]</span>                     <span class="c1"># CSR: metacells x bins for this window</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">region</span><span class="p">,</span> <span class="s2">"-&gt;"</span><span class="p">,</span> <span class="n">coverage</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="mi">100_000</span><span class="si">}</span><span class="s2"> bp / </span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="mi">100_000</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> bins)"</span><span class="p">)</span>
+<span class="n">coverage</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="n">PREFIX</span><span class="p">]</span>  <span class="c1"># CSR: metacells x bins for this window</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="n">region</span><span class="p">,</span>
+    <span class="s2">"-&gt;"</span><span class="p">,</span>
+    <span class="n">coverage</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="mi">100_000</span><span class="si">}</span><span class="s2"> bp / </span><span class="si">{</span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="mi">100_000</span><span class="w"> </span><span class="o">//</span><span class="w"> </span><span class="n">RESOLUTION</span><span class="si">}</span><span class="s2"> bins)"</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="n">batch</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">db</span><span class="o">.</span><span class="n">iter_batches</span><span class="p">([</span><span class="n">region</span><span class="p">],</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">({</span><span class="n">k</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">batch</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">"region"</span><span class="p">})</span>
@@ -3623,8 +3892,13 @@ start = int(span.split("-")[0]) + 100_000
 region = f"{chrom}:{start}-{start + 100_000}"
 
 result = db.query_regions([region])[0]
-coverage = result[PREFIX]                     # CSR: metacells x bins for this window
-print(region, "-&gt;", coverage.shape, f"({100_000} bp / {RESOLUTION} = {100_000 // RESOLUTION} bins)")
+coverage = result[PREFIX]  # CSR: metacells x bins for this window
+print(
+    region,
+    "-&gt;",
+    coverage.shape,
+    f"({100_000} bp / {RESOLUTION} = {100_000 // RESOLUTION} bins)",
+)
 
 batch = next(db.iter_batches([region], batch_size=1))
 print({k: np.asarray(v).shape for k, v in batch.items() if k != "region"})</div>

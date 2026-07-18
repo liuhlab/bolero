@@ -1136,6 +1136,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2018,8 +2268,7 @@ pseudobulks — rather than sparse single cells. This page takes the
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">simplefilter</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">simplefilter</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">anndata</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
@@ -2033,8 +2282,7 @@ pseudobulks — rather than sparse single cells. This page takes the
 <span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
 <span class="n">sc</span><span class="o">.</span><span class="n">set_figure_params</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">frameon</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from pathlib import Path
-from warnings import simplefilter
+<div class="clipboard-copy-txt" id="cell-1">from warnings import simplefilter
 
 import anndata
 import matplotlib.pyplot as plt
@@ -2078,9 +2326,9 @@ sc.set_figure_params(figsize=(4, 4), frameon=False)</div>
 <span class="c1"># Metacells are called separately within each "limit group", so cells of different</span>
 <span class="c1"># broad types are never pooled together.</span>
 <span class="n">META_CELL_LIMIT</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"subclass"</span><span class="p">]</span>
-<span class="n">MAX_FRAGMENTS</span> <span class="o">=</span> <span class="mi">3_000_000</span>     <span class="c1"># cap total fragments per metacell</span>
-<span class="n">META_FOLD</span> <span class="o">=</span> <span class="mi">75</span>                <span class="c1"># ~ target number of cells per metacell</span>
-<span class="n">MIN_CELLS</span> <span class="o">=</span> <span class="mi">200</span>               <span class="c1"># skip / merge groups smaller than this</span>
+<span class="n">MAX_FRAGMENTS</span> <span class="o">=</span> <span class="mi">3_000_000</span>  <span class="c1"># cap total fragments per metacell</span>
+<span class="n">META_FOLD</span> <span class="o">=</span> <span class="mi">75</span>  <span class="c1"># ~ target number of cells per metacell</span>
+<span class="n">MIN_CELLS</span> <span class="o">=</span> <span class="mi">200</span>  <span class="c1"># skip / merge groups smaller than this</span>
 
 <span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
 </pre></div>
@@ -2091,9 +2339,9 @@ DATASET_NAME = "ChromiumPBMC"
 # Metacells are called separately within each "limit group", so cells of different
 # broad types are never pooled together.
 META_CELL_LIMIT = ["subclass"]
-MAX_FRAGMENTS = 3_000_000     # cap total fragments per metacell
-META_FOLD = 75                # ~ target number of cells per metacell
-MIN_CELLS = 200               # skip / merge groups smaller than this
+MAX_FRAGMENTS = 3_000_000  # cap total fragments per metacell
+META_FOLD = 75  # ~ target number of cells per metacell
+MIN_CELLS = 200  # skip / merge groups smaller than this
 
 dataset = DATASETS[DATASET_NAME]</div>
 </div>
@@ -3192,8 +3440,10 @@ summarize per-metacell fragment / UMI totals and mean quality.</p>
 <span class="n">meta_cov</span> <span class="o">=</span> <span class="n">cell_meta</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span>
     <span class="p">{</span><span class="s2">"n_fragments"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"tsse"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">,</span> <span class="s2">"n_umis"</span><span class="p">:</span> <span class="s2">"sum"</span><span class="p">,</span> <span class="s2">"n_genes"</span><span class="p">:</span> <span class="s2">"mean"</span><span class="p">}</span>
 <span class="p">)</span>
-<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">nrows</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ncols</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="n">meta_cov</span><span class="o">.</span><span class="n">columns</span><span class="p">):</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">nrows</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ncols</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">col</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="n">meta_cov</span><span class="o">.</span><span class="n">columns</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
     <span class="n">sns</span><span class="o">.</span><span class="n">histplot</span><span class="p">(</span><span class="n">meta_cov</span><span class="p">[</span><span class="n">col</span><span class="p">],</span> <span class="n">bins</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-7">cell_meta = cell_meta.reindex(adata.obs_names)
@@ -3206,8 +3456,10 @@ print(f"{n_meta} metacells from {n_cell} cells")
 meta_cov = cell_meta.groupby("meta_cell").agg(
     {"n_fragments": "sum", "tsse": "mean", "n_umis": "sum", "n_genes": "mean"}
 )
-fig, axes = plt.subplots(figsize=(6, 3), nrows=2, ncols=2, dpi=150, constrained_layout=True)
-for ax, col in zip(axes.ravel(), meta_cov.columns):
+fig, axes = plt.subplots(
+    figsize=(6, 3), nrows=2, ncols=2, dpi=150, constrained_layout=True
+)
+for ax, col in zip(axes.ravel(), meta_cov.columns, strict=False):
     sns.histplot(meta_cov[col], bins=50, ax=ax)</div>
 </div>
 </div>
@@ -3276,13 +3528,25 @@ category — values near 1 mean clean, homogeneous metacells.</p>
 
 <span class="n">plot_cols</span> <span class="o">=</span> <span class="p">[</span>
     <span class="n">c</span>
-    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"age"</span><span class="p">,</span> <span class="s2">"sex"</span><span class="p">,</span> <span class="s2">"donor"</span><span class="p">,</span> <span class="s2">"tissue"</span><span class="p">,</span> <span class="s2">"DissectionRegion"</span><span class="p">,</span> <span class="s2">"class"</span><span class="p">,</span> <span class="s2">"subclass"</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="p">[</span>
+        <span class="s2">"sample"</span><span class="p">,</span>
+        <span class="s2">"age"</span><span class="p">,</span>
+        <span class="s2">"sex"</span><span class="p">,</span>
+        <span class="s2">"donor"</span><span class="p">,</span>
+        <span class="s2">"tissue"</span><span class="p">,</span>
+        <span class="s2">"DissectionRegion"</span><span class="p">,</span>
+        <span class="s2">"class"</span><span class="p">,</span>
+        <span class="s2">"subclass"</span><span class="p">,</span>
+    <span class="p">]</span>
     <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">purity</span>
 <span class="p">]</span>
 <span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span>
-    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mf">1.4</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">plot_cols</span><span class="p">),</span> <span class="mi">3</span><span class="p">),</span> <span class="n">ncols</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">plot_cols</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mf">1.4</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">plot_cols</span><span class="p">),</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">ncols</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">plot_cols</span><span class="p">),</span>
+    <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span>
+    <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">col</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">axes</span><span class="p">),</span> <span class="n">plot_cols</span><span class="p">)):</span>
+<span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">col</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">axes</span><span class="p">),</span> <span class="n">plot_cols</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)):</span>
     <span class="n">sns</span><span class="o">.</span><span class="n">boxplot</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="n">purity</span><span class="p">[</span><span class="n">col</span><span class="p">],</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">)</span>
     <span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">ylim</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">title</span><span class="o">=</span><span class="n">col</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">""</span><span class="p">,</span> <span class="n">ylabel</span><span class="o">=</span><span class="s2">"purity"</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">else</span> <span class="s2">""</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">i</span><span class="p">:</span>
@@ -3300,13 +3564,25 @@ purity = pd.DataFrame(purity)
 
 plot_cols = [
     c
-    for c in ["sample", "age", "sex", "donor", "tissue", "DissectionRegion", "class", "subclass"]
+    for c in [
+        "sample",
+        "age",
+        "sex",
+        "donor",
+        "tissue",
+        "DissectionRegion",
+        "class",
+        "subclass",
+    ]
     if c in purity
 ]
 fig, axes = plt.subplots(
-    figsize=(1.4 * len(plot_cols), 3), ncols=len(plot_cols), dpi=150, constrained_layout=True
+    figsize=(1.4 * len(plot_cols), 3),
+    ncols=len(plot_cols),
+    dpi=150,
+    constrained_layout=True,
 )
-for i, (ax, col) in enumerate(zip(np.atleast_1d(axes), plot_cols)):
+for i, (ax, col) in enumerate(zip(np.atleast_1d(axes), plot_cols, strict=False)):
     sns.boxplot(y=purity[col], ax=ax)
     ax.set(ylim=(0, 1), title=col, xlabel="", ylabel="purity" if i == 0 else "")
     if i:

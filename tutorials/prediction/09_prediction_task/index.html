@@ -1152,6 +1152,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2132,36 +2382,44 @@ previous sections (the trained model, and the data it was trained on).</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration --------------------------------------------------------------</span>
-<span class="n">MODEL_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../model_training/model"</span><span class="p">)</span>        <span class="c1"># produced by notebook 06</span>
+<span class="n">MODEL_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../model_training/model"</span><span class="p">)</span>  <span class="c1"># produced by notebook 06</span>
 <span class="n">DATA_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">"../meta_cell_adata_and_parquet"</span><span class="p">)</span>  <span class="c1"># produced by notebooks 04-05</span>
 
 <span class="n">SAVENAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC-atac-signal-fold0"</span>
-<span class="n">CHECKPOINT</span> <span class="o">=</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SAVENAME</span><span class="si">}</span><span class="s2">.lora.best_checkpoint.pt"</span>   <span class="c1"># trained LoRA weights (nb 06)</span>
-<span class="n">TRAIN_CONFIG</span> <span class="o">=</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SAVENAME</span><span class="si">}</span><span class="s2">.config.json"</span>            <span class="c1"># the config nb 06 saved</span>
+<span class="n">CHECKPOINT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SAVENAME</span><span class="si">}</span><span class="s2">.lora.best_checkpoint.pt"</span>
+<span class="p">)</span>  <span class="c1"># trained LoRA weights (nb 06)</span>
+<span class="n">TRAIN_CONFIG</span> <span class="o">=</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">SAVENAME</span><span class="si">}</span><span class="s2">.config.json"</span>  <span class="c1"># the config nb 06 saved</span>
 
-<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"ChromiumPBMC-MetaCell-32bp"</span>                  <span class="c1"># page 04</span>
-<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"pseudobulk_records_and_cond.cov5000000.joblib"</span>  <span class="c1"># page 05</span>
-<span class="n">REFERENCE_BW</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"reference.bw"</span>                              <span class="c1"># page 05</span>
-<span class="n">PEAK_H5AD</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"metacell.peak_count.h5ad"</span>                     <span class="c1"># page 03</span>
+<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"ChromiumPBMC-MetaCell-32bp"</span>  <span class="c1"># page 04</span>
+<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"pseudobulk_records_and_cond.cov5000000.joblib"</span>
+<span class="p">)</span>  <span class="c1"># page 05</span>
+<span class="n">REFERENCE_BW</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"reference.bw"</span>  <span class="c1"># page 05</span>
+<span class="n">PEAK_H5AD</span> <span class="o">=</span> <span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"metacell.peak_count.h5ad"</span>  <span class="c1"># page 03</span>
 
 <span class="k">assert</span> <span class="n">CHECKPOINT</span><span class="o">.</span><span class="n">exists</span><span class="p">(),</span> <span class="s2">"run notebook 06 first to train the model"</span>
-<span class="k">assert</span> <span class="n">PARQUET_DIR</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="o">.</span><span class="n">exists</span><span class="p">(),</span> <span class="s2">"run notebooks 04-05 first"</span> 
+<span class="k">assert</span> <span class="n">PARQUET_DIR</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="o">.</span><span class="n">exists</span><span class="p">(),</span> <span class="s2">"run notebooks 04-05 first"</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration --------------------------------------------------------------
-MODEL_DIR = Path("../model_training/model")        # produced by notebook 06
+MODEL_DIR = Path("../model_training/model")  # produced by notebook 06
 DATA_DIR = Path("../meta_cell_adata_and_parquet")  # produced by notebooks 04-05
 
 SAVENAME = "ChromiumPBMC-atac-signal-fold0"
-CHECKPOINT = MODEL_DIR / f"{SAVENAME}.lora.best_checkpoint.pt"   # trained LoRA weights (nb 06)
-TRAIN_CONFIG = MODEL_DIR / f"{SAVENAME}.config.json"            # the config nb 06 saved
+CHECKPOINT = (
+    MODEL_DIR / f"{SAVENAME}.lora.best_checkpoint.pt"
+)  # trained LoRA weights (nb 06)
+TRAIN_CONFIG = MODEL_DIR / f"{SAVENAME}.config.json"  # the config nb 06 saved
 
-PARQUET_DIR = DATA_DIR / "ChromiumPBMC-MetaCell-32bp"                  # page 04
-PSEUDOBULK_RECORDS = DATA_DIR / "pseudobulk_records_and_cond.cov5000000.joblib"  # page 05
-REFERENCE_BW = DATA_DIR / "reference.bw"                              # page 05
-PEAK_H5AD = DATA_DIR / "metacell.peak_count.h5ad"                     # page 03
+PARQUET_DIR = DATA_DIR / "ChromiumPBMC-MetaCell-32bp"  # page 04
+PSEUDOBULK_RECORDS = (
+    DATA_DIR / "pseudobulk_records_and_cond.cov5000000.joblib"
+)  # page 05
+REFERENCE_BW = DATA_DIR / "reference.bw"  # page 05
+PEAK_H5AD = DATA_DIR / "metacell.peak_count.h5ad"  # page 03
 
 assert CHECKPOINT.exists(), "run notebook 06 first to train the model"
-assert PARQUET_DIR.exists() and PSEUDOBULK_RECORDS.exists(), "run notebooks 04-05 first" </div>
+assert PARQUET_DIR.exists() and PSEUDOBULK_RECORDS.exists(), "run notebooks 04-05 first"</div>
 </div>
 </div>
 </div>
@@ -2204,7 +2462,11 @@ ones to predict — here a small subset so the demo is quick.</p>
 
 <span class="n">example</span> <span class="o">=</span> <span class="n">records</span><span class="p">[</span><span class="s2">"group0-pseudobulk0"</span><span class="p">]</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"a pseudobulk record holds:"</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">example</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"  embedding shape :"</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">example</span><span class="p">[</span><span class="s2">"embedding"</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"(the cell-state vector)"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"  embedding shape :"</span><span class="p">,</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">example</span><span class="p">[</span><span class="s2">"embedding"</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+    <span class="s2">"(the cell-state vector)"</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"  cov_scale       :"</span><span class="p">,</span> <span class="n">example</span><span class="p">[</span><span class="s2">"cov_scale"</span><span class="p">])</span>
 
 <span class="c1"># predict a small subset of cell states so the demo runs in a minute or two</span>
@@ -2215,7 +2477,11 @@ ones to predict — here a small subset so the demo is quick.</p>
 
 example = records["group0-pseudobulk0"]
 print("a pseudobulk record holds:", list(example))
-print("  embedding shape :", np.asarray(example["embedding"]).shape, "(the cell-state vector)")
+print(
+    "  embedding shape :",
+    np.asarray(example["embedding"]).shape,
+    "(the cell-state vector)",
+)
 print("  cov_scale       :", example["cov_scale"])
 
 # predict a small subset of cell states so the demo runs in a minute or two
@@ -2409,10 +2675,12 @@ model loads lazily, so this is cheap; the GPU work starts when we call the task.
     <span class="s2">"genome"</span><span class="p">:</span> <span class="s2">"hg38"</span><span class="p">,</span>
     <span class="s2">"dataset_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">PARQUET_DIR</span><span class="p">),</span>
     <span class="s2">"pseudobulk_records_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">PSEUDOBULK_RECORDS</span><span class="p">),</span>
-    <span class="s2">"bigwig_paths"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"reference"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">REFERENCE_BW</span><span class="p">)},</span>   <span class="c1"># reference signal for the signal model</span>
+    <span class="s2">"bigwig_paths"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"reference"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">REFERENCE_BW</span><span class="p">)</span>
+    <span class="p">},</span>  <span class="c1"># reference signal for the signal model</span>
     <span class="s2">"peak_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">PEAK_BED</span><span class="p">),</span>
-    <span class="s2">"designs"</span><span class="p">:</span> <span class="n">DESIGNS</span><span class="p">,</span>                                 <span class="c1"># which cell states to predict</span>
-    <span class="s2">"nosignal"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>                                  <span class="c1"># True -&gt; DNA-only (ignore reference signal)</span>
+    <span class="s2">"designs"</span><span class="p">:</span> <span class="n">DESIGNS</span><span class="p">,</span>  <span class="c1"># which cell states to predict</span>
+    <span class="s2">"nosignal"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># True -&gt; DNA-only (ignore reference signal)</span>
 <span class="p">}</span>
 <span class="n">predictor</span> <span class="o">=</span> <span class="n">BorzoiSignalPredictor</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
 <span class="n">predictor</span><span class="o">.</span><span class="n">pseudobulk_manager</span>
@@ -2423,10 +2691,12 @@ model loads lazily, so this is cheap; the GPU work starts when we call the task.
     "genome": "hg38",
     "dataset_path": str(PARQUET_DIR),
     "pseudobulk_records_path": str(PSEUDOBULK_RECORDS),
-    "bigwig_paths": {"reference": str(REFERENCE_BW)},   # reference signal for the signal model
+    "bigwig_paths": {
+        "reference": str(REFERENCE_BW)
+    },  # reference signal for the signal model
     "peak_path": str(PEAK_BED),
-    "designs": DESIGNS,                                 # which cell states to predict
-    "nosignal": False,                                  # True -&gt; DNA-only (ignore reference signal)
+    "designs": DESIGNS,  # which cell states to predict
+    "nosignal": False,  # True -&gt; DNA-only (ignore reference signal)
 }
 predictor = BorzoiSignalPredictor(config)
 predictor.pseudobulk_manager</div>
@@ -2482,35 +2752,35 @@ extracts the per-peak signal, scores it against the measured data, and writes ev
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">OUTPUT_DIR</span> <span class="o">=</span> <span class="s2">"prediction_task_output"</span>
 <span class="n">predictor</span><span class="o">.</span><span class="n">prediction_task</span><span class="p">(</span>
     <span class="n">output_dir</span><span class="o">=</span><span class="n">OUTPUT_DIR</span><span class="p">,</span>
-    <span class="n">regions</span><span class="o">=</span><span class="s2">"test_regions"</span><span class="p">,</span>   <span class="c1"># fold-0 held-out windows; or pass your own list/DataFrame</span>
-    <span class="n">downsample_regions</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>     <span class="c1"># a handful of windows so the demo is quick</span>
+    <span class="n">regions</span><span class="o">=</span><span class="s2">"test_regions"</span><span class="p">,</span>  <span class="c1"># fold-0 held-out windows; or pass your own list/DataFrame</span>
+    <span class="n">downsample_regions</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># a handful of windows so the demo is quick</span>
     <span class="n">downsample_seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
     <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
     <span class="n">save_keys</span><span class="o">=</span><span class="p">[</span>
-        <span class="s2">"__ytrue__:peak:cond1"</span><span class="p">,</span>   <span class="c1"># measured per-peak accessibility</span>
-        <span class="s2">"__ypred__:peak:cond1"</span><span class="p">,</span>   <span class="c1"># predicted per-peak accessibility</span>
+        <span class="s2">"__ytrue__:peak:cond1"</span><span class="p">,</span>  <span class="c1"># measured per-peak accessibility</span>
+        <span class="s2">"__ypred__:peak:cond1"</span><span class="p">,</span>  <span class="c1"># predicted per-peak accessibility</span>
         <span class="s2">"region"</span><span class="p">,</span>
         <span class="s2">"pseudobulk_ids"</span><span class="p">,</span>
         <span class="s2">"peak"</span><span class="p">,</span>
     <span class="p">],</span>
-    <span class="n">save_first_batch</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>        <span class="c1"># also dump the full first batch (incl. base-res tracks) for a look</span>
+    <span class="n">save_first_batch</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># also dump the full first batch (incl. base-res tracks) for a look</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">OUTPUT_DIR = "prediction_task_output"
 predictor.prediction_task(
     output_dir=OUTPUT_DIR,
-    regions="test_regions",   # fold-0 held-out windows; or pass your own list/DataFrame
-    downsample_regions=8,     # a handful of windows so the demo is quick
+    regions="test_regions",  # fold-0 held-out windows; or pass your own list/DataFrame
+    downsample_regions=8,  # a handful of windows so the demo is quick
     downsample_seed=0,
     batch_size=4,
     save_keys=[
-        "__ytrue__:peak:cond1",   # measured per-peak accessibility
-        "__ypred__:peak:cond1",   # predicted per-peak accessibility
+        "__ytrue__:peak:cond1",  # measured per-peak accessibility
+        "__ypred__:peak:cond1",  # predicted per-peak accessibility
         "region",
         "pseudobulk_ids",
         "peak",
     ],
-    save_first_batch=True,        # also dump the full first batch (incl. base-res tracks) for a look
+    save_first_batch=True,  # also dump the full first batch (incl. base-res tracks) for a look
 )</div>
 </div>
 </div>
@@ -2883,43 +3153,65 @@ illustrative of the <em>output format</em>, not of accuracy.)</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">to_np</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">x</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span><span class="o">.</span><span class="n">numpy</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s2">"detach"</span><span class="p">)</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 
+
 <span class="n">batch</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">OUTPUT_DIR</span><span class="si">}</span><span class="s2">/first_batch.joblib.gz"</span><span class="p">)</span>
-<span class="n">ytrue</span> <span class="o">=</span> <span class="n">to_np</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">"__ytrue__:cond1"</span><span class="p">])</span>   <span class="c1"># (n_region, n_pseudobulk, n_bins)</span>
+<span class="n">ytrue</span> <span class="o">=</span> <span class="n">to_np</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">"__ytrue__:cond1"</span><span class="p">])</span>  <span class="c1"># (n_region, n_pseudobulk, n_bins)</span>
 <span class="n">ypred</span> <span class="o">=</span> <span class="n">to_np</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">"__ypred__:cond1"</span><span class="p">])</span>
 
 <span class="c1"># map the batch's internal (paired) ids back to the cell-state names for a readable label</span>
 <span class="n">config</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">OUTPUT_DIR</span><span class="si">}</span><span class="s2">/config.joblib.gz"</span><span class="p">)</span>
 <span class="n">idmap</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"__pid__"</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">config</span><span class="p">[</span><span class="s2">"pseudobulk_records"</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
 <span class="n">cell_states</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Index</span><span class="p">(</span><span class="n">batch</span><span class="p">[</span><span class="s2">"pseudobulk_ids"</span><span class="p">][::</span><span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">idmap</span><span class="p">)</span>
-<span class="n">rid</span><span class="p">,</span> <span class="n">pid</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>                            <span class="c1"># first region, first cell state</span>
+<span class="n">rid</span><span class="p">,</span> <span class="n">pid</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>  <span class="c1"># first region, first cell state</span>
 
 <span class="n">smooth</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">y</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">convolve</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"same"</span><span class="p">)</span>
 <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mf">2.6</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">fill_between</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">ytrue</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span> <span class="n">smooth</span><span class="p">(</span><span class="n">ytrue</span><span class="p">[</span><span class="n">rid</span><span class="p">,</span> <span class="n">pid</span><span class="p">]),</span> <span class="n">color</span><span class="o">=</span><span class="s2">"orange"</span><span class="p">,</span>
-                <span class="n">alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"measured"</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">fill_between</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">ytrue</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
+    <span class="n">smooth</span><span class="p">(</span><span class="n">ytrue</span><span class="p">[</span><span class="n">rid</span><span class="p">,</span> <span class="n">pid</span><span class="p">]),</span>
+    <span class="n">color</span><span class="o">=</span><span class="s2">"orange"</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+    <span class="n">lw</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">label</span><span class="o">=</span><span class="s2">"measured"</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">smooth</span><span class="p">(</span><span class="n">ypred</span><span class="p">[</span><span class="n">rid</span><span class="p">,</span> <span class="n">pid</span><span class="p">]),</span> <span class="n">color</span><span class="o">=</span><span class="s2">"steelblue"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">"predicted"</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">batch</span><span class="p">[</span><span class="s1">'region'</span><span class="p">][</span><span class="n">rid</span><span class="p">]</span><span class="si">}</span><span class="s2">   |   </span><span class="si">{</span><span class="n">cell_states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">"32 bp bin"</span><span class="p">,</span> <span class="n">ylabel</span><span class="o">=</span><span class="s2">"ATAC"</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">batch</span><span class="p">[</span><span class="s1">'region'</span><span class="p">][</span><span class="n">rid</span><span class="p">]</span><span class="si">}</span><span class="s2">   |   </span><span class="si">{</span><span class="n">cell_states</span><span class="p">[</span><span class="n">pid</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="n">xlabel</span><span class="o">=</span><span class="s2">"32 bp bin"</span><span class="p">,</span>
+    <span class="n">ylabel</span><span class="o">=</span><span class="s2">"ATAC"</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">(</span><span class="n">fontsize</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9">def to_np(x):
     return x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
 
+
 batch = joblib.load(f"{OUTPUT_DIR}/first_batch.joblib.gz")
-ytrue = to_np(batch["__ytrue__:cond1"])   # (n_region, n_pseudobulk, n_bins)
+ytrue = to_np(batch["__ytrue__:cond1"])  # (n_region, n_pseudobulk, n_bins)
 ypred = to_np(batch["__ypred__:cond1"])
 
 # map the batch's internal (paired) ids back to the cell-state names for a readable label
 config = joblib.load(f"{OUTPUT_DIR}/config.joblib.gz")
 idmap = {k: v.get("__pid__", k) for k, v in config["pseudobulk_records"].items()}
 cell_states = pd.Index(batch["pseudobulk_ids"][::2]).map(idmap)
-rid, pid = 0, 0                            # first region, first cell state
+rid, pid = 0, 0  # first region, first cell state
 
 smooth = lambda y: np.convolve(y, np.ones(8) / 8, mode="same")
 fig, ax = plt.subplots(figsize=(9, 2.6), dpi=150, constrained_layout=True)
-ax.fill_between(np.arange(ytrue.shape[-1]), smooth(ytrue[rid, pid]), color="orange",
-                alpha=0.6, lw=0, label="measured")
+ax.fill_between(
+    np.arange(ytrue.shape[-1]),
+    smooth(ytrue[rid, pid]),
+    color="orange",
+    alpha=0.6,
+    lw=0,
+    label="measured",
+)
 ax.plot(smooth(ypred[rid, pid]), color="steelblue", lw=0.8, label="predicted")
-ax.set(title=f"{batch['region'][rid]}   |   {cell_states[pid]}", xlabel="32 bp bin", ylabel="ATAC")
+ax.set(
+    title=f"{batch['region'][rid]}   |   {cell_states[pid]}",
+    xlabel="32 bp bin",
+    ylabel="ATAC",
+)
 ax.legend(fontsize=8)</div>
 </div>
 </div>

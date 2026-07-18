@@ -1152,6 +1152,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2082,7 +2332,9 @@ do <strong>not</strong> call <code>trainer.train()</code> here. Instead we build
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiBorzoiLoRATrainer</span>
 
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"disabled"</span>    <span class="c1"># demo only builds/loads a model; no training, no logging</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"disabled"</span>  <span class="c1"># demo only builds/loads a model; no training, no logging</span>
+<span class="p">)</span>
 <span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">object_store_memory_gb</span><span class="o">=</span><span class="mi">48</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import json
@@ -2094,7 +2346,9 @@ import pandas as pd
 from bolero import init
 from bolero.tl.model.borzoi.train import MultiBorzoiLoRATrainer
 
-os.environ["WANDB_MODE"] = "disabled"    # demo only builds/loads a model; no training, no logging
+os.environ["WANDB_MODE"] = (
+    "disabled"  # demo only builds/loads a model; no training, no logging
+)
 init(num_cpus=16, object_store_memory_gb=48)</div>
 </div>
 </div>
@@ -2144,7 +2398,9 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 <span class="c1"># The trained final ATAC checkpoint we load for the demo (result of stage 4).</span>
 <span class="n">FINAL_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-final.lora.best_checkpoint.pt"</span>
 <span class="c1"># Frozen Flashzoi backbone (same base checkpoint as the single-dataset model).</span>
-<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
+<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
 MODEL_NAME = "Bolero10M"
@@ -2157,7 +2413,9 @@ POST_DATASET_CKPT = f"250909-{MODEL_NAME}_atac_fold0-PostDatasetFineTune.pt"
 # The trained final ATAC checkpoint we load for the demo (result of stage 4).
 FINAL_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-final.lora.best_checkpoint.pt"
 # Frozen Flashzoi backbone (same base checkpoint as the single-dataset model).
-BASE_CKPT = f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"</div>
+BASE_CKPT = (
+    f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"
+)</div>
 </div>
 </div>
 </div>
@@ -2204,8 +2462,10 @@ init stage from <code>bolerodata.DATASETS</code>, so we just read it back out of
 
 <span class="c1"># one row per dataset: which genome, which sampling weight</span>
 <span class="n">registry</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
-    <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s2">"genome"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">],</span> <span class="s2">"weight"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"dataset_sample_weight"</span><span class="p">]}</span>
-     <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s2">"genome"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">],</span> <span class="s2">"weight"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"dataset_sample_weight"</span><span class="p">]}</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">}</span>
 <span class="p">)</span><span class="o">.</span><span class="n">T</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset_records</span><span class="p">)</span><span class="si">}</span><span class="s2"> datasets across </span><span class="si">{</span><span class="n">registry</span><span class="p">[</span><span class="s1">'genome'</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span><span class="si">}</span><span class="s2"> genomes"</span><span class="p">)</span>
 <span class="n">registry</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">]</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
@@ -2216,8 +2476,10 @@ dataset_records = init_cfg["dataset_records"]
 
 # one row per dataset: which genome, which sampling weight
 registry = pd.DataFrame(
-    {k: {"genome": v["genome"], "weight": v["dataset_sample_weight"]}
-     for k, v in dataset_records.items()}
+    {
+        k: {"genome": v["genome"], "weight": v["dataset_sample_weight"]}
+        for k, v in dataset_records.items()
+    }
 ).T
 print(f"{len(dataset_records)} datasets across {registry['genome'].nunique()} genomes")
 registry["genome"].value_counts()</div>
@@ -2364,7 +2626,7 @@ quick smoke-test would instead set <code>max_epochs=3, warmup_steps=10, train_ba
     <span class="c1"># model</span>
     <span class="s2">"base_checkpoint_path"</span><span class="p">:</span> <span class="n">BASE_CKPT</span><span class="p">,</span>
     <span class="s2">"signal_model"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">POST_DATASET_CKPT</span><span class="p">,</span>   <span class="c1"># start from the combined per-dataset checkpoint</span>
+    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">POST_DATASET_CKPT</span><span class="p">,</span>  <span class="c1"># start from the combined per-dataset checkpoint</span>
     <span class="c1"># real training schedule (see note above)</span>
     <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span>
     <span class="s2">"lr_total_steps"</span><span class="p">:</span> <span class="mi">4_000_000</span><span class="p">,</span>
@@ -2386,7 +2648,7 @@ quick smoke-test would instead set <code>max_epochs=3, warmup_steps=10, train_ba
     # model
     "base_checkpoint_path": BASE_CKPT,
     "signal_model": True,
-    "lora_checkpoint_path": POST_DATASET_CKPT,   # start from the combined per-dataset checkpoint
+    "lora_checkpoint_path": POST_DATASET_CKPT,  # start from the combined per-dataset checkpoint
     # real training schedule (see note above)
     "max_epochs": 200,
     "lr_total_steps": 4_000_000,
@@ -2435,18 +2697,34 @@ checkpoint, giving us the finished paper model to inspect.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>     <span class="c1"># builds the 41-dataset dataset; fills cond_module_kwargs</span>
-<span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span><span class="n">print_model</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>      <span class="c1"># builds model; loads base + combined per-dataset ckpt</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="p">(</span>
+    <span class="n">config</span>
+<span class="p">)</span>  <span class="c1"># builds the 41-dataset dataset; fills cond_module_kwargs</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span>
+    <span class="n">print_model</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>  <span class="c1"># builds model; loads base + combined per-dataset ckpt</span>
 
-<span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">)</span>   <span class="c1"># unwrap DataParallel if present</span>
-<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span><span class="n">FINAL_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># &lt;- the trained final ATAC model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span>
+    <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span>
+<span class="p">)</span>  <span class="c1"># unwrap DataParallel if present</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span>
+    <span class="n">FINAL_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>  <span class="c1"># &lt;- the trained final ATAC model</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint:"</span><span class="p">,</span> <span class="n">FINAL_CKPT</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">trainer = MultiBorzoiLoRATrainer(config)     # builds the 41-dataset dataset; fills cond_module_kwargs
-trainer._setup_model(print_model=False)      # builds model; loads base + combined per-dataset ckpt
+<div class="clipboard-copy-txt" id="cell-6">trainer = MultiBorzoiLoRATrainer(
+    config
+)  # builds the 41-dataset dataset; fills cond_module_kwargs
+trainer._setup_model(
+    print_model=False
+)  # builds model; loads base + combined per-dataset ckpt
 
-model = getattr(trainer.model, "module", trainer.model)   # unwrap DataParallel if present
-model.load_checkpoint_from_path(FINAL_CKPT, strict=False)  # &lt;- the trained final ATAC model
+model = getattr(
+    trainer.model, "module", trainer.model
+)  # unwrap DataParallel if present
+model.load_checkpoint_from_path(
+    FINAL_CKPT, strict=False
+)  # &lt;- the trained final ATAC model
 print("loaded trained checkpoint:", FINAL_CKPT)</div>
 </div>
 </div>
@@ -2564,30 +2842,52 @@ to translate its embedding into the common space.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">cem</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">cond_emb_module</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"cond_emb_module:"</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="n">cem</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"per-dataset encoders:"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">cem</span><span class="o">.</span><span class="n">cell_encoder_dict</span><span class="p">),</span> <span class="s2">"cell +"</span><span class="p">,</span>
-      <span class="nb">sum</span><span class="p">(</span><span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cem</span><span class="o">.</span><span class="n">cond_encoder_dict</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span> <span class="s2">"with conditions"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"per-dataset encoders:"</span><span class="p">,</span>
+    <span class="nb">len</span><span class="p">(</span><span class="n">cem</span><span class="o">.</span><span class="n">cell_encoder_dict</span><span class="p">),</span>
+    <span class="s2">"cell +"</span><span class="p">,</span>
+    <span class="nb">sum</span><span class="p">(</span><span class="n">v</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cem</span><span class="o">.</span><span class="n">cond_encoder_dict</span><span class="o">.</span><span class="n">values</span><span class="p">()),</span>
+    <span class="s2">"with conditions"</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"shared conditioning vector width (output_dim):"</span><span class="p">,</span> <span class="n">cem</span><span class="o">.</span><span class="n">output_dim</span><span class="p">)</span>
 
 <span class="c1"># per-dataset input dims: each dataset's own cell (and optional condition) embedding width</span>
 <span class="n">spec</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
-    <span class="p">{</span><span class="n">ds</span><span class="p">:</span> <span class="p">{</span><span class="s2">"cell_dim"</span><span class="p">:</span> <span class="n">d</span><span class="p">[</span><span class="s2">"cell"</span><span class="p">],</span>
-          <span class="s2">"cond_dims"</span><span class="p">:</span> <span class="p">(</span><span class="nb">sum</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"cond"</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cond"</span><span class="p">),</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)}</span>
-     <span class="k">for</span> <span class="n">ds</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_specific_dims</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="p">{</span>
+        <span class="n">ds</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">"cell_dim"</span><span class="p">:</span> <span class="n">d</span><span class="p">[</span><span class="s2">"cell"</span><span class="p">],</span>
+            <span class="s2">"cond_dims"</span><span class="p">:</span> <span class="p">(</span>
+                <span class="nb">sum</span><span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"cond"</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cond"</span><span class="p">),</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+        <span class="k">for</span> <span class="n">ds</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_specific_dims</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">}</span>
 <span class="p">)</span><span class="o">.</span><span class="n">T</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">heterogeneous per-dataset embedding widths (head):"</span><span class="p">)</span>
 <span class="n">spec</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-7">cem = model.cond_emb_module
 print("cond_emb_module:", type(cem).__name__)
-print("per-dataset encoders:", len(cem.cell_encoder_dict), "cell +",
-      sum(v is not None for v in cem.cond_encoder_dict.values()), "with conditions")
+print(
+    "per-dataset encoders:",
+    len(cem.cell_encoder_dict),
+    "cell +",
+    sum(v is not None for v in cem.cond_encoder_dict.values()),
+    "with conditions",
+)
 print("shared conditioning vector width (output_dim):", cem.output_dim)
 
 # per-dataset input dims: each dataset's own cell (and optional condition) embedding width
 spec = pd.DataFrame(
-    {ds: {"cell_dim": d["cell"],
-          "cond_dims": (sum(d["cond"].values()) if isinstance(d.get("cond"), dict) else 0)}
-     for ds, d in cem.dataset_specific_dims.items()}
+    {
+        ds: {
+            "cell_dim": d["cell"],
+            "cond_dims": (
+                sum(d["cond"].values()) if isinstance(d.get("cond"), dict) else 0
+            ),
+        }
+        for ds, d in cem.dataset_specific_dims.items()
+    }
 ).T
 print("\nheterogeneous per-dataset embedding widths (head):")
 spec.head(8)</div>
@@ -2718,14 +3018,14 @@ dataset's own genome). This is the <code>__genome__</code> entry in <code>datase
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dm</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">dm</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"dataset_shared_dims:"</span><span class="p">,</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_shared_dims</span><span class="p">)</span>   <span class="c1"># {'__genome__': n_genomes, ...}</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"dataset_shared_dims:"</span><span class="p">,</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_shared_dims</span><span class="p">)</span>  <span class="c1"># {'__genome__': n_genomes, ...}</span>
 
 <span class="n">genomes</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">Counter</span><span class="p">(</span><span class="n">g</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">dm</span><span class="o">.</span><span class="n">genomes</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"genomes in the registry:"</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">genomes</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"genome one-hot width:"</span><span class="p">,</span> <span class="n">dm</span><span class="o">.</span><span class="n">dataset_idx_to_genome_emb</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">dm = trainer.dataset.dm
-print("dataset_shared_dims:", cem.dataset_shared_dims)   # {'__genome__': n_genomes, ...}
+print("dataset_shared_dims:", cem.dataset_shared_dims)  # {'__genome__': n_genomes, ...}
 
 genomes = collections.Counter(g.name for g in dm.genomes.values())
 print("genomes in the registry:", dict(genomes))

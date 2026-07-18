@@ -14,6 +14,8 @@
         <link rel="prev" href="../../score_model/14_predict_score_model/">
       
       
+        <link rel="next" href="../../../api/">
+      
       
         
       
@@ -1139,6 +1141,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2039,12 +2291,12 @@ mouse-model-predicts-human transfer in Fig 6b is this same call with a held-out 
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span><span class="p">,</span> <span class="n">MODELS</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MODELS</span>
 
 <span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">24</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">from bolero import init
-from bolerodata import DATASETS, MODELS
+from bolerodata import MODELS
 
 init(num_cpus=24)</div>
 </div>
@@ -2100,19 +2352,23 @@ target species comes off its <code>Dataset</code> record: its genome assembly an
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">MODELS</span><span class="p">[</span><span class="s2">"Borzoi10M"</span><span class="p">]</span>
-<span class="n">model</span><span class="o">.</span><span class="n">dataset</span> <span class="o">=</span> <span class="s2">"MultiSpeciesMacaque"</span>   <span class="c1"># multi-dataset model: select the conditioning cell states</span>
-<span class="n">target</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">dataset</span>                  <span class="c1"># the Dataset object for the species we predict on</span>
+<span class="n">model</span><span class="o">.</span><span class="n">dataset</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">"MultiSpeciesMacaque"</span>  <span class="c1"># multi-dataset model: select the conditioning cell states</span>
+<span class="p">)</span>
+<span class="n">target</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">dataset</span>  <span class="c1"># the Dataset object for the species we predict on</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="s2">"target species :"</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">species</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"target genome  :"</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">genome</span><span class="p">)</span>          <span class="c1"># rheMac10 — a non-human assembly</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"target genome  :"</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">genome</span><span class="p">)</span>  <span class="c1"># rheMac10 — a non-human assembly</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"target peaks   :"</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">peak_bed_path</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2">model = MODELS["Borzoi10M"]
-model.dataset = "MultiSpeciesMacaque"   # multi-dataset model: select the conditioning cell states
-target = model.dataset                  # the Dataset object for the species we predict on
+model.dataset = (
+    "MultiSpeciesMacaque"  # multi-dataset model: select the conditioning cell states
+)
+target = model.dataset  # the Dataset object for the species we predict on
 
 print("target species :", target.species)
-print("target genome  :", target.genome)          # rheMac10 — a non-human assembly
+print("target genome  :", target.genome)  # rheMac10 — a non-human assembly
 print("target peaks   :", target.peak_bed_path)</div>
 </div>
 </div>
@@ -2175,21 +2431,21 @@ ground-truth loading and metrics — there is no matched measured track to score
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">predictor</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">create_predictor</span><span class="p">(</span>
     <span class="n">subset_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-    <span class="n">sample_n_pseudobulks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>          <span class="c1"># a handful of macaque cell states for the demo</span>
-    <span class="n">nosignal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                   <span class="c1"># DNA-only: the cross-species inference mode</span>
-    <span class="n">use_ref_bw</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>                <span class="c1"># no reference bigWig (paired with nosignal)</span>
-    <span class="n">embedding_only_mode</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>        <span class="c1"># drive from embeddings; skip truth/metrics</span>
-    <span class="n">genome</span><span class="o">=</span><span class="n">target</span><span class="o">.</span><span class="n">genome</span><span class="p">,</span>            <span class="c1"># &lt;- swap the sequence source to macaque (rheMac10)</span>
+    <span class="n">sample_n_pseudobulks</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>  <span class="c1"># a handful of macaque cell states for the demo</span>
+    <span class="n">nosignal</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># DNA-only: the cross-species inference mode</span>
+    <span class="n">use_ref_bw</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># no reference bigWig (paired with nosignal)</span>
+    <span class="n">embedding_only_mode</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># drive from embeddings; skip truth/metrics</span>
+    <span class="n">genome</span><span class="o">=</span><span class="n">target</span><span class="o">.</span><span class="n">genome</span><span class="p">,</span>  <span class="c1"># &lt;- swap the sequence source to macaque (rheMac10)</span>
     <span class="n">peak_bed_path</span><span class="o">=</span><span class="n">target</span><span class="o">.</span><span class="n">peak_bed_path</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-3">predictor = model.create_predictor(
     subset_name=None,
-    sample_n_pseudobulks=8,          # a handful of macaque cell states for the demo
-    nosignal=True,                   # DNA-only: the cross-species inference mode
-    use_ref_bw=False,                # no reference bigWig (paired with nosignal)
-    embedding_only_mode=True,        # drive from embeddings; skip truth/metrics
-    genome=target.genome,            # &lt;- swap the sequence source to macaque (rheMac10)
+    sample_n_pseudobulks=8,  # a handful of macaque cell states for the demo
+    nosignal=True,  # DNA-only: the cross-species inference mode
+    use_ref_bw=False,  # no reference bigWig (paired with nosignal)
+    embedding_only_mode=True,  # drive from embeddings; skip truth/metrics
+    genome=target.genome,  # &lt;- swap the sequence source to macaque (rheMac10)
     peak_bed_path=target.peak_bed_path,
 )</div>
 </div>
@@ -2240,7 +2496,9 @@ slice to predict the whole genome (~5.7k windows), which is what Fig 6 does per 
     <span class="o">+</span> <span class="n">regions</span><span class="p">[</span><span class="s2">"End"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
 <span class="p">)</span>
 
-<span class="n">regions_demo</span> <span class="o">=</span> <span class="n">regions</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>   <span class="c1"># demo: a few macaque windows (drop to predict all)</span>
+<span class="n">regions_demo</span> <span class="o">=</span> <span class="n">regions</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span>
+    <span class="p">:</span><span class="mi">8</span>
+<span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>  <span class="c1"># demo: a few macaque windows (drop to predict all)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"macaque genome windows:"</span><span class="p">,</span> <span class="n">regions</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">"-&gt; predicting"</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">regions_demo</span><span class="p">))</span>
 <span class="n">regions_demo</span><span class="o">.</span><span class="n">head</span><span class="p">()</span>
 </pre></div>
@@ -2255,7 +2513,9 @@ regions["Name"] = (
     + regions["End"].astype(str)
 )
 
-regions_demo = regions.iloc[:8].copy()   # demo: a few macaque windows (drop to predict all)
+regions_demo = regions.iloc[
+    :8
+].copy()  # demo: a few macaque windows (drop to predict all)
 print("macaque genome windows:", regions.shape[0], "-&gt; predicting", len(regions_demo))
 regions_demo.head()</div>
 </div>
@@ -2379,7 +2639,7 @@ predictions to <code>output_dir</code>.</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">output_dir</span> <span class="o">=</span> <span class="s2">"cross_species_macaque"</span>
 <span class="n">predictor</span><span class="o">.</span><span class="n">prediction_task</span><span class="p">(</span>
     <span class="n">output_dir</span><span class="p">,</span>
-    <span class="n">regions</span><span class="o">=</span><span class="n">regions_demo</span><span class="p">,</span>   <span class="c1"># macaque (rheMac10) windows; drop for whole-genome</span>
+    <span class="n">regions</span><span class="o">=</span><span class="n">regions_demo</span><span class="p">,</span>  <span class="c1"># macaque (rheMac10) windows; drop for whole-genome</span>
     <span class="n">mode</span><span class="o">=</span><span class="s2">"prediction"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"wrote predictions to"</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
@@ -2387,7 +2647,7 @@ predictions to <code>output_dir</code>.</p>
 <div class="clipboard-copy-txt" id="cell-5">output_dir = "cross_species_macaque"
 predictor.prediction_task(
     output_dir,
-    regions=regions_demo,   # macaque (rheMac10) windows; drop for whole-genome
+    regions=regions_demo,  # macaque (rheMac10) windows; drop for whole-genome
     mode="prediction",
 )
 print("wrote predictions to", output_dir)</div>

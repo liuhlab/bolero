@@ -1241,6 +1241,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2269,10 +2519,10 @@ The genome (<code>hg38</code>) is resolved from the companion registry
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span>
 
 <span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
-<span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">"font.sans-serif"</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"DejaVu Sans"</span><span class="p">]</span>   <span class="c1"># a font that ships with the env</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">"font.sans-serif"</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"DejaVu Sans"</span><span class="p">]</span>  <span class="c1"># a font that ships with the env</span>
 <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"matplotlib.font_manager"</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
 
-<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>   <span class="c1"># Ray backs the parquet reads used to build the reference BigWig</span>
+<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>  <span class="c1"># Ray backs the parquet reads used to build the reference BigWig</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-1">import logging
 from pathlib import Path
@@ -2294,10 +2544,10 @@ from bolero.tl.dataset.parquet_db import GenomeParquetDB
 from bolerodata import DATASETS
 
 simplefilter("ignore")
-plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]   # a font that ships with the env
+plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]  # a font that ships with the env
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
-init(num_cpus=8)   # Ray backs the parquet reads used to build the reference BigWig</div>
+init(num_cpus=8)  # Ray backs the parquet reads used to build the reference BigWig</div>
 </div>
 </div>
 </div>
@@ -2337,15 +2587,15 @@ init(num_cpus=8)   # Ray backs the parquet reads used to build the reference Big
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
 <span class="n">DATASET_NAME</span> <span class="o">=</span> <span class="s2">"ChromiumPBMC"</span>
-<span class="n">EMB_KEY</span> <span class="o">=</span> <span class="s2">"X_multivi"</span>          <span class="c1"># per-cell embedding produced by 01_cell_embedding (MULTIVI)</span>
+<span class="n">EMB_KEY</span> <span class="o">=</span> <span class="s2">"X_multivi"</span>  <span class="c1"># per-cell embedding produced by 01_cell_embedding (MULTIVI)</span>
 
-<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>   <span class="c1"># per-cell, carries obs["meta_cell"]</span>
-<span class="n">METADATA_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.metadata.h5ad"</span>         <span class="c1"># metacell-level table (from page 03)</span>
-<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-32bp"</span>     <span class="c1"># base-resolution store (from page 04)</span>
-<span class="n">PREFIX</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.MetaCell"</span>               <span class="c1"># matches the parquet row-name prefix</span>
+<span class="n">INPUT_ADATA</span> <span class="o">=</span> <span class="s2">"adata.multivi.with_coords.h5ad"</span>  <span class="c1"># per-cell, carries obs["meta_cell"]</span>
+<span class="n">METADATA_H5AD</span> <span class="o">=</span> <span class="s2">"metacell.metadata.h5ad"</span>  <span class="c1"># metacell-level table (from page 03)</span>
+<span class="n">PARQUET_DIR</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">-MetaCell-32bp"</span>  <span class="c1"># base-resolution store (from page 04)</span>
+<span class="n">PREFIX</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.MetaCell"</span>  <span class="c1"># matches the parquet row-name prefix</span>
 
-<span class="n">TARGET_COV</span> <span class="o">=</span> <span class="mi">5_000_000</span>        <span class="c1"># target fragments per pseudobulk</span>
-<span class="n">EMB_PAD_TO_SIZE</span> <span class="o">=</span> <span class="mi">128</span>         <span class="c1"># cap on metacells pooled per pseudobulk</span>
+<span class="n">TARGET_COV</span> <span class="o">=</span> <span class="mi">5_000_000</span>  <span class="c1"># target fragments per pseudobulk</span>
+<span class="n">EMB_PAD_TO_SIZE</span> <span class="o">=</span> <span class="mi">128</span>  <span class="c1"># cap on metacells pooled per pseudobulk</span>
 
 <span class="c1"># outputs</span>
 <span class="n">PSEUDOBULK_JOBLIB</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"pseudobulk_records_and_cond.cov</span><span class="si">{</span><span class="n">TARGET_COV</span><span class="si">}</span><span class="s2">.joblib"</span>
@@ -2360,15 +2610,15 @@ init(num_cpus=8)   # Ray backs the parquet reads used to build the reference Big
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
 DATASET_NAME = "ChromiumPBMC"
-EMB_KEY = "X_multivi"          # per-cell embedding produced by 01_cell_embedding (MULTIVI)
+EMB_KEY = "X_multivi"  # per-cell embedding produced by 01_cell_embedding (MULTIVI)
 
-INPUT_ADATA = "adata.multivi.with_coords.h5ad"   # per-cell, carries obs["meta_cell"]
-METADATA_H5AD = "metacell.metadata.h5ad"         # metacell-level table (from page 03)
-PARQUET_DIR = f"{DATASET_NAME}-MetaCell-32bp"     # base-resolution store (from page 04)
-PREFIX = f"{DATASET_NAME}.MetaCell"               # matches the parquet row-name prefix
+INPUT_ADATA = "adata.multivi.with_coords.h5ad"  # per-cell, carries obs["meta_cell"]
+METADATA_H5AD = "metacell.metadata.h5ad"  # metacell-level table (from page 03)
+PARQUET_DIR = f"{DATASET_NAME}-MetaCell-32bp"  # base-resolution store (from page 04)
+PREFIX = f"{DATASET_NAME}.MetaCell"  # matches the parquet row-name prefix
 
-TARGET_COV = 5_000_000        # target fragments per pseudobulk
-EMB_PAD_TO_SIZE = 128         # cap on metacells pooled per pseudobulk
+TARGET_COV = 5_000_000  # target fragments per pseudobulk
+EMB_PAD_TO_SIZE = 128  # cap on metacells pooled per pseudobulk
 
 # outputs
 PSEUDOBULK_JOBLIB = f"pseudobulk_records_and_cond.cov{TARGET_COV}.joblib"
@@ -2451,11 +2701,11 @@ in separate groups. ChromiumPBMC carries no such split, so we omit it here.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">INPUT_ADATA</span><span class="p">)</span>                 <span class="c1"># per-cell</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">INPUT_ADATA</span><span class="p">)</span>  <span class="c1"># per-cell</span>
 <span class="n">cell_meta</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span>
 <span class="n">cell_emb</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="n">EMB_KEY</span><span class="p">],</span> <span class="n">index</span><span class="o">=</span><span class="n">adata</span><span class="o">.</span><span class="n">obs_names</span><span class="p">)</span>
 
-<span class="n">meta_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span>          <span class="c1"># metacell-level (from page 03)</span>
+<span class="n">meta_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">read_h5ad</span><span class="p">(</span><span class="n">METADATA_H5AD</span><span class="p">)</span>  <span class="c1"># metacell-level (from page 03)</span>
 
 <span class="c1"># only split a group if the resulting pieces can still hit the coverage target</span>
 <span class="n">min_cell_count</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">500</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">TARGET_COV</span> <span class="o">/</span> <span class="n">cell_meta</span><span class="p">[</span><span class="s2">"n_fragments"</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">*</span> <span class="mf">1.25</span><span class="p">))</span>
@@ -2469,11 +2719,11 @@ in separate groups. ChromiumPBMC carries no such split, so we omit it here.</p>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">group_to_cats</span><span class="p">)</span><span class="si">}</span><span class="s2"> cell-type groups"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">adata = anndata.read_h5ad(INPUT_ADATA)                 # per-cell
+<div class="clipboard-copy-txt" id="cell-3">adata = anndata.read_h5ad(INPUT_ADATA)  # per-cell
 cell_meta = adata.obs
 cell_emb = pd.DataFrame(adata.obsm[EMB_KEY], index=adata.obs_names)
 
-meta_adata = anndata.read_h5ad(METADATA_H5AD)          # metacell-level (from page 03)
+meta_adata = anndata.read_h5ad(METADATA_H5AD)  # metacell-level (from page 03)
 
 # only split a group if the resulting pieces can still hit the coverage target
 min_cell_count = max(500, int(TARGET_COV / cell_meta["n_fragments"].mean() * 1.25))
@@ -2543,7 +2793,9 @@ records reference metacells <strong>by name</strong>, so the two must agree.</p>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">most_frequent</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">s</span><span class="p">:</span> <span class="n">s</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
 <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"meta_group"</span><span class="p">]</span> <span class="o">=</span> <span class="n">cell_to_group</span>
-<span class="n">meta_cell_to_group</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="s2">"meta_group"</span><span class="p">]</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span><span class="n">most_frequent</span><span class="p">)</span>
+<span class="n">meta_cell_to_group</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"meta_cell"</span><span class="p">,</span> <span class="n">observed</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="s2">"meta_group"</span><span class="p">]</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span>
+    <span class="n">most_frequent</span>
+<span class="p">)</span>
 <span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"groupby"</span><span class="p">]</span> <span class="o">=</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">obs_names</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">meta_cell_to_group</span><span class="p">)</span>
 
 <span class="c1"># metacells must line up with the parquet rows built in page 04</span>
@@ -2555,7 +2807,9 @@ records reference metacells <strong>by name</strong>, so the two must agree.</p>
 <div class="clipboard-copy-txt" id="cell-4">most_frequent = lambda s: s.dropna().value_counts().index[0]
 
 adata.obs["meta_group"] = cell_to_group
-meta_cell_to_group = adata.obs.groupby("meta_cell", observed=True)["meta_group"].agg(most_frequent)
+meta_cell_to_group = adata.obs.groupby("meta_cell", observed=True)["meta_group"].agg(
+    most_frequent
+)
 meta_adata.obs["groupby"] = meta_adata.obs_names.map(meta_cell_to_group)
 
 # metacells must line up with the parquet rows built in page 04
@@ -2665,20 +2919,26 @@ single pseudobulk; small groups pick archetypes at random instead of fitting the
         <span class="n">archetypes</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">get_hard_archetypes</span><span class="p">()</span>
 
     <span class="c1"># grow each archetype's neighborhood until it reaches TARGET_COV coverage</span>
-    <span class="n">kernel_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">kernel_matrix</span><span class="p">,</span> <span class="n">obs</span><span class="o">=</span><span class="n">group_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">,</span> <span class="n">var</span><span class="o">=</span><span class="n">group_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">)</span>
+    <span class="n">kernel_adata</span> <span class="o">=</span> <span class="n">anndata</span><span class="o">.</span><span class="n">AnnData</span><span class="p">(</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">kernel_matrix</span><span class="p">,</span> <span class="n">obs</span><span class="o">=</span><span class="n">group_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">,</span> <span class="n">var</span><span class="o">=</span><span class="n">group_adata</span><span class="o">.</span><span class="n">obs</span>
+    <span class="p">)</span>
     <span class="n">arche_kernel_adata</span> <span class="o">=</span> <span class="n">kernel_adata</span><span class="p">[</span><span class="n">archetypes</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
     <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">arche_kernel_adata</span><span class="o">.</span><span class="n">X</span><span class="p">):</span>
         <span class="n">nn_dist</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
             <span class="n">row</span><span class="o">.</span><span class="n">data</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">arche_kernel_adata</span><span class="o">.</span><span class="n">var_names</span><span class="p">[</span><span class="n">row</span><span class="o">.</span><span class="n">indices</span><span class="p">]</span>
         <span class="p">)</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
         <span class="n">nn_cov_cumsum</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">arche_kernel_adata</span><span class="o">.</span><span class="n">var</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">nn_dist</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="s2">"n_fragments"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span><span class="o">.</span><span class="n">cumsum</span><span class="p">()</span>
+            <span class="n">arche_kernel_adata</span><span class="o">.</span><span class="n">var</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">nn_dist</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="s2">"n_fragments"</span><span class="p">]</span>
+            <span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+            <span class="o">.</span><span class="n">cumsum</span><span class="p">()</span>
         <span class="p">)</span>
         <span class="n">use_nns</span> <span class="o">=</span> <span class="p">(</span><span class="n">nn_cov_cumsum</span> <span class="o">-</span> <span class="n">TARGET_COV</span><span class="p">)</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">argmin</span><span class="p">()</span> <span class="o">+</span> <span class="mi">1</span>
         <span class="n">final_list</span> <span class="o">=</span> <span class="n">nn_dist</span><span class="o">.</span><span class="n">index</span><span class="p">[:</span><span class="n">use_nns</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()[:</span><span class="n">EMB_PAD_TO_SIZE</span><span class="p">]</span>
         <span class="n">all_pseudobulks</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">group</span><span class="si">}</span><span class="s2">-pseudobulk</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">"</span><span class="p">]</span> <span class="o">=</span> <span class="n">final_list</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_pseudobulks</span><span class="p">)</span><span class="si">}</span><span class="s2"> pseudobulks across </span><span class="si">{</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s1">'groupby'</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span><span class="si">}</span><span class="s2"> groups"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_pseudobulks</span><span class="p">)</span><span class="si">}</span><span class="s2"> pseudobulks across </span><span class="si">{</span><span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s1">'groupby'</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span><span class="si">}</span><span class="s2"> groups"</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5">all_pseudobulks = {}
 for group, group_df in meta_adata.obs.groupby("groupby", observed=True):
@@ -2714,20 +2974,26 @@ for group, group_df in meta_adata.obs.groupby("groupby", observed=True):
         archetypes = model.get_hard_archetypes()
 
     # grow each archetype's neighborhood until it reaches TARGET_COV coverage
-    kernel_adata = anndata.AnnData(model.kernel_matrix, obs=group_adata.obs, var=group_adata.obs)
+    kernel_adata = anndata.AnnData(
+        model.kernel_matrix, obs=group_adata.obs, var=group_adata.obs
+    )
     arche_kernel_adata = kernel_adata[archetypes].copy()
     for idx, row in enumerate(arche_kernel_adata.X):
         nn_dist = pd.Series(
             row.data, index=arche_kernel_adata.var_names[row.indices]
         ).sort_values(ascending=False)
         nn_cov_cumsum = (
-            arche_kernel_adata.var.loc[nn_dist.index, "n_fragments"].astype(float).cumsum()
+            arche_kernel_adata.var.loc[nn_dist.index, "n_fragments"]
+            .astype(float)
+            .cumsum()
         )
         use_nns = (nn_cov_cumsum - TARGET_COV).abs().argmin() + 1
         final_list = nn_dist.index[:use_nns].tolist()[:EMB_PAD_TO_SIZE]
         all_pseudobulks[f"{group}-pseudobulk{idx}"] = final_list
 
-print(f"{len(all_pseudobulks)} pseudobulks across {meta_adata.obs['groupby'].nunique()} groups")</div>
+print(
+    f"{len(all_pseudobulks)} pseudobulks across {meta_adata.obs['groupby'].nunique()} groups"
+)</div>
 </div>
 </div>
 </div>
@@ -3420,9 +3686,7 @@ print("wrote", PSEUDOBULK_JOBLIB)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pid_frags</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
-    <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"n_frags"</span><span class="p">][</span><span class="n">PREFIX</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">pseudobulk_records</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pid_frags</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">({</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"n_frags"</span><span class="p">][</span><span class="n">PREFIX</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">pseudobulk_records</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
 
 <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mf">2.6</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">sns</span><span class="o">.</span><span class="n">histplot</span><span class="p">(</span><span class="n">pid_frags</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">)</span>
@@ -3431,9 +3695,7 @@ print("wrote", PSEUDOBULK_JOBLIB)</div>
 <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"median depth: </span><span class="si">{</span><span class="n">pid_frags</span><span class="o">.</span><span class="n">median</span><span class="p">()</span><span class="si">:</span><span class="s2">,.0f</span><span class="si">}</span><span class="s2"> fragments"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">pid_frags = pd.Series(
-    {k: v["n_frags"][PREFIX] for k, v in pseudobulk_records.items()}
-)
+<div class="clipboard-copy-txt" id="cell-8">pid_frags = pd.Series({k: v["n_frags"][PREFIX] for k, v in pseudobulk_records.items()})
 
 fig, ax = plt.subplots(figsize=(5, 2.6), dpi=150, constrained_layout=True)
 sns.histplot(pid_frags, bins=40, ax=ax)
@@ -3501,8 +3763,10 @@ UMAP confirms they are spatially coherent rather than scattered across cell type
 <span class="n">keys</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">all_pseudobulks</span><span class="p">)</span>
 <span class="n">sel_keys</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">default_rng</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">keys</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">keys</span><span class="p">)),</span> <span class="n">replace</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span> <span class="n">ncols</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">nrows</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="n">sel_keys</span><span class="p">):</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span>
+    <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span> <span class="n">ncols</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">nrows</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="k">for</span> <span class="n">ax</span><span class="p">,</span> <span class="n">key</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">axes</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="n">sel_keys</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
     <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">umap</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">umap</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">"lightgrey"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
     <span class="n">member</span> <span class="o">=</span> <span class="n">adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"meta_cell"</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">all_pseudobulks</span><span class="p">[</span><span class="n">key</span><span class="p">])</span><span class="o">.</span><span class="n">values</span>
     <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">umap</span><span class="p">[</span><span class="n">member</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">umap</span><span class="p">[</span><span class="n">member</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">"crimson"</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
@@ -3512,8 +3776,10 @@ UMAP confirms they are spatially coherent rather than scattered across cell type
 keys = list(all_pseudobulks)
 sel_keys = np.random.default_rng(0).choice(keys, min(6, len(keys)), replace=False)
 
-fig, axes = plt.subplots(figsize=(9, 6), ncols=3, nrows=2, dpi=150, constrained_layout=True)
-for ax, key in zip(axes.ravel(), sel_keys):
+fig, axes = plt.subplots(
+    figsize=(9, 6), ncols=3, nrows=2, dpi=150, constrained_layout=True
+)
+for ax, key in zip(axes.ravel(), sel_keys, strict=False):
     ax.scatter(umap[:, 0], umap[:, 1], s=1, c="lightgrey", lw=0)
     member = adata.obs["meta_cell"].isin(all_pseudobulks[key]).values
     ax.scatter(umap[member, 0], umap[member, 1], s=3, c="crimson", lw=0)
@@ -3552,13 +3818,13 @@ ChromiumPBMC has no conditions). Loading cleanly confirms the records are well-f
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=1f97b7b6">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1f97b7b6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
@@ -3572,8 +3838,7 @@ ChromiumPBMC has no conditions). Loading cleanly confirms the records are well-f
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pseudobulker</span> <span class="o">=</span> <span class="n">EnsemblePairedPseudobulker</span><span class="p">(</span><span class="n">PSEUDOBULK_JOBLIB</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">p0</span><span class="p">,</span> <span class="n">p1</span> <span class="ow">in</span> <span class="n">pseudobulker</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>
-    <span class="k">break</span>
+<span class="n">p0</span><span class="p">,</span> <span class="n">p1</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">pseudobulker</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="mi">1</span><span class="p">)))</span>
 
 <span class="nb">print</span><span class="p">(</span><span class="s2">"batch fields:"</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">p1</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -3581,36 +3846,12 @@ ChromiumPBMC has no conditions). Loading cleanly confirms the records are well-f
 <span class="nb">print</span><span class="p">(</span><span class="s2">"condition embedding dims:"</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">pseudobulker</span><span class="o">.</span><span class="n">condition_encoder</span><span class="o">.</span><span class="n">cond_emb_dims</span><span class="p">))</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-10">pseudobulker = EnsemblePairedPseudobulker(PSEUDOBULK_JOBLIB)
-for p0, p1 in pseudobulker.take(1):
-    break
+p0, p1 = next(iter(pseudobulker.take(1)))
 
 print("batch fields:")
 for k, v in p1.items():
     print(f"  {k:20s} {getattr(v, 'shape', type(v).__name__)}")
 print("condition embedding dims:", dict(pseudobulker.condition_encoder.cond_emb_dims))</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>batch fields:
-  cluster_ids          dict
-  n_frags              dict
-  cov_scale            dict
-  embedding            (60,)
-  sample_weight        ()
-  __conditionemb__     (1, 0)
-  __conditionterms__   ()
-  __embedding__        (60,)
-  __covlogfc__         dict
-condition embedding dims: {}
-</pre>
 </div>
 </div>
 </div>
@@ -3669,7 +3910,9 @@ flagging them in an <code>Inference</code> column stored back into the same file
 <span class="n">all_sels</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">all_sels</span><span class="p">)</span>
 <span class="n">pid_annot</span><span class="p">[</span><span class="s2">"Inference"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pid_annot</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">all_sels</span><span class="o">.</span><span class="n">index</span><span class="p">)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">pid_annot</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> pseudobulks -&gt; </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">pid_annot</span><span class="p">[</span><span class="s1">'Inference'</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span><span class="si">}</span><span class="s2"> for inference"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">pid_annot</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> pseudobulks -&gt; </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">pid_annot</span><span class="p">[</span><span class="s1">'Inference'</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span><span class="si">}</span><span class="s2"> for inference"</span>
+<span class="p">)</span>
 
 <span class="n">pseudobulk_info</span><span class="p">[</span><span class="s2">"pseudobulk_annot"</span><span class="p">]</span> <span class="o">=</span> <span class="n">pid_annot</span>
 <span class="n">joblib</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">pseudobulk_info</span><span class="p">,</span> <span class="n">PSEUDOBULK_JOBLIB</span><span class="p">)</span>
@@ -3695,7 +3938,9 @@ all_sels = [
 all_sels = pd.concat(all_sels)
 pid_annot["Inference"] = pid_annot.index.isin(all_sels.index)
 
-print(f"{pid_annot.shape[0]} pseudobulks -&gt; {int(pid_annot['Inference'].sum())} for inference")
+print(
+    f"{pid_annot.shape[0]} pseudobulks -&gt; {int(pid_annot['Inference'].sum())} for inference"
+)
 
 pseudobulk_info["pseudobulk_annot"] = pid_annot
 joblib.dump(pseudobulk_info, PSEUDOBULK_JOBLIB)
@@ -3829,7 +4074,7 @@ visualization and serves as a baseline in variant / differential comparisons.</p
 <span class="n">ref_meta_cells</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">rng</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">ref_meta_cells</span><span class="p">,</span> <span class="n">n_ref</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
 
 <span class="n">n_frags</span> <span class="o">=</span> <span class="n">meta_adata</span><span class="o">.</span><span class="n">obs</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">ref_meta_cells</span><span class="p">,</span> <span class="s2">"n_fragments"</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
-<span class="n">count_norm</span> <span class="o">=</span> <span class="n">TARGET_COV</span> <span class="o">/</span> <span class="n">n_frags</span>       <span class="c1"># rescale the merged bulk to TARGET_COV depth</span>
+<span class="n">count_norm</span> <span class="o">=</span> <span class="n">TARGET_COV</span> <span class="o">/</span> <span class="n">n_frags</span>  <span class="c1"># rescale the merged bulk to TARGET_COV depth</span>
 <span class="n">ref_pseudobulk</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">"cluster_ids"</span><span class="p">:</span> <span class="p">{</span><span class="n">PREFIX</span><span class="p">:</span> <span class="n">ref_meta_cells</span><span class="p">},</span>
     <span class="s2">"n_frags"</span><span class="p">:</span> <span class="p">{</span><span class="n">PREFIX</span><span class="p">:</span> <span class="n">n_frags</span><span class="p">},</span>
@@ -3837,7 +4082,9 @@ visualization and serves as a baseline in variant / differential comparisons.</p
     <span class="s2">"embedding"</span><span class="p">:</span> <span class="n">meta_adata</span><span class="p">[</span><span class="n">ref_meta_cells</span><span class="p">]</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">"X_emb"</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
 <span class="p">}</span>
 <span class="n">joblib</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">ref_pseudobulk</span><span class="p">,</span> <span class="n">REFERENCE_PB_JOBLIB</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ref_meta_cells</span><span class="p">)</span><span class="si">}</span><span class="s2"> metacells, </span><span class="si">{</span><span class="n">n_frags</span><span class="si">:</span><span class="s2">,.0f</span><span class="si">}</span><span class="s2"> fragments -&gt; normalize x</span><span class="si">{</span><span class="n">count_norm</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">ref_meta_cells</span><span class="p">)</span><span class="si">}</span><span class="s2"> metacells, </span><span class="si">{</span><span class="n">n_frags</span><span class="si">:</span><span class="s2">,.0f</span><span class="si">}</span><span class="s2"> fragments -&gt; normalize x</span><span class="si">{</span><span class="n">count_norm</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">"</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-12">MAX_REF_META_CELLS = 1000
 
@@ -3850,7 +4097,7 @@ n_ref = min(MAX_REF_META_CELLS, len(ref_meta_cells))
 ref_meta_cells = list(rng.choice(ref_meta_cells, n_ref, replace=False))
 
 n_frags = meta_adata.obs.loc[ref_meta_cells, "n_fragments"].sum()
-count_norm = TARGET_COV / n_frags       # rescale the merged bulk to TARGET_COV depth
+count_norm = TARGET_COV / n_frags  # rescale the merged bulk to TARGET_COV depth
 ref_pseudobulk = {
     "cluster_ids": {PREFIX: ref_meta_cells},
     "n_frags": {PREFIX: n_frags},
@@ -3858,7 +4105,9 @@ ref_pseudobulk = {
     "embedding": meta_adata[ref_meta_cells].obsm["X_emb"].mean(axis=0),
 }
 joblib.dump(ref_pseudobulk, REFERENCE_PB_JOBLIB)
-print(f"{len(ref_meta_cells)} metacells, {n_frags:,.0f} fragments -&gt; normalize x{count_norm:.3f}")</div>
+print(
+    f"{len(ref_meta_cells)} metacells, {n_frags:,.0f} fragments -&gt; normalize x{count_norm:.3f}"
+)</div>
 </div>
 </div>
 </div>
@@ -3911,7 +4160,7 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">write_pseudobulk_bigwig</span><span class="p">(</span><span class="n">parquet_db</span><span class="p">,</span> <span class="n">genome</span><span class="p">,</span> <span class="n">output_path</span><span class="p">,</span> <span class="n">count_norm</span><span class="p">):</span>
-    <span class="s2">"Write the merged (single-row) pseudobulk coverage to a BigWig track."</span>
+<span class="w">    </span><span class="sd">"""Write the merged (single-row) pseudobulk coverage to a BigWig track."""</span>
     <span class="n">genome_window</span> <span class="o">=</span> <span class="n">genome</span><span class="o">.</span><span class="n">make_windows</span><span class="p">(</span><span class="mi">500_000</span><span class="p">,</span> <span class="mi">500_000</span><span class="p">,</span> <span class="n">as_df</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
     <span class="n">region_lookup_bed</span> <span class="o">=</span> <span class="n">parquet_db</span><span class="o">.</span><span class="n">region_lookup_bed</span><span class="o">.</span><span class="n">merge</span><span class="p">()</span>
     <span class="n">genome_window</span> <span class="o">=</span> <span class="n">genome_window</span><span class="o">.</span><span class="n">overlap</span><span class="p">(</span><span class="n">region_lookup_bed</span><span class="p">,</span> <span class="n">how</span><span class="o">=</span><span class="s2">"containment"</span><span class="p">)</span><span class="o">.</span><span class="n">df</span>
@@ -3923,7 +4172,7 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
     <span class="n">bigwig</span><span class="o">.</span><span class="n">addHeader</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">genome</span><span class="o">.</span><span class="n">chrom_sizes</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
 
     <span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">1000</span>
-    <span class="n">prefix_name</span> <span class="o">=</span> <span class="n">parquet_db</span><span class="o">.</span><span class="n">prefix_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>           <span class="c1"># the single merged "reference" row</span>
+    <span class="n">prefix_name</span> <span class="o">=</span> <span class="n">parquet_db</span><span class="o">.</span><span class="n">prefix_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># the single merged "reference" row</span>
     <span class="n">resolution</span> <span class="o">=</span> <span class="n">parquet_db</span><span class="o">.</span><span class="n">prefix_resolution</span><span class="p">[</span><span class="n">prefix_name</span><span class="p">]</span>
     <span class="k">for</span> <span class="n">chrom</span> <span class="ow">in</span> <span class="n">genome</span><span class="o">.</span><span class="n">chrom_sizes</span><span class="o">.</span><span class="n">index</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"writing </span><span class="si">{</span><span class="n">chrom</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
@@ -3933,7 +4182,9 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
             <span class="n">chunk_data</span> <span class="o">=</span> <span class="n">parquet_db</span><span class="o">.</span><span class="n">query_regions</span><span class="p">(</span><span class="n">chunk_window</span><span class="p">)</span>
             <span class="n">chunk_data</span> <span class="o">=</span> <span class="p">{</span><span class="n">d</span><span class="p">[</span><span class="s2">"region"</span><span class="p">]:</span> <span class="n">d</span><span class="p">[</span><span class="n">prefix_name</span><span class="p">]</span><span class="o">.</span><span class="n">todense</span><span class="p">()</span><span class="o">.</span><span class="n">A1</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">chunk_data</span><span class="p">}</span>
             <span class="n">chunk_data</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">chunk_data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">chunk_window</span><span class="p">[</span><span class="s2">"Name"</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">])</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span>
+                    <span class="p">[</span><span class="n">chunk_data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">chunk_window</span><span class="p">[</span><span class="s2">"Name"</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">]</span>
+                <span class="p">)</span>
                 <span class="o">*</span> <span class="n">count_norm</span>
             <span class="p">)</span>
             <span class="n">starts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">chunk_data</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
@@ -3947,7 +4198,7 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
     <span class="n">temp_path</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">output_path</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-13">def write_pseudobulk_bigwig(parquet_db, genome, output_path, count_norm):
-    "Write the merged (single-row) pseudobulk coverage to a BigWig track."
+    """Write the merged (single-row) pseudobulk coverage to a BigWig track."""
     genome_window = genome.make_windows(500_000, 500_000, as_df=False)
     region_lookup_bed = parquet_db.region_lookup_bed.merge()
     genome_window = genome_window.overlap(region_lookup_bed, how="containment").df
@@ -3959,7 +4210,7 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
     bigwig.addHeader(list(genome.chrom_sizes.items()))
 
     chunk_size = 1000
-    prefix_name = parquet_db.prefix_names[0]           # the single merged "reference" row
+    prefix_name = parquet_db.prefix_names[0]  # the single merged "reference" row
     resolution = parquet_db.prefix_resolution[prefix_name]
     for chrom in genome.chrom_sizes.index:
         print(f"writing {chrom}")
@@ -3969,7 +4220,9 @@ coverage, scale it by <code>count_norm</code>, and append the nonzero bins to th
             chunk_data = parquet_db.query_regions(chunk_window)
             chunk_data = {d["region"]: d[prefix_name].todense().A1 for d in chunk_data}
             chunk_data = (
-                np.concatenate([chunk_data[name] for name in chunk_window["Name"].values])
+                np.concatenate(
+                    [chunk_data[name] for name in chunk_window["Name"].values]
+                )
                 * count_norm
             )
             starts = np.where(chunk_data)[0]
@@ -4235,7 +4488,7 @@ the merged bulk carries signal where it should.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">region</span> <span class="o">=</span> <span class="s2">"chr7:5525000-5535000"</span>        <span class="c1"># ACTB promoter (hg38), broadly accessible</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">region</span> <span class="o">=</span> <span class="s2">"chr7:5525000-5535000"</span>  <span class="c1"># ACTB promoter (hg38), broadly accessible</span>
 <span class="n">chrom</span><span class="p">,</span> <span class="n">span</span> <span class="o">=</span> <span class="n">region</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">":"</span><span class="p">)</span>
 <span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">span</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"-"</span><span class="p">))</span>
 
@@ -4246,10 +4499,13 @@ the merged bulk carries signal where it should.</p>
 
 <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="mf">2.2</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="n">ax</span><span class="o">.</span><span class="n">fill_between</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span> <span class="n">track</span><span class="p">,</span> <span class="n">lw</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"reference bulk — </span><span class="si">{</span><span class="n">region</span><span class="si">}</span><span class="s2"> (ACTB)"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="s2">"genomic position"</span><span class="p">,</span>
-       <span class="n">ylabel</span><span class="o">=</span><span class="s2">"norm. coverage"</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"reference bulk — </span><span class="si">{</span><span class="n">region</span><span class="si">}</span><span class="s2"> (ACTB)"</span><span class="p">,</span>
+    <span class="n">xlabel</span><span class="o">=</span><span class="s2">"genomic position"</span><span class="p">,</span>
+    <span class="n">ylabel</span><span class="o">=</span><span class="s2">"norm. coverage"</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-15">region = "chr7:5525000-5535000"        # ACTB promoter (hg38), broadly accessible
+<div class="clipboard-copy-txt" id="cell-15">region = "chr7:5525000-5535000"  # ACTB promoter (hg38), broadly accessible
 chrom, span = region.split(":")
 start, end = (int(x) for x in span.split("-"))
 
@@ -4260,8 +4516,11 @@ bw.close()
 
 fig, ax = plt.subplots(figsize=(7, 2.2), dpi=150, constrained_layout=True)
 ax.fill_between(np.arange(start, end), track, lw=0)
-ax.set(title=f"reference bulk — {region} (ACTB)", xlabel="genomic position",
-       ylabel="norm. coverage")</div>
+ax.set(
+    title=f"reference bulk — {region} (ACTB)",
+    xlabel="genomic position",
+    ylabel="norm. coverage",
+)</div>
 </div>
 </div>
 </div>

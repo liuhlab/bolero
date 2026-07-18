@@ -1,0 +1,4780 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/bolero/api/interpretation/">
+      
+      
+        <link rel="prev" href="../prediction/">
+      
+      
+        <link rel="next" href="../plotting/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Interpretation - bolero</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#interpretation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="bolero" class="md-header__button md-logo" aria-label="bolero" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            bolero
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Interpretation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/liuhlab/bolero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="bolero" class="md-nav__button md-logo" aria-label="bolero" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    bolero
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/bolero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embedding & Meta Cell
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Embedding & Meta Cell
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embedding_and_meta_cell/01_cell_embedding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    01. Cell embedding with MULTIVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embedding_and_meta_cell/02_meta_cell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    02. Meta cells with SEACells
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Meta Cell AnnData & Parquet
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Meta Cell AnnData & Parquet
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    03. Meta cell AnnData
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    04. Parquet dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    05. Pseudobulks &amp; reference signal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Training
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Training
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/06_train_borzoi_lora/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    06. Train a single-dataset Bolero model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/07_train_multi_dataset_atac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    07. Train the multi-dataset Bolero model (ATAC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/08_train_multi_dataset_gene/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    08. Add the gene-expression task (multi-dataset + gene)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Prediction & Variant Effect
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/09_prediction_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    09. Predict accessibility with a trained model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/10_qtl_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10. Predict variant effects: caQTL &amp; eQTL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/11_attribution_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    11. Per-base DNA attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Score Model (Bolero-Score)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Score Model (Bolero-Score)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/12_chromvar_score/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    12. Cell-state TF activity with chromVAR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/13_train_score_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    13. Train the score model (Bolero-Score)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/14_predict_score_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    14. Predict with the score model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cross-species
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cross-species
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/cross_species/15_cross_species_prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    15. Cross-species prediction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chromvar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        chromVAR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.compute_deviations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_deviations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.get_peak_bias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_bias
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.scan_peak_motifs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan_peak_motifs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#motif-scanning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motif scanning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motifs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Motifs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.prep_scanner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prep_scanner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.collect_child_process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        collect_child_process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.scan_motif" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan_motif
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tf-modisco-hit-calling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TF-MoDISco &amp; hit calling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModiscoResults
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModiscoResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.neg_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        neg_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.neg_seqlets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        neg_seqlets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.pos_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pos_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.pos_seqlets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pos_seqlets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.dna_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dna_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.attr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.attr_1d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attr_1d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.tfbs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tfbs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.region" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        region
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.get_motif_hits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_motif_hits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco_emb.modisco_seqlets_embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modisco_seqlets_embedding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finemo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Finemo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo.plot_pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SeqletTomtom
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SeqletTomtom">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.adjust_seqlets_idx_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        adjust_seqlets_idx_
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.tomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tomtom
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.simple_tomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simple_tomtom
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.annotate_seqlet_ds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_seqlet_ds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AggregateModiscoResults
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AggregateModiscoResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.annotate_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.add_pattern_corr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_pattern_corr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#chromvar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        chromVAR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.compute_deviations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compute_deviations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.get_peak_bias" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_bias
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.chromvar.chromvar.scan_peak_motifs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan_peak_motifs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#motif-scanning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motif scanning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Motifs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Motifs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.prep_scanner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prep_scanner
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.collect_child_process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        collect_child_process
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.scan.Motifs.scan_motif" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scan_motif
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tf-modisco-hit-calling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TF-MoDISco &amp; hit calling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModiscoResults
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ModiscoResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.neg_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        neg_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.neg_seqlets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        neg_seqlets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.pos_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pos_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.pos_seqlets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pos_seqlets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.dna_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dna_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.attr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.attr_1d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attr_1d
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.tfbs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tfbs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.region" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        region
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco.ModiscoResults.get_motif_hits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_motif_hits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.modisco_emb.modisco_seqlets_embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modisco_seqlets_embedding
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finemo
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Finemo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo.plot_pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.finemo.Finemo.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SeqletTomtom
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SeqletTomtom">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.adjust_seqlets_idx_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        adjust_seqlets_idx_
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.tomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tomtom
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.simple_tomtom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simple_tomtom
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.annotate_seqlet_ds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_seqlet_ds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.SeqletTomtom.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AggregateModiscoResults
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AggregateModiscoResults">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.annotate_patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        annotate_patterns
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.add_pattern_corr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_pattern_corr
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="interpretation">Interpretation</h1>
+<p>Tools that consume attribution scores and accessibility signal: GPU chromVAR (the AP-1 activity
+score behind Bolero-Score), motif scanning, TF-MoDISco seqlet discovery and embedding, finemo
+genome-wide hit calling, and seqlet→PWM matching via TomTom.</p>
+<h2 id="chromvar">chromVAR</h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="bolero.tl.chromvar.chromvar.compute_deviations" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">compute_deviations</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">compute_deviations</span><span class="p">(</span><span class="n">adata</span><span class="p">:</span> <span class="n">AnnData</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;cuda&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AnnData</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Computes the deviation of motif matches from the background for each cell.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>adata</code>
+            </td>
+            <td>
+                  <code><span title="anndata.AnnData">AnnData</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The input AnnData object containing the count matrix, background peaks, and motif match information.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>chunk_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The size of chunks to process the data in. Default is 10000. It is recommended to set this
+such that there's no GPU memory overflow. Although our implementation would tolerate that,
+it will be much slower if there's overflow.</p>
+              </div>
+            </td>
+            <td>
+                  <code>10000</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The device to use for computation. Can be either "cuda" for GPU or "cpu" for CPU. Default is "cuda".</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;cuda&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dev</code></td>            <td>
+                  <code><span title="anndata.AnnData">AnnData</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The AnnData object containing the deviation values for each cell and motif match.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="bolero.tl.chromvar.chromvar.get_peak_bias" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_peak_bias</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_peak_bias</span><span class="p">(</span><span class="n">adata</span><span class="p">:</span> <span class="n">AnnData</span><span class="p">,</span> <span class="n">genome</span><span class="p">:</span> <span class="n">Genome</span><span class="p">,</span> <span class="n">base_order</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Compute per-peak GC content and the overall background nucleotide frequency.</p>
+<p>This is the bolero-native replacement for scPrinter's <code>get_peak_bias</code>: it fills
+<code>adata.var["gc_content"]</code> (used, together with per-peak read depth, to sample
+matched background peaks via :func:<code>sample_bg_peaks</code>) and <code>adata.uns["bg_freq"]</code>
+(the genome-wide-over-peaks A/C/G/T frequency used as the MOODS background for
+motif matching in :func:<code>scan_peak_motifs</code>).</p>
+<p>Peak sequences are read directly from the genome FASTA (<code>genome.fasta_path</code>) with
+<code>pyfaidx</code>; only A/C/G/T are counted (<code>N</code> and other symbols are ignored).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>adata</code>
+            </td>
+            <td>
+                  <code><span title="anndata.AnnData">AnnData</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Peak object; peaks are taken from <code>adata.var</code> (see :func:<code>_parse_peak_regions</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>genome</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Genome (bolero.pp.genome.Genome)" href="../genome_sequence/#bolero.pp.genome.Genome">Genome</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Genome providing <code>fasta_path</code> for the same assembly the peaks are on.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>base_order</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Base order for <code>bg_freq</code>. Defaults to <code>bolero.pp.seq.DEFAULT_ONE_HOT_ORDER</code>
+(<code>"ACGT"</code>), matching the order expected by MOODS.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>adata</code> is modified in place (<code>var["gc_content"]</code>, <code>uns["bg_freq"]</code>).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="bolero.tl.chromvar.chromvar.scan_peak_motifs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">scan_peak_motifs</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scan_peak_motifs</span><span class="p">(</span><span class="n">adata</span><span class="p">:</span> <span class="n">AnnData</span><span class="p">,</span> <span class="n">genome</span><span class="p">:</span> <span class="n">Genome</span><span class="p">,</span> <span class="n">motif_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">motif_db</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;JASPAR2024_CORE_vertebrates&#39;</span><span class="p">,</span> <span class="n">bg</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pvalue</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5e-05</span><span class="p">,</span> <span class="n">pseudocount</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.8</span><span class="p">,</span> <span class="n">n_jobs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;motifmatchr&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Match motifs against each peak and store the hit matrix on <code>adata</code>.</p>
+<p>This is the bolero-native replacement for scPrinter's <code>Motifs.chromvar_scan</code>: it
+scans the peaks with :class:<code>bolero.tl.motif.scan.Motifs</code> (a MOODS motifmatchr port)
+and fills <code>adata.varm["motif_match"]</code> (a <code>float32</code> peak-by-motif 0/1 matrix) and
+<code>adata.uns["motif_name"]</code> (the JASPAR matrix ids), the inputs
+:func:<code>compute_deviations</code> needs.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>adata</code>
+            </td>
+            <td>
+                  <code><span title="anndata.AnnData">AnnData</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Peak object; peaks are taken from <code>adata.var</code> (see :func:<code>_parse_peak_regions</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>genome</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Genome (bolero.pp.genome.Genome)" href="../genome_sequence/#bolero.pp.genome.Genome">Genome</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Genome providing <code>fasta_path</code> for the same assembly the peaks are on.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>motif_path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JASPAR-format PFM file. If <code>None</code>, a cached copy of <code>motif_db</code> is fetched via
+:func:<code>bolero.tl.motif.jaspar.get_jaspar_motif_file</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>motif_db</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>JASPAR database key used when <code>motif_path</code> is <code>None</code>. Default
+<code>"JASPAR2024_CORE_vertebrates"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;JASPAR2024_CORE_vertebrates&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>bg</code>
+            </td>
+            <td>
+                  <code>tuple of float or str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Background nucleotide frequency (A/C/G/T). If <code>None</code>, uses
+<code>adata.uns["bg_freq"]</code> when available (from :func:<code>get_peak_bias</code>), else
+<code>"even"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pvalue</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Motif match p-value threshold. Default <code>5e-5</code> (motifmatchr default).</p>
+              </div>
+            </td>
+            <td>
+                  <code>5e-05</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudocount</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Pseudocount for the PFMs. Default <code>0.8</code> (motifmatchr default).</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.8</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_jobs</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of processes for scanning. Default <code>16</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code>(<span title="motifmatchr">motifmatchr</span>, <span title="moods">moods</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Motif-matching mode. Default <code>"motifmatchr"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#34;motifmatchr&#34;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to show a scanning progress bar. Default <code>True</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>adata</code> is modified in place (<code>varm["motif_match"]</code>, <code>uns["motif_name"]</code>).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div><h2 id="motif-scanning">Motif scanning</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.motif.scan.Motifs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Motifs</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>A class for motif matching based on MOODS</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>ref_path_motif</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the motif file, in JASPAR format</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ref_path_fa</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the reference genome fasta file. An eazy way would be passing, the genome.fetch_fa() function</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>bg</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;even&#39;, &#39;genome&#39;] | <span title="tuple">tuple</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Background nucleotide frequency, by default 'even' stands for equal frequency of A, C, G, T
+'genome' stands for the frequency of A, C, G, T in the reference genome
+When passing a tuple of size 4, they would be used as background frequency</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;even&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudocount</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Pseudocount for the motif, by default 0.8 (same as motifmatchR)</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.8</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pvalue</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>P-value threshold for motif matching, by default 5e-5</p>
+              </div>
+            </td>
+            <td>
+                  <code>5e-05</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_jobs</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of cores to use, by default 32</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>split_tf</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to split the TFs by comma (for cistarget motif collection), by default True</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;motifmatchr&#39;, &#39;moods&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mode of the motif matching, by default 'motifmatch</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;motifmatchr&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.scan.Motifs.prep_scanner" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">prep_scanner</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">prep_scanner</span><span class="p">(</span><span class="n">tf_genes</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pseudocount</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.8</span><span class="p">,</span> <span class="n">pvalue</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">5e-05</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Prepare the MOODS scanner for motif matching</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>tf_genes</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of TFs to be used for motif matching, by default None, which means all TFs. Note that if you pass motif_name_func and/or split_tf,
+you should specify TFs by their names after being processed by those (so likely the true TF names).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudocount</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Pseudocount for the motif, by default 0.8 (same as motifmatchR)</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.8</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pvalue</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>P-value threshold for motif matching, by default 5e-5</p>
+              </div>
+            </td>
+            <td>
+                  <code>5e-05</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>window</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Window size for motif matching, by default 7 (same as motifmatchR), passed to MOODS</p>
+              </div>
+            </td>
+            <td>
+                  <code>7</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>scanner</code></td>            <td>
+                  <code><span title="MOODS.scan.Scanner">Scanner</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.scan.Motifs.scan" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">scan</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scan</span><span class="p">(</span><span class="n">region_bed</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">mutation_table</span><span class="p">:</span> <span class="n">DataFrame</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_genotype</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">&#39;ref&#39;</span><span class="p">,</span> <span class="s1">&#39;alt&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;ref&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Perform motif scanning on the given peaks and store the results in the AnnData object.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>region_bed</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The region bed file containing the region information.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to display a progress bar during the motif scanning process. Default is True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mutation_table</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Table containing mutation information. Position is 1-based.
+Columns: ["Chromosome", "Position", "Ref", "Alt"]
+Currently only supports SNV mutations. Mutation table index is the same as the region bed index.
+If provided, the DNA sequence will be mutated in the SNVs before motif matching.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_genotype</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;ref&#39;, &#39;alt&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use the reference or alternative genotype for the mutation. Default is "ref".</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;ref&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A dataframe containing the motif match information for each region.
+The index is the region names, the columns are the motif names.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.scan.Motifs.collect_child_process" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">collect_child_process</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">collect_child_process</span><span class="p">(</span><span class="n">p_list</span><span class="p">,</span> <span class="n">verbose</span><span class="p">,</span> <span class="n">bar</span><span class="p">,</span> <span class="n">motifs_length</span><span class="p">,</span> <span class="n">name2id</span><span class="p">,</span> <span class="n">maps</span><span class="p">,</span> <span class="n">break_on_min_jobs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Collect completed processes from the process list and process their motif mapping results.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>p_list</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A list of Process objects representing the child processes.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A flag indicating whether to display a progress bar.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>bar</code>
+            </td>
+            <td>
+                  <code><span title="tqdm.tqdm">tqdm</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A progress bar object for displaying the progress.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>motifs_length</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A list containing the lengths of the motifs.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>name2id</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A dictionary mapping motif names to their indices.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>maps</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A dict to store the results of the motif scanning process.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>break_on_min_jobs</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A flag indicating whether to break the loop when the number of remaining processes is less than or equal to the number of workers.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The function modifies the <code>maps</code> list in-place by adding the results of the completed processes.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.scan.Motifs.scan_motif" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">scan_motif</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scan_motif</span><span class="p">(</span><span class="n">peaks_iter</span><span class="p">,</span> <span class="n">clean</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">split_tfs</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">strand</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">mutation_table</span><span class="p">:</span> <span class="n">DataFrame</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_genotype</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">&#39;ref&#39;</span><span class="p">,</span> <span class="s1">&#39;alt&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;ref&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Scan motifs in the peaks iterator.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>peaks_iter</code>
+            </td>
+            <td>
+                  <code><span title="iterable">iterable</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>An iterable yielding a list [chrom, start, end], e.g., a pandas dataframe with three columns.
+This function currently only supports a specific format of regions.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>clean</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to clean the output. If True, overlapping motif hits of the same TF will be merged into one hit.
+Default is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to display a progress bar. Default is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>split_tfs</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to split the output by transcription factors. Default is True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>strand</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to consider the strand information. Default is True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mutation_table</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Table containing mutation information. Position is 1-based.
+Columns: ["Chromosome", "Position", "Ref", "Alt"]
+Currently only supports SNV mutations.
+If provided, the DNA sequence will be mutated in the SNVs before motif matching.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_genotype</code>
+            </td>
+            <td>
+                  <code><span title="typing.Literal">Literal</span>[&#39;ref&#39;, &#39;alt&#39;]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use the reference or alternative genotype for the mutation. Default is "ref".</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;ref&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span> or <span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output of the motif scanning process. The format depends on the values of the <code>clean</code>, <code>split_tfs</code>, and <code>strand</code> parameters.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="tf-modisco-hit-calling">TF-MoDISco &amp; hit calling</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.motif.modisco.ModiscoResults" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ModiscoResults</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Represents the results of a Modisco analysis.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="bolero.tl.motif.modisco.ModiscoResults.output_dir (str)">output_dir (str)</span></code></td>
+            <td>
+                  <code>The output directory of the analysis.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>_pos_patterns (list[ModiscoPattern]): The positive patterns identified in the analysis.
+_neg_patterns (list[ModiscoPattern]): The negative patterns identified in the analysis.
+_dna_one_hot (np.ndarray): The one-hot encoded DNA sequences.
+_attr (np.ndarray): The attribute scores.
+_attr_1d (np.ndarray): The 1D attribute scores.
+_tfbs (np.ndarray): The TFBS scores.
+_region (pd.DataFrame): The region information.
+_hits (pd.DataFrame): The motif hits.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.neg_patterns" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">neg_patterns</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">neg_patterns</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Modisco patterns with negative attribution scores.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.neg_seqlets" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">neg_seqlets</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">neg_seqlets</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the representative seqlet for each negative pattern.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.pos_patterns" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">pos_patterns</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">pos_patterns</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Modisco patterns with positive attribution scores.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.pos_seqlets" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">pos_seqlets</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">pos_seqlets</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the representative seqlet for each positive pattern.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.dna_one_hot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">dna_one_hot</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">dna_one_hot</span><span class="p">:</span> <span class="n">ndarray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the one-hot encoded DNA sequences.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    np.ndarray: The one-hot encoded DNA sequences.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.attr" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">attr</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">attr</span><span class="p">:</span> <span class="n">ndarray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the attribute scores.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    np.ndarray: The attribute scores.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.attr_1d" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">attr_1d</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">attr_1d</span><span class="p">:</span> <span class="n">ndarray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the 1D attribute scores.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    np.ndarray: The 1D attribute scores.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.tfbs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">tfbs</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">tfbs</span><span class="p">:</span> <span class="n">ndarray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the TFBS scores.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    np.ndarray: The TFBS scores.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.region" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">region</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">region</span><span class="p">:</span> <span class="n">DataFrame</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the region information.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    pd.DataFrame: The region information.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.modisco.ModiscoResults.get_motif_hits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_motif_hits</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_motif_hits</span><span class="p">(</span><span class="n">tfbs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">attr_1d</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">slop</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the motif hits.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>    pd.DataFrame: The motif hits.</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="bolero.tl.motif.modisco_emb.modisco_seqlets_embedding" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">modisco_seqlets_embedding</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">modisco_seqlets_embedding</span><span class="p">(</span><span class="n">seqlets</span><span class="p">,</span> <span class="n">nearest_neighbors_to_compute</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span> <span class="n">sign</span><span class="o">=</span><span class="s1">&#39;pos&#39;</span><span class="p">,</span> <span class="n">min_overlap_while_sliding</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span> <span class="n">affmat_correlation_threshold</span><span class="o">=</span><span class="mf">0.15</span><span class="p">,</span> <span class="n">tsne_perplexity</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">corr_filter</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tsne</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Calculate affinity matrix between seqlets and embed them in 2D space using t-SNE.</p>
+<p>Adapted from modisco.tfmodisco.seqlets_to_patterns function.
+https://github.com/jmschrei/tfmodisco-lite/blob/main/modiscolite/tfmodisco.py</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>seqlets</code>
+            </td>
+            <td>
+                  <code>list of modisco.core.Seqlet</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of seqlets to embed.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>nearest_neighbors_to_compute</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of nearest neighbors to compute for cosine similarity as an approximate start,
+by default 500.</p>
+              </div>
+            </td>
+            <td>
+                  <code>500</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sign</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sign of the cosine similarity, by default "pos".</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;pos&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>min_overlap_while_sliding</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Minimum overlap while sliding, by default 0.7.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.7</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>affmat_correlation_threshold</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Threshold for filtering by correlation, by default 0.15.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.15</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>tsne_perplexity</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Perplexity for t-SNE, by default 10.0.</p>
+              </div>
+            </td>
+            <td>
+                  <code>30.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>corr_filter</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to filter seqlet by correlation, by default False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_jobs</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of parallel jobs, by default 1.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>tsne</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to compute the 2D t-SNE embedding, by default True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dist_mat</code></td>            <td>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Distance matrix between seqlets.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>embeddings</code></td>            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Embeddings of seqlets in 2D space.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td><code>tsne</code></td>            <td>
+                  <code><span title="openTSNE.TSNE">TSNE</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>t-SNE object.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.motif.finemo.Finemo" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Finemo</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.finemo.Finemo.plot_pattern" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">plot_pattern</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">plot_pattern</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Plot a modisco pattern by name.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.finemo.Finemo.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">(</span><span class="n">all_sequences</span><span class="p">,</span> <span class="n">all_contribs</span><span class="p">,</span> <span class="n">all_attr_region</span><span class="p">,</span> <span class="n">max_round</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the finemo pipeline.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">SeqletTomtom</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Class to perform motif comparison using Tomtom.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom.adjust_seqlets_idx_" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">adjust_seqlets_idx_</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">adjust_seqlets_idx_</span><span class="p">(</span><span class="n">seqlets</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Seqlet</span><span class="p">],</span> <span class="n">chunk_start</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Adjust seqlet indices to account for the chunk start.
+This is necessary to maintain global indexing across chunks.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom.tomtom" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">tomtom</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">tomtom</span><span class="p">(</span><span class="n">seqlets</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Seqlet</span><span class="p">],</span> <span class="n">blacklist</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">MOTIF_BLACKLIST</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Perform Tomtom motif comparison on seqlets.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom.simple_tomtom" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">simple_tomtom</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">simple_tomtom</span><span class="p">(</span><span class="n">attr_scores</span><span class="p">:</span> <span class="n">ndarray</span><span class="p">,</span> <span class="n">score_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">blacklist</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">MOTIF_BLACKLIST</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Perform Tomtom motif comparison on attribute scores.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>attr_scores</code>
+            </td>
+            <td>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Attribute scores. Shape (n, 4, seq_len).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>score_names</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Score names. Default is None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="xarray.DataArray">DataArray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tomtom results. Shape (n, motif_rank, value_type).
+value_type: ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"].</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom.annotate_seqlet_ds" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">annotate_seqlet_ds</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">annotate_seqlet_ds</span><span class="p">(</span><span class="n">seqlet_ds</span><span class="p">:</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">seqlet_info</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">flank_seqlet_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Annotate a tengermeme extracted seqlet dataset with motif information.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>seqlet_ds</code>
+            </td>
+            <td>
+                  <code><span title="xarray.Dataset">Dataset</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Seqlet dataset.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>seqlet_info</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Seqlet information.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>flank_seqlet_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Flank size of the seqlet cluster. Default is 2.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.SeqletTomtom.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">(</span><span class="n">one_hot</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">ndarray</span><span class="p">,</span> <span class="n">hypothetical_contribs</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">ndarray</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">regions</span><span class="p">:</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="n">Series</span> <span class="o">|</span> <span class="n">ndarray</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the entire Modisco Tomtom pipeline.</p>
+<p>First using modisco extract seqlets from the dna and attribution scores,
+then perform Tomtom motif comparison, and finally save the results to a Zarr file.</p>
+<p>Zarr file structure:
+Dimensions:
+- seqlet, motif_id, base, position, value_type, motif_rank
+Coordinates:
+- seqlet: Seqlet name. If regions are provided, the seqlet name will be the genomic region.
+- motif_id: Motif ID.
+- base: DNA base A, C, G, T.
+- value_type: Type of value from Tomtom ["p_values", "scores", "offsets", "overlaps", "strands", "idxs"].
+Data variables:
+- attr_region: relative attr region coords of each seqlets: {input_region_idx}<em>{rel_start}</em>{rel_end} (seqlet,)
+- motif_name: motif_name (motif_id,)
+- seqlets_score: attr score for each seqlet (seqlet, base, position)
+- seqlets_seq: DNA one hot for each seqlet (seqlet, base, position)
+- seqlets_sign: sign of the seqlet (seqlet,)
+- seqlets_tomtom: Tomtom results for each seqlet (seqlet, motif_rank, value_type)</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>one_hot</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to .npz file or numpy array of one-hot encoded DNA sequences. Shape (n, seq_len, 4).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>hypothetical_contribs</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="numpy.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to .npz file or numpy array of hypothetical contribution scores. Shape (n, seq_len, 4).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the output directory.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>regions</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>DataFrame of regions. If provided, the seqlet index will be annotated with the regions.
+First three columns should be "chrom", "start", "end".</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">AggregateModiscoResults</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.annotate_patterns" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">annotate_patterns</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">annotate_patterns</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Annotate patterns using TOMTOM.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.add_pattern_corr" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_pattern_corr</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_pattern_corr</span><span class="p">(</span><span class="n">pattern_annot</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>For each TOMTOM hits, further calculate correlation with motif PWM.
+tomtom implementation doesn't support corr, so calculate it here as a post filtering step.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.motif.seqlet_tomtom.AggregateModiscoResults.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the aggregation and save the results to a file.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

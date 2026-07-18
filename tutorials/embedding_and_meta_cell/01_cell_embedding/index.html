@@ -1141,6 +1141,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2130,13 +2380,13 @@ sc.set_figure_params(figsize=(4, 4), frameon=False)</div>
 
 <span class="c1"># Cap cells per (subclass x tissue) group so a few abundant states do not dominate</span>
 <span class="c1"># training of the embedding model.</span>
-<span class="n">EXP_BATCH</span> <span class="o">=</span> <span class="s2">"donor"</span>                        <span class="c1"># experimental-batch covariate to regress out</span>
+<span class="n">EXP_BATCH</span> <span class="o">=</span> <span class="s2">"donor"</span>  <span class="c1"># experimental-batch covariate to regress out</span>
 <span class="n">DOWNSAMPLE_GROUPBY</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"subclass"</span><span class="p">,</span> <span class="s2">"tissue"</span><span class="p">]</span>
 <span class="n">MAX_CELLS_PER_GROUP</span> <span class="o">=</span> <span class="mi">1500</span>
 
-<span class="n">N_TOP_GENES</span> <span class="o">=</span> <span class="mi">5000</span>                         <span class="c1"># highly-variable genes kept for the RNA view</span>
-<span class="n">N_LATENT</span> <span class="o">=</span> <span class="mi">30</span>                              <span class="c1"># cell-embedding dimensionality</span>
-<span class="n">MAX_EPOCHS</span> <span class="o">=</span> <span class="mi">200</span>                           <span class="c1"># lower (e.g. 10) for a quick smoke test</span>
+<span class="n">N_TOP_GENES</span> <span class="o">=</span> <span class="mi">5000</span>  <span class="c1"># highly-variable genes kept for the RNA view</span>
+<span class="n">N_LATENT</span> <span class="o">=</span> <span class="mi">30</span>  <span class="c1"># cell-embedding dimensionality</span>
+<span class="n">MAX_EPOCHS</span> <span class="o">=</span> <span class="mi">200</span>  <span class="c1"># lower (e.g. 10) for a quick smoke test</span>
 
 <span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
 <span class="n">dataset</span><span class="o">.</span><span class="n">name</span>
@@ -2148,13 +2398,13 @@ DATASET_NAME = "ChromiumPBMC"
 
 # Cap cells per (subclass x tissue) group so a few abundant states do not dominate
 # training of the embedding model.
-EXP_BATCH = "donor"                        # experimental-batch covariate to regress out
+EXP_BATCH = "donor"  # experimental-batch covariate to regress out
 DOWNSAMPLE_GROUPBY = ["subclass", "tissue"]
 MAX_CELLS_PER_GROUP = 1500
 
-N_TOP_GENES = 5000                         # highly-variable genes kept for the RNA view
-N_LATENT = 30                              # cell-embedding dimensionality
-MAX_EPOCHS = 200                           # lower (e.g. 10) for a quick smoke test
+N_TOP_GENES = 5000  # highly-variable genes kept for the RNA view
+N_LATENT = 30  # cell-embedding dimensionality
+MAX_EPOCHS = 200  # lower (e.g. 10) for a quick smoke test
 
 dataset = DATASETS[DATASET_NAME]
 dataset.name</div>
@@ -2302,7 +2552,15 @@ sns.histplot(cell_metadata["n_fragments"], bins=100, ax=axes[1])</div>
 <span class="n">train_meta</span> <span class="o">=</span> <span class="n">cell_metadata</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">use_cells</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
 <span class="n">train_meta</span><span class="p">[</span><span class="s2">"exp_batch"</span><span class="p">]</span> <span class="o">=</span> <span class="n">train_meta</span><span class="p">[</span><span class="n">EXP_BATCH</span><span class="p">]</span> <span class="k">if</span> <span class="n">EXP_BATCH</span> <span class="k">else</span> <span class="n">DATASET_NAME</span>
 <span class="n">train_meta</span> <span class="o">=</span> <span class="n">train_meta</span><span class="p">[</span>
-    <span class="p">[</span><span class="s2">"sample"</span><span class="p">,</span> <span class="s2">"cluster"</span><span class="p">,</span> <span class="s2">"subclass"</span><span class="p">,</span> <span class="s2">"tissue"</span><span class="p">,</span> <span class="s2">"DissectionRegion"</span><span class="p">,</span> <span class="s2">"exp_batch"</span><span class="p">,</span> <span class="s2">"emb_group"</span><span class="p">]</span>
+    <span class="p">[</span>
+        <span class="s2">"sample"</span><span class="p">,</span>
+        <span class="s2">"cluster"</span><span class="p">,</span>
+        <span class="s2">"subclass"</span><span class="p">,</span>
+        <span class="s2">"tissue"</span><span class="p">,</span>
+        <span class="s2">"DissectionRegion"</span><span class="p">,</span>
+        <span class="s2">"exp_batch"</span><span class="p">,</span>
+        <span class="s2">"emb_group"</span><span class="p">,</span>
+    <span class="p">]</span>
 <span class="p">]</span>
 <span class="n">train_meta</span><span class="o">.</span><span class="n">to_feather</span><span class="p">(</span><span class="s2">"cell_metadata.feather"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cell_metadata</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> cells -&gt; </span><span class="si">{</span><span class="n">train_meta</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> sampled for training"</span><span class="p">)</span>
@@ -2324,7 +2582,15 @@ for _, gdf in cell_metadata.groupby("emb_group", observed=True):
 train_meta = cell_metadata.loc[use_cells].copy()
 train_meta["exp_batch"] = train_meta[EXP_BATCH] if EXP_BATCH else DATASET_NAME
 train_meta = train_meta[
-    ["sample", "cluster", "subclass", "tissue", "DissectionRegion", "exp_batch", "emb_group"]
+    [
+        "sample",
+        "cluster",
+        "subclass",
+        "tissue",
+        "DissectionRegion",
+        "exp_batch",
+        "emb_group",
+    ]
 ]
 train_meta.to_feather("cell_metadata.feather")
 print(f"{cell_metadata.shape[0]} cells -&gt; {train_meta.shape[0]} sampled for training")</div>
@@ -2386,13 +2652,13 @@ count likelihood for the RNA modality.</p>
     <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">filter_genes</span><span class="p">(</span><span class="n">rna</span><span class="p">,</span> <span class="n">min_counts</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
     <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">calculate_qc_metrics</span><span class="p">(</span><span class="n">rna</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">log1p</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-    <span class="n">rna</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="s2">"counts"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rna</span><span class="o">.</span><span class="n">X</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>          <span class="c1"># preserve raw counts</span>
-    <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">normalize_total</span><span class="p">(</span><span class="n">rna</span><span class="p">,</span> <span class="n">target_sum</span><span class="o">=</span><span class="mf">1e4</span><span class="p">)</span>   <span class="c1"># HVG selection wants normalized data...</span>
+    <span class="n">rna</span><span class="o">.</span><span class="n">layers</span><span class="p">[</span><span class="s2">"counts"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rna</span><span class="o">.</span><span class="n">X</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>  <span class="c1"># preserve raw counts</span>
+    <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">normalize_total</span><span class="p">(</span><span class="n">rna</span><span class="p">,</span> <span class="n">target_sum</span><span class="o">=</span><span class="mf">1e4</span><span class="p">)</span>  <span class="c1"># HVG selection wants normalized data...</span>
     <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">log1p</span><span class="p">(</span><span class="n">rna</span><span class="p">)</span>
     <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">highly_variable_genes</span><span class="p">(</span>
         <span class="n">rna</span><span class="p">,</span> <span class="n">n_top_genes</span><span class="o">=</span><span class="n">N_TOP_GENES</span><span class="p">,</span> <span class="n">subset</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">layer</span><span class="o">=</span><span class="s2">"counts"</span><span class="p">,</span> <span class="n">flavor</span><span class="o">=</span><span class="s2">"seurat_v3"</span>
     <span class="p">)</span>
-    <span class="n">rna</span><span class="o">.</span><span class="n">X</span> <span class="o">=</span> <span class="n">rna</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"counts"</span><span class="p">)</span>             <span class="c1"># ...but the model wants raw counts back</span>
+    <span class="n">rna</span><span class="o">.</span><span class="n">X</span> <span class="o">=</span> <span class="n">rna</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">"counts"</span><span class="p">)</span>  <span class="c1"># ...but the model wants raw counts back</span>
     <span class="n">rna</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="s2">"adata.rna.h5ad"</span><span class="p">)</span>
 
 <span class="n">sc</span><span class="o">.</span><span class="n">pl</span><span class="o">.</span><span class="n">violin</span><span class="p">(</span><span class="n">rna</span><span class="p">,</span> <span class="p">[</span><span class="s2">"n_genes_by_counts"</span><span class="p">,</span> <span class="s2">"total_counts"</span><span class="p">],</span> <span class="n">jitter</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span> <span class="n">multi_panel</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -2406,13 +2672,13 @@ else:
     sc.pp.filter_genes(rna, min_counts=10)
     sc.pp.calculate_qc_metrics(rna, inplace=True, log1p=True)
 
-    rna.layers["counts"] = rna.X.copy()          # preserve raw counts
-    sc.pp.normalize_total(rna, target_sum=1e4)   # HVG selection wants normalized data...
+    rna.layers["counts"] = rna.X.copy()  # preserve raw counts
+    sc.pp.normalize_total(rna, target_sum=1e4)  # HVG selection wants normalized data...
     sc.pp.log1p(rna)
     sc.pp.highly_variable_genes(
         rna, n_top_genes=N_TOP_GENES, subset=True, layer="counts", flavor="seurat_v3"
     )
-    rna.X = rna.layers.pop("counts")             # ...but the model wants raw counts back
+    rna.X = rna.layers.pop("counts")  # ...but the model wants raw counts back
     rna.write_h5ad("adata.rna.h5ad")
 
 sc.pl.violin(rna, ["n_genes_by_counts", "total_counts"], jitter=0.4, multi_panel=True)
@@ -2489,7 +2755,9 @@ modality.</p>
         <span class="n">s</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">X</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span> <span class="n">index</span><span class="o">=</span><span class="n">a</span><span class="o">.</span><span class="n">var_names</span><span class="p">)</span>
         <span class="n">peak_sum</span> <span class="o">=</span> <span class="n">s</span> <span class="k">if</span> <span class="n">peak_sum</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">peak_sum</span> <span class="o">+</span> <span class="n">s</span>
         <span class="n">n_cells</span> <span class="o">+=</span> <span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">min_cov</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">n_cells</span> <span class="o">*</span> <span class="mf">0.01</span><span class="p">,</span> <span class="n">peak_sum</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)[:</span><span class="mi">100_000</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">min_cov</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span>
+        <span class="n">n_cells</span> <span class="o">*</span> <span class="mf">0.01</span><span class="p">,</span> <span class="n">peak_sum</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">ascending</span><span class="o">=</span><span class="kc">False</span><span class="p">)[:</span><span class="mi">100_000</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="p">)</span>
     <span class="n">use_peaks</span> <span class="o">=</span> <span class="n">peak_sum</span> <span class="o">&gt;</span> <span class="n">min_cov</span>
     <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"keeping </span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">use_peaks</span><span class="o">.</span><span class="n">sum</span><span class="p">())</span><span class="si">}</span><span class="s2"> peaks"</span><span class="p">)</span>
 
@@ -2518,7 +2786,9 @@ else:
         s = pd.Series(np.asarray(a.X.sum(0)).ravel(), index=a.var_names)
         peak_sum = s if peak_sum is None else peak_sum + s
         n_cells += a.shape[0]
-    min_cov = max(n_cells * 0.01, peak_sum.sort_values(ascending=False)[:100_000].values[-1])
+    min_cov = max(
+        n_cells * 0.01, peak_sum.sort_values(ascending=False)[:100_000].values[-1]
+    )
     use_peaks = peak_sum &gt; min_cov
     print(f"keeping {int(use_peaks.sum())} peaks")
 
@@ -2665,9 +2935,9 @@ MULTIVI.setup_mudata(
         <span class="p">{</span><span class="s2">"rna_var_names"</span><span class="p">:</span> <span class="n">rna_var_names</span><span class="p">,</span> <span class="s2">"atac_var_names"</span><span class="p">:</span> <span class="n">atac_var_names</span><span class="p">},</span>
         <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">model_dir</span><span class="si">}</span><span class="s2">/features.joblib"</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
-        <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">history</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-    <span class="p">)</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="s2">"train_history.csv"</span><span class="p">)</span>
+    <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">history</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span>
+        <span class="s2">"train_history.csv"</span>
+    <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-8">model_dir = "model"
 if Path(model_dir).exists():
@@ -2680,9 +2950,9 @@ else:
         {"rna_var_names": rna_var_names, "atac_var_names": atac_var_names},
         f"{model_dir}/features.joblib",
     )
-    pd.DataFrame(
-        {k: v.squeeze() for k, v in model.history.items()}
-    ).to_csv("train_history.csv")</div>
+    pd.DataFrame({k: v.squeeze() for k, v in model.history.items()}).to_csv(
+        "train_history.csv"
+    )</div>
 </div>
 </div>
 </div>
@@ -2763,7 +3033,9 @@ LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
     <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">"epoch"</span><span class="p">)</span>
     <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="n">val_col</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">"No training history (model was loaded from cache); train fresh to plot the curve."</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="s2">"No training history (model was loaded from cache); train fresh to plot the curve."</span>
+    <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-9"># Training curve (available whenever the model was trained in this session or cached to CSV).
 if model.history:
@@ -2786,7 +3058,9 @@ if val_col:
     plt.xlabel("epoch")
     plt.ylabel(val_col)
 else:
-    print("No training history (model was loaded from cache); train fresh to plot the curve.")</div>
+    print(
+        "No training history (model was loaded from cache); train fresh to plot the curve."
+    )</div>
 </div>
 </div>
 </div>
@@ -2959,7 +3233,11 @@ run UMAP + Leiden. This <code>with_coords</code> file is the hand-off to the
     <span class="n">sc</span><span class="o">.</span><span class="n">pp</span><span class="o">.</span><span class="n">neighbors</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">use_rep</span><span class="o">=</span><span class="s2">"X_multivi"</span><span class="p">)</span>
     <span class="n">sc</span><span class="o">.</span><span class="n">tl</span><span class="o">.</span><span class="n">umap</span><span class="p">(</span><span class="n">adata</span><span class="p">,</span> <span class="n">min_dist</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
     <span class="n">sc</span><span class="o">.</span><span class="n">tl</span><span class="o">.</span><span class="n">leiden</span><span class="p">(</span>
-        <span class="n">adata</span><span class="p">,</span> <span class="n">key_added</span><span class="o">=</span><span class="s2">"multivi_cluster"</span><span class="p">,</span> <span class="n">resolution</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">flavor</span><span class="o">=</span><span class="s2">"igraph"</span><span class="p">,</span> <span class="n">n_iterations</span><span class="o">=</span><span class="mi">2</span>
+        <span class="n">adata</span><span class="p">,</span>
+        <span class="n">key_added</span><span class="o">=</span><span class="s2">"multivi_cluster"</span><span class="p">,</span>
+        <span class="n">resolution</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+        <span class="n">flavor</span><span class="o">=</span><span class="s2">"igraph"</span><span class="p">,</span>
+        <span class="n">n_iterations</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">adata</span><span class="o">.</span><span class="n">write_h5ad</span><span class="p">(</span><span class="n">coords_path</span><span class="p">)</span>
 
@@ -2979,7 +3257,11 @@ else:
     sc.pp.neighbors(adata, use_rep="X_multivi")
     sc.tl.umap(adata, min_dist=0.2)
     sc.tl.leiden(
-        adata, key_added="multivi_cluster", resolution=0.2, flavor="igraph", n_iterations=2
+        adata,
+        key_added="multivi_cluster",
+        resolution=0.2,
+        flavor="igraph",
+        n_iterations=2,
     )
     adata.write_h5ad(coords_path)
 

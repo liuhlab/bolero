@@ -1141,6 +1141,256 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api/plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -2029,7 +2279,6 @@ self-contained one from the <a href="09_prediction_task.ipynb">prediction page</
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
 
@@ -2042,7 +2291,6 @@ self-contained one from the <a href="09_prediction_task.ipynb">prediction page</
 <div class="clipboard-copy-txt" id="cell-1">import os
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import xarray as xr
 
@@ -2169,13 +2417,13 @@ peak so the demo is quick.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">EXAMPLE_PEAK</span> <span class="o">=</span> <span class="s2">"chr10:120505130-120505630"</span>     <span class="c1"># an accessible ATAC peak</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">EXAMPLE_PEAK</span> <span class="o">=</span> <span class="s2">"chr10:120505130-120505630"</span>  <span class="c1"># an accessible ATAC peak</span>
 <span class="n">chrom</span><span class="p">,</span> <span class="n">coords</span> <span class="o">=</span> <span class="n">EXAMPLE_PEAK</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">":"</span><span class="p">)</span>
 <span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="n">coords</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"-"</span><span class="p">))</span>
 <span class="n">regions</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">"Chromosome"</span><span class="p">:</span> <span class="p">[</span><span class="n">chrom</span><span class="p">],</span> <span class="s2">"Start"</span><span class="p">:</span> <span class="p">[</span><span class="n">start</span><span class="p">],</span> <span class="s2">"End"</span><span class="p">:</span> <span class="p">[</span><span class="n">end</span><span class="p">]})</span>
 <span class="n">regions</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">EXAMPLE_PEAK = "chr10:120505130-120505630"     # an accessible ATAC peak
+<div class="clipboard-copy-txt" id="cell-3">EXAMPLE_PEAK = "chr10:120505130-120505630"  # an accessible ATAC peak
 chrom, coords = EXAMPLE_PEAK.split(":")
 start, end = map(int, coords.split("-"))
 regions = pd.DataFrame({"Chromosome": [chrom], "Start": [start], "End": [end]})
@@ -2261,14 +2509,14 @@ regions</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">pred</span><span class="o">.</span><span class="n">attribution_task</span><span class="p">(</span>
     <span class="s2">"attribution_task_output"</span><span class="p">,</span>
-    <span class="n">regions_per_pseudobulk</span><span class="o">=</span><span class="n">regions</span><span class="p">,</span>   <span class="c1"># or a dict {pseudobulk_id: regions} for per-state regions</span>
+    <span class="n">regions_per_pseudobulk</span><span class="o">=</span><span class="n">regions</span><span class="p">,</span>  <span class="c1"># or a dict {pseudobulk_id: regions} for per-state regions</span>
     <span class="n">mode</span><span class="o">=</span><span class="s2">"attribution"</span><span class="p">,</span>
     <span class="n">batch_size</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4">pred.attribution_task(
     "attribution_task_output",
-    regions_per_pseudobulk=regions,   # or a dict {pseudobulk_id: regions} for per-state regions
+    regions_per_pseudobulk=regions,  # or a dict {pseudobulk_id: regions} for per-state regions
     mode="attribution",
     batch_size=4,
 )</div>
@@ -2399,7 +2647,9 @@ Saved Batch Schema:
 
 <span class="n">ds</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_zarr</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">/region_attribution_and_seq.zarr"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"__dna__:attr    "</span><span class="p">,</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">dims</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"__dna__:attr_seq"</span><span class="p">,</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">dims</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span>
+    <span class="s2">"__dna__:attr_seq"</span><span class="p">,</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">dims</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="p">)</span>
 
 <span class="n">seqlets</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">out</span><span class="si">}</span><span class="s2">/seqlets_info.feather"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">seqlets_info.feather:"</span><span class="p">,</span> <span class="n">seqlets</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
@@ -2414,7 +2664,9 @@ print("cell states:", list(attr_regions["pseudobulk_id"].unique()))
 
 ds = xr.open_zarr(f"{out}/region_attribution_and_seq.zarr")
 print("__dna__:attr    ", ds["__dna__:attr"].dims, tuple(ds["__dna__:attr"].shape))
-print("__dna__:attr_seq", ds["__dna__:attr_seq"].dims, tuple(ds["__dna__:attr_seq"].shape))
+print(
+    "__dna__:attr_seq", ds["__dna__:attr_seq"].dims, tuple(ds["__dna__:attr_seq"].shape)
+)
 
 seqlets = pd.read_feather(f"{out}/seqlets_info.feather")
 print("\nseqlets_info.feather:", seqlets.shape)
@@ -2568,34 +2820,44 @@ draw the logo. Letter height is the base's contribution; tall stacks are the seq
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">idx</span> <span class="o">=</span> <span class="mi">0</span>
-<span class="n">attr</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>        <span class="c1"># (4, 1024)</span>
-<span class="n">seq</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>      <span class="c1"># (4, 1024)</span>
+<span class="n">attr</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>  <span class="c1"># (4, 1024)</span>
+<span class="n">seq</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="s2">"__dna__:attr_seq"</span><span class="p">]</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">region</span><span class="o">=</span><span class="n">idx</span><span class="p">)</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>  <span class="c1"># (4, 1024)</span>
 
 <span class="n">flank</span> <span class="o">=</span> <span class="mi">100</span>
 <span class="n">center</span> <span class="o">=</span> <span class="n">attr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="mi">2</span>
 <span class="n">sl</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">center</span> <span class="o">-</span> <span class="n">flank</span><span class="p">,</span> <span class="n">center</span> <span class="o">+</span> <span class="n">flank</span><span class="p">)</span>
-<span class="n">attr_win</span> <span class="o">=</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span> <span class="o">-</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>   <span class="c1"># mean-normalize per position</span>
-<span class="n">seq_win</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">sl</span><span class="p">]</span>                                  <span class="c1"># (2*flank, 4)</span>
+<span class="n">attr_win</span> <span class="o">=</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span> <span class="o">-</span> <span class="n">attr</span><span class="p">[:,</span> <span class="n">sl</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># mean-normalize per position</span>
+<span class="n">seq_win</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">sl</span><span class="p">]</span>  <span class="c1"># (2*flank, 4)</span>
 
 <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mf">2.2</span><span class="p">),</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span> <span class="n">constrained_layout</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="n">AttributionPlotter</span><span class="p">(</span><span class="s2">"hg38"</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">attribution</span><span class="o">=</span><span class="n">attr_win</span><span class="p">,</span> <span class="n">sequence</span><span class="o">=</span><span class="n">seq_win</span><span class="p">,</span> <span class="n">rectangle_ratio</span><span class="o">=</span><span class="mf">0.75</span><span class="p">)</span>
-<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">EXAMPLE_PEAK</span><span class="si">}</span><span class="s2">   |   </span><span class="si">{</span><span class="n">CELL_STATE</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">xlabel</span><span class="o">=</span><span class="sa">f</span><span class="s2">"position (center +/- </span><span class="si">{</span><span class="n">flank</span><span class="si">}</span><span class="s2"> bp)"</span><span class="p">,</span>
-       <span class="n">ylabel</span><span class="o">=</span><span class="s2">"attribution"</span><span class="p">)</span>
+<span class="n">AttributionPlotter</span><span class="p">(</span><span class="s2">"hg38"</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+    <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">attribution</span><span class="o">=</span><span class="n">attr_win</span><span class="p">,</span> <span class="n">sequence</span><span class="o">=</span><span class="n">seq_win</span><span class="p">,</span> <span class="n">rectangle_ratio</span><span class="o">=</span><span class="mf">0.75</span>
+<span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
+    <span class="n">title</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">EXAMPLE_PEAK</span><span class="si">}</span><span class="s2">   |   </span><span class="si">{</span><span class="n">CELL_STATE</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="n">xlabel</span><span class="o">=</span><span class="sa">f</span><span class="s2">"position (center +/- </span><span class="si">{</span><span class="n">flank</span><span class="si">}</span><span class="s2"> bp)"</span><span class="p">,</span>
+    <span class="n">ylabel</span><span class="o">=</span><span class="s2">"attribution"</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-6">idx = 0
-attr = ds["__dna__:attr"].isel(region=idx).values.astype(float)        # (4, 1024)
-seq = ds["__dna__:attr_seq"].isel(region=idx).values.astype(float)      # (4, 1024)
+attr = ds["__dna__:attr"].isel(region=idx).values.astype(float)  # (4, 1024)
+seq = ds["__dna__:attr_seq"].isel(region=idx).values.astype(float)  # (4, 1024)
 
 flank = 100
 center = attr.shape[1] // 2
 sl = slice(center - flank, center + flank)
-attr_win = attr[:, sl] - attr[:, sl].mean(axis=0)   # mean-normalize per position
-seq_win = seq.T[sl]                                  # (2*flank, 4)
+attr_win = attr[:, sl] - attr[:, sl].mean(axis=0)  # mean-normalize per position
+seq_win = seq.T[sl]  # (2*flank, 4)
 
 fig, ax = plt.subplots(figsize=(10, 2.2), dpi=150, constrained_layout=True)
-AttributionPlotter("hg38").plot(ax=ax, attribution=attr_win, sequence=seq_win, rectangle_ratio=0.75)
-ax.set(title=f"{EXAMPLE_PEAK}   |   {CELL_STATE}", xlabel=f"position (center +/- {flank} bp)",
-       ylabel="attribution")</div>
+AttributionPlotter("hg38").plot(
+    ax=ax, attribution=attr_win, sequence=seq_win, rectangle_ratio=0.75
+)
+ax.set(
+    title=f"{EXAMPLE_PEAK}   |   {CELL_STATE}",
+    xlabel=f"position (center +/- {flank} bp)",
+    ylabel="attribution",
+)</div>
 </div>
 </div>
 </div>
@@ -2647,8 +2909,8 @@ per-base attribution shows the motif a SNV creates or destroys:</p>
 <hr/>
 <p>Across these three pages you have run the same trained model in its three main modes — <strong>predict</strong> a
 track, <strong>score</strong> a variant, and <strong>attribute</strong> a prediction to individual bases — and, in each case,
-seen exactly what to feed in and what comes out. From here, the attribution outputs feed the motif and
-footprinting tools in <code>bolero.tl.motif</code> / <code>bolero.tl.footprint</code>.</p>
+seen exactly what to feed in and what comes out. From here, the attribution outputs feed the motif-discovery tools in <code>bolero.tl.motif</code>
+(TF-MoDISco seqlets, finemo hit-calling, and TomTom motif matching).</p>
 </div>
 </div>
 </div>

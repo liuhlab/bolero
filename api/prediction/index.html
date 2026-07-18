@@ -1,0 +1,6507 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://liuhlab.github.io/bolero/api/prediction/">
+      
+      
+        <link rel="prev" href="../training/">
+      
+      
+        <link rel="next" href="../interpretation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Prediction & Variant Effect - bolero</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#prediction-variant-effect" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="bolero" class="md-header__button md-logo" aria-label="bolero" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            bolero
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Prediction & Variant Effect
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/liuhlab/bolero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="bolero" class="md-nav__button md-logo" aria-label="bolero" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    bolero
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/liuhlab/bolero" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embedding & Meta Cell
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Embedding & Meta Cell
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embedding_and_meta_cell/01_cell_embedding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    01. Cell embedding with MULTIVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/embedding_and_meta_cell/02_meta_cell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    02. Meta cells with SEACells
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Meta Cell AnnData & Parquet
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Meta Cell AnnData & Parquet
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/03_meta_cell_adata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    03. Meta cell AnnData
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/04_parquet_dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    04. Parquet dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/meta_cell_adata_and_parquet/05_pseudobulk_and_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    05. Pseudobulks &amp; reference signal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Training
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Model Training
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/06_train_borzoi_lora/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    06. Train a single-dataset Bolero model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/07_train_multi_dataset_atac/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    07. Train the multi-dataset Bolero model (ATAC)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/model_training/08_train_multi_dataset_gene/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    08. Add the gene-expression task (multi-dataset + gene)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Prediction & Variant Effect
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/09_prediction_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    09. Predict accessibility with a trained model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/10_qtl_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10. Predict variant effects: caQTL &amp; eQTL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/prediction/11_attribution_task/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    11. Per-base DNA attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Score Model (Bolero-Score)
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Score Model (Bolero-Score)
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/12_chromvar_score/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    12. Cell-state TF activity with chromVAR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/13_train_score_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    13. Train the score model (Bolero-Score)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/score_model/14_predict_score_model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    14. Predict with the score model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cross-species
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cross-species
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/cross_species/15_cross_species_prediction/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    15. Cross-species prediction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../genome_sequence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genome & Sequence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets_pseudobulks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets & Pseudobulks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prediction & Variant Effect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#predictors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predictors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiPredictor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BorzoiPredictor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_qtl_manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_qtl_manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_peak_manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_peak_manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.iter_debug_batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        iter_debug_batch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_prediction_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_prediction_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_dna_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_dna_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_attribution_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_attribution_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.prediction_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prediction_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.inference_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inference_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.select_top_std_genes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        select_top_std_genes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.caqtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        caqtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.qtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.eqtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eqtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.peak_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peak_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.attribution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attribution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiSignalPredictor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BorzoiSignalPredictor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.get_evolution_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_evolution_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.evolution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evolution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.attribution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attribution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qtl_task
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="qtl_task">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--todo-since-we-do-not-use-signal-input-for-qtl-task-we-can-disable-add_true_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TODO: since we do not use signal input for QTL task, we can disable add_true_data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--this-need-later-code-assume-x0-key-can-be-missing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        this need later code assume x0 key can be missing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiInputXGradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiInputXGradient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variant-effect-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variant-effect managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        caQTLManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="caQTLManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager.get_peak_sum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_sum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager.add_qtl_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_qtl_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eQTLManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="eQTLManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager.mutate_dna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mutate_dna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager.add_qtl_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_qtl_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PeakManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PeakManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager.get_peak_sum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_sum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager.add_peak_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_peak_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directed-evolution-enhancer-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directed evolution &amp; enhancer design
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DNASynthesisFactory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DNASynthesisFactory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_fasta_region_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_fasta_region_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_random_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_random_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.substitute_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        substitute_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.mutate_single_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mutate_single_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.shuffle_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shuffle_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.decode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_mutation_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        genome_mutation_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        genome_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.region_string_to_dataframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        region_string_to_dataframe
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_regions_onehot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_regions_onehot
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DNAEvolutionFactory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DNAEvolutionFactory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_regions_onehot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_regions_onehot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_evolution_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_evolution_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.update_current_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_current_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.reset_current_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset_current_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation utilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.utils.multi_level_peak_stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        multi_level_peak_stats
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interpretation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interpretation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../plotting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Plotting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#predictors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predictors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiPredictor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BorzoiPredictor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_qtl_manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_qtl_manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_peak_manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        register_peak_manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.iter_debug_batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        iter_debug_batch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_prediction_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_prediction_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_dna_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_dna_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_attribution_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_attribution_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.prediction_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prediction_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.inference_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inference_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.select_top_std_genes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        select_top_std_genes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.caqtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        caqtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.qtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.eqtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eqtl_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.peak_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        peak_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiPredictor.attribution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attribution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiSignalPredictor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BorzoiSignalPredictor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.get_evolution_dataloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_evolution_dataloader
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.evolution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evolution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.attribution_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        attribution_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qtl_task
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="qtl_task">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--todo-since-we-do-not-use-signal-input-for-qtl-task-we-can-disable-add_true_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TODO: since we do not use signal input for QTL task, we can disable add_true_data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--this-need-later-code-assume-x0-key-can-be-missing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        this need later code assume x0 key can be missing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.predictor_borzoi.BorzoiInputXGradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BorzoiInputXGradient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variant-effect-managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variant-effect managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        caQTLManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="caQTLManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager.get_peak_sum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_sum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.caQTLManager.add_qtl_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_qtl_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eQTLManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="eQTLManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager.mutate_dna" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mutate_dna
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.eQTLManager.add_qtl_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_qtl_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PeakManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PeakManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager.get_peak_sum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_peak_sum
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.task_manager.PeakManager.add_peak_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_peak_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directed-evolution-enhancer-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directed evolution &amp; enhancer design
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DNASynthesisFactory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DNASynthesisFactory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_fasta_region_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_fasta_region_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_random_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_random_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.substitute_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        substitute_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.mutate_single_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mutate_single_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.shuffle_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        shuffle_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.decode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        decode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_mutation_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        genome_mutation_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        genome_task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.region_string_to_dataframe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        region_string_to_dataframe
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNASynthesisFactory.get_regions_onehot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_regions_onehot
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DNAEvolutionFactory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DNAEvolutionFactory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_regions_onehot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_regions_onehot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_evolution_sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_evolution_sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.update_current_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_current_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bolero.tl.predict.dna_gen.DNAEvolutionFactory.reset_current_one_hot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset_current_one_hot
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation utilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bolero.tl.predict.utils.multi_level_peak_stats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        multi_level_peak_stats
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="prediction-variant-effect">Prediction &amp; Variant Effect</h1>
+<p>The inference engine and its high-level <strong>task</strong> methods, the variant-effect managers, and the
+directed-evolution / enhancer-design engine.</p>
+<p><code>BorzoiPredictor</code> owns a trained model plus a data manager and exposes the task methods that map
+to the paper (<code>prediction_task</code>, <code>caqtl_task</code>, <code>eqtl_task</code>, <code>peak_task</code>, <code>attribution_task</code>, …).
+<code>BorzoiSignalPredictor</code> is the signal/flow variant used across the prediction tutorials.</p>
+<h2 id="predictors">Predictors</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BorzoiPredictor</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="bolero.tl.predict.predictor.GenericPredictor">GenericPredictor</span></code></p>
+
+
+
+        <p>Inference engine for a trained Bolero (<code>BorzoiLoRA</code>) model.</p>
+<p>Owns a model plus a
+:class:<code>~bolero.tl.predict.datamanager.GenericGenomeDataManager</code> and exposes
+high-level <em>task</em> methods that map to the paper's analyses:
+:meth:<code>prediction_task</code> / :meth:<code>inference_task</code> (accessibility and gene-count
+tracks), :meth:<code>caqtl_task</code> / :meth:<code>qtl_task</code> / :meth:<code>eqtl_task</code> (variant
+effect), :meth:<code>peak_task</code> (per-peak aggregation) and :meth:<code>attribution_task</code>
+(per-base DNA attribution). The data manager assembles the cell-state
+conditioning and reference signal for each region;
+:class:<code>BorzoiSignalPredictor</code> extends this with the signal / velocity modes.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>config</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Predictor configuration dict (validated against <code>default_config</code>); see the
+prediction tutorials for the expected keys.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_qtl_manager" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">register_qtl_manager</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">register_qtl_manager</span><span class="p">(</span><span class="n">qtl_table</span><span class="p">,</span> <span class="n">qtl_type</span><span class="p">,</span> <span class="n">channel_weights_path</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register the QTL manager with the given QTL table.</p>
+<p>This is required in qtl task</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.register_peak_manager" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">register_peak_manager</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">register_peak_manager</span><span class="p">(</span><span class="n">peak_table</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register the peak manager with the given peak table.</p>
+<p>This is required in peak task</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.iter_debug_batch" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">iter_debug_batch</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">iter_debug_batch</span><span class="p">(</span><span class="n">dna_key</span><span class="o">=</span><span class="s1">&#39;dna&#39;</span><span class="p">,</span> <span class="n">embedding_key</span><span class="o">=</span><span class="s1">&#39;embedding&#39;</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">add_true_data</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;prediction&#39;</span><span class="p">,</span> <span class="n">regions</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">trigger_model</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Iterable for debugging</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_prediction_dataloader" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_prediction_dataloader</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_prediction_dataloader</span><span class="p">(</span><span class="n">regions</span><span class="p">,</span> <span class="n">batch_dir</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">add_true_data</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">dna_key</span><span class="o">=</span><span class="s1">&#39;dna&#39;</span><span class="p">,</span> <span class="n">embedding_key</span><span class="o">=</span><span class="s1">&#39;embedding&#39;</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;prediction&#39;</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the dataloader for prediction.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_dna_model" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_dna_model</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_dna_model</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s1">&#39;prediction&#39;</span><span class="p">,</span> <span class="n">pseudobulk_id</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">attr_kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">emb_data</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the collapsed DNA only model for DNA experiments.
+Either provide **emb_data or a pseudobulk id to collapse the model.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mode to collapse the model. Default is 'prediction'.
+Supported modes: 'prediction', 'attribution', 'gene_count_attribution'.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;prediction&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_id</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk id to collapse the model. If None, **emb_data should be provided.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>attr_kwargs</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keyword arguments to pass to the attribution model. Default is None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>**emb_data</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The embedding data to collapse the model. Default is None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>{}</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>model</code></td>            <td>
+                  <code><span title="torch.nn.Module">Module</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The collapsed DNA input only model.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.get_attribution_dataloader" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_attribution_dataloader</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_attribution_dataloader</span><span class="p">(</span><span class="n">regions_per_pseudobulk</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">,</span> <span class="n">dna_key</span><span class="o">=</span><span class="s1">&#39;dna&#39;</span><span class="p">,</span> <span class="n">embedding_key</span><span class="o">=</span><span class="s1">&#39;embedding&#39;</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;attribution&#39;</span><span class="p">,</span> <span class="n">qtl_mutations</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the dataloader for attribution.</p>
+<p>The main difference on data loader side is that prediction dataloader
+iterates all region and all pseudobulk together;
+attribution dataloader iterate all regions for one pseudobulk at a time.
+This is because
+1. predition task fetch parquet only once by putting all pseudobulk together,
+    attribution task will not use parquet data.
+2. attribution task needs to collapse lora model into base,
+    this can only be done one pseudobulk at a time.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.prediction_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">prediction_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">prediction_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">regions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;test_regions&#39;</span><span class="p">,</span> <span class="n">downsample_regions</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">downsample_seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">stats_keys</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;prediction&#39;</span><span class="p">,</span> <span class="n">filter_valid_regions</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Prediction task for Borzoi.
+Compute the prediction on a set of regions and pseudobulk records.
+Then compute the stats and save them to a file.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>regions</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pandas.DataFrame">DataFrame</span> | <span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The regions to predict. If "test_regions",
+use the borzoi test regions based on fold in config.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;test_regions&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>downsample_regions</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The number of regions to downsample. If None, use all regions.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>downsample_seed</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The seed for downsampling.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for prediction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output batch file. If None, nothing will be saved.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first full batch for debugging purposes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mode of the task. One of "prediction", "gene_count_prediction".
+If "prediction", predict the genome tracks.
+If "gene_count_prediction", predict the gene counts along with genome tracks.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;prediction&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>filter_valid_regions</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to filter the regions to valid regions.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>_dataloader_batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for the dataloader. If None, use the batch size.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.inference_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">inference_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">inference_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">regions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">downsample_regions</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">downsample_seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;prediction&#39;</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Inference task for Borzoi.
+Compute the prediction on a set of regions and pseudobulk records.
+Then compute the stats and save them to a file.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>regions</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pandas.DataFrame">DataFrame</span> | <span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The regions to predict.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>downsample_regions</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The number of regions to downsample. If None, use all regions.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>downsample_seed</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The seed for downsampling.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for prediction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output batch file. If None, nothing will be saved.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first full batch for debugging purposes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mode of the task. One of "prediction", "gene_count_prediction".
+If "prediction", predict the genome tracks.
+If "gene_count_prediction", predict the gene counts along with genome tracks.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;prediction&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>_dataloader_batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for the dataloader. If None, use the batch size.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.select_top_std_genes" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">select_top_std_genes</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">select_top_std_genes</span><span class="p">(</span><span class="n">gene_data_path</span><span class="p">,</span> <span class="n">top_n</span><span class="o">=</span><span class="mi">5000</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Select top variable genes, intersect with test fold.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.caqtl_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">caqtl_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">caqtl_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">qtl_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">add_true_data</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qtl_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;caqtl&#39;</span><span class="p">,</span> <span class="n">channel_weights_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>QTL Prediction task for Borzoi.
+Compute the ref and alt prediction of a QTL dataset
+Then compute the stats and save them to a file.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The QTL table path to use. QTL table should contain inference regions, qtl mutations and qtl peaks.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for prediction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output file. If None, save all keys.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first complete batch into output dir.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.qtl_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">qtl_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">qtl_task</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Alias for caqtl_task</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.eqtl_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">eqtl_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">eqtl_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">qtl_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">add_true_data</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>eQTL task for Borzoi - predict effect of variants on gene expression.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>eQTL table with variant info, gene info, and regions</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for prediction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output file. If None, save all keys.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>add_true_data</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to add true data to the batch.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first complete batch into output dir.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.peak_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">peak_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">peak_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">peak_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">_dataloader_batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Prediction task for Borzoi.
+Compute the prediction on a peak of interests.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>peak_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The peak table path to use. Peak table should contain borzoi input regions and peak regions.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for prediction.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output file. If None, save all keys.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first complete batch into output dir.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>_dataloader_batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for the dataloader. If None, use the batch size.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiPredictor.attribution_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">attribution_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">attribution_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">regions_per_pseudobulk</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;attribution&#39;</span><span class="p">,</span> <span class="n">qtl_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">qtl_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Attribution task for Borzoi with optional QTL mutation analysis.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>regions_per_pseudobulk</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="pandas.DataFrame">DataFrame</span> or <span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The regions to run attribution on. For gene_count_attribution mode with qtl_table,
+this should match the gene regions from the QTL table (will be auto-generated if None).
+For regular attribution, provide standard regions.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for attribution computation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>6</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_keys</code>
+            </td>
+            <td>
+                  <code>iterable of str</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The keys to save in the output file. Can be a list, tuple, or any iterable of strings.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;default&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>verbose</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to print the progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_first_batch</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to save the first full batch for debugging purposes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The mode of the task. One of "attribution", "gene_count_attribution".</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;attribution&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>QTL table for mutation analysis. If provided, will compute attributions
+for both ref and alt alleles. The table should have columns:
+Chromosome, Start, End, Name (gene+variant), Strand, TSS, GeneStart, GeneEnd,
+MaskStart, MaskEnd, variant_id, Ref, Alt, gene_id, etc.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_type</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Type of QTL analysis ('eqtl' or 'caqtl'). Default None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BorzoiSignalPredictor</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="bolero.tl.predict.predictor_borzoi.BorzoiPairPredictor">BorzoiPairPredictor</span></code></p>
+
+
+
+        <p>BorzoiSignalPredictor is a predictor for Borzoi models that uses ODEs to predict
+the trajectory of the model given an initial condition.
+It is used for signal-based models.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.get_evolution_dataloader" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_evolution_dataloader</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_evolution_dataloader</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">max_batches</span><span class="p">,</span> <span class="n">dna_key</span><span class="p">,</span> <span class="n">embedding_key</span><span class="p">,</span> <span class="n">rank_pred_fn</span><span class="p">,</span> <span class="n">top_k</span><span class="p">,</span> <span class="n">forward_batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Generator</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the dataloader for directed DNA evolution.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of regions to process in each batch.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_batches</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of batches to process.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dna_key</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Key for the DNA one-hot encoding in the batch.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>embedding_key</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Key for the embedding in the batch.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>rank_pred_fn</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Function to rank the predicted values. This function should take a batch as input, calculate the rank based on the predicted values and return the rank.
+The rank should be a np.array of shape (n_region, ) with smaller values indicating better performance.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>top_k</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of top regions to select. selected based on rank &lt; top_k.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dataloader</code></td>            <td>
+                  <code><span title="collections.abc.Generator">Generator</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Generator that yields batches of DNA one-hot encoding.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="note" open>
+  <summary>Notes</summary>
+  <p>This dataloader is used to perform directed DNA evolution.
+It will iterate over the batches and select the top k regions based on the predicted values.
+The selected regions' DNA one-hot encoding will be saved to the self.datamanager._onehot_encoder.
+The self.datamanager._onehot_encoder will be used to generate the next batch of DNA one-hot encoding.</p>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.evolution_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evolution_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">evolution_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">rank_pred_fn</span><span class="p">:</span> <span class="nb">callable</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span> <span class="n">max_batches</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">,</span> <span class="n">dna_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;dna&#39;</span><span class="p">,</span> <span class="n">embedding_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;embedding&#39;</span><span class="p">,</span> <span class="n">n_experiments</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Evolution task for Borzoi. Perform directed DNA evolution.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory to save the results.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>rank_pred_fn</code>
+            </td>
+            <td>
+                  <code><span title="callable">callable</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Function to rank the predicted values. This function should take a batch as input, calculate the rank based on the predicted values and return the rank.
+The rank should be a np.array of shape (n_region, ) with smaller values indicating better performance.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>top_k</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of top regions to select. selected based on rank &lt; top_k.</p>
+              </div>
+            </td>
+            <td>
+                  <code>5</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pseudobulk_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The pseudobulk ids to use. If None, use all pseudobulk ids.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for evolution.</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_batches</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of batches to process.</p>
+              </div>
+            </td>
+            <td>
+                  <code>50</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dna_key</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Key for the DNA one-hot encoding in the batch.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;dna&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>embedding_key</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Key for the embedding in the batch.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;embedding&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.attribution_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">attribution_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">attribution_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">regions_per_pseudobulk</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;attribution&#39;</span><span class="p">,</span> <span class="n">save_first_batch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">qtl_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">qtl_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Attribution task for BorzoiSignalPredictor.
+Compute the attribution on a set of regions and pseudobulk records.
+Then save the results to a file.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">qtl_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">qtl_task</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">qtl_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">pseudobulk_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span> <span class="n">save_keys</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s1">&#39;default&#39;</span><span class="p">,</span> <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>QTL task for BorzoiSignalPredictor.</p>
+<h4 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--todo-since-we-do-not-use-signal-input-for-qtl-task-we-can-disable-add_true_data">TODO: since we do not use signal input for QTL task, we can disable add_true_data</h4>
+<h4 id="bolero.tl.predict.predictor_borzoi.BorzoiSignalPredictor.qtl_task--this-need-later-code-assume-x0-key-can-be-missing">this need later code assume x0 key can be missing</h4>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.predictor_borzoi.BorzoiInputXGradient" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">BorzoiInputXGradient</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Per-base attribution for a collapsed, cell-state-specific Borzoi model.</p>
+<p>Wraps <code>model</code> (typically a <code>BorzoiLoRA</code> collapsed onto one cell-state
+embedding) with Captum's :class:<code>~captum.attr.InputXGradient</code>. The forward hook
+sums the predicted signal over the centre <code>peak_length</code> bins, so the returned
+attribution is the input-times-gradient of that scalar peak score with respect
+to each input base, cropped to the centre <code>attr_length</code> bp.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>model</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A callable <code>DNA(+signal) -&gt; track</code> model (e.g. a collapsed <code>BorzoiLoRA</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>peak_length</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Width in bp of the centred region whose summed signal is attributed.</p>
+              </div>
+            </td>
+            <td>
+                  <code>512</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>attr_length</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Width in bp of the centred attribution window returned by <code>__call__</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1024</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_dna_length</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Input sequence length the model expects (524,288 bp).</p>
+              </div>
+            </td>
+            <td>
+                  <code>524288</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_resolution</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output bin size in bp (32).</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="variant-effect-managers">Variant-effect managers</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.task_manager.caQTLManager" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">caQTLManager</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="bolero.tl.predict.task_manager.QTLMixIn">QTLMixIn</span></code></p>
+
+
+
+        <p>Prepare and score chromatin-accessibility QTLs (caQTLs).</p>
+<p>Parses a caQTL table into Borzoi input regions, ref/alt substitutions, and the peak
+windows to aggregate over, then (via :class:<code>QTLMixIn</code>) builds ref/alt-mutated DNA
+batches and sums predicted accessibility over each variant's peak. Consumed by
+:meth:<code>BorzoiPredictor.caqtl_task</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the caQTL table (or a DataFrame accepted by :func:<code>prepare_qtl_table</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>resolution</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output bin size in bp. Default 32.</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_stats_cols</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Per-variant statistic columns to carry through. Default <code>["beta", "PIP"]</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ypred_seq_len</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Expected length of the prediction axis. Default 16384.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16384</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>channel_weights</code>
+            </td>
+            <td>
+                  <code><span title="optional">optional</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional per-channel weights applied when aggregating tracks.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qtl_type</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Label for the QTL type. Default <code>"caqtl"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;caqtl&#39;</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.caQTLManager.get_peak_sum" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_peak_sum</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_peak_sum</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">ypred_key</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.caQTLManager.add_qtl_info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_qtl_info</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_qtl_info</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Add peak information to the batch.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.task_manager.eQTLManager" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">eQTLManager</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="bolero.tl.predict.task_manager.QTLMixIn">QTLMixIn</span></code></p>
+
+
+
+        <p>Prepare and score expression QTLs (eQTLs).</p>
+<p>Parses an eQTL table into gene/promoter regions (with strand), ref/alt substitutions,
+and target genes, then builds ref/alt-mutated DNA batches for the gene-count head.
+Consumed by :meth:<code>BorzoiPredictor.eqtl_task</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.eQTLManager.mutate_dna" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">mutate_dna</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">mutate_dna</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">],</span> <span class="n">dna_key</span><span class="o">=</span><span class="s1">&#39;__dna__&#39;</span><span class="p">,</span> <span class="n">region_key</span><span class="o">=</span><span class="s1">&#39;region_name&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Mutate dna for eQTL</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.eQTLManager.add_qtl_info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_qtl_info</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_qtl_info</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Add gene information to the batch.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.task_manager.PeakManager" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">PeakManager</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Prepare and aggregate predictions over a peak table.</p>
+<p>Parses a peak table into Borzoi input regions plus the peak windows to score, and sums
+predicted signal over each peak. Used by :meth:<code>BorzoiPredictor.peak_task</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>peak_table</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the peak table (or a DataFrame accepted by :func:<code>prepare_peak_table</code>),
+containing Borzoi input regions and the peak regions to aggregate over.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>resolution</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output bin size in bp. Default 32.</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ypred_seq_len</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Expected length of the prediction axis. Default 16384.</p>
+              </div>
+            </td>
+            <td>
+                  <code>16384</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.PeakManager.get_peak_sum" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_peak_sum</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_peak_sum</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">ypred_key</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate the sum of predictions over the QTL peak regions for each region/mutation in the batch.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.task_manager.PeakManager.add_peak_info" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_peak_info</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_peak_info</span><span class="p">(</span><span class="n">batch</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Add peak information to the batch.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="directed-evolution-enhancer-design">Directed evolution &amp; enhancer design</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.dna_gen.DNASynthesisFactory" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">DNASynthesisFactory</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.get_fasta_region_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_fasta_region_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_fasta_region_sequence</span><span class="p">(</span><span class="n">chrom</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">genome</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the DNA sequence from the fasta or 2bit file for a given region.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.get_random_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_random_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_random_sequence</span><span class="p">(</span><span class="n">n_regions</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">seq_len</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">probs</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.29</span><span class="p">,</span> <span class="mf">0.21</span><span class="p">,</span> <span class="mf">0.21</span><span class="p">,</span> <span class="mf">0.29</span><span class="p">),</span> <span class="n">random_state</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get random DNA sequence from the factory.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_regions</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of regions to generate.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>seq_len</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Length of the sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>probs</code>
+            </td>
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="float">float</span>, <span title="float">float</span>, <span title="float">float</span>, <span title="float">float</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Probabilities of the four bases.</p>
+              </div>
+            </td>
+            <td>
+                  <code>(0.29, 0.21, 0.21, 0.29)</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.substitute_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">substitute_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">substitute_sequence</span><span class="p">(</span><span class="n">input_one_hot</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">pos_0base</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">seq</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Substitute the DNA sequence at the given position.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.mutate_single_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">mutate_single_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">mutate_single_sequence</span><span class="p">(</span><span class="n">input_one_hot</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">pos_0base</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">alt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">validate_ref</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Mutate the DNA sequence at the given position.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>input_one_hot</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Input DNA sequence one-hot encoding.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pos_0base</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Position to mutate. Position is 0-based.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ref</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Reference sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>alt</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Alternative sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>validate_ref</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to validate the reference sequence at the given position.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.shuffle_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">shuffle_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">shuffle_sequence</span><span class="p">(</span><span class="n">input_one_hot</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">n_shuffle</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">random_state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">use_dinucleotide_shuffle</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Shuffle the DNA sequence at the given position.</p>
+<p>input_one_hot shape should be (n_regions, 4, seq_len).
+output shape should be (n_regions * n_shuffle, 4, seq_len).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>input_one_hot</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Input DNA sequence one-hot encoding.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>start</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Start position of the sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>end</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>End position of the sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_shuffle</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of shuffle to perform.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>random_state</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Random state.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_dinucleotide_shuffle</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to perform dinucleotide shuffle (True) or simple shuffle (False).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Shuffled sequence batch. Shape: (n_regions * n_shuffle, 4, seq_len).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.decode" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">decode</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">decode</span><span class="p">(</span><span class="n">one_hot</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Decode the one-hot encoding to a DNA sequence.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_mutation_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">genome_mutation_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">genome_mutation_task</span><span class="p">(</span><span class="n">region_and_mutation</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">genome</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">validate_ref</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">decode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate sequence batch using a table of region and mutation information.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>region_and_mutation</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Table of region and mutation information.
+Columns: chromosome, start, end, mut_pos_0base, ref, alt, genome (optional if each region has a different genome)</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>genome</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Genome name. If not provided, the default genome will be used.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>validate_ref</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to validate the reference sequence at the given position.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sequence batch. Shape: (n_regions, 4, seq_len).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.genome_task" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">genome_task</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">genome_task</span><span class="p">(</span><span class="n">region</span><span class="p">:</span> <span class="n">DataFrame</span><span class="p">,</span> <span class="n">genome</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">decode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate sequence batch using a table of region information.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>region</code>
+            </td>
+            <td>
+                  <code><span title="pandas.DataFrame">DataFrame</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Table of region information.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>genome</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Genome name. If not provided, the default genome will be used.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>decode</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to decode the sequence to a DNA sequence.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span> or <span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sequence batch. Shape: (n_regions, 4, seq_len). If decode is True, return list[str] of DNA sequences.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.region_string_to_dataframe" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">region_string_to_dataframe</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">region_string_to_dataframe</span><span class="p">(</span><span class="n">regions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">region_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Convert a list of regions and region names to a dataframe.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>regions</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of regions.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>region_names</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of region names.
+Region names should be in the format "region_name__additional_info".
+"additional_info" can be empty, or a string of additional information with fields separated by ":".</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mode</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mode of the task.
+If "genome", the dataframe will have columns: chromosome, start, end, and optionally genome.
+If "mutation", the dataframe will have columns: chromosome, start, end,
+mut_pos_0base, ref, alt, and optionally genome.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNASynthesisFactory.get_regions_onehot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_regions_onehot</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_regions_onehot</span><span class="p">(</span><span class="n">regions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">region_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the one-hot encoding for the regions.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="bolero.tl.predict.dna_gen.DNAEvolutionFactory" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">DNAEvolutionFactory</span>
+
+
+</h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Beam-search DNA evolution: maintain a pool of parent sequences and produce
+mutated batches for scoring, then update the pool with the top-scoring
+sequences.</p>
+
+
+<details class="workflow" open>
+  <summary>Workflow</summary>
+  <ol>
+<li>Initialize with initial one-hot sequence(s) and evolution parameters.</li>
+<li>Call :meth:<code>get_regions_onehot</code> to get a batch of mutated sequences
+   (batch_size, 4, seq_len) for the predictor to score.</li>
+<li>Select the top sequences by your criterion and call
+   :meth:<code>update_current_one_hot</code> with that tensor.</li>
+<li>Repeat from step 2 for the next evolution round.</li>
+</ol>
+<p>The number of mutations per sequence is derived from the evolution window
+length and mutation_rate. Mutations are applied only within the evolution
+window [evolution_window_start, evolution_window_end).</p>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>input_sequence</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Initial DNA sequence used as the evolution parent.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>evolution_window_start</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Start (inclusive) of the evolution window. Used only to compute
+the number of mutations per sequence.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>evolution_window_end</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>End (exclusive) of the evolution window. Must be &gt; evolution_window_start.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mutation_rate</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Fraction of the window length to mutate per sequence, in (0, 1).
+Number of mutations = max(1, mutation_rate * (eend - estart)).
+Default is 0.01.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.01</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Torch device for the one-hot tensors. Default is <code>"cuda"</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;cuda&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>back_mutation_rate</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Probability of reverting a differing position to the reference base.
+Default is 0.2.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.2</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="bolero.tl.predict.dna_gen.DNAEvolutionFactory.seq_len">seq_len</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sequence length.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="bolero.tl.predict.dna_gen.DNAEvolutionFactory.n_mutations">n_mutations</span></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of random mutation positions applied per sequence per round.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_regions_onehot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_regions_onehot</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_regions_onehot</span><span class="p">(</span><span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span><span class="p">,</span> <span class="n">add_ref</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate a batch of mutated sequences from the current parent pool.</p>
+<p>Each of the batch_size sequences is produced by taking a parent from
+the pool (cycled by index) and applying n_mutations random mutations.
+Parents are selected in round-robin when batch_size &gt; pool size.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of mutated sequences to return per call.</p>
+              </div>
+            </td>
+            <td>
+                  <code>32</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>add_ref</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to add the current sequence to the batch.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>new_batch</code></td>            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One-hot batch of shape (batch_size, 4, seq_len), same device/dtype
+as the current pool.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNAEvolutionFactory.get_evolution_sequence" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_evolution_sequence</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_evolution_sequence</span><span class="p">(</span><span class="n">new_batch</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the DNA sequence at the evolution window positions for the given batch.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>new_batch</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One-hot batch of shape (batch_size, 4, seq_len), same device/dtype
+as the current pool.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>current_evolution_sequence</code></td>            <td>
+                  <code><span title="list">list</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of DNA sequences at the evolution window positions for the given batch.
+Shape: (batch_size,).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNAEvolutionFactory.update_current_one_hot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">update_current_one_hot</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">update_current_one_hot</span><span class="p">(</span><span class="n">one_hot</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set the current parent pool to the given sequences (e.g. top-k from
+the last batch after scoring).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>one_hot</code>
+            </td>
+            <td>
+                  <code><span title="torch.Tensor">Tensor</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One-hot sequences to use as parents for the next round. Shape
+(n, 4, seq_len) with n typically equal to n_top_regions. seq_len
+must match self.seq_len.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="bolero.tl.predict.dna_gen.DNAEvolutionFactory.reset_current_one_hot" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">reset_current_one_hot</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reset_current_one_hot</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Reset the current one-hot to the input one-hot.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="evaluation-utilities">Evaluation utilities</h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="bolero.tl.predict.utils.multi_level_peak_stats" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">multi_level_peak_stats</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">multi_level_peak_stats</span><span class="p">(</span><span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">precomputed_region_group_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Generate five quantile cutoffs based on true value across sample STD.
+For each cutoff, select corresponding peaks and calculate profile/sample pearson corr and R2 metrics.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>output_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The output directory containing the true and predicted peak data.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>precomputed_region_group_path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The path to a precomputed region group file, if provided, peak group in this file will be used.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code>None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Results are written to <code>{output_dir}/region_group_and_stats.joblib</code>.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
