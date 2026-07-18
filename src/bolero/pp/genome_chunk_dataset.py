@@ -188,6 +188,29 @@ def select_smat_region(
     return data_dict
 
 
+@ray.remote
+def _remote_bw_values(
+    bw_path: str, regions: pd.DataFrame, resolution: int = 1
+) -> list[csr_matrix]:
+    """
+    Read BigWig coverage for each region.
+
+    Returns one ``(1, region_length // resolution)`` ``csr_matrix`` per region in
+    ``regions`` (row order preserved), the per-BigWig counterpart of
+    :func:`_remote_allc_values`.
+    """
+    regions_data = []
+    with pyBigWig.open(str(bw_path)) as bw:
+        for _, (chrom, start, end, *_) in regions.iterrows():
+            values = bw.values(str(chrom), int(start), int(end), numpy=True)
+            values = values.astype("float32", copy=False)
+            np.nan_to_num(values, copy=False)
+            if resolution > 1:
+                values = reduce_last_dim_by_sum(values, resolution)
+            regions_data.append(csr_matrix(values))
+    return regions_data
+
+
 class GenomeBigWigDataset:
     """Represents a genomic dataset stored in BigWig format."""
 
