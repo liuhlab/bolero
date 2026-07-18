@@ -1,7 +1,8 @@
 import pathlib
 from collections import OrderedDict
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any, Iterable
+from typing import Any
 
 import joblib
 import numpy as np

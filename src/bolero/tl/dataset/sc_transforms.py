@@ -1,7 +1,6 @@
 import gzip
 from collections import defaultdict
 from copy import deepcopy
-from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -55,7 +54,7 @@ class CompressedBytesToTensor:
 
     def _bytes_to_array(self, data_dict):
         bytes_keys = [
-            k for k, v in data_dict.items() if isinstance(v, (bytes, bytearray))
+            k for k, v in data_dict.items() if isinstance(v, bytes | bytearray)
         ]
         for key in bytes_keys:
             prefix, name_and_dtype = key.split(":")
@@ -79,7 +78,7 @@ class CompressedBytesToTensor:
             data_dict[prefix] = _data
         return data_dict
 
-    def __call__(self, data_dict: Dict[str, bytes]) -> Dict[str, np.ndarray]:
+    def __call__(self, data_dict: dict[str, bytes]) -> dict[str, np.ndarray]:
         """Perform the transformation."""
         # for each raw data key in binary format:
         #     input data is stored in bytes
@@ -191,7 +190,7 @@ class GeneratePseudobulk:
             bulk_data_dict[f"{output_prefix}:rows"] = rows_col
         return bulk_data_dict, actual_n_pseudobulks
 
-    def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
+    def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
         """Generate pseudobulks for each output prefix."""
         if self.inplace:
             bulk_data_col = data_dict
@@ -261,7 +260,7 @@ class GenerateRegions:
         offset = start
         return use_bed, offset
 
-    def __call__(self, data_dict: Dict[str, bytes]) -> List[Dict[str, np.ndarray]]:
+    def __call__(self, data_dict: dict[str, bytes]) -> list[dict[str, np.ndarray]]:
         """Generate regions for each meta region."""
         use_bed, offset = self._select_relevant_regions(data_dict)
 

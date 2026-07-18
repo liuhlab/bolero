@@ -367,7 +367,7 @@ class BorzoiLoRA(Borzoi):
             # if "lora_B_module" in name:
             #     continue
 
-            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+            if isinstance(module, nn.BatchNorm1d | nn.BatchNorm2d | nn.BatchNorm3d):
                 module.eval()
                 module.track_running_stats = False
                 for param in module.parameters():

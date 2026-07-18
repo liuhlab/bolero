@@ -6,7 +6,6 @@ import pathlib
 import shutil
 import subprocess
 import warnings
-from typing import Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -20,7 +19,7 @@ import bolero
 BOLERO_DATA_DIR = os.environ.get("BOLERO_DATA_DIR", None)
 
 
-def get_fs_and_path(path: Union[str, pathlib.Path]) -> Tuple[FileSystem, str]:
+def get_fs_and_path(path: str | pathlib.Path) -> tuple[FileSystem, str]:
     """
     Get the file system and path from a given URI or local path.
 
@@ -90,7 +89,7 @@ def setup_multi_gpu(use_multi_gpu=True):
         return "cuda", 1, False
 
 
-def understand_regions(regions, as_df=True) -> Union[pr.PyRanges, pd.DataFrame]:
+def understand_regions(regions, as_df=True) -> pr.PyRanges | pd.DataFrame:
     """
     From various inputs, return a clear output. Return pyranges by default.
 
@@ -106,11 +105,11 @@ def understand_regions(regions, as_df=True) -> Union[pr.PyRanges, pd.DataFrame]:
     PyRanges or DataFrame
         A PyRanges object representing the parsed regions, or a DataFrame if `as_df` is True.
     """
-    if isinstance(regions, Union[pr.PyRanges, pd.DataFrame]):
+    if isinstance(regions, pr.PyRanges | pd.DataFrame):
         pass
-    elif isinstance(regions, Union[str, pathlib.Path]):
+    elif isinstance(regions, str | pathlib.Path):
         regions = pd.read_csv(regions, header=None, sep="\t")
-    elif isinstance(regions, Union[list, tuple, pd.Index, np.ndarray, pd.Series]):
+    elif isinstance(regions, list | tuple | pd.Index | np.ndarray | pd.Series):
         regions = parse_region_names(regions, as_df=True)
     else:
         raise ValueError(
@@ -603,7 +602,7 @@ def exponential_linspace_int(start, end, num, divisible_by=1):
 
 
 def minimize_overlap_regions(
-    regions: Union[pr.PyRanges, pd.DataFrame],
+    regions: pr.PyRanges | pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Given a set of overlapping regions, return the minimum overlapping regions that cover the all set.

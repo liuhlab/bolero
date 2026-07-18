@@ -1,5 +1,4 @@
 import pathlib
-from typing import Union
 
 import joblib
 import pandas as pd
@@ -32,7 +31,7 @@ class GenomeChunkDatasetGenerator:
     def __init__(
         self,
         output_dir: str,
-        genome: Union[str, Genome],
+        genome: str | Genome,
         window_size: int = 100000,
         step_size: int = 90000,
         num_rows_per_file: int = 50,

@@ -56,7 +56,7 @@ def convert_np_to_torch(x):
             return torch.from_numpy(x)
         else:
             return x  # Keep as numpy array (e.g., string dtype)
-    elif isinstance(x, (list, tuple)):
+    elif isinstance(x, list | tuple):
         # Recursively apply for sequences
         return type(x)(convert_np_to_torch(i) for i in x)
     elif isinstance(x, dict):
@@ -66,7 +66,7 @@ def convert_np_to_torch(x):
         return x  # Leave unchanged
 
 
-def load_config(config) -> dict:
+def load_config(config: "str | dict") -> dict:
     """
     Load the config file.
     """
@@ -87,7 +87,9 @@ def load_config(config) -> dict:
     return config
 
 
-def multi_level_peak_stats(output_dir, precomputed_region_group_path=None):
+def multi_level_peak_stats(
+    output_dir: str, precomputed_region_group_path: str | None = None
+) -> None:
     """
     Generate five quantile cutoffs based on true value across sample STD.
     For each cutoff, select corresponding peaks and calculate profile/sample pearson corr and R2 metrics.
@@ -98,6 +100,11 @@ def multi_level_peak_stats(output_dir, precomputed_region_group_path=None):
         The output directory containing the true and predicted peak data.
     precomputed_region_group_path : str, optional
         The path to a precomputed region group file, if provided, peak group in this file will be used.
+
+    Returns
+    -------
+    None
+        Results are written to ``{output_dir}/region_group_and_stats.joblib``.
     """
     # 1. Load true and pred peaks
     all_true_peak_data = pd.read_feather(f"{output_dir}/true_peak_data.feather")

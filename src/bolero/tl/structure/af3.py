@@ -60,7 +60,7 @@ def get_chain_interval(chain_ids: list[str]) -> dict[str, tuple[int, int]]:
     )  # Last segment ends at the last index
     intervals = {
         str(arr[start]): (int(start), int(end))
-        for start, end in zip(start_indices, end_indices)
+        for start, end in zip(start_indices, end_indices, strict=False)
     }
     return intervals
 
@@ -321,7 +321,7 @@ class AF3ResultMinimum(AF3Result):
         chain_intervals = {}
         cur_start = 0
         for chain, chain_size in zip(
-            self.content["chains"], self.content["chain_size"]
+            self.content["chains"], self.content["chain_size"], strict=False
         ):
             chain_intervals[chain] = (cur_start, cur_start + chain_size)
             cur_start += chain_size

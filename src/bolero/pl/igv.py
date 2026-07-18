@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
 import igv_notebook
 import numpy as np
@@ -11,7 +12,7 @@ from matplotlib.colors import to_hex
 
 def get_colors(
     palette: str = "tab20", n_colors: int = 30, shuffle: bool = False
-) -> List[str]:
+) -> list[str]:
     """Get a list of colors in hex format from a given palette."""
     colors = sns.color_palette(palette, n_colors=n_colors)
     hex_list = [to_hex(c) for c in colors]
@@ -33,43 +34,37 @@ class IGVTrack:
     name: str  # Display name (label). Required
 
     # Core track properties
-    type: Optional[str] = (
-        None  # Track type - inferred from file format if not specified
-    )
+    type: str | None = None  # Track type - inferred from file format if not specified
     # sourceType: str = "file"  # Type of data source
-    format: Optional[str] = (
-        None  # File format - inferred from filename if not specified
-    )
-    url: Optional[str] = None  # URL to the track data resource
+    format: str | None = None  # File format - inferred from filename if not specified
+    url: str | None = None  # URL to the track data resource
 
     # Indexing properties
     # URL to file index (BAM .bai, tabix .tbi, etc.)
-    indexURL: Optional[str] = None
-    indexed: Optional[bool] = None  # Explicit flag for non-indexed resources
+    indexURL: str | None = None
+    indexed: bool | None = None  # Explicit flag for non-indexed resources
 
     # Display properties
-    order: Optional[int] = None  # Relative order of track position
-    color: Optional[str] = None  # CSS color value for track features
+    order: int | None = None  # Relative order of track position
+    color: str | None = None  # CSS color value for track features
     height: int = 50  # Initial height of track viewport in pixels
     minHeight: int = 50  # Minimum height of track in pixels
     maxHeight: int = 500  # Maximum height of track in pixels
 
     # Visibility properties
-    visibilityWindow: Optional[int] = None  # Maximum window size in base pairs
+    visibilityWindow: int | None = None  # Maximum window size in base pairs
 
     # Interaction properties
     removable: bool = True  # Include "remove" item in track menu
 
     # Authentication properties
-    headers: Optional[Dict[str, str]] = None  # HTTP headers for requests
-    oauthToken: Optional[Union[str, Callable[[], str]]] = (
-        None  # OAuth token or function
-    )
+    headers: dict[str, str] | None = None  # HTTP headers for requests
+    oauthToken: str | Callable[[], str] | None = None  # OAuth token or function
 
     def __post_init__(self):
         self.url = str(self.url)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the track configuration to a dictionary suitable for IGV.
         Filters out None values and includes extra configuration.
@@ -97,26 +92,26 @@ class Wig(IGVTrack):
     """
 
     # Wig-specific properties
-    type: Optional[str] = "wig"
-    autoscale: Optional[bool] = True
-    autoscaleGroup: Optional[str] = None
-    min: Optional[float] = 0
-    max: Optional[float] = None
-    altColor: Optional[str] = None
-    colorScale: Optional[Dict[str, Any]] = None
-    guideLines: Optional[List[Dict[str, Any]]] = None
-    graphType: Optional[str] = "bar"
+    type: str | None = "wig"
+    autoscale: bool | None = True
+    autoscaleGroup: str | None = None
+    min: float | None = 0
+    max: float | None = None
+    altColor: str | None = None
+    colorScale: dict[str, Any] | None = None
+    guideLines: list[dict[str, Any]] | None = None
+    graphType: str | None = "bar"
     flipAxis: bool = False
     windowFunction: str = "mean"
 
-    def set_autoscale(self, enabled: bool = True, group: Optional[str] = None) -> None:
+    def set_autoscale(self, enabled: bool = True, group: str | None = None) -> None:
         """Enable or disable autoscaling with optional group identifier"""
         self.autoscale = enabled
         if group is not None:
             self.autoscaleGroup = group
 
     def set_scale(
-        self, min_val: Optional[float] = None, max_val: Optional[float] = None
+        self, min_val: float | None = None, max_val: float | None = None
     ) -> None:
         """Set minimum and maximum values for the data scale"""
         if min_val is not None:
@@ -130,13 +125,13 @@ class Annotation(IGVTrack):
     Annotation track class for displaying genomic features.
     """
 
-    type: Optional[str] = "annotation"
-    format: Optional[str] = "bed"
-    url: Optional[str] = None
-    indexURL: Optional[str] = None
+    type: str | None = "annotation"
+    format: str | None = "bed"
+    url: str | None = None
+    indexURL: str | None = None
 
 
-def infer_track_class(config: Dict[str, Any]) -> str:
+def infer_track_class(config: dict[str, Any]) -> str:
     """Infer the track class from the configuration"""
     track_type = config.get("type")
     if track_type is None:
@@ -166,18 +161,18 @@ class Browser:
     """IGV Browser wrapper with enhanced track management"""
 
     # Required: One of genome or reference must be set
-    genome: Optional[str] = None  # String identifier (e.g., "hg19")
+    genome: str | None = None  # String identifier (e.g., "hg19")
     # Object defining reference genome
-    reference: Optional[Dict[str, Any]] = None
+    reference: dict[str, Any] | None = None
 
     # Display and UI options
     flanking: int = 1000  # Distance to pad sides of feature on search
     # Initial genomic location(s)
-    locus: Optional[Union[str, List[str]]] = None
+    locus: str | list[str] | None = None
     minimumBases: int = 40  # Minimum window size when zooming in
 
     # Genome list options
-    genomeList: Optional[Union[str, List[Dict[str, Any]]]] = None  # URL or inline array
+    genomeList: str | list[dict[str, Any]] | None = None  # URL or inline array
     loadDefaultGenomes: bool = True  # Load default genome list
 
     # Query parameters
@@ -185,7 +180,7 @@ class Browser:
     queryParametersSupported: bool = False
 
     # Search configuration
-    search: Optional[Dict[str, Any]] = None  # Search service configuration
+    search: dict[str, Any] | None = None  # Search service configuration
 
     # UI visibility options
     showAllChromosomes: bool = False  # Show all chromosomes in pulldown
@@ -198,23 +193,23 @@ class Browser:
     showCursorTrackGuide: bool = True  # Show cursor following line
 
     # Track configuration
-    trackDefaults: Optional[dict] = None  # Default settings for track types
-    tracks: List[Dict[str, Any]] = field(default_factory=list)  # Initial tracks
-    roi: List[Dict[str, Any]] = field(default_factory=list)  # Regions of interest
+    trackDefaults: dict | None = None  # Default settings for track types
+    tracks: list[dict[str, Any]] = field(default_factory=list)  # Initial tracks
+    roi: list[dict[str, Any]] = field(default_factory=list)  # Regions of interest
 
     # Authentication
-    oauthToken: Optional[str] = None  # OAuth access token
-    apiKey: Optional[str] = None  # Google API key
-    clientId: Optional[str] = None  # Google client ID
+    oauthToken: str | None = None  # OAuth access token
+    apiKey: str | None = None  # Google API key
+    clientId: str | None = None  # Google client ID
 
     # Display options
-    nucleotideColors: Optional[dict] = None  # Nucleotide color table
+    nucleotideColors: dict | None = None  # Nucleotide color table
     # Show sample names for supported tracks
-    showSampleNames: Optional[bool] = None
-    sampleinfo: Optional[Union[dict, List[dict]]] = None  # Sample information
+    showSampleNames: bool | None = None
+    sampleinfo: dict | list[dict] | None = None  # Sample information
 
     # Internal
-    _browser_obj: Optional[igv_notebook.Browser] = None
+    _browser_obj: igv_notebook.Browser | None = None
 
     def __post_init__(self):
         igv_notebook.init()  # initialize igv notebook
@@ -228,7 +223,7 @@ class Browser:
         if self.genome and self.reference:
             raise ValueError("Only one of 'genome' or 'reference' can be specified")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the browser configuration to a dictionary suitable for IGV."""
         to_return = {}
         for key, value in self.__dict__.items():

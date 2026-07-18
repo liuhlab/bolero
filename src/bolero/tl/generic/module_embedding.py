@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Union
 
 import torch
 from einops import rearrange
@@ -140,7 +139,7 @@ class EmbeddingMLP(nn.Module, ArchEmbeddingMixin):
         input_features: int,
         output_features: int,
         output_shape: torch.Size,
-        hidden_dim: Union[int, list],
+        hidden_dim: int | list,
         hidden_layers: int = 0,
         norm_type="layer",
         batchnorm_momentum=0.1,
@@ -637,7 +636,9 @@ class ConditionEmbeddingModuleMulti(nn.Module):
         dataset_keys = dataset_keys.cpu().numpy()
 
         dataset_specific_emb = []
-        for _cell_emb, _cond_emb, dataset_idx in zip(cell_emb, cond_emb, dataset_keys):
+        for _cell_emb, _cond_emb, dataset_idx in zip(
+            cell_emb, cond_emb, dataset_keys, strict=False
+        ):
             dataset_name = self.dataset_order[dataset_idx]
             cell_encoder = self.cell_encoder_dict[dataset_name]
             cond_encoder = self.cond_encoder_dict[dataset_name]

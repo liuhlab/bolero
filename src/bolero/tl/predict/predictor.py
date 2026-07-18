@@ -92,7 +92,7 @@ class GenericPredictor:
         self._dm = None
 
         use_regions = self._train_config["use_regions"]
-        if isinstance(self.genome, (DNASynthesisFactory, DNAEvolutionFactory)):
+        if isinstance(self.genome, DNASynthesisFactory | DNAEvolutionFactory):
             # When using DNASynthesisFactory, we expect the factor class to handle borzoi regions and gene regions
             self.borzoi_regions = None
             # However, we still need borzoi_gene_regions for gene count prediction,

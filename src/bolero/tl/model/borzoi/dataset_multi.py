@@ -1,8 +1,9 @@
 import pickle
 import re
 from collections import OrderedDict
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any, Iterable
+from typing import Any
 
 import joblib
 import numpy as np
@@ -228,7 +229,9 @@ class DatasetRecordManager:
         encoder = OneHotEncoder(sparse_output=False)
         genome_to_emb = dict(
             zip(
-                genomes, encoder.fit_transform([[x] for x in genomes]).astype("float32")
+                genomes,
+                encoder.fit_transform([[x] for x in genomes]).astype("float32"),
+                strict=False,
             )
         )
         # add channel dim to be consistent with other cond emb
@@ -498,7 +501,7 @@ class GenerateMultiGenomeParquetAndPseudobulk:
         )
 
         # Add gene values to each batch
-        for batch, pid in zip(batches, pid_records):
+        for batch, pid in zip(batches, pid_records, strict=False):
             try:
                 gene_value = gene_data.loc[pid, gene]
             except KeyError:

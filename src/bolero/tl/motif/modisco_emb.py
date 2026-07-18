@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Union
+from collections.abc import Callable
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ The idea behind that is based on :cite:p:`Kobak2019` with T-SNE algorithm implem
 
 def _tsne(
     X: np.ndarray,
-    metric: Union[str, Callable] = "precomputed",
+    metric: str | Callable = "precomputed",
     exaggeration: float = -1,
     perplexity: int = 30,
     n_jobs: int = -1,
@@ -191,8 +191,8 @@ def modisco_seqlets_embedding(
         Whether to filter seqlet by correlation, by default False.
     n_jobs : int, optional
         Number of parallel jobs, by default 1.
-    n_components : int, optional
-        Number of components for t-SNE, by default 2.
+    tsne : bool, optional
+        Whether to compute the 2D t-SNE embedding, by default True.
 
     Returns
     -------
@@ -238,7 +238,9 @@ def modisco_seqlets_embedding(
     n_seqlet = len(seqlet_neighbors)
     dist_mat = np.ones((n_seqlet, n_seqlet))
 
-    for row, (aff, neighbor) in enumerate(zip(fine_affmat_nn, seqlet_neighbors)):
+    for row, (aff, neighbor) in enumerate(
+        zip(fine_affmat_nn, seqlet_neighbors, strict=False)
+    ):
         dist_mat[row, neighbor] -= aff
 
     # Step 5: Run t-SNE

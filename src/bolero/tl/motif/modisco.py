@@ -421,6 +421,7 @@ class ModiscoPattern:
                 self.seqlets["sequence"],
                 self.seqlets["contrib_scores"],
                 self.seqlets["hypothetical_contribs"],
+                strict=False,
             )
         ):
             instances.append(

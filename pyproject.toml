@@ -5,7 +5,7 @@ requires = ["hatchling", "hatch-vcs"]
 [project]
 name = "bolero"
 dynamic = ["version"]
-description = "sequence"
+description = "Predicting cell-state-specific gene regulation from DNA sequence."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -160,7 +160,7 @@ docstring-code-format = true
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-"docs/*" = ["I"]
+"docs/*" = ["I", "D"]
 "tests/*" = ["D"]
 "*/__init__.py" = ["F401"]
 

@@ -645,8 +645,6 @@ class Motifs:
             A flag indicating whether to display a progress bar.
         bar : tqdm.tqdm
             A progress bar object for displaying the progress.
-        count : bool
-            A flag indicating whether to count the occurrences of each motif.
         motifs_length : list
             A list containing the lengths of the motifs.
         name2id : dict
@@ -703,10 +701,6 @@ class Motifs:
             Whether to clean the output. If True, overlapping motif hits of the same TF will be merged into one hit.
             Default is False.
 
-        concat : bool, optional
-            Whether to concatenate the output. If False, the output will be a list of the same length as the number of peaks,
-            with each element being a list of motif hits for each TF. Default is True.
-
         verbose : bool, optional
             Whether to display a progress bar. Default is False.
 
@@ -727,7 +721,7 @@ class Motifs:
         Returns
         -------
         list or numpy.ndarray
-            The output of the motif scanning process. The format depends on the values of the `clean`, `concat`, and `count` parameters.
+            The output of the motif scanning process. The format depends on the values of the `clean`, `split_tfs`, and `strand` parameters.
         """
         if mutation_table is not None:
             mutation_manager = MutationManager(

@@ -15,7 +15,7 @@ def prepare_qtl_table(qtl_table, resolution, stats_cols=None):
     """
     stats_cols = stats_cols or ["beta", "PIP"]
 
-    if isinstance(qtl_table, (str, pathlib.Path)):
+    if isinstance(qtl_table, str | pathlib.Path):
         if str(qtl_table).endswith(".feather"):
             table = pd.read_feather(qtl_table)
         else:
@@ -136,7 +136,7 @@ class QTLMixIn:
 
         mut_dna_col = defaultdict(list)
         mutation_cols = ["ref", "alt"]
-        for qtl_id, region_dna in zip(regions, dna):
+        for qtl_id, region_dna in zip(regions, dna, strict=False):
             mut_dna_col["qtl_id"].append(qtl_id)
             mutation = self.mutations.loc[qtl_id]
             for mutation_col in mutation_cols:
@@ -156,16 +156,38 @@ class QTLMixIn:
 
 
 class caQTLManager(QTLMixIn):
-    # qtl_type = "caqtl"
+    """
+    Prepare and score chromatin-accessibility QTLs (caQTLs).
+
+    Parses a caQTL table into Borzoi input regions, ref/alt substitutions, and the peak
+    windows to aggregate over, then (via :class:`QTLMixIn`) builds ref/alt-mutated DNA
+    batches and sums predicted accessibility over each variant's peak. Consumed by
+    :meth:`BorzoiPredictor.caqtl_task`.
+
+    Parameters
+    ----------
+    qtl_table : str
+        Path to the caQTL table (or a DataFrame accepted by :func:`prepare_qtl_table`).
+    resolution : int, optional
+        Output bin size in bp. Default 32.
+    qtl_stats_cols : list[str], optional
+        Per-variant statistic columns to carry through. Default ``["beta", "PIP"]``.
+    ypred_seq_len : int, optional
+        Expected length of the prediction axis. Default 16384.
+    channel_weights : optional
+        Optional per-channel weights applied when aggregating tracks.
+    qtl_type : str, optional
+        Label for the QTL type. Default ``"caqtl"``.
+    """
 
     def __init__(
         self,
         qtl_table: str,
         resolution: int = 32,
-        qtl_stats_cols=None,
-        ypred_seq_len=16384,
+        qtl_stats_cols: list[str] | None = None,
+        ypred_seq_len: int = 16384,
         channel_weights=None,
-        qtl_type="caqtl",
+        qtl_type: str = "caqtl",
     ):
         self.qtl_type = qtl_type
         if qtl_stats_cols is None:
@@ -261,11 +283,28 @@ def prepare_peak_table(
 
 
 class PeakManager:
+    """
+    Prepare and aggregate predictions over a peak table.
+
+    Parses a peak table into Borzoi input regions plus the peak windows to score, and sums
+    predicted signal over each peak. Used by :meth:`BorzoiPredictor.peak_task`.
+
+    Parameters
+    ----------
+    peak_table : str
+        Path to the peak table (or a DataFrame accepted by :func:`prepare_peak_table`),
+        containing Borzoi input regions and the peak regions to aggregate over.
+    resolution : int, optional
+        Output bin size in bp. Default 32.
+    ypred_seq_len : int, optional
+        Expected length of the prediction axis. Default 16384.
+    """
+
     def __init__(
         self,
         peak_table: str,
         resolution: int = 32,
-        ypred_seq_len=16384,
+        ypred_seq_len: int = 16384,
     ):
         borzoi_region, peak_region = prepare_peak_table(
             peak_table, resolution=resolution
@@ -336,7 +375,7 @@ def prepare_eqtl_table(eqtl_table):
     - Strand: gene strand (+/-)
     - Additional gene information and eQTL statistics columns like slope/beta, PIP, p_value, etc.
     """
-    if isinstance(eqtl_table, (str, pathlib.Path)):
+    if isinstance(eqtl_table, str | pathlib.Path):
         if str(eqtl_table).endswith(".csv"):
             table = pd.read_csv(eqtl_table, sep="\t")
         else:
@@ -390,6 +429,14 @@ def prepare_eqtl_table(eqtl_table):
 
 
 class eQTLManager(QTLMixIn):
+    """
+    Prepare and score expression QTLs (eQTLs).
+
+    Parses an eQTL table into gene/promoter regions (with strand), ref/alt substitutions,
+    and target genes, then builds ref/alt-mutated DNA batches for the gene-count head.
+    Consumed by :meth:`BorzoiPredictor.eqtl_task`.
+    """
+
     qtl_type = "eqtl"
 
     def __init__(

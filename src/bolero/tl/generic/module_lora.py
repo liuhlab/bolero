@@ -10,7 +10,6 @@ Also video from the LoRA author: https://www.youtube.com/watch?v=DhRoTONcyZE
 import math
 import re
 from copy import deepcopy
-from typing import Union
 
 import torch
 import torch.nn as nn
@@ -364,7 +363,7 @@ class LoRAConv(nn.Module, LoRALayer):
     @classmethod
     def from_nn(
         cls,
-        conv_module: Union[nn.Conv1d, nn.Conv2d, nn.Conv3d],
+        conv_module: nn.Conv1d | nn.Conv2d | nn.Conv3d,
         lora_rank: int = 1,
         lora_alpha: float = None,
         lora_scale: int = 1,
@@ -490,7 +489,7 @@ def convert_to_lora_model(
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear) and convert_linear:
             modules_to_modify.append((name, module, LoRALinear))
-        elif isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)) and convert_conv:
+        elif isinstance(module, nn.Conv1d | nn.Conv2d | nn.Conv3d) and convert_conv:
             modules_to_modify.append((name, module, LoRAConv))
         else:
             pass

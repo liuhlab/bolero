@@ -1,7 +1,6 @@
 import math
 import pathlib
 from collections import defaultdict
-from typing import Union
 
 import joblib
 import numpy as np
@@ -276,7 +275,7 @@ corigami_hg38_splits[0] = {
 }
 
 
-def get_splits(genome: str, split_id: int) -> dict[str, Union[list, None]]:
+def get_splits(genome: str, split_id: int) -> dict[str, list | None]:
     """
     Get the splits for a given genome and split ID.
 
@@ -314,7 +313,7 @@ class CumulativeCounter:
         self.total = 0
         self.count = 0
 
-    def update(self, value: Union[np.ndarray, torch.Tensor]) -> None:
+    def update(self, value: np.ndarray | torch.Tensor) -> None:
         """
         Update the cumulative counter with a new value.
 
@@ -322,7 +321,7 @@ class CumulativeCounter:
         ----------
             value (np.ndarray or torch.Tensor): The value to be added to the counter.
         """
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             self.total += value
             self.count += 1
             return
@@ -407,7 +406,7 @@ class CumulativePearson:
         self.y2_counter = CumulativeCounter()
 
     def update(
-        self, x: Union[np.ndarray, torch.Tensor], y: Union[np.ndarray, torch.Tensor]
+        self, x: np.ndarray | torch.Tensor, y: np.ndarray | torch.Tensor
     ) -> None:
         """
         Update the cumulative pearson counter with new values.
@@ -584,7 +583,7 @@ def insulation_pearson(preds: torch.Tensor, targets: torch.Tensor):
     scores = []
     preds = preds.detach().cpu().numpy()
     targets = targets.detach().cpu().numpy()
-    for pred, target in zip(preds, tqdm(targets)):
+    for pred, target in zip(preds, tqdm(targets), strict=False):
         pred_insu = np.array(chr_score(pred))
         label_insu = np.array(chr_score(target))
         nas = np.logical_or(np.isnan(pred_insu), np.isnan(label_insu))
@@ -625,15 +624,15 @@ def compare_configs(config1, config2):
 
     def _is_valid_value(value):
         """Check if the value is of a supported type."""
-        if isinstance(value, (int, float, str, bool, type(None))):
+        if isinstance(value, int | float | str | bool | type(None)):
             return True
         if isinstance(value, list):
-            return all(isinstance(item, (int, float, str)) for item in value)
+            return all(isinstance(item, int | float | str) for item in value)
         if isinstance(value, tuple):
-            return all(isinstance(item, (int, float, str)) for item in value)
+            return all(isinstance(item, int | float | str) for item in value)
         if isinstance(value, dict):
             return all(
-                isinstance(item, (int, float, str, list)) for item in value.values()
+                isinstance(item, int | float | str | list) for item in value.values()
             ) and all(isinstance(key, str) for key in value.keys())
         return False
 

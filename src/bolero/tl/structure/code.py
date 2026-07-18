@@ -74,7 +74,7 @@ class AACodeConverter:
         """
         if isinstance(query, str):
             return mapping_dict.get(query.capitalize(), None)
-        elif isinstance(query, (list, np.ndarray, pd.Index, pd.Series)):
+        elif isinstance(query, list | np.ndarray | pd.Index | pd.Series):
             query_series = pd.Series(query).str.capitalize()
             mapped_values = query_series.map(mapping_dict)
             return (

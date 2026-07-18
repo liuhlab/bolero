@@ -1,5 +1,5 @@
 import pathlib
-from typing import Any, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -7,7 +7,7 @@ import pyBigWig
 import pyranges as pr
 import ray
 import xarray as xr
-from scipy.sparse import csr_matrix, vstack
+from scipy.sparse import csr_matrix
 
 from bolero.utils import get_global_coords, parse_region_name, parse_region_names
 
@@ -17,9 +17,7 @@ from .genome_chunk_dataset import (
 )
 
 
-def prepare_meta_region(
-    bed: Union[str, pathlib.Path], meta_region_size: int
-) -> pd.DataFrame:
+def prepare_meta_region(bed: str | pathlib.Path, meta_region_size: int) -> pd.DataFrame:
     """
     Process the region BED file to add a meta region column.
 
@@ -32,7 +30,7 @@ def prepare_meta_region(
     -------
         pd.DataFrame: The processed region BED data.
     """
-    if isinstance(bed, (str, pathlib.Path)):
+    if isinstance(bed, str | pathlib.Path):
         bed = pr.read_bed(bed, as_df=True)
 
     start_bin = bed["Start"] // meta_region_size
@@ -117,7 +115,7 @@ class GenomeWideDataset:
         raise NotImplementedError
 
     def get_regions_data(
-        self, regions: list[Tuple[str, int, int]], chunk_size: Optional[int] = None
+        self, regions: list[tuple[str, int, int]], chunk_size: int | None = None
     ) -> Any:
         """
         Retrieves data for multiple genomic regions.
@@ -258,7 +256,7 @@ class GenomePositionZarr(GenomeWideDataset):
                 chunk_slices.append(chunk_slice)
 
             data_list = ray.get(futures)
-            for chunk_slice, data in zip(chunk_slices, data_list):
+            for chunk_slice, data in zip(chunk_slices, data_list, strict=False):
                 regions_data[chunk_slice] = data
         return regions_data
 
@@ -338,7 +336,7 @@ class GenomeRegionZarr(GenomeWideDataset):
             else:
                 region = pd.Index(args)
 
-        if isinstance(region, (int, slice)):
+        if isinstance(region, int | slice):
             region_data = self.da.isel(region=region).values
         else:
             region_data = self.da.sel(region=region).values
@@ -624,9 +622,9 @@ class GenomeBigWigDataset(GenomeWideDataset):
 
     def get_regions_data(
         self,
-        regions: Union[pr.PyRanges, pd.DataFrame],
-        chunk_size: Optional[int] = None,
-    ) -> dict[str, Union[np.ndarray, list[float]]]:
+        regions: pr.PyRanges | pd.DataFrame,
+        chunk_size: int | None = None,
+    ) -> dict[str, np.ndarray | list[float]]:
         """
         Get the data for multiple genomic regions.
 
@@ -672,12 +670,12 @@ class GenomeBigWigDataset(GenomeWideDataset):
             names.append(name)
 
         regions_data = {}
-        for name, task in zip(names, tasks):
+        for name, task in zip(names, tasks, strict=False):
             regions_data[name] = np.concatenate(ray.get(task))
         return regions_data
 
     def get_meta_regions_data(
-        self, regions: Union[pr.PyRanges, pd.DataFrame], meta_region_size: int = 100000
+        self, regions: pr.PyRanges | pd.DataFrame, meta_region_size: int = 100000
     ) -> dict[str, np.ndarray]:
         """
         Get the data for meta regions.
@@ -739,7 +737,7 @@ class GenomeBigWigDataset(GenomeWideDataset):
                 for row, bw_name in enumerate(bw_order):
                     bw_data = _use_regions_data[bw_name]
                     for (rstart, rend), _one_region_data in zip(
-                        relative_coords, bw_data
+                        relative_coords, bw_data, strict=False
                     ):
                         meta_region_data[row, rstart:rend] = _one_region_data
 

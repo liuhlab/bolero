@@ -4,10 +4,9 @@ This module is a modified version of the motif_plotter module from the motif_plo
 https://github.com/const-ae/motif_plotter/tree/master
 """
 
-from typing import Union
-
 import matplotlib.patches as patches
 import numpy as np
+import pandas as pd
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D
@@ -103,7 +102,7 @@ def calc_relative_information(motif, correction_type="approx"):
     else:
         info_matrix = calc_info_matrix(motif, "exact")
     relative_info = {
-        base: [prob * info for prob, info in zip(pwm[base], info_matrix)]
+        base: [prob * info for prob, info in zip(pwm[base], info_matrix, strict=False)]
         for base in bases
     }
     return relative_info
@@ -238,7 +237,9 @@ def make_bar_plot(axes, texts, heights, width=0.8, colors=None):
 
     axes.set_ylim(min(0, min(heights)), max(0, max(heights)))
     axes.set_xlim(0, n_elem)
-    for idx, (text, height, color) in enumerate(zip(texts, heights, colors)):
+    for idx, (text, height, color) in enumerate(
+        zip(texts, heights, colors, strict=False)
+    ):
         text_shape = make_text_elements(
             text,
             x=idx + (1 - width) / 2,
@@ -315,10 +316,12 @@ def make_stacked_bar_plot(
 
     if len(texts) != len(heights):
         raise ValueError("Texts and heights must be of the same length")
-    for idx, (text, height, color) in enumerate(zip(texts, heights, colors)):
+    for idx, (text, height, color) in enumerate(
+        zip(texts, heights, colors, strict=False)
+    ):
         y_stack_pos = 0
         y_stack_neg = 0
-        for _, (t, h, c) in enumerate(zip(text, height, color)):
+        for _, (t, h, c) in enumerate(zip(text, height, color, strict=False)):
             approximate_as_rectangle = abs(h) < rectangle_cutoff
             if h > 0:
                 text_shape = make_text_elements(
@@ -407,7 +410,7 @@ class ConsensusMotifPlotter:
 
     @classmethod
     def from_scores_1d(
-        cls, scores, sequence: Union[str, np.ndarray], colors=DEFAULT_BASE_COLOR
+        cls, scores, sequence: str | np.ndarray, colors=DEFAULT_BASE_COLOR
     ):
         """
         Creates a ConsensusMotifPlotter object from scores and a sequence.
@@ -474,7 +477,23 @@ class ConsensusMotifPlotter:
 
 
 class AttributionPlotter:
-    def __init__(self, genome):
+    """
+    Plot per-base attribution scores as a sequence logo, with optional motif tracks.
+
+    Renders an attribution vector (e.g. from
+    :class:`~bolero.tl.predict.predictor_borzoi.BorzoiInputXGradient`) as a
+    letter-height logo over the underlying DNA sequence, optionally overlaying
+    called motif hits. Used in the DNA-attribution tutorial.
+
+    Parameters
+    ----------
+    genome : str or Genome
+        The genome the regions are drawn from. A string is resolved to a
+        :class:`~bolero.pp.genome.Genome`; used to fetch one-hot sequence when a
+        ``region`` (rather than an explicit ``sequence``) is passed to :meth:`plot`.
+    """
+
+    def __init__(self, genome: "str | Genome") -> None:
         if isinstance(genome, str):
             genome = Genome(genome)
         self.genome = genome
@@ -492,17 +511,17 @@ class AttributionPlotter:
     def plot(
         self,
         ax,
-        attribution,
-        sequence=None,
-        region=None,
-        motifs=None,
-        motif_mode="vspan",
-        rectangle_ratio=0.98,
-        rasterize=True,
-        motif_color="#11111111",
-        motif_y=None,
-        motif_label=True,
-    ):
+        attribution: np.ndarray,
+        sequence: "str | np.ndarray | None" = None,
+        region: "str | tuple | None" = None,
+        motifs: "pd.DataFrame | None" = None,
+        motif_mode: str = "vspan",
+        rectangle_ratio: float = 0.98,
+        rasterize: bool = True,
+        motif_color: str = "#11111111",
+        motif_y: float | None = None,
+        motif_label: bool = True,
+    ) -> None:
         """
         Plot attribution scores and motif annotations on an axes object.
 

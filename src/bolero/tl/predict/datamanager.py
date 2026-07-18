@@ -1,8 +1,9 @@
 import queue
 import threading
 from collections import OrderedDict, defaultdict
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 import joblib
 import numpy as np
@@ -121,7 +122,7 @@ class PseudobulkRecordManager:
         pseudobulk_records: str | Path | dict[str, dict],
         annotation: pd.DataFrame = None,
     ):
-        if isinstance(pseudobulk_records, (str, Path)):
+        if isinstance(pseudobulk_records, str | Path):
             self.original_records = joblib.load(pseudobulk_records)
         else:
             self.original_records = pseudobulk_records

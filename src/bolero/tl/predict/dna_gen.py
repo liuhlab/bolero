@@ -638,10 +638,8 @@ class DNAEvolutionFactory:
 
     Parameters
     ----------
-    input_one_hot : torch.Tensor
-        Initial DNA one-hot encoding. Shape ``(4, seq_len)`` or
-        ``(batch, 4, seq_len)``. If 2D, treated as a single parent and
-        converted to ``(1, 4, seq_len)``.
+    input_sequence : str
+        Initial DNA sequence used as the evolution parent.
     evolution_window_start : int
         Start (inclusive) of the evolution window. Used only to compute
         the number of mutations per sequence.
@@ -651,9 +649,11 @@ class DNAEvolutionFactory:
         Fraction of the window length to mutate per sequence, in (0, 1).
         Number of mutations = max(1, mutation_rate * (eend - estart)).
         Default is 0.01.
+    device : str, optional
+        Torch device for the one-hot tensors. Default is ``"cuda"``.
     back_mutation_rate : float, optional
         Probability of reverting a differing position to the reference base.
-        Default is 0.5.
+        Default is 0.2.
 
     Attributes
     ----------

@@ -11,6 +11,16 @@ plugins:
       handlers:
         python:
           paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            filters: ["!^_"]
   - mkdocs-jupyter:
       execute: false # render the committed notebook outputs; never re-run
       include_source: true
@@ -39,3 +49,11 @@ nav:
       - "14. Predict with the score model": tutorials/score_model/14_predict_score_model.ipynb
   - Cross-species:
       - "15. Cross-species prediction": tutorials/cross_species/15_cross_species_prediction.ipynb
+  - API Reference:
+      - Overview: api/index.md
+      - Genome & Sequence: api/genome_sequence.md
+      - Datasets & Pseudobulks: api/datasets_pseudobulks.md
+      - Training: api/training.md
+      - Prediction & Variant Effect: api/prediction.md
+      - Interpretation: api/interpretation.md
+      - Plotting: api/plotting.md

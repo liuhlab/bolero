@@ -3,7 +3,6 @@ Making LoRA fine tuning weights conditionally depending on the embedding input.
 """
 
 from copy import deepcopy
-from typing import Union
 
 import torch
 import torch.nn as nn
@@ -432,7 +431,7 @@ class ConditionalLoRAConv(nn.Module, ConditionalLoRALayer):
     @classmethod
     def from_nn(
         cls,
-        conv_module: Union[nn.Conv1d, nn.Conv2d, nn.Conv3d],
+        conv_module: nn.Conv1d | nn.Conv2d | nn.Conv3d,
         **kwargs,
     ) -> "ConditionalLoRAConv":
         """
@@ -565,7 +564,7 @@ def convert_to_conditional_lora_model(
             lora_cls = ConditionalLoRALinear if conditional else LoRALinear
             modules_to_modify.append((name, module, lora_cls))
         elif (
-            isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d, Conv1dWrapper))
+            isinstance(module, nn.Conv1d | nn.Conv2d | nn.Conv3d | Conv1dWrapper)
             and convert_conv
         ):
             lora_cls = ConditionalLoRAConv if conditional else LoRAConv

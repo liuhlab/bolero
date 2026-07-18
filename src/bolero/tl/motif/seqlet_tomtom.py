@@ -336,6 +336,7 @@ class SeqletTomtom:
         for (seqlet_start, seqlet_end, flank_start), seqlet_attr in zip(
             seqlet_info[["start", "end", "flank_start"]].values,
             seqlet_ds["seqlets_attr"].values.astype("float32"),
+            strict=False,
         ):
             rel_start = seqlet_start - flank_seqlet_size - flank_start
             rel_start = max(rel_start, 0)

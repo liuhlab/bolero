@@ -126,7 +126,9 @@ def plot_plddt_segments(
     )
     if n_chain == 1:
         axes = [axes]
-    for ax, (chain, chain_segments) in zip(axes, all_segments.groupby("chain")):
+    for ax, (chain, chain_segments) in zip(
+        axes, all_segments.groupby("chain"), strict=False
+    ):
         chain_table = ca_atom_table[ca_atom_table["chain"] == chain].reset_index(
             drop=True
         )

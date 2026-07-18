@@ -1,5 +1,6 @@
 import pathlib
-from typing import Any, Callable, Iterable, Iterator, Optional, TypeVar
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, TypeVar
 
 import joblib
 import numpy as np
@@ -50,9 +51,9 @@ class RayGenomeChunkDataset(GenericDataset):
     def __init__(
         self,
         dataset_path: str,
-        genome: Optional[Genome] = None,
+        genome: Genome | None = None,
         shuffle_files=False,
-        read_parquet_kwargs: Optional[dict] = None,
+        read_parquet_kwargs: dict | None = None,
         max_regions_per_genome_chunk=None,
         load_one_hot=True,
     ) -> None:
@@ -548,7 +549,7 @@ class RayRegionDataset(GenericDataset):
             ends = chrom_df["End"].values
 
             # Vectorized approach to find nearby regions
-            for start, end in zip(starts, ends):
+            for start, end in zip(starts, ends, strict=False):
                 mask = (starts > (start - max_dist)) & (ends < (end + max_dist))
                 indices = np.where(mask)[0]
                 if len(indices) == 0:

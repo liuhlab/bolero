@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 import scipy
@@ -6,6 +8,9 @@ from anndata import AnnData
 from pynndescent import NNDescent
 from scipy.sparse import csr_matrix as scipy_csr_matrix
 from tqdm.auto import trange
+
+if TYPE_CHECKING:
+    from bolero.pp.genome import Genome
 
 
 def create_bins_and_sample_background(trans_norm_mat, bs, w, niterations):
@@ -140,7 +145,9 @@ def _parse_peak_regions(adata):
     return bed
 
 
-def get_peak_bias(adata, genome, base_order=None):
+def get_peak_bias(
+    adata: AnnData, genome: "Genome", base_order: str | None = None
+) -> None:
     """
     Compute per-peak GC content and the overall background nucleotide frequency.
 
@@ -201,17 +208,17 @@ def get_peak_bias(adata, genome, base_order=None):
 
 
 def scan_peak_motifs(
-    adata,
-    genome,
-    motif_path=None,
-    motif_db="JASPAR2024_CORE_vertebrates",
-    bg=None,
-    pvalue=5e-5,
-    pseudocount=0.8,
-    n_jobs=16,
-    mode="motifmatchr",
-    verbose=True,
-):
+    adata: AnnData,
+    genome: "Genome",
+    motif_path: str | None = None,
+    motif_db: str = "JASPAR2024_CORE_vertebrates",
+    bg: "tuple[float, ...] | str | None" = None,
+    pvalue: float = 5e-5,
+    pseudocount: float = 0.8,
+    n_jobs: int = 16,
+    mode: str = "motifmatchr",
+    verbose: bool = True,
+) -> None:
     """
     Match motifs against each peak and store the hit matrix on ``adata``.
 
@@ -320,7 +327,9 @@ def scipy_to_cupy_sparse(sparse_matrix):
     return cupy_sparse_matrix
 
 
-def compute_deviations(adata, chunk_size: int = 10000, device="cuda"):
+def compute_deviations(
+    adata: AnnData, chunk_size: int = 10000, device: str = "cuda"
+) -> AnnData:
     """
     Computes the deviation of motif matches from the background for each cell.
 

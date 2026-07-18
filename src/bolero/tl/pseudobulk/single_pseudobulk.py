@@ -1,5 +1,3 @@
-from typing import Union
-
 import joblib
 import numpy as np
 import pandas as pd
@@ -39,11 +37,11 @@ class SinglePseudobulker:
 
     def __init__(
         self,
-        pseudobulk_records: Union[str, dict],
+        pseudobulk_records: str | dict,
         downsample_pseudobulks: int = None,
         prefix_name: str = "pseudobulk",
         add_cov_to_emb: bool = False,
-        barcode_order: Union[str, list] = None,
+        barcode_order: str | list = None,
         emb_key="embedding",
         seed=42,
     ):

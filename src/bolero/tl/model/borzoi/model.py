@@ -378,8 +378,12 @@ class Borzoi(nn.Module):
             Predicted values, shape (batch_size, out_channels, seq_len).
         y_true : torch.Tensor
             True values, shape (batch_size, out_channels, seq_len).
-        power : float
-            Power value for convert the y_true before calculating loss.
+        reduce : bool
+            Whether to reduce the loss to a scalar.
+        position_weights : torch.Tensor, optional
+            Per-position weights applied to the loss.
+        loss_type : str
+            Which loss to compute (e.g. ``"poisson_multinomial"``).
         """
         with torch.no_grad():
             if isinstance(y_true, dict):

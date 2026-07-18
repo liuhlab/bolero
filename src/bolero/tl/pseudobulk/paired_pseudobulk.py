@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from copy import deepcopy
-from typing import Any, Union
+from typing import Any
 
 import joblib
 import numpy as np
@@ -480,10 +480,10 @@ class PairedPseudobulker(PseudobulkerMixin):
 
     def __init__(
         self,
-        pseudobulk_and_ot_info: Union[str, dict],
+        pseudobulk_and_ot_info: str | dict,
         emb_key: str = "embedding",
         downsample_pseudobulk: int = None,
-        barcode_order: Union[str, list] = None,
+        barcode_order: str | list = None,
         seed=42,
     ):
         """
@@ -605,7 +605,7 @@ class PairedPseudobulker(PseudobulkerMixin):
         cond_pair_pseudobulks[p_ot] = ot_pseudobulk
 
         # Following code is for generator to handle the pseudobulk records
-        for d, cond in zip(cond_pair_pseudobulks, cond_pair):
+        for d, cond in zip(cond_pair_pseudobulks, cond_pair, strict=False):
             # 1. set the embedding for generator to use
             # add cell embedding and coverage
             d["__embedding__"] = d[self.emb_key]
@@ -704,10 +704,10 @@ class EnsemblePairedPseudobulker(PseudobulkerMixin):
 
     def __init__(
         self,
-        pseudobulk_and_ot_info: Union[str, dict],
+        pseudobulk_and_ot_info: str | dict,
         emb_key: str = "embedding",
         downsample_pseudobulk: int = None,
-        barcode_order: Union[str, list] = None,
+        barcode_order: str | list = None,
         seed=42,
         p0_n_meta_cells=1000,
     ):
@@ -1064,13 +1064,17 @@ class GeneratePairedPseudobulk:
         pseudobulk_pairs, pid_records = pseudobulker.take(
             self.n_pseudobulks, return_pids=True
         )
-        for cond_pair_pseudobulks, pid_record in zip(pseudobulk_pairs, pid_records):
+        for cond_pair_pseudobulks, pid_record in zip(
+            pseudobulk_pairs, pid_records, strict=False
+        ):
             this_bulk_dict = {}
             if self.add_pid:
                 this_bulk_dict["__pid__"] = pseudobulker.pseudobulk_ids.get_loc(
                     pid_record
                 )
-            for pseudobulk, suffix in zip(cond_pair_pseudobulks, self.suffix):
+            for pseudobulk, suffix in zip(
+                cond_pair_pseudobulks, self.suffix, strict=False
+            ):
                 # 1. add condition embedding
                 if "__conditionemb__" in pseudobulk:
                     this_bulk_dict[f"{output_prefix}:condition_emb{suffix}"] = (

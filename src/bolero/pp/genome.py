@@ -4,7 +4,6 @@ import shutil
 import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from io import StringIO
-from typing import Union
 
 import joblib
 import numpy as np
@@ -217,9 +216,33 @@ def _is_macos():
 
 
 class Genome:
-    """Class for utilities related to a genome."""
+    """
+    Genome assembly handle: sequence, coordinates, and one-hot encoding.
 
-    def __init__(self, genome, save_dir=None, user_gtf_path=None):
+    Resolves a UCSC assembly name (e.g. ``"hg38"``, ``"mm10"``) to its local FASTA /
+    chrom.sizes (downloading on first use), exposes chromosome sizes, global (concatenated)
+    coordinates and the ENCODE blacklist, and serves DNA as sequence or one-hot arrays for
+    model input. It also lazily builds a whole-genome one-hot store in zarr
+    (:meth:`generate_genome_one_hot`) for fast random-access slicing, and provides gene/GTF
+    and protein-sequence lookups for the structural analyses.
+
+    Parameters
+    ----------
+    genome : str or Genome
+        UCSC assembly name (used to locate/download the FASTA), or an existing
+        :class:`Genome` (returned as-is).
+    save_dir : str or pathlib.Path, optional
+        Root directory for downloaded/derived data. Defaults to the package data dir.
+    user_gtf_path : str, optional
+        Path to a user-supplied GTF, used instead of the default annotation for gene lookups.
+    """
+
+    def __init__(
+        self,
+        genome: "str | Genome",
+        save_dir: "str | pathlib.Path | None" = None,
+        user_gtf_path: str | None = None,
+    ) -> None:
         if isinstance(genome, self.__class__):
             return genome
 
@@ -327,7 +350,7 @@ class Genome:
         step: int,
         as_df: bool = False,
         force_length: bool = True,
-    ) -> Union[pr.PyRanges, pd.DataFrame]:
+    ) -> "pr.PyRanges | pd.DataFrame":
         """
         Create windows across the genome, mimicking bedtools makewindows
 
@@ -774,21 +797,18 @@ class Genome:
             self._one_hot_obj = genome_one_hot
         return self._one_hot_obj
 
-    def generate_genome_one_hot(self, zarr_path=None):
+    def generate_genome_one_hot(self, zarr_path: "str | pathlib.Path | None" = None):
         """
         Generate genome one-hot encoding.
 
         Parameters
         ----------
-        - zarr_path (str): Path to save the Zarr file. If not provided, a default path will be used.
+        zarr_path : str or pathlib.Path, optional
+            Path to save the Zarr file. If not provided, a default path will be used.
 
         Returns
         -------
-        - None
-
-        Raises
-        ------
-        - None
+        None
         """
         print("Generating genome one-hot encoding")
         if zarr_path is None:
@@ -1041,21 +1061,25 @@ class Genome:
         """Alias of get_region_sequence"""
         return self.get_region_sequence(*args, **kwargs)
 
-    def get_regions_one_hot(self, regions):
+    def get_regions_one_hot(self, regions: "pd.DataFrame | list[str]") -> torch.Tensor:
         """
         Get the one-hot encoding for the given regions.
 
         Parameters
         ----------
-            regions (list): A list of regions for which to retrieve the one-hot encoding.
+        regions : pd.DataFrame or list of str
+            The regions for which to retrieve the one-hot encoding.
 
         Returns
         -------
-            numpy.ndarray: The one-hot encoding for the given regions.
+        torch.Tensor
+            The one-hot encoding for the given regions.
 
         Raises
         ------
-            ValueError: If the genome one-hot encoding is not created. Please run `genome.get_genome_one_hot` first.
+        ValueError
+            If the genome one-hot encoding is not created. Please run
+            ``genome.get_genome_one_hot`` first.
         """
         if self.genome_one_hot is None:
             raise ValueError(

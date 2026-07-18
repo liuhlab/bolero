@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch
 from einops import rearrange
 from torch.nn import functional as F
@@ -7,8 +5,8 @@ from torchmetrics import Metric
 
 
 class MeanPearsonCorrCoefPerChannel(Metric):
-    is_differentiable: Optional[bool] = False
-    higher_is_better: Optional[bool] = True
+    is_differentiable: bool | None = False
+    higher_is_better: bool | None = True
 
     def __init__(self, n_channels: int, dist_sync_on_step=False, reduce_dims=(0, 2)):
         """Calculates the mean pearson correlation across channels aggregated over regions"""
@@ -117,7 +115,7 @@ def poisson_multinomial(
     epsilon: float = 1e-7,
     return_breakdown: bool = False,
     loss_chunks: int = 1,
-    position_weights: Optional[torch.Tensor] = None,
+    position_weights: torch.Tensor | None = None,
 ):
     """
     Compositional loss containing the overall poisson term and position-wise multinomial term.

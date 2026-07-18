@@ -12,10 +12,8 @@ These transform classes take a data dictionary and returns a list of modified da
 """
 
 from collections import defaultdict
-from typing import Union
 
 import numpy as np
-import pandas as pd
 
 from bolero.pp.genome import FastaOneHotNoParallel
 
@@ -25,7 +23,7 @@ class CropRegionsWithJitter:
 
     def __init__(
         self,
-        key: Union[str, list[str]],
+        key: str | list[str],
         final_length: int,
         max_jitter: int = 0,
         crop_axis=0,
@@ -71,7 +69,7 @@ class CropRegionsWithJitter:
         else:
             jitter = 0
 
-        for k, length in zip(self.key, self.final_length):
+        for k, length in zip(self.key, self.final_length, strict=False):
             _input = data.pop(k)
 
             _input_length = _input.shape[self.crop_axis]
@@ -94,7 +92,7 @@ class CropLastAxisWithJitter:
 
     def __init__(
         self,
-        key: Union[str, list[str]],
+        key: str | list[str],
         final_length: int,
         max_jitter: int = 0,
     ):
@@ -138,7 +136,7 @@ class CropLastAxisWithJitter:
         else:
             jitter = 0
 
-        for k, length in zip(self.key, self.final_length):
+        for k, length in zip(self.key, self.final_length, strict=False):
             _input = data.pop(k)
 
             _input_length = _input.shape[-1]
@@ -159,8 +157,8 @@ class ReverseComplement:
 
     def __init__(
         self,
-        dna_key: Union[str, list[str]],
-        signal_key: Union[str, list[str]],
+        dna_key: str | list[str],
+        signal_key: str | list[str],
         prob=0.5,
     ):
         """
@@ -292,7 +290,7 @@ class AddChannels:
 
     def __init__(
         self,
-        key: Union[str, list[str]],
+        key: str | list[str],
         channel_func: callable = None,
         channel_dim: int = 1,
     ):

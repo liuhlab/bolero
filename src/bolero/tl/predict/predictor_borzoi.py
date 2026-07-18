@@ -4,9 +4,9 @@ import pathlib
 import tempfile
 import time
 from collections import defaultdict
+from collections.abc import Generator
 from copy import deepcopy
 from shutil import rmtree
-from typing import Generator
 
 import joblib
 import numpy as np
@@ -49,13 +49,36 @@ def _clip_at_center(
 ) -> torch.Tensor | dict[str, torch.Tensor] | list[torch.Tensor]:
     if isinstance(data, dict):
         return {k: _clip(v, clip_length) for k, v in data.items()}
-    elif isinstance(data, (list, tuple)):
+    elif isinstance(data, list | tuple):
         return [_clip(d, clip_length) for d in data]
     else:
         return _clip(data, clip_length)
 
 
 class BorzoiInputXGradient:
+    """
+    Per-base attribution for a collapsed, cell-state-specific Borzoi model.
+
+    Wraps ``model`` (typically a ``BorzoiLoRA`` collapsed onto one cell-state
+    embedding) with Captum's :class:`~captum.attr.InputXGradient`. The forward hook
+    sums the predicted signal over the centre ``peak_length`` bins, so the returned
+    attribution is the input-times-gradient of that scalar peak score with respect
+    to each input base, cropped to the centre ``attr_length`` bp.
+
+    Parameters
+    ----------
+    model
+        A callable ``DNA(+signal) -> track`` model (e.g. a collapsed ``BorzoiLoRA``).
+    peak_length
+        Width in bp of the centred region whose summed signal is attributed.
+    attr_length
+        Width in bp of the centred attribution window returned by ``__call__``.
+    model_dna_length
+        Input sequence length the model expects (524,288 bp).
+    model_resolution
+        Output bin size in bp (32).
+    """
+
     def __init__(
         self,
         model,
@@ -113,6 +136,23 @@ class BorzoiInputXGradient:
 
 
 class BorzoiGeneInputXGradient:
+    """
+    Per-base attribution for the gene-count (RNA) head of a collapsed Borzoi model.
+
+    Like :class:`BorzoiInputXGradient`, but attributes the scalar gene-count output
+    of ``model.forward_gene`` (the Decima-style RNA head) for a given ``gene_mask``,
+    using Captum's :class:`~captum.attr.InputXGradient`.
+
+    Parameters
+    ----------
+    model
+        A collapsed ``BorzoiLoRA`` with a gene-count head (``forward_gene``).
+    model_dna_length
+        Input sequence length the model expects (524,288 bp).
+    model_resolution
+        Output bin size in bp (32).
+    """
+
     def __init__(
         self,
         model,
@@ -161,6 +201,26 @@ class BorzoiGeneInputXGradient:
 
 
 class BorzoiPredictor(GenericPredictor):
+    """
+    Inference engine for a trained Bolero (``BorzoiLoRA``) model.
+
+    Owns a model plus a
+    :class:`~bolero.tl.predict.datamanager.GenericGenomeDataManager` and exposes
+    high-level *task* methods that map to the paper's analyses:
+    :meth:`prediction_task` / :meth:`inference_task` (accessibility and gene-count
+    tracks), :meth:`caqtl_task` / :meth:`qtl_task` / :meth:`eqtl_task` (variant
+    effect), :meth:`peak_task` (per-peak aggregation) and :meth:`attribution_task`
+    (per-base DNA attribution). The data manager assembles the cell-state
+    conditioning and reference signal for each region;
+    :class:`BorzoiSignalPredictor` extends this with the signal / velocity modes.
+
+    Parameters
+    ----------
+    config
+        Predictor configuration dict (validated against ``default_config``); see the
+        prediction tutorials for the expected keys.
+    """
+
     model_class = BorzoiLoRA
     allowed_modes = [
         "prediction",
@@ -1041,20 +1101,20 @@ class BorzoiPredictor(GenericPredictor):
 
     def prediction_task(
         self,
-        output_dir,
-        regions="test_regions",
-        downsample_regions=None,
-        downsample_seed=0,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        stats_keys=None,
-        verbose=True,
-        save_first_batch=False,
-        mode="prediction",
-        filter_valid_regions=True,
-        _dataloader_batch_size=None,
-    ):
+        output_dir: str,
+        regions: "str | pd.DataFrame | list[str]" = "test_regions",
+        downsample_regions: int | None = None,
+        downsample_seed: int = 0,
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        stats_keys: list[str] | None = None,
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        mode: str = "prediction",
+        filter_valid_regions: bool = True,
+        _dataloader_batch_size: int | None = None,
+    ) -> None:
         """
         Prediction task for Borzoi.
         Compute the prediction on a set of regions and pseudobulk records.
@@ -1227,18 +1287,18 @@ class BorzoiPredictor(GenericPredictor):
 
     def inference_task(
         self,
-        output_dir,
-        regions,
-        downsample_regions=None,
-        downsample_seed=0,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        verbose=True,
-        save_first_batch=False,
-        mode="prediction",
-        _dataloader_batch_size=None,
-    ):
+        output_dir: str,
+        regions: "str | pd.DataFrame | list[str]",
+        downsample_regions: int | None = None,
+        downsample_seed: int = 0,
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        mode: str = "prediction",
+        _dataloader_batch_size: int | None = None,
+    ) -> None:
         """
         Inference task for Borzoi.
         Compute the prediction on a set of regions and pseudobulk records.
@@ -1394,18 +1454,18 @@ class BorzoiPredictor(GenericPredictor):
 
     def caqtl_task(
         self,
-        output_dir,
-        qtl_table,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        add_true_data=False,
-        verbose=True,
-        save_first_batch=False,
-        qtl_type="caqtl",
-        channel_weights_path=None,
-        _dataloader_batch_size=None,
-    ):
+        output_dir: str,
+        qtl_table: "str | pd.DataFrame",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        add_true_data: bool = False,
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        qtl_type: str = "caqtl",
+        channel_weights_path: str | None = None,
+        _dataloader_batch_size: int | None = None,
+    ) -> None:
         """
         QTL Prediction task for Borzoi.
         Compute the ref and alt prediction of a QTL dataset
@@ -1503,16 +1563,16 @@ class BorzoiPredictor(GenericPredictor):
 
     def eqtl_task(
         self,
-        output_dir,
-        qtl_table,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        add_true_data=False,
-        verbose=True,
-        save_first_batch=False,
-        _dataloader_batch_size=None,
-    ):
+        output_dir: str,
+        qtl_table: "str | pd.DataFrame",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        add_true_data: bool = False,
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        _dataloader_batch_size: int | None = None,
+    ) -> None:
         """
         eQTL task for Borzoi - predict effect of variants on gene expression.
 
@@ -1602,15 +1662,15 @@ class BorzoiPredictor(GenericPredictor):
 
     def peak_task(
         self,
-        output_dir,
-        peak_table,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        verbose=True,
-        save_first_batch=False,
-        _dataloader_batch_size=None,
-    ):
+        output_dir: str,
+        peak_table: "str | pd.DataFrame",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        _dataloader_batch_size: int | None = None,
+    ) -> None:
         """
         Prediction task for Borzoi.
         Compute the prediction on a peak of interests.
@@ -1813,17 +1873,17 @@ class BorzoiPredictor(GenericPredictor):
 
     def attribution_task(
         self,
-        output_dir,
-        regions_per_pseudobulk,
-        pseudobulk_ids=None,
-        batch_size=6,
-        save_keys="default",
-        verbose=True,
-        save_first_batch=False,
-        mode="attribution",
-        qtl_table=None,
-        qtl_type=None,
-    ):
+        output_dir: str,
+        regions_per_pseudobulk: "dict | pd.DataFrame | str",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 6,
+        save_keys: "str | list[str] | None" = "default",
+        verbose: bool = True,
+        save_first_batch: bool = False,
+        mode: str = "attribution",
+        qtl_table: "str | pd.DataFrame | None" = None,
+        qtl_type: str | None = None,
+    ) -> None:
         """
         Attribution task for Borzoi with optional QTL mutation analysis.
 
@@ -2827,17 +2887,17 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
     def evolution_task(
         self,
-        output_dir,
+        output_dir: str,
         rank_pred_fn: callable,
         save_keys: list[str],
         top_k: int = 5,
-        pseudobulk_ids=None,
-        batch_size=32,
-        max_batches=50,
-        dna_key="dna",
-        embedding_key="embedding",
-        n_experiments=10,
-    ):
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 32,
+        max_batches: int = 50,
+        dna_key: str = "dna",
+        embedding_key: str = "embedding",
+        n_experiments: int = 10,
+    ) -> None:
         """
         Evolution task for Borzoi. Perform directed DNA evolution.
 
@@ -2927,17 +2987,17 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
     def attribution_task(
         self,
-        output_dir,
-        regions_per_pseudobulk,
-        pseudobulk_ids=None,
-        batch_size=6,
-        save_keys="default",
-        verbose=True,
-        mode="attribution",
-        save_first_batch=False,
-        qtl_table=None,
-        qtl_type=None,
-    ):
+        output_dir: str,
+        regions_per_pseudobulk: "dict | pd.DataFrame | str",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 6,
+        save_keys: "str | list[str] | None" = "default",
+        verbose: bool = True,
+        mode: str = "attribution",
+        save_first_batch: bool = False,
+        qtl_table: "str | pd.DataFrame | None" = None,
+        qtl_type: str | None = None,
+    ) -> None:
         """
         Attribution task for BorzoiSignalPredictor.
         Compute the attribution on a set of regions and pseudobulk records.
@@ -2980,13 +3040,13 @@ class BorzoiSignalPredictor(BorzoiPairPredictor):
 
     def qtl_task(
         self,
-        output_dir,
-        qtl_table,
-        pseudobulk_ids=None,
-        batch_size=16,
-        save_keys="default",
-        verbose=True,
-    ):
+        output_dir: str,
+        qtl_table: "str | pd.DataFrame",
+        pseudobulk_ids: list[str] | None = None,
+        batch_size: int = 16,
+        save_keys: "str | list[str] | None" = "default",
+        verbose: bool = True,
+    ) -> None:
         """
         QTL task for BorzoiSignalPredictor.
 

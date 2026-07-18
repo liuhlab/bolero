@@ -311,7 +311,7 @@ class PeakDataSummary:
             data = data_dict[key]
             data = self._crop_data(data)
             feture_data_col = []
-            for idx, (_data, mask) in enumerate(zip(data, feature_masks)):
+            for idx, (_data, mask) in enumerate(zip(data, feature_masks, strict=False)):
                 mask = mask.to(device=_data.device, dtype=_data.dtype)
                 if self._is_gene_region:
                     _strand = strand_list[idx]
@@ -406,7 +406,7 @@ class ProcessPairedData:
         """
         pid_table = self._make_or_check_pid_table(batch)
 
-        for data_key, split_dim in zip(self.data_keys, self.split_dims):
+        for data_key, split_dim in zip(self.data_keys, self.split_dims, strict=False):
             if data_key not in batch:
                 continue
 

@@ -1320,7 +1320,9 @@ class MultiBorzoiLoRATrainer(BorzoiLoRATrainer):
         condition_emb_data = batch[f"{self.prefix}:condition_emb_1"]
         split_condition_emb_data: list[dict[str, torch.Tensor]] = []
 
-        for dataset_idx, cond_emb in zip(dataset_keys, condition_emb_data):
+        for dataset_idx, cond_emb in zip(
+            dataset_keys, condition_emb_data, strict=False
+        ):
             dataset_pm = multi_pm.pseudobulker_dict[multi_pm.keys[dataset_idx]]
             condition_encoder = dataset_pm.condition_encoder
             if condition_encoder is not None:

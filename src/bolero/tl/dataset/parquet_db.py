@@ -1,7 +1,7 @@
 import json
 import pathlib
 from collections import defaultdict
-from typing import Generator
+from collections.abc import Generator
 
 import duckdb
 import joblib
@@ -422,7 +422,7 @@ class GenomeParquetDBNoParallel:
             if row is None:
                 break
 
-            row_dict = dict(zip(cols, row))
+            row_dict = dict(zip(cols, row, strict=False))
             _data = self.single_row_actor.convert(
                 row_dict, subset_plan=pseudobulk_subset_plan
             )
@@ -499,7 +499,8 @@ class GenomeParquetDBNoParallel:
                     zip(
                         g["Name"].tolist(),  # region_name
                         g["rel_start"].astype(int),  # rel_start
-                        g["region_size"].astype(int),  # region_size
+                        g["region_size"].astype(int),
+                        strict=False,  # region_size
                     )
                 )
             )
@@ -719,7 +720,7 @@ class GenomeParquetDB(GenomeParquetDBNoParallel):
             if row is None:
                 break
 
-            row_dict = dict(zip(cols, row))
+            row_dict = dict(zip(cols, row, strict=False))
             actor_pool.submit(
                 lambda a, x: a.convert.remote(x, subset_plan=pseudobulk_subset_plan),
                 row_dict,

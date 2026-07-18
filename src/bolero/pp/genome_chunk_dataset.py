@@ -1,7 +1,6 @@
 import gzip
 import pathlib
 from collections import OrderedDict
-from typing import Union
 
 import joblib
 import numpy as np
@@ -10,8 +9,6 @@ import pyBigWig
 import pysam
 import ray
 from scipy.sparse import csc_matrix, csr_matrix, identity, kron, vstack
-
-from bolero.utils import get_global_coords
 
 
 class GenericGenomeChunkDataset:
@@ -277,7 +274,7 @@ class GenomeBigWigDataset:
     def get_regions_data(
         self,
         regions_df: pd.DataFrame,
-    ) -> list[dict[str, Union[np.ndarray, list[float]]]]:
+    ) -> list[dict[str, np.ndarray | list[float]]]:
         """
         Get the data for multiple genomic regions.
 
@@ -341,7 +338,7 @@ class GenomeBigWigDataset:
             return data_dict
 
         list_of_dicts = []
-        for region, region_csr_list in zip(region_names, list_of_lists):
+        for region, region_csr_list in zip(region_names, list_of_lists, strict=False):
             task = _get_data_dict.remote(
                 region_csr_list=region_csr_list,
                 region=region,
@@ -485,7 +482,7 @@ class GenomeALLCDataset:
 
     def get_regions_data(
         self, regions_df: pd.DataFrame
-    ) -> list[dict[str, Union[np.ndarray, list[float]]]]:
+    ) -> list[dict[str, np.ndarray | list[float]]]:
         """
         Get the data for the specified regions.
 
@@ -541,10 +538,10 @@ class GenomeALLCDataset:
             sparse: bool,
             prefix: str,
             compress_level: int,
-        ) -> dict[str, Union[bytes, str]]:
+        ) -> dict[str, bytes | str]:
             data_dicts = []
             for _suffix, _list_of_csr in zip(
-                ["_mc", "_cov"], [region_mc_csr_list, region_cov_csr_list]
+                ["_mc", "_cov"], [region_mc_csr_list, region_cov_csr_list], strict=False
             ):
                 if sparse:
                     data_dict = csr_matrix_to_compressed_bytes_dict(
@@ -567,7 +564,9 @@ class GenomeALLCDataset:
             return final_data_dict
 
         list_of_dicts = []
-        for region, _mc, _cov in zip(region_names, list_of_mc_lists, list_of_cov_lists):
+        for region, _mc, _cov in zip(
+            region_names, list_of_mc_lists, list_of_cov_lists, strict=False
+        ):
             task = _get_data_dict.remote(
                 region_mc_csr_list=_mc,
                 region_cov_csr_list=_cov,
