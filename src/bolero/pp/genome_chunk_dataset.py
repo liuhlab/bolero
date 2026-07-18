@@ -523,7 +523,9 @@ class GenomeALLCDataset:
         tasks = []
         for name in names:
             path = self.allc_path_dict[name]
-            this_task = _remote_allc_values.remote(path, regions_df, self.resolution)
+            this_task = _remote_allc_values.remote(
+                path, regions_df, resolution=self.resolution
+            )
             tasks.append(this_task)
 
         for i, task in enumerate(tasks):
