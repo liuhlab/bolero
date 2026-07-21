@@ -1154,6 +1154,12 @@ class Genome:
                     "`bolerodata` package (https://github.com/liuhlab/bolerodata); install "
                     "it to use Genome.uniprot_records."
                 ) from e
+            if not hasattr(bolerodata, "get_uniprot_records_path"):
+                raise NotImplementedError(
+                    "UniProt/SwissProt record retrieval is not available in this version "
+                    "of `bolerodata` (deferred; see liuhlab/bolerodata#2). "
+                    "Genome.uniprot_records / .uniprot_idmap are unsupported for now."
+                )
             file_path = bolerodata.get_uniprot_records_path(species)
             gene_prot_map_path = bolerodata.get_uniprot_idmap_path(species)
 
