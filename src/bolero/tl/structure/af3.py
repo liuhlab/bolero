@@ -8,6 +8,7 @@ Singularity image, data-pipeline-free), then load the compact result with
 
 import itertools
 import json
+import os
 import pathlib
 import re
 import string
@@ -25,15 +26,22 @@ from .mmcif import mmCIFStructure
 
 StrPath = str | pathlib.Path
 
+# AlphaFold3 requires a local install: the AF3 code, model parameters, the multi-GB
+# public sequence databases, and a Singularity image — none are shipped with bolero (out
+# of scope for this package). Point these at your own AF3 setup via environment variables:
+#   BOLERO_AF3_CODE_DIR, BOLERO_AF3_MODEL_DIR, BOLERO_AF3_DB_DIR,
+#   BOLERO_AF3_SINGULARITY_SIF, BOLERO_AF3_MSA_CACHE_DIR
+# Any unset (or non-existent) path resolves to None.
 _LOCAL_DEFAULT = {
-    "af3_code_dir": "/large_storage/zhoulab/hanliu/wmb/ref/af3/alphafold3/",
-    "af3_model_dir": "/scratch/zhoulab/hanliu/af3/model",
-    "af3_db_dir": "/scratch/zhoulab/hanliu/af3/public_databases",
-    "af3_singularity_sif": "/scratch/zhoulab/hanliu/af3/alphafold3.sif",
-    "msa_cache_dir": "/large_storage/zhoulab/hanliu/wmb/ref/af3/msa_cache/protein",
+    "af3_code_dir": os.environ.get("BOLERO_AF3_CODE_DIR"),
+    "af3_model_dir": os.environ.get("BOLERO_AF3_MODEL_DIR"),
+    "af3_db_dir": os.environ.get("BOLERO_AF3_DB_DIR"),
+    "af3_singularity_sif": os.environ.get("BOLERO_AF3_SINGULARITY_SIF"),
+    "msa_cache_dir": os.environ.get("BOLERO_AF3_MSA_CACHE_DIR"),
 }
 _LOCAL_DEFAULT = {
-    k: p if pathlib.Path(p).exists() else None for k, p in _LOCAL_DEFAULT.items()
+    k: p if p is not None and pathlib.Path(p).exists() else None
+    for k, p in _LOCAL_DEFAULT.items()
 }
 
 

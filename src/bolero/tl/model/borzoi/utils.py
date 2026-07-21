@@ -1,5 +1,3 @@
-import pathlib
-
 import numpy as np
 import pandas as pd
 import pyranges as pr
@@ -11,10 +9,9 @@ from bolero.pp.seq import one_hot_encoding_torch
 from bolero.utils import get_package_dir
 
 BORZOI_DATA_DIR = get_package_dir() / "pkg_data/borzoi"
-# TODO: change this dir to pkg dir
-BORZOI_GENE_DIR = pathlib.Path(
-    "/large_storage/zhoulab/hanliu/250901-GeneCountPred/prepare/regions"
-)
+# Per-genome Borzoi gene-region tables ({genome}.GeneBorzoiRegion.feather), shipped
+# with the package under pkg_data/borzoi/gene_regions.
+BORZOI_GENE_DIR = BORZOI_DATA_DIR / "gene_regions"
 BORZOI_REGION_SIZE = 524288
 
 # as said by the author: https://github.com/calico/borzoi/issues/11

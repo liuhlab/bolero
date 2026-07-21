@@ -443,29 +443,37 @@ class Transcript(Feature, FeatureSharedPropertyMixin):
         return ax
 
 
-# Currently gtf path is hard coded
-# look for a remote storage solution
-_ref_dir = "/large_storage/zhoulab/hanliu/wmb/ref"
-GTF_PATH = {
-    "mm10": f"{_ref_dir}/mm10/gtf/biccn/modified_gencode.vM23.primary_assembly.annotation.gtf",
-    "hg38": f"{_ref_dir}/hg38/gtf/gencode.v30.annotation.gtf",
-    "calJac4": f"{_ref_dir}/calJac4/ncbiRefSeq.gtf",
-    "mCalJac1.pat.X": f"{_ref_dir}/mCalJac1.pat.X/gtf/Callithrix_jacchus.mCalJac1.pat.X.114.chr.gtf",
-    "monDom5.split": f"{_ref_dir}/monDom5/gtf/monDom5_evodevoCerebellum_extended_codingOverlapsRM.gtf",
-    "panPan3": f"{_ref_dir}/panPan3/gtf/ncbiRefSeq.gtf",
-    "rheMac10": f"{_ref_dir}/rheMac10/rheMac10.ensGene.gtf",
-}
+def _resolve_gtf_path(genome: str) -> str:
+    """Resolve the reference GTF path for a genome via the ``bolerodata`` registry.
+
+    Reference GTF/annotation files are distributed through the companion ``bolerodata``
+    package (https://github.com/liuhlab/bolerodata), not bundled with bolero. The import
+    is kept lazy to avoid a hard bolero -> bolerodata dependency and the API-level import
+    cycle. Pass ``gtf_path`` to :func:`load_gtf` (or ``user_gtf_path`` to ``Genome``) to
+    bypass the registry entirely.
+    """
+    try:
+        import bolerodata
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            f"No GTF path is bundled for genome {genome!r}. Reference GTFs are provided by "
+            "the companion `bolerodata` package "
+            "(https://github.com/liuhlab/bolerodata); install it, or pass `gtf_path` "
+            "explicitly."
+        ) from e
+    try:
+        return str(bolerodata.get_gtf_path(genome))
+    except (AttributeError, KeyError, ValueError) as e:
+        raise ValueError(
+            f"bolerodata could not resolve a GTF path for genome {genome!r}. Pass "
+            "`gtf_path` explicitly, or check the bolerodata GTF registry."
+        ) from e
 
 
 def load_gtf(genome: str, gtf_path: str = None):
     """Load GTFDB for genome."""
     if gtf_path is None:
-        gtf_path = GTF_PATH.get(genome, None)
-
-    if gtf_path is None:
-        raise ValueError(
-            f"Existing gtf_path for genome {genome} not found. Please provide gtf_path explicitly."
-        )
+        gtf_path = _resolve_gtf_path(genome)
 
     if str(gtf_path).endswith(".db"):
         gtfdb_path = gtf_path

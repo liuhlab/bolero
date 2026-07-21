@@ -3,8 +3,17 @@ import warnings
 import numpy as np
 import pandas as pd
 import polars as pl
-from finemo.data_io import HITS_DTYPES, load_modisco_motifs
-from finemo.hitcaller import fit_contribs
+
+try:
+    from finemo.data_io import HITS_DTYPES, load_modisco_motifs
+    from finemo.hitcaller import fit_contribs
+except ModuleNotFoundError as e:  # pragma: no cover - optional git-only backend
+    raise ModuleNotFoundError(
+        "bolero.tl.motif.finemo requires the git-only 'finemo' package (finemo-gpu). "
+        "Install it with "
+        "`pip install git+https://github.com/austintwang/finemo_gpu.git`, "
+        "or use the pixi environment (which declares it). See docs/installation.md."
+    ) from e
 
 from bolero.tl.motif.modisco import ModiscoHDF
 

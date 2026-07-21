@@ -50,10 +50,15 @@ dependencies = [
     "vector_quantize_pytorch",
     "xarray",
     "zarr",
+    # Added for public release (see issue #9): imported by bolero but previously only
+    # present in the pixi env. `ray` is the core data/inference engine; the rest back the
+    # motif-interpretation (`tl/motif`) and IGV-plotting (`pl/igv`) code paths and are all
+    # published on PyPI.
+    "ray",
+    "modisco-lite",
+    "logomaker",
+    "igv-notebook",
 ]
-
-[project.scripts]
-mysbatch = "sbatch.main:submitter"
 
 [project.optional-dependencies]
 dev = ["pre-commit", "twine>=4.0.2", "black", "isort"]
@@ -71,6 +76,16 @@ notebook = [
     "qnorm",
 ]
 test = ["pytest", "coverage"]
+# Optional feature extra: interactive Mol* structure viewer for `tl/structure`.
+structure = ["ipymolstar"]
+# NOTE: some optional backends are intentionally NOT declared as extras because they
+# cannot live in PyPI metadata or need conda:
+#   - GPU: `flash-attn`, `cupy` (conda-forge; provided by the pixi env)
+#   - motif scanning / hit calling: `MOODS-python`, `finemo` (git forks; see the pixi
+#     `[tool.pixi.pypi-dependencies]` block)
+#   - metacells: `SEACells` (git fork; pixi)
+# A plain `pip install bolero` covers the core model/prediction/interpretation path; the
+# above are installed via pixi or manually — see docs/installation.md.
 
 [tool.coverage.run]
 source = ["bolero"]
@@ -171,7 +186,7 @@ convention = "numpy"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bolero", "src/sbatch"]
+packages = ["src/bolero"]
 
 # ---------------------------------------------------------------------------
 # pixi
@@ -195,6 +210,9 @@ SEACells = { git = "https://github.com/liuhlab/SEACells_pixi.git", branch = "mai
 # MOODS motif scanner (used by bolero.tl.motif / the chromVAR peak motif matching).
 # Our fork ships a scikit-build-core/CMake build so it installs cleanly from git here.
 MOODS-python = { git = "https://github.com/liuhlab/MOODS_pixi.git", branch = "master" }
+# finemo-gpu (genome-wide motif hit calling, bolero.tl.motif.finemo). Distribution name is
+# `finemo`; it is GitHub-only, so it lives here rather than in [project.dependencies].
+finemo = { git = "https://github.com/austintwang/finemo_gpu.git" }
 
 [tool.pixi.dependencies]
 python = "3.11.*"

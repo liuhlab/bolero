@@ -1143,12 +1143,19 @@ class Genome:
         """Get the swiss-port records for this species"""
         if self._uniprot_seq_records is None:
             species = GENOME_TO_SPECIES[self.name].replace(" ", "_")
-            file_path = (
-                f"~/ref/uniprot/sport_per_species/{species}.sport_records.joblib.gz"
-            )
-            file_path = pathlib.Path(file_path).expanduser()
-            gene_prot_map_path = f"~/ref/uniprot/sport_per_species/{species}.gene_to_prot_idmap.joblib.gz"
-            gene_prot_map_path = pathlib.Path(gene_prot_map_path).expanduser()
+            # Per-species UniProt/SwissProt records are distributed through the companion
+            # `bolerodata` package, not bundled with bolero. Lazy import avoids a hard
+            # bolero -> bolerodata dependency / import cycle.
+            try:
+                import bolerodata
+            except ModuleNotFoundError as e:
+                raise ModuleNotFoundError(
+                    "UniProt/SwissProt per-species records are provided by the companion "
+                    "`bolerodata` package (https://github.com/liuhlab/bolerodata); install "
+                    "it to use Genome.uniprot_records."
+                ) from e
+            file_path = bolerodata.get_uniprot_records_path(species)
+            gene_prot_map_path = bolerodata.get_uniprot_idmap_path(species)
 
             # {prot_acc: SeqRecord}
             self._uniprot_seq_records = joblib.load(file_path)

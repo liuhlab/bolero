@@ -10,10 +10,17 @@ from functools import partial
 from pathlib import Path
 from typing import Literal
 
-import MOODS
-import MOODS.parsers
-import MOODS.scan
-import MOODS.tools
+try:
+    import MOODS
+    import MOODS.parsers
+    import MOODS.scan
+    import MOODS.tools
+except ModuleNotFoundError as e:  # pragma: no cover - optional git-only backend
+    raise ModuleNotFoundError(
+        "bolero.tl.motif.scan requires the 'MOODS' motif scanner. Install our fork with "
+        "`pip install git+https://github.com/liuhlab/MOODS_pixi.git`, or use the pixi "
+        "environment (which declares it). See docs/installation.md."
+    ) from e
 import numpy as np
 import pandas as pd
 from pyfaidx import Fasta

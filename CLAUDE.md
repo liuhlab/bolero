@@ -108,8 +108,7 @@ Notes:
 ## Package layout & import conventions
 
 Follows the scverse convention under `src/bolero/`: **`pp`** (preprocessing), **`tl`**
-(tools), **`pl`** (plotting). A second top-level package `src/sbatch/` provides the
-`mysbatch` SLURM-submission CLI.
+(tools), **`pl`** (plotting).
 
 **Import by fully-qualified module path.** Only the top-level package and `pp` curate
 re-exports; `tl/__init__.py`, `pl/__init__.py`, and most `tl/*/__init__.py` (including
@@ -206,11 +205,6 @@ Consume the attribution scores from §4:
   activity score** used as a conditioning variable in the score model (paper's "Bolero-Score").
 - `tl/footprint/` — TF footprinting from ATAC signal. `tl/structure/` — AlphaFold3 (`af3.py`),
   ESM-C (`esm.py`), AlphaFold DB (`afdb.py`) for the TF-cooperativity structural analysis.
-
-### 6. `src/sbatch/` — the `mysbatch` CLI
-A `click`-based SLURM submitter (`main.py:submitter`). `SlurmManager` caps concurrent jobs
-per partition and submits/reruns idempotently; `PreemptibleManager` submits a list of
-commands to a preemptible partition and resubmits ones that get preempted.
 
 ## Paper ↔ code map (quick reference)
 

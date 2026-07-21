@@ -223,34 +223,31 @@ def get_default_save_dir(save_dir):
 
     Notes
     -----
-    If `save_dir` is not provided, the function will first check if the
-    directory "/ref/bolero" exists. If it does, that directory will be used
-    as the default save directory. If not, it will check if the directory
-    "{home_dir}/ref/bolero" exists, where `home_dir` is the user's home
-    directory. If that directory exists, it will be used as the default save
-    directory. If neither directory exists, the function will fall back to
-    `get_package_dir()` to determine the default save directory.
+    If `save_dir` is not provided, resolution proceeds in order:
+
+    1. the ``BOLERO_DATA_DIR`` environment variable, if set;
+    2. otherwise the first existing directory among ``{home_dir}/ref/bolero``,
+       ``{home_dir}/data/bolero``, ``/ref/bolero`` (conventional locations);
+    3. otherwise `get_package_dir()`.
 
     The returned save directory will be an absolute `pathlib.Path` object.
 
     """
     if save_dir is None:
-        home_dir = pathlib.Path.home()
-        _my_defaults = [
-            pathlib.Path("/ref/bolero"),
-            pathlib.Path(f"{home_dir}/ref/bolero"),
-            pathlib.Path(f"{home_dir}/data/bolero"),
-        ]
-        save_dir = None
-        for _default in _my_defaults:
-            if _default.exists():
-                save_dir = _default
-                break
-        if save_dir is None:
-            if BOLERO_DATA_DIR is not None:
-                save_dir = pathlib.Path(BOLERO_DATA_DIR)
-            else:
-                save_dir = get_package_dir()
+        if BOLERO_DATA_DIR is not None:
+            save_dir = pathlib.Path(BOLERO_DATA_DIR)
+        else:
+            home_dir = pathlib.Path.home()
+            _probe_defaults = [
+                pathlib.Path(f"{home_dir}/ref/bolero"),
+                pathlib.Path(f"{home_dir}/data/bolero"),
+                pathlib.Path("/ref/bolero"),
+            ]
+            save_dir = get_package_dir()
+            for _default in _probe_defaults:
+                if _default.exists():
+                    save_dir = _default
+                    break
 
     save_dir = pathlib.Path(save_dir).absolute().resolve()
     return save_dir

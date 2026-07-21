@@ -42,12 +42,14 @@ tests/check.ipynb
 rune/*
 **/wandb/
 **/*.json
-# exclude all pt
+# exclude all pt / joblib / json, but always keep the committed package data
+# assets under src/bolero/pkg_data (motif clusters, gene regions, etc.)
 **/*.pt
-# but include ones in src/bolero/pkg_data
 !src/bolero/pkg_data/**/*.pt
 **/*.joblib
+!src/bolero/pkg_data/**/*.joblib
 **/*.ckpt
+!src/bolero/pkg_data/**
 
 # images
 **/*.jpg
