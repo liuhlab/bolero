@@ -10,6 +10,7 @@ from bolero.tl.generic.module_lora_cond import (
     collapse_lora_model_,
     convert_to_conditional_lora_model,
 )
+from bolero.utils import localize_data_path
 
 from .model import Borzoi, model_summary
 from .model_lora_config import LORA_CONFIG_FUNCTIONS
@@ -129,6 +130,8 @@ class BorzoiLoRA(Borzoi):
         self.signal_model = signal_model
 
         # update base model pretrained weights
+        # a published config names the backbone by a repo-relative path
+        base_checkpoint_path = localize_data_path(base_checkpoint_path)
         print("Loading base model weights from:", base_checkpoint_path)
         model_weights = torch.load(base_checkpoint_path, weights_only=True)
         model_weights = {
