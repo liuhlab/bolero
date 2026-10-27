@@ -233,15 +233,8 @@ class DatasetRecordManager:
             ), "use_regions must be 'borzoi_gene' when gene_data_path is provided"
 
     def _init_data(self):
-        # training reads every dataset's parquet store, so repo-relative paths are
-        # resolved through bolerodata; a predictor reads none of them
         self.data_paths: dict[str, str] = {
-            k: (
-                v["data_path"]
-                if self.inference_only
-                else localize_data_path(v["data_path"])
-            )
-            for k, v in self.dataset_records.items()
+            k: v["data_path"] for k, v in self.dataset_records.items()
         }
         self.data_keys: list[str] = list(self.data_paths.keys())
         # sample weights are used to balance n_pseudobulks across datasets,
