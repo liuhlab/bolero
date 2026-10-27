@@ -118,6 +118,10 @@ class GenericPredictor:
         model = self.model_class.create_from_config(model_config)
         return model
 
+    def _filter_checkpoint_state(self, state: dict) -> dict:
+        """Return the checkpoint state dict to load; subclasses may drop keys."""
+        return state
+
     def _load_ckeckpoint(self, model: _model_cls) -> _model_cls:
         checkpoint_path = self.config["checkpoint_path"]
         print("Loading checkpoint from", checkpoint_path)
@@ -131,6 +135,7 @@ class GenericPredictor:
         else:
             pass
 
+        state = self._filter_checkpoint_state(state)
         model.load_state_dict(state, strict=True)
 
         model.to(self.device)
