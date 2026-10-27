@@ -883,6 +883,51 @@ class BorzoiLoRA(Borzoi):
         return qtl_loss
 
 
+_DATASET_ENCODER_PREFIXES = (
+    "cond_emb_module.cell_encoder_dict.",
+    "cond_emb_module.cond_encoder_dict.",
+)
+
+
+def filter_dataset_encoders(state: dict, datasets) -> dict:
+    """
+    Drop the condition encoders of datasets not in `datasets` from a state dict.
+
+    A multi-dataset checkpoint holds one condition encoder per training dataset,
+    keyed by dataset name and used only for that dataset. A model built for fewer
+    datasets, such as a published config that withholds some datasets or a demo
+    on a subset, loads the remaining weights unchanged.
+
+    Parameters
+    ----------
+    state : dict
+        The checkpoint state dict.
+    datasets : iterable of str
+        The dataset names to keep, such as the keys of ``dataset_records``.
+
+    Returns
+    -------
+    dict
+        The state dict without the other datasets' encoders.
+    """
+    datasets = set(datasets)
+    kept, dropped = {}, set()
+    for key, value in state.items():
+        prefix = next((p for p in _DATASET_ENCODER_PREFIXES if key.startswith(p)), None)
+        if prefix is not None:
+            name = key[len(prefix) :].split(".")[0]
+            if name not in datasets:
+                dropped.add(name)
+                continue
+        kept[key] = value
+    if dropped:
+        print(
+            "Skipping checkpoint encoders of datasets not in the config:",
+            sorted(dropped),
+        )
+    return kept
+
+
 class BorzoiLoRAMulti(BorzoiLoRA):
     default_config = BorzoiLoRA.default_config.copy()
     default_config.update(

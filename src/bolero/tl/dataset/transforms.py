@@ -247,9 +247,10 @@ class ReverseComplementMinusStrand:
 
         bs = data[self.dna_key[0]].shape[0]
         is_reverse_comp = np.zeros(bs, dtype=np.int32)
-        for i, strand in enumerate(data[self.strand_key]):
-            strand = int(strand)
-            if strand == self.neg_strand:
+        # one strand per sample; samples may carry it as a length-1 array
+        strands = np.asarray(data[self.strand_key]).reshape(bs)
+        for i, strand in enumerate(strands):
+            if int(strand) == self.neg_strand:
                 for k in self.dna_key:
                     flip_data_col[k].append(
                         np.flip(data[k][i], axis=self.flip_dna_axis)
