@@ -20,12 +20,25 @@ from bolero.tl.model.borzoi.model import Borzoi
 from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAMulti
 from bolero.tl.model.borzoi.utils import BorzoiGeneQTLRegions, BorzoiGeneRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
-from bolero.utils import understand_regions
+from bolero.utils import localize_data_path, understand_regions
 
 from .datamanager import GenericGenomeDataManager
 from .predictor import GenericPredictor
 from .task_aggregate import AggregateMixin
 from .utils import load_config
+
+
+def _get_shared_data_dim(pseudobulk_records) -> int:
+    """Return the width of the ``__shared_data__`` score in pseudobulk records."""
+    if isinstance(pseudobulk_records, str | pathlib.Path):
+        pseudobulk_records = joblib.load(pseudobulk_records)
+    pseudobulk_records = pseudobulk_records.get("pseudobulk_records", pseudobulk_records)
+    record = next(iter(pseudobulk_records.values()))
+    assert "__shared_data__" in record, (
+        "Pseudobulk records must have '__shared_data__' in annotation, "
+        "make sure the pseudobulk records in file has a '__shared_data__' key"
+    )
+    return int(np.size(record["__shared_data__"]))
 
 
 def _get_cur_bid(batch_dir):
@@ -3110,12 +3123,18 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         # create the same dataset record manager as BorzoiMultiDataset in training
         # use this class to retrive dataset shared information, such as genome embedding
         dataset_records = train_config["dataset_records"]
+        shared_data_dim = None
+        if train_config.get("shared_data_paths", None) is not None:
+            # the score values come from the predictor's own pseudobulk records
+            shared_data_dim = _get_shared_data_dim(config["pseudobulk_records_path"])
         self._multi_dataset_record_manager = DatasetRecordManager(
             dataset_records=dataset_records,
             pseudobulker_cls=train_config["paired_mode"],
             shared_data_paths=train_config.get("shared_data_paths", None),
             use_regions=train_config["use_regions"],
             genomes=train_config.get("_genomes", None),
+            inference_only=True,
+            shared_data_dim=shared_data_dim,
         )
 
         # update config with cond_module_kwargs using DatasetRecordManager
@@ -3133,6 +3152,9 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
             "pseudobulk_records_path"
         ]
         config.setdefault("pseudobulk_records_path", config["pseudobulk_records_path"])
+        if "dataset_path" not in config and not self._embedding_only_mode:
+            # only the target dataset's data is read, and only for the true signal
+            config["dataset_path"] = localize_data_path(dataset_key_info["data_path"])
         config.setdefault("dataset_path", dataset_key_info["data_path"])
         config.setdefault("genome", dataset_key_info["genome"])
 

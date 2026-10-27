@@ -206,6 +206,35 @@ def get_package_dir() -> pathlib.Path:
     return package_dir
 
 
+def localize_data_path(path):
+    """
+    Return a local path for a data file named in a model config.
+
+    Published model configs name their data files by repo-relative paths, such as
+    ``standard/embedding/...``. The companion ``bolerodata`` package maps those to
+    a local copy, downloading it if needed. A path that already exists, a value that
+    is not a path, or a missing ``bolerodata`` leaves `path` unchanged.
+
+    Parameters
+    ----------
+    path : str, os.PathLike or Any
+        The path from the config.
+
+    Returns
+    -------
+    str or Any
+        The local path, or `path` unchanged.
+    """
+    if not isinstance(path, str | os.PathLike) or os.path.exists(path):
+        return path
+    try:
+        # lazy: bolerodata imports bolero
+        from bolerodata._sync import localize
+    except ImportError:
+        return path
+    return str(localize(path))
+
+
 def get_default_save_dir(save_dir):
     """
     Get the default save directory for bolero.
