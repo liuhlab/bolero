@@ -25,7 +25,7 @@ from bolero.tl.generic.dataset import GenericDataset
 from bolero.tl.model.borzoi.dataset import MaskBlacklistAndClamp
 from bolero.tl.model.borzoi.utils import MultiBorzoiGeneRegions, MultiBorzoiRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import MultiPairedPseudobulker
-from bolero.utils import try_gpu, understand_regions
+from bolero.utils import localize_data_path, try_gpu, understand_regions
 
 DNA_NAME = "dna_one_hot"
 BYTES_PATTERN = re.compile(".+(condition_emb|embedding_data).+")
@@ -141,6 +141,32 @@ class DatasetRecordManager:
     The instance of DatasetRecordManager maintains dataset information,
     create a MultiBorzoiRegions object to get dataset (genome) specific regions
     and a MultiPairedPseudobulker object to sample dataset specific pseudobulk records.
+
+    With ``inference_only=True`` it builds only what a predictor needs: the dataset
+    order, the genome embedding and each dataset's condition dims, read from the
+    pseudobulk records. It reads no dataset's data_path folder, builds no Genome,
+    and takes the shared score width from ``shared_data_dim`` instead of reading
+    the shared score file.
+
+    Pseudobulk and shared score paths that do not exist locally, such as the
+    repo-relative paths in a published config, are resolved through bolerodata.
+
+    Parameters
+    ----------
+    dataset_records : str or dict
+        The dataset records above, or a joblib file holding them.
+    pseudobulker_cls : str or type
+        The paired pseudobulker class, or its name such as ``"ensemble"``.
+    shared_data_paths : str, optional
+        The shared score file, read in training only.
+    use_regions : str
+        ``"borzoi"`` or ``"borzoi_gene"``.
+    genomes : list of str, optional
+        All genome names of the genome embedding, in order.
+    inference_only : bool
+        Build only what a predictor needs. Default False (training).
+    shared_data_dim : int, optional
+        Width of the shared score input, used when ``inference_only`` is True.
     """
 
     # data
@@ -159,25 +185,35 @@ class DatasetRecordManager:
     _pseudobulk_paths: dict[str, str]
     pseudobulker: MultiPairedPseudobulker
     # shared score data
-    shared_data_col: dict[str, dict[str, pd.DataFrame]]
+    shared_data_dim: int
 
     def __init__(
         self,
         dataset_records: str | dict,
         pseudobulker_cls: str | type,
-        shared_data_paths: dict[str, str] | None = None,
+        shared_data_paths: str | None = None,
         use_regions: str = "borzoi",
         genomes: list[str] = None,
+        inference_only: bool = False,
+        shared_data_dim: int | None = None,
     ):
         if isinstance(dataset_records, str):
             dataset_records = joblib.load(dataset_records)
         self.dataset_records = dataset_records
         self.dataset_orders = list(self.dataset_records.keys())
         self.use_regions = use_regions
+        self.inference_only = inference_only
 
         self._init_data()
-        self._init_genome(genomes=genomes)
-        self._init_pseudobulker(pseudobulker_cls, shared_data_paths=shared_data_paths)
+        if inference_only:
+            self.dataset_idx_to_genome_emb = self._create_genome_embedding(genomes)
+        else:
+            self._init_genome(genomes=genomes)
+        self._init_pseudobulker(
+            pseudobulker_cls,
+            shared_data_paths=shared_data_paths,
+            shared_data_dim=shared_data_dim,
+        )
         self._init_gene_data()
 
     def _init_gene_data(self):
@@ -213,12 +249,16 @@ class DatasetRecordManager:
         self.dataset_sample_weight: dict[str, float] = (
             dataset_sample_weight / dataset_sample_weight.max()
         ).to_dict()
-        self._barcode_orders: dict[str, dict[str, pd.Index]] = {
-            k: joblib.load(f"{v}/row_names.joblib") for k, v in self.data_paths.items()
-        }
+        # the row order of each parquet dataset, used only to sample training data
+        self._barcode_orders: dict[str, dict[str, pd.Index]] = {}
+        if not self.inference_only:
+            self._barcode_orders = {
+                k: joblib.load(f"{v}/row_names.joblib")
+                for k, v in self.data_paths.items()
+            }
 
     def _create_genome_embedding(self, genomes: list[str]):
-        dataset_to_genome = {k: g.name for k, g in self.genomes.items()}
+        dataset_to_genome = {k: v["genome"] for k, v in self.dataset_records.items()}
         ds_genomes = sorted(set(dataset_to_genome.values()))
         if genomes is None:
             genomes = ds_genomes
@@ -260,17 +300,30 @@ class DatasetRecordManager:
         self.dataset_idx_to_genome_emb = self._create_genome_embedding(genomes)
 
     def _init_pseudobulker(
-        self, pseudobulker_cls: str | type, shared_data_paths: dict[str, str]
+        self,
+        pseudobulker_cls: str | type,
+        shared_data_paths: str | None,
+        shared_data_dim: int | None = None,
     ):
         self._pseudobulk_paths = {
-            k: v["pseudobulk_path"] for k, v in self.dataset_records.items()
+            k: localize_data_path(v["pseudobulk_path"])
+            for k, v in self.dataset_records.items()
         }
+        if self.inference_only:
+            # the predictor takes score values from its own pseudobulk records
+            shared_data_paths = None
+        else:
+            shared_data_paths = localize_data_path(shared_data_paths)
         self.pseudobulker = MultiPairedPseudobulker(
             pseudobulk_path_dict=self._pseudobulk_paths,
             barcode_order_dict=self._barcode_orders,
             pseudobulker_cls=pseudobulker_cls,
             shared_data_paths=shared_data_paths,
         )
+        if self.inference_only:
+            self.shared_data_dim = shared_data_dim or 0
+        else:
+            self.shared_data_dim = self.pseudobulker.shared_data_dim
 
     def _select_full_overlap_regions(self, regions: pd.DataFrame) -> pd.DataFrame:
         # Select regions that fully overlap with the parquet bed files.
@@ -350,8 +403,8 @@ class DatasetRecordManager:
 
         genome_dim = self.dataset_idx_to_genome_emb[0].shape[-1]
         dataset_shared_dims = {"__genome__": genome_dim}
-        if multi_pm.shared_data_dim > 0:
-            dataset_shared_dims["__shared_data__"] = multi_pm.shared_data_dim
+        if self.shared_data_dim > 0:
+            dataset_shared_dims["__shared_data__"] = self.shared_data_dim
 
         cond_module_kwargs = {
             "dataset_order": multi_pm.keys,
