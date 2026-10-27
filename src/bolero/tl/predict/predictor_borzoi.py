@@ -32,7 +32,9 @@ def _get_shared_data_dim(pseudobulk_records) -> int:
     """Return the width of the ``__shared_data__`` score in pseudobulk records."""
     if isinstance(pseudobulk_records, str | pathlib.Path):
         pseudobulk_records = joblib.load(pseudobulk_records)
-    pseudobulk_records = pseudobulk_records.get("pseudobulk_records", pseudobulk_records)
+    pseudobulk_records = pseudobulk_records.get(
+        "pseudobulk_records", pseudobulk_records
+    )
     record = next(iter(pseudobulk_records.values()))
     assert "__shared_data__" in record, (
         "Pseudobulk records must have '__shared_data__' in annotation, "
