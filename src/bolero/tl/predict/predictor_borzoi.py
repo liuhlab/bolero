@@ -17,7 +17,11 @@ from einops import rearrange
 
 from bolero.tl.model.borzoi.dataset_multi import DatasetRecordManager
 from bolero.tl.model.borzoi.model import Borzoi
-from bolero.tl.model.borzoi.model_lora import BorzoiLoRA, BorzoiLoRAMulti
+from bolero.tl.model.borzoi.model_lora import (
+    BorzoiLoRA,
+    BorzoiLoRAMulti,
+    filter_dataset_encoders,
+)
 from bolero.tl.model.borzoi.utils import BorzoiGeneQTLRegions, BorzoiGeneRegions
 from bolero.tl.pseudobulk.paired_pseudobulk import PAIRED_PSEUDOBULKER_CLS_DICT
 from bolero.utils import localize_data_path, understand_regions
@@ -3171,26 +3175,9 @@ class BorzoiSignalPredictorMultiModel(BorzoiSignalPredictor):
         still holds their condition encoders. Each encoder is keyed by dataset
         name and used only for that dataset, so the others load unchanged.
         """
-        datasets = set(self._multi_dataset_record_manager.dataset_orders)
-        prefixes = (
-            "cond_emb_module.cell_encoder_dict.",
-            "cond_emb_module.cond_encoder_dict.",
+        return filter_dataset_encoders(
+            state, self._multi_dataset_record_manager.dataset_orders
         )
-        kept, dropped = {}, set()
-        for key, value in state.items():
-            prefix = next((p for p in prefixes if key.startswith(p)), None)
-            if prefix is not None:
-                name = key[len(prefix) :].split(".")[0]
-                if name not in datasets:
-                    dropped.add(name)
-                    continue
-            kept[key] = value
-        if dropped:
-            print(
-                "Skipping checkpoint encoders of datasets not in the config:",
-                sorted(dropped),
-            )
-        return kept
 
     def _forward_cond_emb_module(
         self, cell_emb: torch.Tensor, cond_emb: torch.Tensor, **kwargs
