@@ -148,8 +148,9 @@ class DatasetRecordManager:
     and takes the shared score width from ``shared_data_dim`` instead of reading
     the shared score file.
 
-    Pseudobulk and shared score paths that do not exist locally, such as the
-    repo-relative paths in a published config, are resolved through bolerodata.
+    Pseudobulk, shared score and (in training) 32 bp store paths that do not exist
+    locally, such as the repo-relative paths in a published config, are resolved
+    through bolerodata, which downloads them if needed.
 
     Parameters
     ----------
@@ -233,8 +234,10 @@ class DatasetRecordManager:
             ), "use_regions must be 'borzoi_gene' when gene_data_path is provided"
 
     def _init_data(self):
+        # a predictor never reads the 32 bp stores, so only training fetches them
+        _resolve = (lambda p: p) if self.inference_only else localize_data_path
         self.data_paths: dict[str, str] = {
-            k: v["data_path"] for k, v in self.dataset_records.items()
+            k: _resolve(v["data_path"]) for k, v in self.dataset_records.items()
         }
         self.data_keys: list[str] = list(self.data_paths.keys())
         # sample weights are used to balance n_pseudobulks across datasets,
