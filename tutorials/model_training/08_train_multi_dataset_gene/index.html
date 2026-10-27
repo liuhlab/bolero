@@ -723,10 +723,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-gene-task-config-real-parameters" class="md-nav__link">
+  <a href="#build-the-gene-task-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the gene-task config (real parameters)
+        Build the gene-task config
       
     </span>
   </a>
@@ -734,10 +734,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-model-then-load-the-trained-gene-checkpoint-no-training" class="md-nav__link">
+  <a href="#build-the-model-then-load-the-published-gene-checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the model — then load the trained gene checkpoint (no training)
+        Build the model — then load the published gene checkpoint
       
     </span>
   </a>
@@ -749,6 +749,17 @@
     <span class="md-ellipsis">
       
         What's special — the gene-count head
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train-the-gene-task-on-the-demo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train the gene task on the demo datasets
       
     </span>
   </a>
@@ -1439,10 +1450,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-gene-task-config-real-parameters" class="md-nav__link">
+  <a href="#build-the-gene-task-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the gene-task config (real parameters)
+        Build the gene-task config
       
     </span>
   </a>
@@ -1450,10 +1461,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-model-then-load-the-trained-gene-checkpoint-no-training" class="md-nav__link">
+  <a href="#build-the-model-then-load-the-published-gene-checkpoint" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the model — then load the trained gene checkpoint (no training)
+        Build the model — then load the published gene checkpoint
       
     </span>
   </a>
@@ -1465,6 +1476,17 @@
     <span class="md-ellipsis">
       
         What's special — the gene-count head
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train-the-gene-task-on-the-demo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train the gene task on the demo datasets
       
     </span>
   </a>
@@ -2223,7 +2245,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=76ba08f0">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7fb27b941602401d91542211134fc71a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2235,10 +2257,11 @@ abundance</strong>. This page shows the final stage: take the trained ATAC model
 <strong>gene-count head</strong> and per-dataset <strong>RNA</strong> data, so one model outputs both accessibility tracks and
 gene expression.</p>
 <blockquote>
-<p>Like the previous page, this notebook <strong>runs in the multi-dataset training directory</strong> on the full
-corpus + the RNA data, and — because a real run is heavy — it does <strong>not</strong> call <code>trainer.train()</code>.
-It builds the model with the real config and loads the trained <strong>gene</strong> checkpoint to inspect what
-the gene task adds.</p>
+<p>Like the previous page, this notebook builds the model from the published registry and runs
+a short demo on two of its datasets: <strong>ChromiumPBMC</strong>, which has matched transcriptomes, and
+<strong>Li2023Science+Inh</strong>, which has none. The full gene task trains on 41 datasets, and its training
+data is the whole corpus plus the RNA data. The notebook loads the published <strong>gene</strong> checkpoint
+(<code>Borzoi10M-Gene</code>) to inspect what the gene task adds, then trains a few steps.</p>
 </blockquote>
 <p><strong>What changes from the ATAC page:</strong></p>
 <ul>
@@ -2248,8 +2271,8 @@ top of the shared trunk.</li>
 the genome.</li>
 <li><strong>Per-dataset RNA data</strong> — each dataset with matched transcriptomes gets a <code>gene_data_path</code>
 (log1p-CPM pseudobulk expression) and a <code>deg_list</code> (highly variable genes) attached to its record.</li>
-<li><strong><code>lora_checkpoint_path</code></strong> = the trained <strong>ATAC-final</strong> checkpoint — the gene task continues from
-there.</li>
+<li><strong><code>lora_checkpoint_path</code></strong> = the trained <strong>ATAC-final</strong> checkpoint (published as <code>Borzoi10M</code>) —
+the gene task continues from there.</li>
 <li><strong><code>_genomes</code></strong> is passed explicitly so the genome embedding stays identical to the ATAC model.</li>
 </ul>
 </div>
@@ -2267,7 +2290,7 @@ there.</li>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a4c16f86">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=acae54e37e7d407bbb7b55eff062a284">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2285,28 +2308,34 @@ there.</li>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pathlib</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.model_lora</span><span class="w"> </span><span class="kn">import</span> <span class="n">filter_dataset_encoders</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiBorzoiLoRATrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span><span class="p">,</span> <span class="n">MODELS</span><span class="p">,</span> <span class="n">get_flashzoi_checkpoint</span>
 
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"disabled"</span>
+<span class="c1"># log offline, as on the previous pages; for a real run, use your own W&amp;B project</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"offline"</span>
 <span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">object_store_memory_gb</span><span class="o">=</span><span class="mi">48</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">import json
+<div class="clipboard-copy-txt" id="cell-1">import copy
 import os
-import pathlib
 
 import pandas as pd
+import torch
 
 from bolero import init
+from bolero.tl.model.borzoi.model_lora import filter_dataset_encoders
 from bolero.tl.model.borzoi.train import MultiBorzoiLoRATrainer
+from bolerodata import DATASETS, MODELS, get_flashzoi_checkpoint
 
-os.environ["WANDB_MODE"] = "disabled"
+# log offline, as on the previous pages; for a real run, use your own W&amp;B project
+os.environ["WANDB_MODE"] = "offline"
 init(num_cpus=16, object_store_memory_gb=48)</div>
 </div>
 </div>
@@ -2319,15 +2348,15 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-13 12:11:47,384	INFO worker.py:1781 -- Started a local Ray instance.
+<pre>2026-10-27 16:25:02,403	INFO worker.py:1781 -- Started a local Ray instance.
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=e34ae256">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9a63283cbaf04dbcab1f6479b197f3a8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2346,20 +2375,18 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
-<span class="n">MODEL_NAME</span> <span class="o">=</span> <span class="s2">"Bolero10M"</span>
 <span class="n">FOLD</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="c1"># the two hg38 datasets the demo trains on: one with RNA, one ATAC-only</span>
+<span class="n">DEMO_DATASETS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"ChromiumPBMC"</span><span class="p">,</span> <span class="s2">"Li2023Science+Inh"</span><span class="p">]</span>
 
-<span class="n">INIT_CONFIG</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-init.config.json"</span>
-<span class="c1"># start the gene task from the trained ATAC-final checkpoint (previous page)</span>
-<span class="n">ATAC_FINAL_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-final.lora.best_checkpoint.pt"</span>
-<span class="c1"># the trained gene checkpoint we load for the demo</span>
-<span class="n">GENE_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-gene.lora.best_checkpoint.pt"</span>
-<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
-<span class="p">)</span>
-
-<span class="c1"># per-dataset RNA data (log1p-CPM pseudobulk expression + highly-variable-gene lists)</span>
-<span class="n">GENE_DATA_DIR</span> <span class="o">=</span> <span class="s2">"/home/hanliu/data/250901-GeneCountPred/prepare/gene_data"</span>
+<span class="c1"># the previous page's published ATAC model: its registry, and its checkpoint to continue from</span>
+<span class="n">ATAC_MODEL</span> <span class="o">=</span> <span class="n">MODELS</span><span class="p">[</span><span class="s2">"Borzoi10M"</span><span class="p">]</span>
+<span class="n">ATAC_FINAL_CKPT</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">ATAC_MODEL</span><span class="o">.</span><span class="n">ckpt_path</span><span class="p">)</span>
+<span class="c1"># the published gene model we load for the demo</span>
+<span class="n">GENE_MODEL</span> <span class="o">=</span> <span class="n">MODELS</span><span class="p">[</span><span class="s2">"Borzoi10M-Gene"</span><span class="p">]</span>
+<span class="n">GENE_CKPT</span> <span class="o">=</span> <span class="n">GENE_MODEL</span><span class="o">.</span><span class="n">ckpt_path</span>
+<span class="c1"># frozen Flashzoi backbone, as on the previous pages</span>
+<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">get_flashzoi_checkpoint</span><span class="p">(</span><span class="n">FOLD</span><span class="p">))</span>
 
 <span class="c1"># genomes, in the exact order used by the ATAC model (keeps the genome embedding consistent)</span>
 <span class="n">GENOMES</span> <span class="o">=</span> <span class="p">[</span>
@@ -2371,22 +2398,21 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
     <span class="s2">"panPan3"</span><span class="p">,</span>
     <span class="s2">"rheMac10"</span><span class="p">,</span>
 <span class="p">]</span>
+<span class="k">assert</span> <span class="n">GENOMES</span> <span class="o">==</span> <span class="n">GENE_MODEL</span><span class="o">.</span><span class="n">model_config</span><span class="p">[</span><span class="s2">"_genomes"</span><span class="p">]</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
-MODEL_NAME = "Bolero10M"
 FOLD = 0
+# the two hg38 datasets the demo trains on: one with RNA, one ATAC-only
+DEMO_DATASETS = ["ChromiumPBMC", "Li2023Science+Inh"]
 
-INIT_CONFIG = f"model/250909-{MODEL_NAME}_atac_fold0-init.config.json"
-# start the gene task from the trained ATAC-final checkpoint (previous page)
-ATAC_FINAL_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-final.lora.best_checkpoint.pt"
-# the trained gene checkpoint we load for the demo
-GENE_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-gene.lora.best_checkpoint.pt"
-BASE_CKPT = (
-    f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"
-)
-
-# per-dataset RNA data (log1p-CPM pseudobulk expression + highly-variable-gene lists)
-GENE_DATA_DIR = "/home/hanliu/data/250901-GeneCountPred/prepare/gene_data"
+# the previous page's published ATAC model: its registry, and its checkpoint to continue from
+ATAC_MODEL = MODELS["Borzoi10M"]
+ATAC_FINAL_CKPT = str(ATAC_MODEL.ckpt_path)
+# the published gene model we load for the demo
+GENE_MODEL = MODELS["Borzoi10M-Gene"]
+GENE_CKPT = GENE_MODEL.ckpt_path
+# frozen Flashzoi backbone, as on the previous pages
+BASE_CKPT = str(get_flashzoi_checkpoint(FOLD))
 
 # genomes, in the exact order used by the ATAC model (keeps the genome embedding consistent)
 GENOMES = [
@@ -2397,14 +2423,77 @@ GENOMES = [
     "monDom5.split",
     "panPan3",
     "rheMac10",
-]</div>
+]
+assert GENOMES == GENE_MODEL.model_config["_genomes"]</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M/config.json "HTTP/1.1 307 Temporary Redirect"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - WARNING - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/arcinstitute/bolero-models/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS%2FBorzoi10M%2Fconfig.json "HTTP/1.1 200 OK"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M-Gene/config.json "HTTP/1.1 307 Temporary Redirect"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/arcinstitute/bolero-models/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS%2FBorzoi10M-Gene%2Fconfig.json "HTTP/1.1 200 OK"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M-Gene/checkpoint.pt "HTTP/1.1 302 Found"
+</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9b3cb809">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8dd0d8092fe74a7c96281538738b07e2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2412,14 +2501,17 @@ GENOMES = [
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="attach-rna-data-to-the-dataset-registry">Attach RNA data to the dataset registry<a class="anchor-link" href="#attach-rna-data-to-the-dataset-registry">¶</a></h2><p>We start from the same <code>dataset_records</code> registry as the ATAC model, then annotate each dataset with
 its gene data. A dataset with matched transcriptomes gets a <strong><code>gene_data_path</code></strong> (its expression
-table) and a <strong><code>deg_list</code></strong>; a dataset with <strong>no</strong> RNA still trains on ATAC, but gets a <code>deg_list</code>
-from a related dataset so its regions are gene-centered and it is not over-represented. Species with
-no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) are dropped.</p>
+table) and a <strong><code>deg_list</code></strong>, both published per dataset and fetched through <code>bolerodata</code>; a dataset
+with <strong>no</strong> RNA still trains on ATAC, but gets a <code>deg_list</code> from a related dataset so its regions are
+gene-centered and it is not over-represented. Species with no transcriptomes at all (here
+<strong><code>CBDevEvoOpossum</code></strong>) are dropped.</p>
+<p>The full gene task annotates all 41 remaining datasets. The demo keeps its two datasets first, so it
+downloads only their files; the loop is the same for any subset.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ce1d74d1">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=72eea5119410473aa328ad9291626812">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2437,38 +2529,49 @@ no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) ar
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">INIT_CONFIG</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-    <span class="n">init_cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-<span class="n">dataset_records</span> <span class="o">=</span> <span class="n">init_cfg</span><span class="p">[</span><span class="s2">"dataset_records"</span><span class="p">]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">full_records</span> <span class="o">=</span> <span class="n">ATAC_MODEL</span><span class="o">.</span><span class="n">model_config</span><span class="p">[</span><span class="s2">"dataset_records"</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">full_records</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">"datasets in the full gene task (all but CBDevEvoOpossum)"</span><span class="p">)</span>
 
-<span class="c1"># drop the species with no RNA data</span>
-<span class="k">del</span> <span class="n">dataset_records</span><span class="p">[</span><span class="s2">"CBDevEvoOpossum"</span><span class="p">]</span>
+<span class="c1"># the demo's datasets</span>
+<span class="n">dataset_records</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">full_records</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">DEMO_DATASETS</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+    <span class="n">rec</span><span class="p">[</span><span class="s2">"dataset_sample_weight"</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">published_rna</span><span class="p">(</span><span class="n">dataset_name</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""The dataset's published RNA files, or None if it has no matched transcriptome."""</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">gene_data_path</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">dataset</span><span class="o">.</span><span class="n">get_pseudobulk_gene_data_path</span><span class="p">()</span>
+        <span class="p">)</span>  <span class="c1"># log1p-CPM pseudobulks</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">deg_list_path</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">get_pseudobulk_hvg_list_path</span><span class="p">()</span>  <span class="c1"># top 15,000 HVGs</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"deg_list"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">deg_list_path</span><span class="p">),</span> <span class="s2">"gene_data_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">gene_data_path</span><span class="p">)}</span>
+
 
 <span class="c1"># ATAC-only datasets borrow a related dataset's HVG list just to gene-center their regions</span>
 <span class="n">region_selection_for_atac_datasets</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">"Zu2023Nature"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"MouseAging"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"CBDevEvoMouse"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"MouseBodyAtlas"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/AIBSDev+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"Li2023Science"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/HumanFirstTriBrain+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"Zhang2021Cell"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/EncodeHumanAtlas+None.top15000_hvg.joblib"</span><span class="p">,</span>
-    <span class="s2">"CBDevEvoHuman"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/HumanFirstTriBrain+None.top15000_hvg.joblib"</span><span class="p">,</span>
+    <span class="s2">"Zu2023Nature"</span><span class="p">:</span> <span class="s2">"AIBSDev"</span><span class="p">,</span>
+    <span class="s2">"MouseAging"</span><span class="p">:</span> <span class="s2">"AIBSDev"</span><span class="p">,</span>
+    <span class="s2">"CBDevEvoMouse"</span><span class="p">:</span> <span class="s2">"AIBSDev"</span><span class="p">,</span>
+    <span class="s2">"MouseBodyAtlas"</span><span class="p">:</span> <span class="s2">"AIBSDev"</span><span class="p">,</span>
+    <span class="s2">"Li2023Science"</span><span class="p">:</span> <span class="s2">"HumanFirstTriBrain"</span><span class="p">,</span>
+    <span class="s2">"Zhang2021Cell"</span><span class="p">:</span> <span class="s2">"EncodeHumanAtlas"</span><span class="p">,</span>
+    <span class="s2">"CBDevEvoHuman"</span><span class="p">:</span> <span class="s2">"HumanFirstTriBrain"</span><span class="p">,</span>
 <span class="p">}</span>
 
 <span class="k">for</span> <span class="n">dataset_key</span><span class="p">,</span> <span class="n">records</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
     <span class="n">dataset_name</span><span class="p">,</span> <span class="o">*</span><span class="n">subset</span> <span class="o">=</span> <span class="n">dataset_key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"+"</span><span class="p">)</span>
     <span class="n">subset</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">subset</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">subset</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">key</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+None"</span>
-        <span class="k">if</span> <span class="n">subset</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">"Control"</span><span class="p">)</span>
-        <span class="k">else</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">dataset_name</span><span class="si">}</span><span class="s2">+</span><span class="si">{</span><span class="n">subset</span><span class="si">}</span><span class="s2">"</span>
-    <span class="p">)</span>
-    <span class="n">gene_data_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.cond_pseudobulk.log1pCPM.feather"</span>
-    <span class="n">deg_list_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">GENE_DATA_DIR</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">.top15000_hvg.joblib"</span>
-    <span class="k">if</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">(</span><span class="n">gene_data_path</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-        <span class="n">records</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s2">"deg_list"</span><span class="p">:</span> <span class="n">deg_list_path</span><span class="p">,</span> <span class="s2">"gene_data_path"</span><span class="p">:</span> <span class="n">gene_data_path</span><span class="p">})</span>
+    <span class="c1"># RNA is per dataset; of the subsets, only a "Control" subset reuses it</span>
+    <span class="n">rna</span> <span class="o">=</span> <span class="n">published_rna</span><span class="p">(</span><span class="n">dataset_name</span><span class="p">)</span> <span class="k">if</span> <span class="n">subset</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">"Control"</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">rna</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">records</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">rna</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="n">records</span><span class="p">[</span><span class="s2">"deg_list"</span><span class="p">]</span> <span class="o">=</span> <span class="n">region_selection_for_atac_datasets</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]</span>
+        <span class="n">donor</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">region_selection_for_atac_datasets</span><span class="p">[</span><span class="n">dataset_name</span><span class="p">]]</span>
+        <span class="n">records</span><span class="p">[</span><span class="s2">"deg_list"</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">donor</span><span class="o">.</span><span class="n">get_pseudobulk_hvg_list_path</span><span class="p">())</span>
 
 <span class="c1"># which datasets carry RNA (ATAC + Gene) vs. ATAC-only</span>
 <span class="n">task</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
@@ -2477,41 +2580,51 @@ no transcriptomes at all (here <strong><code>CBDevEvoOpossum</code></strong>) ar
         <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
     <span class="p">}</span>
 <span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">task</span><span class="o">.</span><span class="n">value_counts</span><span class="p">())</span>
-<span class="n">task</span><span class="o">.</span><span class="n">to_frame</span><span class="p">(</span><span class="s2">"task"</span><span class="p">)</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">task</span><span class="o">.</span><span class="n">to_frame</span><span class="p">(</span><span class="s2">"task"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">with open(INIT_CONFIG) as f:
-    init_cfg = json.load(f)
-dataset_records = init_cfg["dataset_records"]
+<div class="clipboard-copy-txt" id="cell-3">full_records = ATAC_MODEL.model_config["dataset_records"]
+print(len(full_records) - 1, "datasets in the full gene task (all but CBDevEvoOpossum)")
 
-# drop the species with no RNA data
-del dataset_records["CBDevEvoOpossum"]
+# the demo's datasets
+dataset_records = {k: copy.deepcopy(full_records[k]) for k in DEMO_DATASETS}
+for rec in dataset_records.values():
+    rec["dataset_sample_weight"] = 1
+
+
+def published_rna(dataset_name):
+    """The dataset's published RNA files, or None if it has no matched transcriptome."""
+    dataset = DATASETS[dataset_name]
+    try:
+        gene_data_path = (
+            dataset.get_pseudobulk_gene_data_path()
+        )  # log1p-CPM pseudobulks
+    except KeyError:
+        return None
+    deg_list_path = dataset.get_pseudobulk_hvg_list_path()  # top 15,000 HVGs
+    return {"deg_list": str(deg_list_path), "gene_data_path": str(gene_data_path)}
+
 
 # ATAC-only datasets borrow a related dataset's HVG list just to gene-center their regions
 region_selection_for_atac_datasets = {
-    "Zu2023Nature": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
-    "MouseAging": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
-    "CBDevEvoMouse": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
-    "MouseBodyAtlas": f"{GENE_DATA_DIR}/AIBSDev+None.top15000_hvg.joblib",
-    "Li2023Science": f"{GENE_DATA_DIR}/HumanFirstTriBrain+None.top15000_hvg.joblib",
-    "Zhang2021Cell": f"{GENE_DATA_DIR}/EncodeHumanAtlas+None.top15000_hvg.joblib",
-    "CBDevEvoHuman": f"{GENE_DATA_DIR}/HumanFirstTriBrain+None.top15000_hvg.joblib",
+    "Zu2023Nature": "AIBSDev",
+    "MouseAging": "AIBSDev",
+    "CBDevEvoMouse": "AIBSDev",
+    "MouseBodyAtlas": "AIBSDev",
+    "Li2023Science": "HumanFirstTriBrain",
+    "Zhang2021Cell": "EncodeHumanAtlas",
+    "CBDevEvoHuman": "HumanFirstTriBrain",
 }
 
 for dataset_key, records in dataset_records.items():
     dataset_name, *subset = dataset_key.split("+")
     subset = None if len(subset) == 0 else subset[0]
-    key = (
-        f"{dataset_name}+None"
-        if subset in (None, "Control")
-        else f"{dataset_name}+{subset}"
-    )
-    gene_data_path = f"{GENE_DATA_DIR}/{key}.cond_pseudobulk.log1pCPM.feather"
-    deg_list_path = f"{GENE_DATA_DIR}/{key}.top15000_hvg.joblib"
-    if pathlib.Path(gene_data_path).exists():
-        records.update({"deg_list": deg_list_path, "gene_data_path": gene_data_path})
+    # RNA is per dataset; of the subsets, only a "Control" subset reuses it
+    rna = published_rna(dataset_name) if subset in (None, "Control") else None
+    if rna is not None:
+        records.update(rna)
     else:
-        records["deg_list"] = region_selection_for_atac_datasets[dataset_name]
+        donor = DATASETS[region_selection_for_atac_datasets[dataset_name]]
+        records["deg_list"] = str(donor.get_pseudobulk_hvg_list_path())
 
 # which datasets carry RNA (ATAC + Gene) vs. ATAC-only
 task = pd.Series(
@@ -2520,8 +2633,7 @@ task = pd.Series(
         for k, v in dataset_records.items()
     }
 )
-print(task.value_counts())
-task.to_frame("task").head(10)</div>
+task.to_frame("task")</div>
 </div>
 </div>
 </div>
@@ -2532,10 +2644,36 @@ task.to_frame("task").head(10)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/index/pseudobulk.gene_and_hvg_data.joblib "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/gene_data/ChromiumPBMC%2BNone.cond_pseudobulk.log1pCPM.feather "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/gene_data/ChromiumPBMC%2BNone.top15000_hvg.joblib "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:05 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/gene_data/HumanFirstTriBrain%2BNone.top15000_hvg.joblib "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>ATAC + Gene    24
-ATAC only      16
-Name: count, dtype: int64
+<pre>41 datasets in the full gene task (all but CBDevEvoOpossum)
 </pre>
 </div>
 </div>
@@ -2565,40 +2703,8 @@ Name: count, dtype: int64
 </thead>
 <tbody>
 <tr>
-<th>Zu2023Nature+NonN</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CNU</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+IB</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CTXGlut</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CTXGaba</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CB</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+HB</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Zu2023Nature+MB</th>
-<td>ATAC only</td>
-</tr>
-<tr>
-<th>Li2023Science+Exc</th>
-<td>ATAC only</td>
+<th>ChromiumPBMC</th>
+<td>ATAC + Gene</td>
 </tr>
 <tr>
 <th>Li2023Science+Inh</th>
@@ -2613,21 +2719,22 @@ Name: count, dtype: int64
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=78add608">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8edb47106e1a46a883d545849b8ab81b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="build-the-gene-task-config-real-parameters">Build the gene-task config (real parameters)<a class="anchor-link" href="#build-the-gene-task-config-real-parameters">¶</a></h2><p>Same registry, now with <code>output_head_type="gene_count"</code>, <code>use_regions="borzoi_gene"</code>, the explicit
+<h2 id="build-the-gene-task-config">Build the gene-task config<a class="anchor-link" href="#build-the-gene-task-config">¶</a></h2><p>Same registry, now with <code>output_head_type="gene_count"</code>, <code>use_regions="borzoi_gene"</code>, the explicit
 <code>_genomes</code> list, and <code>lora_checkpoint_path</code> pointing at the trained ATAC-final checkpoint. The
-training schedule is again the real one (<code>max_epochs=200</code>, <code>lr_total_steps=4_000_000</code>); a smoke test
-would shrink those as on the single-dataset page.</p>
+schedule is a <strong>demo</strong>: one short epoch of 20 training steps at batch size 1. The real run used
+<code>max_epochs=200</code>, <code>lr_total_steps=4_000_000</code>, <code>save_state_every_n_epoch=25</code> and the default
+<code>batch_size</code> of 4; the demo lines are simply dropped for it.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=3e8a9dd7">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=10185d26023b46108eb7d9f57d49d2b3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2647,10 +2754,10 @@ would shrink those as on the single-dataset page.</p>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">"output_dir"</span><span class="p">:</span> <span class="s2">"model"</span><span class="p">,</span>
-    <span class="s2">"savename"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-gene"</span><span class="p">,</span>
-    <span class="s2">"wandb_project"</span><span class="p">:</span> <span class="s2">"250909-BorzoiMulti"</span><span class="p">,</span>
+    <span class="s2">"savename"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Bolero10M_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-gene-demo"</span><span class="p">,</span>
+    <span class="s2">"wandb_project"</span><span class="p">:</span> <span class="s2">"BorzoiMulti"</span><span class="p">,</span>
     <span class="s2">"wandb_job_type"</span><span class="p">:</span> <span class="s2">"lora"</span><span class="p">,</span>
-    <span class="s2">"wandb_name"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-gene"</span><span class="p">,</span>
+    <span class="s2">"wandb_name"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Bolero10M_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-gene-demo"</span><span class="p">,</span>
     <span class="c1"># data</span>
     <span class="s2">"dataset_records"</span><span class="p">:</span> <span class="n">dataset_records</span><span class="p">,</span>
     <span class="s2">"fold_split_id"</span><span class="p">:</span> <span class="n">FOLD</span><span class="p">,</span>
@@ -2661,20 +2768,25 @@ would shrink those as on the single-dataset page.</p>
     <span class="s2">"use_regions"</span><span class="p">:</span> <span class="s2">"borzoi_gene"</span><span class="p">,</span>
     <span class="s2">"output_head_type"</span><span class="p">:</span> <span class="s2">"gene_count"</span><span class="p">,</span>
     <span class="s2">"_genomes"</span><span class="p">:</span> <span class="n">GENOMES</span><span class="p">,</span>  <span class="c1"># keep the genome embedding aligned with the ATAC model</span>
-    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">ATAC_FINAL_CKPT</span><span class="p">,</span>  <span class="c1"># continue from the trained ATAC model</span>
-    <span class="c1"># real training schedule</span>
-    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span>
+    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">ATAC_FINAL_CKPT</span><span class="p">,</span>  <span class="c1"># continue from the published ATAC model</span>
+    <span class="c1"># schedule: real run max_epochs=200, lr_total_steps=4_000_000, save_state_every_n_epoch=25</span>
+    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
     <span class="s2">"lr_total_steps"</span><span class="p">:</span> <span class="mi">4_000_000</span><span class="p">,</span>
     <span class="s2">"save_state_every_n_epoch"</span><span class="p">:</span> <span class="mi">25</span><span class="p">,</span>
+    <span class="c1"># demo only: a few small steps (drop these four lines for a real run)</span>
+    <span class="s2">"warmup_steps"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="s2">"train_batches"</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="s2">"val_batches"</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="s2">"batch_size"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
 <span class="p">}</span>
 <span class="n">config</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="o">.</span><span class="n">make_config</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4">config = {
     "output_dir": "model",
-    "savename": f"250909-{MODEL_NAME}_atac_fold{FOLD}-gene",
-    "wandb_project": "250909-BorzoiMulti",
+    "savename": f"Bolero10M_atac_fold{FOLD}-gene-demo",
+    "wandb_project": "BorzoiMulti",
     "wandb_job_type": "lora",
-    "wandb_name": f"250909-{MODEL_NAME}_atac_fold{FOLD}-gene",
+    "wandb_name": f"Bolero10M_atac_fold{FOLD}-gene-demo",
     # data
     "dataset_records": dataset_records,
     "fold_split_id": FOLD,
@@ -2685,11 +2797,16 @@ would shrink those as on the single-dataset page.</p>
     "use_regions": "borzoi_gene",
     "output_head_type": "gene_count",
     "_genomes": GENOMES,  # keep the genome embedding aligned with the ATAC model
-    "lora_checkpoint_path": ATAC_FINAL_CKPT,  # continue from the trained ATAC model
-    # real training schedule
-    "max_epochs": 200,
+    "lora_checkpoint_path": ATAC_FINAL_CKPT,  # continue from the published ATAC model
+    # schedule: real run max_epochs=200, lr_total_steps=4_000_000, save_state_every_n_epoch=25
+    "max_epochs": 1,
     "lr_total_steps": 4_000_000,
     "save_state_every_n_epoch": 25,
+    # demo only: a few small steps (drop these four lines for a real run)
+    "warmup_steps": 10,
+    "train_batches": 20,
+    "val_batches": 5,
+    "batch_size": 1,
 }
 config = MultiBorzoiLoRATrainer.make_config(**config)</div>
 </div>
@@ -2698,21 +2815,22 @@ config = MultiBorzoiLoRATrainer.make_config(**config)</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=055034c9">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8763a12b2bbd4a93a75aff182afb95dc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="build-the-model-then-load-the-trained-gene-checkpoint-no-training">Build the model — then load the trained gene checkpoint (no training)<a class="anchor-link" href="#build-the-model-then-load-the-trained-gene-checkpoint-no-training">¶</a></h2><p>As before, constructing the trainer builds the multi-dataset dataset (now also wiring up the gene
+<h2 id="build-the-model-then-load-the-published-gene-checkpoint">Build the model — then load the published gene checkpoint<a class="anchor-link" href="#build-the-model-then-load-the-published-gene-checkpoint">¶</a></h2><p>As before, constructing the trainer builds the multi-dataset dataset (now also wiring up the gene
 data), and <code>_setup_model()</code> builds the model — this time <strong>with a gene-count head</strong> — and loads the
-frozen base plus the ATAC-final checkpoint. We then load the trained gene checkpoint instead of
-training.</p>
+frozen base plus the ATAC-final checkpoint. We then load the published gene checkpoint with
+<code>strict=True</code>, after dropping the encoders of the datasets the demo leaves out, so every weight of
+the demo model comes from the gene model.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2e024f6c">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7623eae2785240b9bd12b16a66d81610">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2734,15 +2852,25 @@ training.</p>
 <span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span><span class="n">print_model</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">)</span>
-<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span><span class="n">GENE_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># &lt;- the trained gene model</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint:"</span><span class="p">,</span> <span class="n">GENE_CKPT</span><span class="p">)</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">GENE_CKPT</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="s2">"cpu"</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="s2">"state_dict"</span><span class="p">]</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">filter_dataset_encoders</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">,</span> <span class="n">dataset_records</span>
+<span class="p">)</span>  <span class="c1"># keep the demo datasets' encoders</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># &lt;- the trained gene model</span>
+<span class="k">del</span> <span class="n">state</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint: Borzoi10M-Gene"</span><span class="p">)</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-5">trainer = MultiBorzoiLoRATrainer(config)
 trainer._setup_model(print_model=False)
 
 model = getattr(trainer.model, "module", trainer.model)
-model.load_checkpoint_from_path(GENE_CKPT, strict=False)  # &lt;- the trained gene model
-print("loaded trained checkpoint:", GENE_CKPT)</div>
+state = torch.load(GENE_CKPT, map_location="cpu", weights_only=False)["state_dict"]
+state = filter_dataset_encoders(
+    state, dataset_records
+)  # keep the demo datasets' encoders
+model.load_state_dict(state, strict=True)  # &lt;- the trained gene model
+del state
+print("loaded trained checkpoint: Borzoi10M-Gene")</div>
 </div>
 </div>
 </div>
@@ -2753,10 +2881,24 @@ print("loaded trained checkpoint:", GENE_CKPT)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:06 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/metacell/parquet/ChromiumPBMC/ChromiumPBMC-MetaCell-32bp.tar "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:06 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/metacell/parquet/Li2023Science%2BInh/Li2023Science-MetaCell-32bp.tar "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Using single GPU for training
 Create BorzoiMultiDataset with config:
-  dataset_records: 40 items &lt;class 'dict'&gt;
+  dataset_records: 2 items &lt;class 'dict'&gt;
   dna_window: 524288
   train_region_step_sample: True
   use_regions: borzoi_gene
@@ -2764,10 +2906,24 @@ Create BorzoiMultiDataset with config:
   paired_mode: ensemble
   reverse_complement: True
   max_jitter: 3
-  batch_size: 4
+  batch_size: 1
   output_prefix: pseudobulk
   shared_data_paths: None
   _genomes: 7 items &lt;class 'list'&gt;
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:09 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/pseudobulk/condition/ChromiumPBMC/pseudobulk_records_and_cond.cov5000000.joblib "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:09 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/pseudobulk/condition/Li2023Science%2BInh/pseudobulk_records_and_cond.cov5000000.joblib "HTTP/1.1 302 Found"
 </pre>
 </div>
 </div>
@@ -2781,7 +2937,7 @@ Create BorzoiMultiDataset with config:
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre><span class="ansi-cyan-fg">(_process_single_dataset pid=2475666)</span> After deg_list filter, 14600 gene regions remain.
+<pre><span class="ansi-cyan-fg">(_process_single_dataset pid=3611427)</span> After deg_list filter, 14789 gene regions remain.
 </pre>
 </div>
 </div>
@@ -2795,30 +2951,30 @@ Create BorzoiMultiDataset with config:
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading base model weights from: /home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt
+<pre>Loading base model weights from: /mnt/work/bdhome/flashzoi/fold_0.renamed.pt
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Total model parameters 1210501800, trainable parameters 1033140712
+<pre>Total model parameters 1202745955, trainable parameters 1025384867
 Config contains lora_checkpoint_path, will load weights and perform fine-tuning.
-Loading LoRA model weights from: model/250909-Bolero10M_atac_fold0-final.lora.best_checkpoint.pt
+Loading LoRA model weights from: /mnt/work/bdhome/hf/models--arcinstitute--bolero-models/snapshots/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading LoRA model weights from: model/250909-Bolero10M_atac_fold0-gene.lora.best_checkpoint.pt
+<pre>Skipping checkpoint encoders of datasets not in the config: ['AIBSDev', 'CBDevEvoBonobo', 'CBDevEvoHuman', 'CBDevEvoMacaque', 'CBDevEvoMarmoset', 'CBDevEvoMouse', 'CZIBodyAtlas', 'EE+Control', 'EncodeHumanAtlas', 'Fear+Control', 'HMBABasalGangliaHuman', 'HMBABasalGangliaMacaque', 'HMBABasalGangliaMarmoset', 'HYSocialRebound', 'Harris2025Nature', 'HumanBodyDev', 'HumanBrainAging', 'HumanBrainDev', 'HumanCBDev', 'HumanFirstTriBrain', 'KA+Control', 'Li2023Science+Exc', 'Li2023Science+NonN', 'MouseAging', 'MouseBodyAtlas', 'MultiSpeciesHuman', 'MultiSpeciesMacaque', 'MultiSpeciesMarmoset', 'MultiSpeciesMouse', 'MultipleSclerosis+Control', 'NeurIPSBMMC', 'Stress+Control', 'Torpor+Control', 'Zhang2021Cell', 'Zu2023Nature+CB', 'Zu2023Nature+CNU', 'Zu2023Nature+CTXGaba', 'Zu2023Nature+CTXGlut', 'Zu2023Nature+HB', 'Zu2023Nature+IB', 'Zu2023Nature+MB', 'Zu2023Nature+NonN']
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>loaded trained checkpoint: model/250909-Bolero10M_atac_fold0-gene.lora.best_checkpoint.pt
+<pre>loaded trained checkpoint: Borzoi10M-Gene
 </pre>
 </div>
 </div>
@@ -2932,7 +3088,7 @@ OutputHead(
   (2): Softplus(beta=1.0, threshold=20.0)
 )
 
-per-dataset conditioning encoders: 40
+per-dataset conditioning encoders: 2
 dataset_shared_dims: {'__genome__': 7}
 </pre>
 </div>
@@ -2979,8 +3135,8 @@ print(f"trainable params: {trainable:,}  ({trainable/total:.1%})")</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>total params    : 1,210,501,800
-trainable params: 1,033,140,712  (85.3%)
+<pre>total params    : 1,202,745,955
+trainable params: 1,025,384,867  (85.3%)
 </pre>
 </div>
 </div>
@@ -2988,15 +3144,494 @@ trainable params: 1,033,140,712  (85.3%)
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d18fdb71">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7cdc8c89c7104fffa095e18ddfef8986">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="real-training-vs-this-demo">Real training vs. this demo<a class="anchor-link" href="#real-training-vs-this-demo">¶</a></h2><p>The trained gene checkpoint we loaded is the last stage of the full pipeline. Reproducing it means
-another <strong>200-epoch</strong>, multi-GPU run continuing from the ATAC-final checkpoint — days of compute. To
-watch the loop, add the smoke-test overrides (<code>max_epochs=3, warmup_steps=10, train_batches=50, val_batches=10</code>) and call <code>trainer.train()</code>.</p>
+<h2 id="train-the-gene-task-on-the-demo-datasets">Train the gene task on the demo datasets<a class="anchor-link" href="#train-the-gene-task-on-the-demo-datasets">¶</a></h2><p><code>trainer.train()</code> builds the model again from the config (base + ATAC-final weights), trains the
+gene task on the demo schedule, and writes checkpoints under <code>model/</code>. The gene-count loss is
+added for ChromiumPBMC, which has RNA; Li2023Science+Inh trains on ATAC only.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b118ea5561624da68c537baed56e602f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># train() builds its own copy of the model; free the one inspected above first</span>
+<span class="k">del</span> <span class="n">model</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-8"># train() builds its own copy of the model; free the one inspected above first
+del model
+trainer.model = None
+torch.cuda.empty_cache()
+
+trainer.train()</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Tracking run with wandb version 0.28.0
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: W&amp;B syncing is set to <span class="ansi-bold">`offline`</span> in this directory. Run <span class="ansi-bold">`wandb online`</span> or set <span class="ansi-bold">WANDB_MODE=online</span> to enable cloud syncing.
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run data is saved locally in <span class="ansi-magenta-intense-fg ansi-bold">/mnt/work/runs/wandb/offline-run-20261027_162528-bzafcsdv</span>
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: View this run in the terminal with <span class="ansi-bold">`wandb leet`</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-yellow-fg">WARNING</span> URL not available in offline run
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Setting up model from config
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Loading base model weights from: /mnt/work/bdhome/flashzoi/fold_0.renamed.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Total model parameters 1202745955, trainable parameters 1025384867
+Config contains lora_checkpoint_path, will load weights and perform fine-tuning.
+Loading LoRA model weights from: /mnt/work/bdhome/hf/models--arcinstitute--bolero-models/snapshots/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Input shape:
+x: torch.Size([1, 4, 524288])
+embedding: torch.Size([1, 768])
+signal: torch.Size([1, 1, 16384])
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>===========================================================================================================================================================
+Layer (type (var_name))                                                          Input Shape               Output Shape              Param #
+===========================================================================================================================================================
+BorzoiLoRAMulti (BorzoiLoRAMulti)                                                --                        [1, 1, 16352]             1,688,069
+├─ConvDna (conv_dna)                                                             [1, 4, 524288]            [1, 512, 262144]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 4, 524288]            [1, 512, 524288]          31,232
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 30, 60]               726,280
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 512, 30]              4,211,200
+│    │    └─Dropout (lora_dropout)                                               [1, 512, 524288]          [1, 512, 524288]          --
+│    └─MaxPool1d (max_pool)                                                      [1, 512, 524288]          [1, 512, 262144]          --
+├─SequentialwithArgs (res_tower)                                                 [1, 512, 262144]          [1, 1280, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 512, 262144]          [1, 608, 262144]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 512, 262144]          [1, 512, 262144]          (1,024)
+│    │    └─GELU (activation)                                                    [1, 512, 262144]          [1, 512, 262144]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 512, 262144]          [1, 608, 262144]          26,509,728
+│    └─MaxPool1d (1)                                                             [1, 608, 262144]          [1, 608, 131072]          --
+│    └─ConvBlock (2)                                                             [1, 608, 131072]          [1, 736, 131072]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 608, 131072]          [1, 608, 131072]          (1,216)
+│    │    └─GELU (activation)                                                    [1, 608, 131072]          [1, 608, 131072]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 608, 131072]          [1, 736, 131072]          31,878,496
+│    └─MaxPool1d (3)                                                             [1, 736, 131072]          [1, 736, 65536]           --
+│    └─ConvBlock (4)                                                             [1, 736, 65536]           [1, 896, 65536]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 736, 65536]           [1, 736, 65536]           (1,472)
+│    │    └─GELU (activation)                                                    [1, 736, 65536]           [1, 736, 65536]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 736, 65536]           [1, 896, 65536]           39,106,496
+│    └─MaxPool1d (5)                                                             [1, 896, 65536]           [1, 896, 32768]           --
+│    └─ConvBlock (6)                                                             [1, 896, 32768]           [1, 1056, 32768]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 896, 32768]           [1, 896, 32768]           (1,792)
+│    │    └─GELU (activation)                                                    [1, 896, 32768]           [1, 896, 32768]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 896, 32768]           [1, 1056, 32768]          47,941,856
+│    └─MaxPool1d (7)                                                             [1, 1056, 32768]          [1, 1056, 16384]          --
+│    └─ConvBlock (8)                                                             [1, 1056, 16384]          [1, 1280, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1056, 16384]          [1, 1056, 16384]          (2,112)
+│    │    └─GELU (activation)                                                    [1, 1056, 16384]          [1, 1056, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1056, 16384]          [1, 1280, 16384]          57,864,640
+├─Sequential (signal_encoder)                                                    [1, 1, 16384]             [1, 1280, 16384]          --
+│    └─Conv1d (0)                                                                [1, 1, 16384]             [1, 128, 16384]           512
+│    └─GroupNorm (1)                                                             [1, 128, 16384]           [1, 128, 16384]           256
+│    └─SiLU (2)                                                                  [1, 128, 16384]           [1, 128, 16384]           --
+│    └─Conv1d (3)                                                                [1, 128, 16384]           [1, 512, 16384]           197,120
+│    └─GroupNorm (4)                                                             [1, 512, 16384]           [1, 512, 16384]           1,024
+│    └─SiLU (5)                                                                  [1, 512, 16384]           [1, 512, 16384]           --
+│    └─Conv1d (6)                                                                [1, 512, 16384]           [1, 1280, 16384]          1,967,360
+│    └─GroupNorm (7)                                                             [1, 1280, 16384]          [1, 1280, 16384]          2,560
+├─SequentialwithArgs (unet1)                                                     [1, 1280, 16384]          [1, 1536, 8192]           --
+│    └─MaxPool1d (0)                                                             [1, 1280, 16384]          [1, 1280, 8192]           --
+│    └─ConvBlock (1)                                                             [1, 1280, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1280, 8192]           [1, 1280, 8192]           (2,560)
+│    │    └─GELU (activation)                                                    [1, 1280, 8192]           [1, 1280, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1280, 8192]           [1, 1536, 8192]           71,545,856
+├─MaxPool1d (_max_pool)                                                          [1, 1536, 8192]           [1, 1536, 4096]           --
+├─ConvBlock (horizontal_conv0)                                                   [1, 1280, 16384]          [1, 1536, 16384]          --
+│    └─BatchNorm1d (norm)                                                        [1, 1280, 16384]          [1, 1280, 16384]          (2,560)
+│    └─GELU (activation)                                                         [1, 1280, 16384]          [1, 1280, 16384]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1280, 16384]          [1, 1536, 16384]          1,967,616
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 768]                  [1, 30, 1280]             10,132,480
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 768]                  [1, 1536, 30]             12,106,240
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 16384]          [1, 1536, 16384]          --
+├─ConvBlock (horizontal_conv1)                                                   [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─BatchNorm1d (norm)                                                        [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    └─GELU (activation)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1536, 8192]           [1, 1536, 8192]           2,360,832
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 768]                  [1, 30, 1536]             12,106,240
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 768]                  [1, 1536, 30]             12,106,240
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 8192]           [1, 1536, 8192]           --
+├─SequentialwithArgs (transformer)                                               [1, 4096, 1536]           [1, 4096, 1536]           --
+│    └─TransformerLayer (0)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (1)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (2)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (3)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (4)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (5)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (6)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (7)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+├─SequentialwithArgs (upsampling_unet1)                                          [1, 1536, 4096]           [1, 1536, 8192]           --
+│    └─ConvBlock (0)                                                             [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 4096]           [1, 1536, 4096]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 4096]           [1, 1536, 4096]           26,573,312
+│    └─Upsample (1)                                                              [1, 1536, 4096]           [1, 1536, 8192]           --
+├─ConvBlock (separable1)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (norm)                                                           [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (activation)                                                     [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 8192]           [1, 1536, 8192]           12,397,658
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 8192]           [1, 1536, 8192]           10,783,232
+├─SequentialwithArgs (upsampling_unet0)                                          [1, 1536, 8192]           [1, 1536, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 8192]           [1, 1536, 8192]           26,573,312
+│    └─Upsample (1)                                                              [1, 1536, 8192]           [1, 1536, 16384]          --
+├─ConvBlock (separable0)                                                         [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (norm)                                                           [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (activation)                                                     [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 16384]          [1, 1536, 16384]          12,397,658
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 16384]          [1, 1536, 16384]          10,783,232
+├─SequentialwithArgs (final_joined_convs)                                        [1, 1536, 16384]          [1, 1920, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 16384]          [1, 1920, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 16384]          [1, 1536, 16384]          (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 16384]          [1, 1536, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 16384]          [1, 1920, 16384]          56,769,920
+│    └─Dropout (1)                                                               [1, 1920, 16384]          [1, 1920, 16384]          --
+│    └─GELU (2)                                                                  [1, 1920, 16384]          [1, 1920, 16384]          --
+├─TargetLengthCrop (crop)                                                        [1, 1920, 16384]          [1, 1920, 16352]          --
+├─OutputHead (final_output_head)                                                 [1, 1920, 16352]          [1, 1, 16352]             --
+│    └─ConditionalLoRAConv (0)                                                   [1, 1920, 16352]          [1, 1, 16352]             1,921
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 1, 1920]              757,120
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 1, 1]                 263,937
+│    │    └─Dropout (lora_dropout)                                               [1, 1, 16352]             [1, 1, 16352]             --
+│    └─Softplus (1)                                                              [1, 1, 16352]             [1, 1, 16352]             --
+===========================================================================================================================================================
+Total params: 1,202,745,955
+Trainable params: 1,025,384,867
+Non-trainable params: 177,361,088
+Total mult-adds (Units.GIGABYTES): 36.49
+===========================================================================================================================================================
+Input size (MB): 8.46
+Forward/backward pass size (MB): 2786.34
+Params size (MB): 4087.35
+Estimated Total Size (MB): 6882.15
+===========================================================================================================================================================
+EMA is not used.
+Current epoch: 1, max epochs: 1.
+Get dataloader with train mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:40,562	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:40,563	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition] -&gt; TaskPoolMapOperator[MapBatches(_process_mask_coords)]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:41,666	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:25:41,667	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; TaskPoolMapOperator[MapBatches(ReverseComplementMinusStrand)] -&gt; LimitOperator[limit=22]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Reverse complement minus strand gene regions
+Data loader kwargs {'batch_size': 1, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [4/20] Ave Loss: 1.454; Ave Corr: 0.795 Last grad norm: 0.6488 Last batch Loss: 1.250 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [9/20] Ave Loss: 2.344; Ave Corr: 0.875 Last grad norm: 2.3165 Last batch Loss: 0.809 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/mnt/work/bolero/.pixi/envs/dev/lib/python3.11/site-packages/torch/optim/lr_scheduler.py:232: UserWarning: The epoch parameter in `scheduler.step()` was not necessary and is being deprecated where possible. Please use `scheduler.step()` to step the scheduler. During the deprecation, if epoch is different from None, the closed form is used instead of the new chainable form, where available. Please open an issue if you are unable to replicate your use case: https://github.com/pytorch/pytorch/issues/new/choose.
+  warnings.warn(EPOCH_DEPRECATION_WARNING, UserWarning)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [14/20] Ave Loss: 2.198; Ave Corr: 0.881 Last grad norm: 1.6326 Last batch Loss: 4.066 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [19/20] Ave Loss: 2.066; Ave Corr: 0.887 Last grad norm: 4.5300 Last batch Loss: 1.382 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:26:10,406	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:26:10,407	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition] -&gt; TaskPoolMapOperator[MapBatches(_process_mask_coords)]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:26:10,810	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:26:10,811	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; LimitOperator[limit=6]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'batch_size': 3, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training)   1 Loss: 1.972; Mean Corr. : 0.884; Learning rate 4.9999375001562504e-05.
+ - (Validation) 1 Loss: 1.148; Mean Corr. : 0.879.
+Saving best checkpoint...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Load and update state dict from checkpoint file: /mnt/work/bolero/docs/tutorials/model_training/model/Bolero10M_atac_fold0-gene-demo.lora.best_checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:27:11,228	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:27:11,228	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition] -&gt; TaskPoolMapOperator[MapBatches(_process_mask_coords)]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:27:12,307	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-25-00_026732_3610717/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:27:12,307	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; LimitOperator[limit=16]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'batch_size': 3, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 1 [4/5] Mean Loss: 0.494; Mean Track Corr: 0.714; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run history:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:              train/learning_rate ▁▆██
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:            train/train_corr_data ▁▇██
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                 train/train_loss ▂▁█▂
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: train/train_loss_gene_count_loss ▁▁█▆
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     train/train_loss_multinomial ▂▁█▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:         train/train_loss_poisson ▇█▁█
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:      train/train_total_grad_norm ▁▄▃█
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                val/val_corr_data ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                     val/val_loss ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     val/val_loss_gene_count_loss ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                               +2 ...
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run summary:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                  final_test_corr 0.71431
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                  final_test_loss 0.49449
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:  final_test_loss_gene_count_loss 0
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:      final_test_loss_multinomial 0.68138
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:          final_test_loss_poisson -0.48669
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                 final_valid_corr 0.87925
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                 final_valid_loss 1.14781
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: final_valid_loss_gene_count_loss 0.06367
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     final_valid_loss_multinomial 1.53189
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:         final_valid_loss_poisson -1.2666
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                              +13 ...
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: You can sync this run to the cloud by running:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-bold">wandb sync /mnt/work/runs/wandb/offline-run-20261027_162528-bzafcsdv</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Find logs at: <span class="ansi-magenta-intense-fg ansi-bold">/mnt/work/runs/wandb/offline-run-20261027_162528-bzafcsdv/logs</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=938c804e27f84196a10c8828c723f798">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="real-training-vs-this-demo">Real training vs. this demo<a class="anchor-link" href="#real-training-vs-this-demo">¶</a></h2><p>The published gene checkpoint is the last stage of the full pipeline. Reproducing it means another
+<strong>200-epoch</strong>, multi-GPU run on all 41 datasets, continuing from the ATAC-final checkpoint — days of
+compute. For that run, annotate every dataset of the registry and drop the demo lines.</p>
 <hr/>
 <p>That completes Bolero's model side: a single frozen Flashzoi backbone, conditioned per cell state and
 per dataset, trained jointly across the Bolero-10M corpus to predict cell-state–specific

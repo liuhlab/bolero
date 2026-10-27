@@ -692,13 +692,30 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The dataset registry — what makes it multi-dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-two-datasets-for-the-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep two datasets for the demo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-training-config-real-parameters" class="md-nav__link">
+  <a href="#build-the-training-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the training config (real parameters)
+        Build the training config
       
     </span>
   </a>
@@ -706,10 +723,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-model-then-load-the-trained-checkpoint-no-training" class="md-nav__link">
+  <a href="#build-the-model-and-load-the-published-weights" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the model — then load the trained checkpoint (no training)
+        Build the model and load the published weights
       
     </span>
   </a>
@@ -743,6 +760,17 @@
     <span class="md-ellipsis">
       
         Model size
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train-on-the-demo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train on the demo datasets
       
     </span>
   </a>
@@ -1458,13 +1486,30 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The dataset registry — what makes it multi-dataset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-two-datasets-for-the-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep two datasets for the demo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-training-config-real-parameters" class="md-nav__link">
+  <a href="#build-the-training-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the training config (real parameters)
+        Build the training config
       
     </span>
   </a>
@@ -1472,10 +1517,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-the-model-then-load-the-trained-checkpoint-no-training" class="md-nav__link">
+  <a href="#build-the-model-and-load-the-published-weights" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build the model — then load the trained checkpoint (no training)
+        Build the model and load the published weights
       
     </span>
   </a>
@@ -1509,6 +1554,17 @@
     <span class="md-ellipsis">
       
         Model size
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#train-on-the-demo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Train on the demo datasets
       
     </span>
   </a>
@@ -2267,7 +2323,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4597d8a7">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7fb27b941602401d91542211134fc71a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2279,11 +2335,12 @@ single-cell datasets spanning several mammalian genomes — so one network predi
 accessibility for every dataset at once. This page shows how that multi-dataset model is configured
 and what is different about it.</p>
 <blockquote>
-<p><strong>This notebook runs in the multi-dataset training directory</strong>, not in place under <code>docs/</code>. Unlike
-the single-dataset tutorial (which runs on the small ChromiumPBMC artifacts), the multi-dataset
-model needs the full corpus (every dataset's parquet store + pseudobulk records) plus the
-intermediate checkpoints from the earlier training stages. All paths below are relative to that
-directory.</p>
+<p><strong>A demo on two datasets.</strong> The paper model trains on all 42 published datasets, and its full
+training data is the whole corpus: about 1.6 TB of 32 bp parquet stores. This page keeps the
+published <strong><code>Borzoi10M</code></strong> model (its config, which carries the dataset registry, and its trained
+checkpoint) and the frozen Flashzoi backbone, all fetched through <code>bolerodata</code>. It then trains a
+short demo on two small datasets from that registry, <strong>ChromiumPBMC</strong> and <strong>Li2023Science+Inh</strong>
+(both hg38; about 9.4 GB of downloads).</p>
 </blockquote>
 <p><strong>The full recipe is staged.</strong> Training the final model is done in stages, and the earlier stages
 are intentionally left out of these docs to keep them readable:</p>
@@ -2292,14 +2349,15 @@ are intentionally left out of these docs to keep them readable:</p>
 backbone. Produces the <em>init config</em> (which carries the whole dataset registry).</li>
 <li><strong>dataset-specific</strong> — freeze the shared model and fine-tune each dataset's own conditioning
 encoder.</li>
-<li><strong>combine</strong> — merge the per-dataset encoders into a single checkpoint
-(<code>...PostDatasetFineTune.pt</code>).</li>
+<li><strong>combine</strong> — merge the per-dataset encoders into a single checkpoint.</li>
 <li><strong>final</strong> — <em>this page</em>: load a frozen Flashzoi base + that combined checkpoint + the dataset
 registry, and train <strong>everything jointly</strong>.</li>
 </ol>
-<p><strong>Because a real final run is heavy</strong> (200 epochs, millions of steps, multi-GPU, days of compute) we
-do <strong>not</strong> call <code>trainer.train()</code> here. Instead we build the model exactly as training would, then
-<strong>load the already-trained final checkpoint</strong> and inspect what makes a multi-dataset model different.</p>
+<p><strong>Because a real final run is heavy</strong> (100 epochs on all 42 datasets, millions of steps, multi-GPU,
+days of compute), this page builds the model exactly as final training would, <strong>loads the published
+final checkpoint</strong> (<code>Borzoi10M</code>), inspects what makes a multi-dataset model different, and then runs
+a few training steps on the two demo datasets. The final checkpoint holds every weight the stage-3
+combined checkpoint sets, so this page skips the stage-3 load and starts from the published weights.</p>
 </div>
 </div>
 </div>
@@ -2315,7 +2373,7 @@ do <strong>not</strong> call <code>trainer.train()</code> here. Instead we build
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=87e8379f">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=acae54e37e7d407bbb7b55eff062a284">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2333,32 +2391,38 @@ do <strong>not</strong> call <code>trainer.train()</code> here. Instead we build
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">collections</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">collections</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.model_lora</span><span class="w"> </span><span class="kn">import</span> <span class="n">filter_dataset_encoders</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">bolero.tl.model.borzoi.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiBorzoiLoRATrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MODELS</span><span class="p">,</span> <span class="n">get_flashzoi_checkpoint</span>
 
-<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="s2">"disabled"</span>  <span class="c1"># demo only builds/loads a model; no training, no logging</span>
-<span class="p">)</span>
+<span class="c1"># The trainer logs to Weights &amp; Biases. As on the single-dataset page, log offline so the demo</span>
+<span class="c1"># runs without a login; for a real run, remove this line and use your own project.</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"WANDB_MODE"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"offline"</span>
 <span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">object_store_memory_gb</span><span class="o">=</span><span class="mi">48</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">import json
+<div class="clipboard-copy-txt" id="cell-1">import collections
+import copy
 import os
-import collections
 
 import pandas as pd
+import torch
 
 from bolero import init
+from bolero.tl.model.borzoi.model_lora import filter_dataset_encoders
 from bolero.tl.model.borzoi.train import MultiBorzoiLoRATrainer
+from bolerodata import MODELS, get_flashzoi_checkpoint
 
-os.environ["WANDB_MODE"] = (
-    "disabled"  # demo only builds/loads a model; no training, no logging
-)
+# The trainer logs to Weights &amp; Biases. As on the single-dataset page, log offline so the demo
+# runs without a login; for a real run, remove this line and use your own project.
+os.environ["WANDB_MODE"] = "offline"
 init(num_cpus=16, object_store_memory_gb=48)</div>
 </div>
 </div>
@@ -2371,15 +2435,15 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-13 12:09:53,684	INFO worker.py:1781 -- Started a local Ray instance.
+<pre>2026-10-27 16:22:17,535	INFO worker.py:1781 -- Started a local Ray instance.
 </pre>
 </div>
 </div>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=5f87509d">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9a63283cbaf04dbcab1f6479b197f3a8">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2398,34 +2462,73 @@ init(num_cpus=16, object_store_memory_gb=48)</div>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># --- Configuration ---------------------------------------------------------------</span>
-<span class="n">MODEL_NAME</span> <span class="o">=</span> <span class="s2">"Bolero10M"</span>
+<span class="n">MODEL_KEY</span> <span class="o">=</span> <span class="s2">"Borzoi10M"</span>  <span class="c1"># the published multi-dataset ATAC model</span>
 <span class="n">FOLD</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="c1"># the two small hg38 datasets from the registry that the demo trains on</span>
+<span class="n">DEMO_DATASETS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"ChromiumPBMC"</span><span class="p">,</span> <span class="s2">"Li2023Science+Inh"</span><span class="p">]</span>
 
-<span class="c1"># Stage-1 (init) config carries the dataset registry the whole model is built from.</span>
-<span class="n">INIT_CONFIG</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-init.config.json"</span>
-<span class="c1"># Combined per-dataset checkpoint (stage 3) — the starting weights for final training.</span>
-<span class="n">POST_DATASET_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-PostDatasetFineTune.pt"</span>
-<span class="c1"># The trained final ATAC checkpoint we load for the demo (result of stage 4).</span>
-<span class="n">FINAL_CKPT</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"model/250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold0-final.lora.best_checkpoint.pt"</span>
+<span class="n">published</span> <span class="o">=</span> <span class="n">MODELS</span><span class="p">[</span><span class="n">MODEL_KEY</span><span class="p">]</span>
+<span class="c1"># The published model's config carries the dataset registry the whole model is built from.</span>
+<span class="n">MODEL_CONFIG</span> <span class="o">=</span> <span class="n">published</span><span class="o">.</span><span class="n">model_config</span>
+<span class="c1"># The trained final ATAC checkpoint (result of stage 4); downloaded once.</span>
+<span class="n">FINAL_CKPT</span> <span class="o">=</span> <span class="n">published</span><span class="o">.</span><span class="n">ckpt_path</span>
 <span class="c1"># Frozen Flashzoi backbone (same base checkpoint as the single-dataset model).</span>
-<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="sa">f</span><span class="s2">"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">.renamed.pt"</span>
-<span class="p">)</span>
+<span class="n">BASE_CKPT</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">get_flashzoi_checkpoint</span><span class="p">(</span><span class="n">FOLD</span><span class="p">))</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-2"># --- Configuration ---------------------------------------------------------------
-MODEL_NAME = "Bolero10M"
+MODEL_KEY = "Borzoi10M"  # the published multi-dataset ATAC model
 FOLD = 0
+# the two small hg38 datasets from the registry that the demo trains on
+DEMO_DATASETS = ["ChromiumPBMC", "Li2023Science+Inh"]
 
-# Stage-1 (init) config carries the dataset registry the whole model is built from.
-INIT_CONFIG = f"model/250909-{MODEL_NAME}_atac_fold0-init.config.json"
-# Combined per-dataset checkpoint (stage 3) — the starting weights for final training.
-POST_DATASET_CKPT = f"250909-{MODEL_NAME}_atac_fold0-PostDatasetFineTune.pt"
-# The trained final ATAC checkpoint we load for the demo (result of stage 4).
-FINAL_CKPT = f"model/250909-{MODEL_NAME}_atac_fold0-final.lora.best_checkpoint.pt"
+published = MODELS[MODEL_KEY]
+# The published model's config carries the dataset registry the whole model is built from.
+MODEL_CONFIG = published.model_config
+# The trained final ATAC checkpoint (result of stage 4); downloaded once.
+FINAL_CKPT = published.ckpt_path
 # Frozen Flashzoi backbone (same base checkpoint as the single-dataset model).
-BASE_CKPT = (
-    f"/home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_{FOLD}.renamed.pt"
-)</div>
+BASE_CKPT = str(get_flashzoi_checkpoint(FOLD))</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:20 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M/config.json "HTTP/1.1 307 Temporary Redirect"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:20 - WARNING - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:20 - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/arcinstitute/bolero-models/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS%2FBorzoi10M%2Fconfig.json "HTTP/1.1 200 OK"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:20 - INFO - HTTP Request: HEAD https://huggingface.co/arcinstitute/bolero-models/resolve/main/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt "HTTP/1.1 302 Found"
+</pre>
 </div>
 </div>
 </div>
@@ -2443,12 +2546,13 @@ registry: a dict mapping each dataset to the exact artifacts you built in the
 <a href="../meta_cell_adata_and_parquet/05_pseudobulk_and_reference.ipynb">data section</a> — its 32 bp
 <code>data_path</code> (parquet store) and its <code>pseudobulk_path</code> (coverage-matched pseudobulk records) — plus
 the <strong><code>genome</code></strong> it maps to and a <strong><code>dataset_sample_weight</code></strong>. The registry was assembled during the
-init stage from <code>bolerodata.DATASETS</code>, so we just read it back out of the init config.</p>
+init stage from <code>bolerodata.DATASETS</code>; the published model's config keeps it, so we read it back
+from there.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=60ebafc2">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8dd0d8092fe74a7c96281538738b07e2">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2466,32 +2570,28 @@ init stage from <code>bolerodata.DATASETS</code>, so we just read it back out of
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">INIT_CONFIG</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-    <span class="n">init_cfg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-<span class="n">dataset_records</span> <span class="o">=</span> <span class="n">init_cfg</span><span class="p">[</span><span class="s2">"dataset_records"</span><span class="p">]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">full_records</span> <span class="o">=</span> <span class="n">MODEL_CONFIG</span><span class="p">[</span><span class="s2">"dataset_records"</span><span class="p">]</span>
 
 <span class="c1"># one row per dataset: which genome, which sampling weight</span>
 <span class="n">registry</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
     <span class="p">{</span>
         <span class="n">k</span><span class="p">:</span> <span class="p">{</span><span class="s2">"genome"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">],</span> <span class="s2">"weight"</span><span class="p">:</span> <span class="n">v</span><span class="p">[</span><span class="s2">"dataset_sample_weight"</span><span class="p">]}</span>
-        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">full_records</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
     <span class="p">}</span>
 <span class="p">)</span><span class="o">.</span><span class="n">T</span>
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">dataset_records</span><span class="p">)</span><span class="si">}</span><span class="s2"> datasets across </span><span class="si">{</span><span class="n">registry</span><span class="p">[</span><span class="s1">'genome'</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span><span class="si">}</span><span class="s2"> genomes"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">full_records</span><span class="p">)</span><span class="si">}</span><span class="s2"> datasets across </span><span class="si">{</span><span class="n">registry</span><span class="p">[</span><span class="s1">'genome'</span><span class="p">]</span><span class="o">.</span><span class="n">nunique</span><span class="p">()</span><span class="si">}</span><span class="s2"> genomes"</span><span class="p">)</span>
 <span class="n">registry</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">]</span><span class="o">.</span><span class="n">value_counts</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">with open(INIT_CONFIG) as f:
-    init_cfg = json.load(f)
-dataset_records = init_cfg["dataset_records"]
+<div class="clipboard-copy-txt" id="cell-3">full_records = MODEL_CONFIG["dataset_records"]
 
 # one row per dataset: which genome, which sampling weight
 registry = pd.DataFrame(
     {
         k: {"genome": v["genome"], "weight": v["dataset_sample_weight"]}
-        for k, v in dataset_records.items()
+        for k, v in full_records.items()
     }
 ).T
-print(f"{len(dataset_records)} datasets across {registry['genome'].nunique()} genomes")
+print(f"{len(full_records)} datasets across {registry['genome'].nunique()} genomes")
 registry["genome"].value_counts()</div>
 </div>
 </div>
@@ -2504,7 +2604,7 @@ registry["genome"].value_counts()</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>41 datasets across 7 genomes
+<pre>42 datasets across 7 genomes
 </pre>
 </div>
 </div>
@@ -2512,8 +2612,8 @@ registry["genome"].value_counts()</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
 <pre>genome
-mm10              20
-hg38              13
+mm10              19
+hg38              15
 rheMac10           3
 calJac4            2
 mCalJac1.pat.X     1
@@ -2526,7 +2626,7 @@ Name: count, dtype: int64</pre>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=da397dbf">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=72eea5119410473aa328ad9291626812">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2545,14 +2645,14 @@ Name: count, dtype: int64</pre>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># an example record: exactly a single dataset's parquet store + pseudobulk records + genome</span>
-<span class="n">example_key</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">dataset_records</span><span class="p">))</span>
+<span class="n">example_key</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">full_records</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">example_key</span><span class="p">)</span>
-<span class="n">dataset_records</span><span class="p">[</span><span class="n">example_key</span><span class="p">]</span>
+<span class="n">full_records</span><span class="p">[</span><span class="n">example_key</span><span class="p">]</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4"># an example record: exactly a single dataset's parquet store + pseudobulk records + genome
-example_key = next(iter(dataset_records))
+example_key = next(iter(full_records))
 print(example_key)
-dataset_records[example_key]</div>
+full_records[example_key]</div>
 </div>
 </div>
 </div>
@@ -2571,8 +2671,8 @@ dataset_records[example_key]</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>{'pseudobulk_path': '/large_storage/zhoulab/hanliu/wmb/standard/embedding/coverage_pseudobulk_with_condition/Zu2023Nature+NonN/pseudobulk_records_and_cond.cov5000000.joblib',
- 'data_path': '/large_storage/zhoulab/hanliu/wmb/standard/metacell_dataset/parquet/Zu2023Nature+NonN/Zu2023Nature-MetaCell-32bp',
+<pre>{'pseudobulk_path': 'standard/embedding/coverage_pseudobulk_with_condition/Zu2023Nature+NonN/pseudobulk_records_and_cond.cov5000000.joblib',
+ 'data_path': 'standard/metacell_dataset/parquet/Zu2023Nature+NonN/Zu2023Nature-MetaCell-32bp',
  'genome': 'mm10',
  'dataset_sample_weight': 1}</pre>
 </div>
@@ -2581,31 +2681,28 @@ dataset_records[example_key]</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8ad139be">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8edb47106e1a46a883d545849b8ab81b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="build-the-training-config-real-parameters">Build the training config (real parameters)<a class="anchor-link" href="#build-the-training-config-real-parameters">¶</a></h2><p>The config is the single-dataset config with a few multi-dataset changes. The important keys:</p>
+<h3 id="keep-two-datasets-for-the-demo">Keep two datasets for the demo<a class="anchor-link" href="#keep-two-datasets-for-the-demo">¶</a></h3><p>Training reads every registered dataset's 32 bp parquet store and pseudobulk records, and for the
+full registry that is the whole corpus. The demo keeps two datasets. Two things stay as in the full
+model:</p>
 <ul>
-<li><strong><code>dataset_records</code></strong> — the registry above (replaces the single <code>pseudobulk_records</code>).</li>
-<li><strong><code>base_checkpoint_path</code></strong> — the frozen Flashzoi fold-0 backbone (same as single-dataset).</li>
-<li><strong><code>lora_checkpoint_path</code></strong> — the <strong>combined per-dataset checkpoint</strong> from stage 3; final training
-starts from it rather than from scratch.</li>
-<li><strong><code>signal_model=True</code></strong>, and the real training schedule: <strong><code>max_epochs=200</code></strong>,
-<code>lr_total_steps=4_000_000</code>, <code>save_state_every_n_epoch=25</code>.</li>
+<li>the <strong>genome list</strong>: <code>_genomes</code> lists every genome of the full registry, in order, so the genome
+one-hot keeps the width the checkpoint was trained with;</li>
+<li>each kept dataset's <strong>conditioning encoder</strong>: encoders are keyed by dataset name, so the kept
+datasets' encoders load from the checkpoint unchanged and the others are dropped.</li>
 </ul>
-<p><code>emb_input_features</code> and <code>cond_emb_dim</code> are <strong>not</strong> set by hand here — for a multi-dataset model they
-are computed per dataset when the dataset is built (each dataset has its own embedding width), and
-merged into the config automatically. These are the <strong>real</strong> parameters used for the paper model; a
-quick smoke-test would instead set <code>max_epochs=3, warmup_steps=10, train_batches=50, val_batches=10</code>
-(as in the single-dataset page).</p>
+<p>Both kept datasets sample with weight 1. <code>bolerodata</code> downloads their files the first time the
+trainer opens them.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=4f5334ec">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=10185d26023b46108eb7d9f57d49d2b3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2623,73 +2720,110 @@ quick smoke-test would instead set <code>max_epochs=3, warmup_steps=10, train_ba
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="c1"># run identity + outputs</span>
-    <span class="s2">"output_dir"</span><span class="p">:</span> <span class="s2">"model"</span><span class="p">,</span>
-    <span class="s2">"savename"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-final"</span><span class="p">,</span>
-    <span class="s2">"wandb_project"</span><span class="p">:</span> <span class="s2">"250909-BorzoiMulti"</span><span class="p">,</span>
-    <span class="s2">"wandb_job_type"</span><span class="p">:</span> <span class="s2">"lora"</span><span class="p">,</span>
-    <span class="s2">"wandb_name"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"250909-</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-final"</span><span class="p">,</span>
-    <span class="c1"># data: the whole registry instead of one pseudobulk file</span>
-    <span class="s2">"dataset_records"</span><span class="p">:</span> <span class="n">dataset_records</span><span class="p">,</span>
-    <span class="s2">"fold_split_id"</span><span class="p">:</span> <span class="n">FOLD</span><span class="p">,</span>
-    <span class="c1"># model</span>
-    <span class="s2">"base_checkpoint_path"</span><span class="p">:</span> <span class="n">BASE_CKPT</span><span class="p">,</span>
-    <span class="s2">"signal_model"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="n">POST_DATASET_CKPT</span><span class="p">,</span>  <span class="c1"># start from the combined per-dataset checkpoint</span>
-    <span class="c1"># real training schedule (see note above)</span>
-    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span>
-    <span class="s2">"lr_total_steps"</span><span class="p">:</span> <span class="mi">4_000_000</span><span class="p">,</span>
-    <span class="s2">"save_state_every_n_epoch"</span><span class="p">:</span> <span class="mi">25</span><span class="p">,</span>
-    <span class="s2">"_predict_delta"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-<span class="p">}</span>
-<span class="n">config</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="o">.</span><span class="n">make_config</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># every genome of the full registry, in the order the model's genome embedding uses</span>
+<span class="n">GENOMES</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">({</span><span class="n">v</span><span class="p">[</span><span class="s2">"genome"</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">full_records</span><span class="o">.</span><span class="n">values</span><span class="p">()})</span>
+<span class="n">dataset_records</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">full_records</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">DEMO_DATASETS</span><span class="p">}</span>
+<span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="n">dataset_records</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+    <span class="n">rec</span><span class="p">[</span><span class="s2">"dataset_sample_weight"</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">full_records</span><span class="p">)</span><span class="si">}</span><span class="s2"> datasets in the corpus, </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">GENOMES</span><span class="p">)</span><span class="si">}</span><span class="s2"> genomes: </span><span class="si">{</span><span class="n">GENOMES</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">dataset_records</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">[[</span><span class="s2">"genome"</span><span class="p">,</span> <span class="s2">"data_path"</span><span class="p">]]</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">config = {
-    # run identity + outputs
-    "output_dir": "model",
-    "savename": f"250909-{MODEL_NAME}_atac_fold{FOLD}-final",
-    "wandb_project": "250909-BorzoiMulti",
-    "wandb_job_type": "lora",
-    "wandb_name": f"250909-{MODEL_NAME}_atac_fold{FOLD}-final",
-    # data: the whole registry instead of one pseudobulk file
-    "dataset_records": dataset_records,
-    "fold_split_id": FOLD,
-    # model
-    "base_checkpoint_path": BASE_CKPT,
-    "signal_model": True,
-    "lora_checkpoint_path": POST_DATASET_CKPT,  # start from the combined per-dataset checkpoint
-    # real training schedule (see note above)
-    "max_epochs": 200,
-    "lr_total_steps": 4_000_000,
-    "save_state_every_n_epoch": 25,
-    "_predict_delta": False,
-}
-config = MultiBorzoiLoRATrainer.make_config(**config)</div>
+<div class="clipboard-copy-txt" id="cell-5"># every genome of the full registry, in the order the model's genome embedding uses
+GENOMES = sorted({v["genome"] for v in full_records.values()})
+dataset_records = {k: copy.deepcopy(full_records[k]) for k in DEMO_DATASETS}
+for rec in dataset_records.values():
+    rec["dataset_sample_weight"] = 1
+
+print(f"{len(full_records)} datasets in the corpus, {len(GENOMES)} genomes: {GENOMES}")
+pd.DataFrame(dataset_records).T[["genome", "data_path"]]</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>42 datasets in the corpus, 7 genomes: ['calJac4', 'hg38', 'mCalJac1.pat.X', 'mm10', 'monDom5.split', 'panPan3', 'rheMac10']
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>genome</th>
+<th>data_path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>ChromiumPBMC</th>
+<td>hg38</td>
+<td>standard/metacell_dataset/parquet/ChromiumPBMC...</td>
+</tr>
+<tr>
+<th>Li2023Science+Inh</th>
+<td>hg38</td>
+<td>standard/metacell_dataset/parquet/Li2023Scienc...</td>
+</tr>
+</tbody>
+</table>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=62e51104">
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8763a12b2bbd4a93a75aff182afb95dc">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="build-the-model-then-load-the-trained-checkpoint-no-training">Build the model — then load the trained checkpoint (no training)<a class="anchor-link" href="#build-the-model-then-load-the-trained-checkpoint-no-training">¶</a></h2><p>Constructing <code>MultiBorzoiLoRATrainer</code> <strong>builds the multi-dataset dataset eagerly</strong>: it opens all the
-datasets' pseudobulk records, resolves each dataset's genome, and — crucially — computes the
-<strong>per-dataset conditioning dimensions</strong> and merges them into the config (a single-dataset trainer has
-nothing to compute here). <code>_setup_model()</code> then builds the model and loads the frozen base backbone
-plus the combined per-dataset checkpoint.</p>
-<p>At this point a real run would call <code>trainer.train()</code>. We skip that and instead load the trained final
-checkpoint, giving us the finished paper model to inspect.</p>
+<h2 id="build-the-training-config">Build the training config<a class="anchor-link" href="#build-the-training-config">¶</a></h2><p>The config is the single-dataset config with a few multi-dataset changes. The important keys:</p>
+<ul>
+<li><strong><code>dataset_records</code></strong> — the registry (replaces the single <code>pseudobulk_records</code>); here, the two demo
+datasets.</li>
+<li><strong><code>_genomes</code></strong> — the full genome list, so the genome embedding matches the checkpoint.</li>
+<li><strong><code>base_checkpoint_path</code></strong> — the frozen Flashzoi fold-0 backbone (same as single-dataset).</li>
+<li><strong><code>lora_checkpoint_path</code></strong> — the weights training starts from. A real final run starts from the
+<strong>combined per-dataset checkpoint</strong> of stage 3; the demo starts from the published final weights.</li>
+<li><strong><code>signal_model=True</code></strong>, and a <strong>demo</strong> schedule: one short epoch of 20 training steps at batch
+size 1. The real run used <code>max_epochs=100</code>, <code>lr_total_steps=2_000_000</code>,
+<code>save_state_every_n_epoch=10</code>, <code>n_pseudobulks=50</code> and the default <code>batch_size</code> of 4; the demo lines
+are simply dropped for it.</li>
+</ul>
+<p><code>emb_input_features</code> and <code>cond_emb_dim</code> are <strong>not</strong> set by hand here — for a multi-dataset model they
+are computed per dataset when the dataset is built (each dataset has its own embedding width), and
+merged into the config automatically.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2ed80b6d">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=7623eae2785240b9bd12b16a66d81610">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2707,35 +2841,136 @@ checkpoint, giving us the finished paper model to inspect.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="p">(</span>
-    <span class="n">config</span>
-<span class="p">)</span>  <span class="c1"># builds the 41-dataset dataset; fills cond_module_kwargs</span>
-<span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span>
-    <span class="n">print_model</span><span class="o">=</span><span class="kc">False</span>
-<span class="p">)</span>  <span class="c1"># builds model; loads base + combined per-dataset ckpt</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># run identity + outputs</span>
+    <span class="s2">"output_dir"</span><span class="p">:</span> <span class="s2">"model"</span><span class="p">,</span>
+    <span class="s2">"savename"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">MODEL_KEY</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-demo"</span><span class="p">,</span>
+    <span class="s2">"wandb_project"</span><span class="p">:</span> <span class="s2">"BorzoiMulti"</span><span class="p">,</span>
+    <span class="s2">"wandb_job_type"</span><span class="p">:</span> <span class="s2">"lora"</span><span class="p">,</span>
+    <span class="s2">"wandb_name"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">MODEL_KEY</span><span class="si">}</span><span class="s2">_atac_fold</span><span class="si">{</span><span class="n">FOLD</span><span class="si">}</span><span class="s2">-demo"</span><span class="p">,</span>
+    <span class="c1"># data: a registry instead of one pseudobulk file</span>
+    <span class="s2">"dataset_records"</span><span class="p">:</span> <span class="n">dataset_records</span><span class="p">,</span>
+    <span class="s2">"fold_split_id"</span><span class="p">:</span> <span class="n">FOLD</span><span class="p">,</span>
+    <span class="s2">"_genomes"</span><span class="p">:</span> <span class="n">GENOMES</span><span class="p">,</span>  <span class="c1"># keep the genome embedding of the full model</span>
+    <span class="c1"># model</span>
+    <span class="s2">"base_checkpoint_path"</span><span class="p">:</span> <span class="n">BASE_CKPT</span><span class="p">,</span>
+    <span class="s2">"signal_model"</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="s2">"lora_checkpoint_path"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">FINAL_CKPT</span><span class="p">),</span>  <span class="c1"># a real final run: the stage-3 checkpoint</span>
+    <span class="s2">"n_pseudobulks"</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="s2">"_predict_delta"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="c1"># schedule: real run max_epochs=100, lr_total_steps=2_000_000, save_state_every_n_epoch=10</span>
+    <span class="s2">"max_epochs"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="s2">"lr_total_steps"</span><span class="p">:</span> <span class="mi">2_000_000</span><span class="p">,</span>
+    <span class="s2">"save_state_every_n_epoch"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="c1"># demo only: a few small steps (drop these four lines for a real run)</span>
+    <span class="s2">"warmup_steps"</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="s2">"train_batches"</span><span class="p">:</span> <span class="mi">20</span><span class="p">,</span>
+    <span class="s2">"val_batches"</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="s2">"batch_size"</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="o">.</span><span class="n">make_config</span><span class="p">(</span><span class="o">**</span><span class="n">config</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-6">config = {
+    # run identity + outputs
+    "output_dir": "model",
+    "savename": f"{MODEL_KEY}_atac_fold{FOLD}-demo",
+    "wandb_project": "BorzoiMulti",
+    "wandb_job_type": "lora",
+    "wandb_name": f"{MODEL_KEY}_atac_fold{FOLD}-demo",
+    # data: a registry instead of one pseudobulk file
+    "dataset_records": dataset_records,
+    "fold_split_id": FOLD,
+    "_genomes": GENOMES,  # keep the genome embedding of the full model
+    # model
+    "base_checkpoint_path": BASE_CKPT,
+    "signal_model": True,
+    "lora_checkpoint_path": str(FINAL_CKPT),  # a real final run: the stage-3 checkpoint
+    "n_pseudobulks": 50,
+    "_predict_delta": False,
+    # schedule: real run max_epochs=100, lr_total_steps=2_000_000, save_state_every_n_epoch=10
+    "max_epochs": 1,
+    "lr_total_steps": 2_000_000,
+    "save_state_every_n_epoch": 10,
+    # demo only: a few small steps (drop these four lines for a real run)
+    "warmup_steps": 10,
+    "train_batches": 20,
+    "val_batches": 5,
+    "batch_size": 1,
+}
+config = MultiBorzoiLoRATrainer.make_config(**config)</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7cdc8c89c7104fffa095e18ddfef8986">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="build-the-model-and-load-the-published-weights">Build the model and load the published weights<a class="anchor-link" href="#build-the-model-and-load-the-published-weights">¶</a></h2><p>Constructing <code>MultiBorzoiLoRATrainer</code> <strong>builds the multi-dataset dataset eagerly</strong>: it opens the
+datasets' pseudobulk records and 32 bp stores, resolves each dataset's genome, and — crucially —
+computes the <strong>per-dataset conditioning dimensions</strong> and merges them into the config (a
+single-dataset trainer has nothing to compute here). <code>_setup_model()</code> then builds the model, loads
+the frozen base backbone and loads <code>lora_checkpoint_path</code>.</p>
+<p>We then load the published checkpoint once more with <code>strict=True</code>, after dropping the encoders of
+the datasets the demo leaves out. A strict load fails if any weight of the model is missing from the
+checkpoint, so it confirms that every weight of the demo model comes from the published model.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=b118ea5561624da68c537baed56e602f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trainer</span> <span class="o">=</span> <span class="n">MultiBorzoiLoRATrainer</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>  <span class="c1"># builds the dataset; fills cond_module_kwargs</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">_setup_model</span><span class="p">(</span><span class="n">print_model</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># builds model; loads base + published weights</span>
 
 <span class="n">model</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span>
     <span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="p">,</span> <span class="s2">"module"</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">model</span>
 <span class="p">)</span>  <span class="c1"># unwrap DataParallel if present</span>
-<span class="n">model</span><span class="o">.</span><span class="n">load_checkpoint_from_path</span><span class="p">(</span>
-    <span class="n">FINAL_CKPT</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">False</span>
-<span class="p">)</span>  <span class="c1"># &lt;- the trained final ATAC model</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint:"</span><span class="p">,</span> <span class="n">FINAL_CKPT</span><span class="p">)</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">FINAL_CKPT</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="s2">"cpu"</span><span class="p">,</span> <span class="n">weights_only</span><span class="o">=</span><span class="kc">False</span><span class="p">)[</span><span class="s2">"state_dict"</span><span class="p">]</span>
+<span class="n">state</span> <span class="o">=</span> <span class="n">filter_dataset_encoders</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">,</span> <span class="n">dataset_records</span>
+<span class="p">)</span>  <span class="c1"># keep the demo datasets' encoders</span>
+<span class="n">model</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span>
+    <span class="n">state</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>  <span class="c1"># every model weight comes from the checkpoint</span>
+<span class="k">del</span> <span class="n">state</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"loaded trained checkpoint:"</span><span class="p">,</span> <span class="n">MODEL_KEY</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">trainer = MultiBorzoiLoRATrainer(
-    config
-)  # builds the 41-dataset dataset; fills cond_module_kwargs
-trainer._setup_model(
-    print_model=False
-)  # builds model; loads base + combined per-dataset ckpt
+<div class="clipboard-copy-txt" id="cell-7">trainer = MultiBorzoiLoRATrainer(config)  # builds the dataset; fills cond_module_kwargs
+trainer._setup_model(print_model=False)  # builds model; loads base + published weights
 
 model = getattr(
     trainer.model, "module", trainer.model
 )  # unwrap DataParallel if present
-model.load_checkpoint_from_path(
-    FINAL_CKPT, strict=False
-)  # &lt;- the trained final ATAC model
-print("loaded trained checkpoint:", FINAL_CKPT)</div>
+state = torch.load(FINAL_CKPT, map_location="cpu", weights_only=False)["state_dict"]
+state = filter_dataset_encoders(
+    state, dataset_records
+)  # keep the demo datasets' encoders
+model.load_state_dict(
+    state, strict=True
+)  # every model weight comes from the checkpoint
+del state
+print("loaded trained checkpoint:", MODEL_KEY)</div>
 </div>
 </div>
 </div>
@@ -2746,21 +2981,49 @@ print("loaded trained checkpoint:", FINAL_CKPT)</div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:21 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/metacell/parquet/ChromiumPBMC/ChromiumPBMC-MetaCell-32bp.tar "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:21 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/metacell/parquet/Li2023Science%2BInh/Li2023Science-MetaCell-32bp.tar "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Using single GPU for training
 Create BorzoiMultiDataset with config:
-  dataset_records: 41 items &lt;class 'dict'&gt;
+  dataset_records: 2 items &lt;class 'dict'&gt;
   dna_window: 524288
   train_region_step_sample: True
   use_regions: borzoi
-  n_pseudobulks: 10
+  n_pseudobulks: 50
   paired_mode: ensemble
   reverse_complement: True
   max_jitter: 3
-  batch_size: 4
+  batch_size: 1
   output_prefix: pseudobulk
   shared_data_paths: None
-  _genomes: None
+  _genomes: 7 items &lt;class 'list'&gt;
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:21 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/pseudobulk/condition/ChromiumPBMC/pseudobulk_records_and_cond.cov5000000.joblib "HTTP/1.1 302 Found"
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:21 - INFO - HTTP Request: HEAD https://huggingface.co/datasets/arcinstitute/bolero-data/resolve/main/pseudobulk/condition/Li2023Science%2BInh/pseudobulk_records_and_cond.cov5000000.joblib "HTTP/1.1 302 Found"
 </pre>
 </div>
 </div>
@@ -2781,7 +3044,7 @@ Create BorzoiMultiDataset with config:
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading base model weights from: /home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt
+<pre>Loading base model weights from: /mnt/work/bdhome/flashzoi/fold_0.renamed.pt
 </pre>
 </div>
 </div>
@@ -2789,23 +3052,23 @@ Create BorzoiMultiDataset with config:
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Model does not have gene_count_output_head, skip
-Total model parameters 1209618856, trainable parameters 1032259688
+Total model parameters 1201714785, trainable parameters 1024355617
 Config contains lora_checkpoint_path, will load weights and perform fine-tuning.
-Loading LoRA model weights from: 250909-Bolero10M_atac_fold0-PostDatasetFineTune.pt
+Loading LoRA model weights from: /mnt/work/bdhome/hf/models--arcinstitute--bolero-models/snapshots/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading LoRA model weights from: model/250909-Bolero10M_atac_fold0-final.lora.best_checkpoint.pt
+<pre>Skipping checkpoint encoders of datasets not in the config: ['AIBSDev', 'CBDevEvoBonobo', 'CBDevEvoHuman', 'CBDevEvoMacaque', 'CBDevEvoMarmoset', 'CBDevEvoMouse', 'CBDevEvoOpossum', 'CZIBodyAtlas', 'EE+Control', 'EncodeHumanAtlas', 'Fear+Control', 'HMBABasalGangliaHuman', 'HMBABasalGangliaMacaque', 'HMBABasalGangliaMarmoset', 'HYSocialRebound', 'Harris2025Nature', 'HumanBodyDev', 'HumanBrainAging', 'HumanBrainDev', 'HumanCBDev', 'HumanFirstTriBrain', 'KA+Control', 'Li2023Science+Exc', 'Li2023Science+NonN', 'MouseAging', 'MouseBodyAtlas', 'MultiSpeciesHuman', 'MultiSpeciesMacaque', 'MultiSpeciesMarmoset', 'MultiSpeciesMouse', 'MultipleSclerosis+Control', 'NeurIPSBMMC', 'Stress+Control', 'Torpor+Control', 'Zhang2021Cell', 'Zu2023Nature+CB', 'Zu2023Nature+CNU', 'Zu2023Nature+CTXGaba', 'Zu2023Nature+CTXGlut', 'Zu2023Nature+HB', 'Zu2023Nature+IB', 'Zu2023Nature+MB', 'Zu2023Nature+NonN']
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>loaded trained checkpoint: model/250909-Bolero10M_atac_fold0-final.lora.best_checkpoint.pt
+<pre>loaded trained checkpoint: Borzoi10M
 </pre>
 </div>
 </div>
@@ -2837,10 +3100,10 @@ to translate its embedding into the common space.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2876,7 +3139,7 @@ to translate its embedding into the common space.</p>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">heterogeneous per-dataset embedding widths (head):"</span><span class="p">)</span>
 <span class="n">spec</span><span class="o">.</span><span class="n">head</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">cem = model.cond_emb_module
+<div class="clipboard-copy-txt" id="cell-8">cem = model.cond_emb_module
 print("cond_emb_module:", type(cem).__name__)
 print(
     "per-dataset encoders:",
@@ -2913,7 +3176,7 @@ spec.head(8)</div>
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>cond_emb_module: ConditionEmbeddingModuleMulti
-per-dataset encoders: 41 cell + 27 with conditions
+per-dataset encoders: 2 cell + 0 with conditions
 shared conditioning vector width (output_dim): 768
 
 heterogeneous per-dataset embedding widths (head):
@@ -2921,7 +3184,7 @@ heterogeneous per-dataset embedding widths (head):
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
 <div>
 <style scoped="">
@@ -2947,44 +3210,14 @@ heterogeneous per-dataset embedding widths (head):
 </thead>
 <tbody>
 <tr>
-<th>Zu2023Nature+NonN</th>
+<th>ChromiumPBMC</th>
 <td>60</td>
-<td>3</td>
+<td>0</td>
 </tr>
 <tr>
-<th>Zu2023Nature+CNU</th>
+<th>Li2023Science+Inh</th>
 <td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+IB</th>
-<td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CTXGlut</th>
-<td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CTXGaba</th>
-<td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+CB</th>
-<td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+HB</th>
-<td>60</td>
-<td>3</td>
-</tr>
-<tr>
-<th>Zu2023Nature+MB</th>
-<td>60</td>
-<td>3</td>
+<td>0</td>
 </tr>
 </tbody>
 </table>
@@ -2995,7 +3228,7 @@ heterogeneous per-dataset embedding widths (head):
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1b14d1a1">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=938c804e27f84196a10c8828c723f798">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3005,77 +3238,12 @@ heterogeneous per-dataset embedding widths (head):
 one-hot code over the genomes in the registry, appended to the shared conditioning so the network
 knows which species' DNA it is reading (the DNA one-hot for each example is fetched from that
 dataset's own genome). This is the <code>__genome__</code> entry in <code>dataset_shared_dims</code>.</p>
+<p>The demo registry holds only hg38 datasets, but the one-hot keeps the full genome list, so its width matches the checkpoint.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=bbce8e57">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
-<div class="CodeMirror cm-s-jupyter">
-<div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
-<div>
-<span class="notice" hidden="">Copied!</span>
-<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
-<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
-</svg>
-</div>
-</clipboard-copy>
-</div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dm</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">dm</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"dataset_shared_dims:"</span><span class="p">,</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_shared_dims</span><span class="p">)</span>  <span class="c1"># {'__genome__': n_genomes, ...}</span>
-
-<span class="n">genomes</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">Counter</span><span class="p">(</span><span class="n">g</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">dm</span><span class="o">.</span><span class="n">genomes</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"genomes in the registry:"</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">genomes</span><span class="p">))</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"genome one-hot width:"</span><span class="p">,</span> <span class="n">dm</span><span class="o">.</span><span class="n">dataset_idx_to_genome_emb</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-</pre></div>
-<div class="clipboard-copy-txt" id="cell-8">dm = trainer.dataset.dm
-print("dataset_shared_dims:", cem.dataset_shared_dims)  # {'__genome__': n_genomes, ...}
-
-genomes = collections.Counter(g.name for g in dm.genomes.values())
-print("genomes in the registry:", dict(genomes))
-print("genome one-hot width:", dm.dataset_idx_to_genome_emb[0].shape[-1])</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>dataset_shared_dims: {'__genome__': 7}
-genomes in the registry: {'mm10': 20, 'hg38': 13, 'rheMac10': 3, 'calJac4': 2, 'mCalJac1.pat.X': 1, 'panPan3': 1, 'monDom5.split': 1}
-genome one-hot width: 7
-</pre>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4dccf0ff">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="model-size">Model size<a class="anchor-link" href="#model-size">¶</a></h2><p>The full multi-dataset model: the frozen Flashzoi backbone, the shared conditional-LoRA generators,
-the per-dataset conditioning encoders, and the accessibility head. Notably it is only marginally
-larger than the single-dataset model — the 41 per-dataset encoders are lightweight, while the
-expensive shared conditional-LoRA backbone is amortized across every dataset.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=03168ee9">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=504fb2a444614c0babb325280ed9130a">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -3093,12 +3261,78 @@ expensive shared conditional-LoRA backbone is amortized across every dataset.</p
 </div>
 </clipboard-copy>
 </div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dm</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">dm</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"dataset_shared_dims:"</span><span class="p">,</span> <span class="n">cem</span><span class="o">.</span><span class="n">dataset_shared_dims</span><span class="p">)</span>  <span class="c1"># {'__genome__': n_genomes, ...}</span>
+
+<span class="n">genomes</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">Counter</span><span class="p">(</span><span class="n">g</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">dm</span><span class="o">.</span><span class="n">genomes</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"genomes in the demo registry:"</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">genomes</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"genome one-hot width:"</span><span class="p">,</span> <span class="n">dm</span><span class="o">.</span><span class="n">dataset_idx_to_genome_emb</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-9">dm = trainer.dataset.dm
+print("dataset_shared_dims:", cem.dataset_shared_dims)  # {'__genome__': n_genomes, ...}
+
+genomes = collections.Counter(g.name for g in dm.genomes.values())
+print("genomes in the demo registry:", dict(genomes))
+print("genome one-hot width:", dm.dataset_idx_to_genome_emb[0].shape[-1])</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>dataset_shared_dims: {'__genome__': 7}
+genomes in the demo registry: {'hg38': 2}
+genome one-hot width: 7
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=59bbdb311c014d738909a11f9e486628">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="model-size">Model size<a class="anchor-link" href="#model-size">¶</a></h2><p>The multi-dataset model: the frozen Flashzoi backbone, the shared conditional-LoRA generators, the
+per-dataset conditioning encoders, and the accessibility head. It is only marginally larger than the
+single-dataset model: the per-dataset encoders are lightweight, while the expensive shared
+conditional-LoRA backbone is amortized across every dataset.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=03168ee9">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">total</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">())</span>
 <span class="n">trainable</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">parameters</span><span class="p">()</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"total params    : </span><span class="si">{</span><span class="n">total</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"trainable params: </span><span class="si">{</span><span class="n">trainable</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">  (</span><span class="si">{</span><span class="n">trainable</span><span class="o">/</span><span class="n">total</span><span class="si">:</span><span class="s2">.1%</span><span class="si">}</span><span class="s2">)"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">total = sum(p.numel() for p in model.parameters())
+<div class="clipboard-copy-txt" id="cell-10">total = sum(p.numel() for p in model.parameters())
 trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"total params    : {total:,}")
 print(f"trainable params: {trainable:,}  ({trainable/total:.1%})")</div>
@@ -3113,8 +3347,8 @@ print(f"trainable params: {trainable:,}  ({trainable/total:.1%})")</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>total params    : 1,209,618,856
-trainable params: 1,032,259,688  (85.3%)
+<pre>total params    : 1,201,714,785
+trainable params: 1,024,355,617  (85.2%)
 </pre>
 </div>
 </div>
@@ -3122,16 +3356,502 @@ trainable params: 1,032,259,688  (85.3%)
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7e476b5b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b43b363d81ae4b689946ece5c682cd59">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="real-training-vs-this-demo">Real training vs. this demo<a class="anchor-link" href="#real-training-vs-this-demo">¶</a></h2><p>We loaded a finished checkpoint; producing it is a large job. The paper's final ATAC model trains for
-<strong>200 epochs</strong> with <code>lr_total_steps=4_000_000</code> across multiple GPUs — days of compute — starting from
-the combined per-dataset checkpoint. To just watch the loop run, drop in the smoke-test overrides
-(<code>max_epochs=3, warmup_steps=10, train_batches=50, val_batches=10</code>) and call <code>trainer.train()</code>.</p>
+<h2 id="train-on-the-demo-datasets">Train on the demo datasets<a class="anchor-link" href="#train-on-the-demo-datasets">¶</a></h2><p><code>trainer.train()</code> runs the fit loop on the two datasets: it builds the model again from the config
+(base + published weights), trains on the demo schedule, validates and writes
+checkpoints under <code>model/</code>. A <code>...success.flag</code> file is dropped on completion, so re-running the cell
+is a no-op (delete the flag to retrain).</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8a65eabff63a45729fe45fb5ade58bdc">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># train() builds its own copy of the model; free the one inspected above first</span>
+<span class="k">del</span> <span class="n">model</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-11"># train() builds its own copy of the model; free the one inspected above first
+del model
+trainer.model = None
+torch.cuda.empty_cache()
+
+trainer.train()</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Tracking run with wandb version 0.28.0
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: W&amp;B syncing is set to <span class="ansi-bold">`offline`</span> in this directory. Run <span class="ansi-bold">`wandb online`</span> or set <span class="ansi-bold">WANDB_MODE=online</span> to enable cloud syncing.
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run data is saved locally in <span class="ansi-magenta-intense-fg ansi-bold">/mnt/work/runs/wandb/offline-run-20261027_162238-nsumgvax</span>
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: View this run in the terminal with <span class="ansi-bold">`wandb leet`</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-yellow-fg">WARNING</span> URL not available in offline run
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Setting up model from config
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Loading base model weights from: /mnt/work/bdhome/flashzoi/fold_0.renamed.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Model does not have gene_count_output_head, skip
+Total model parameters 1201714785, trainable parameters 1024355617
+Config contains lora_checkpoint_path, will load weights and perform fine-tuning.
+Loading LoRA model weights from: /mnt/work/bdhome/hf/models--arcinstitute--bolero-models/snapshots/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS/Borzoi10M/checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Input shape:
+x: torch.Size([1, 4, 524288])
+embedding: torch.Size([1, 768])
+signal: torch.Size([1, 1, 16384])
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>===========================================================================================================================================================
+Layer (type (var_name))                                                          Input Shape               Output Shape              Param #
+===========================================================================================================================================================
+BorzoiLoRAMulti (BorzoiLoRAMulti)                                                --                        [1, 1, 16352]             656,899
+├─ConvDna (conv_dna)                                                             [1, 4, 524288]            [1, 512, 262144]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 4, 524288]            [1, 512, 524288]          31,232
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 30, 60]               726,280
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 512, 30]              4,211,200
+│    │    └─Dropout (lora_dropout)                                               [1, 512, 524288]          [1, 512, 524288]          --
+│    └─MaxPool1d (max_pool)                                                      [1, 512, 524288]          [1, 512, 262144]          --
+├─SequentialwithArgs (res_tower)                                                 [1, 512, 262144]          [1, 1280, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 512, 262144]          [1, 608, 262144]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 512, 262144]          [1, 512, 262144]          (1,024)
+│    │    └─GELU (activation)                                                    [1, 512, 262144]          [1, 512, 262144]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 512, 262144]          [1, 608, 262144]          26,509,728
+│    └─MaxPool1d (1)                                                             [1, 608, 262144]          [1, 608, 131072]          --
+│    └─ConvBlock (2)                                                             [1, 608, 131072]          [1, 736, 131072]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 608, 131072]          [1, 608, 131072]          (1,216)
+│    │    └─GELU (activation)                                                    [1, 608, 131072]          [1, 608, 131072]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 608, 131072]          [1, 736, 131072]          31,878,496
+│    └─MaxPool1d (3)                                                             [1, 736, 131072]          [1, 736, 65536]           --
+│    └─ConvBlock (4)                                                             [1, 736, 65536]           [1, 896, 65536]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 736, 65536]           [1, 736, 65536]           (1,472)
+│    │    └─GELU (activation)                                                    [1, 736, 65536]           [1, 736, 65536]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 736, 65536]           [1, 896, 65536]           39,106,496
+│    └─MaxPool1d (5)                                                             [1, 896, 65536]           [1, 896, 32768]           --
+│    └─ConvBlock (6)                                                             [1, 896, 32768]           [1, 1056, 32768]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 896, 32768]           [1, 896, 32768]           (1,792)
+│    │    └─GELU (activation)                                                    [1, 896, 32768]           [1, 896, 32768]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 896, 32768]           [1, 1056, 32768]          47,941,856
+│    └─MaxPool1d (7)                                                             [1, 1056, 32768]          [1, 1056, 16384]          --
+│    └─ConvBlock (8)                                                             [1, 1056, 16384]          [1, 1280, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1056, 16384]          [1, 1056, 16384]          (2,112)
+│    │    └─GELU (activation)                                                    [1, 1056, 16384]          [1, 1056, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1056, 16384]          [1, 1280, 16384]          57,864,640
+├─Sequential (signal_encoder)                                                    [1, 1, 16384]             [1, 1280, 16384]          --
+│    └─Conv1d (0)                                                                [1, 1, 16384]             [1, 128, 16384]           512
+│    └─GroupNorm (1)                                                             [1, 128, 16384]           [1, 128, 16384]           256
+│    └─SiLU (2)                                                                  [1, 128, 16384]           [1, 128, 16384]           --
+│    └─Conv1d (3)                                                                [1, 128, 16384]           [1, 512, 16384]           197,120
+│    └─GroupNorm (4)                                                             [1, 512, 16384]           [1, 512, 16384]           1,024
+│    └─SiLU (5)                                                                  [1, 512, 16384]           [1, 512, 16384]           --
+│    └─Conv1d (6)                                                                [1, 512, 16384]           [1, 1280, 16384]          1,967,360
+│    └─GroupNorm (7)                                                             [1, 1280, 16384]          [1, 1280, 16384]          2,560
+├─SequentialwithArgs (unet1)                                                     [1, 1280, 16384]          [1, 1536, 8192]           --
+│    └─MaxPool1d (0)                                                             [1, 1280, 16384]          [1, 1280, 8192]           --
+│    └─ConvBlock (1)                                                             [1, 1280, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1280, 8192]           [1, 1280, 8192]           (2,560)
+│    │    └─GELU (activation)                                                    [1, 1280, 8192]           [1, 1280, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1280, 8192]           [1, 1536, 8192]           71,545,856
+├─MaxPool1d (_max_pool)                                                          [1, 1536, 8192]           [1, 1536, 4096]           --
+├─ConvBlock (horizontal_conv0)                                                   [1, 1280, 16384]          [1, 1536, 16384]          --
+│    └─BatchNorm1d (norm)                                                        [1, 1280, 16384]          [1, 1280, 16384]          (2,560)
+│    └─GELU (activation)                                                         [1, 1280, 16384]          [1, 1280, 16384]          --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1280, 16384]          [1, 1536, 16384]          1,967,616
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 768]                  [1, 30, 1280]             10,132,480
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 768]                  [1, 1536, 30]             12,106,240
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 16384]          [1, 1536, 16384]          --
+├─ConvBlock (horizontal_conv1)                                                   [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─BatchNorm1d (norm)                                                        [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    └─GELU (activation)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─ConditionalLoRAConv (conv_layer)                                          [1, 1536, 8192]           [1, 1536, 8192]           2,360,832
+│    │    └─EmbeddingMLP (lora_A_module)                                         [1, 768]                  [1, 30, 1536]             12,106,240
+│    │    └─EmbeddingMLP (lora_B_module)                                         [1, 768]                  [1, 1536, 30]             12,106,240
+│    │    └─Dropout (lora_dropout)                                               [1, 1536, 8192]           [1, 1536, 8192]           --
+├─SequentialwithArgs (transformer)                                               [1, 4096, 1536]           [1, 4096, 1536]           --
+│    └─TransformerLayer (0)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (1)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (2)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (3)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (4)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (5)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (6)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+│    └─TransformerLayer (7)                                                      [1, 4096, 1536]           [1, 4096, 1536]           --
+│    │    └─SequentialwithArgs (layers)                                          [1, 4096, 1536]           [1, 4096, 1536]           88,870,912
+├─SequentialwithArgs (upsampling_unet1)                                          [1, 1536, 4096]           [1, 1536, 8192]           --
+│    └─ConvBlock (0)                                                             [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 4096]           [1, 1536, 4096]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 4096]           [1, 1536, 4096]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 4096]           [1, 1536, 4096]           26,573,312
+│    └─Upsample (1)                                                              [1, 1536, 4096]           [1, 1536, 8192]           --
+├─ConvBlock (separable1)                                                         [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (norm)                                                           [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Identity (activation)                                                     [1, 1536, 8192]           [1, 1536, 8192]           --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 8192]           [1, 1536, 8192]           12,397,658
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 8192]           [1, 1536, 8192]           10,783,232
+├─SequentialwithArgs (upsampling_unet0)                                          [1, 1536, 8192]           [1, 1536, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 8192]           [1, 1536, 8192]           (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 8192]           [1, 1536, 8192]           --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 8192]           [1, 1536, 8192]           26,573,312
+│    └─Upsample (1)                                                              [1, 1536, 8192]           [1, 1536, 16384]          --
+├─ConvBlock (separable0)                                                         [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (norm)                                                           [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Identity (activation)                                                     [1, 1536, 16384]          [1, 1536, 16384]          --
+│    └─Sequential (conv_layer)                                                   --                        --                        --
+│    │    └─ConditionalLoRAConv (0)                                              [1, 1536, 16384]          [1, 1536, 16384]          12,397,658
+│    │    └─ConditionalLoRAConv (1)                                              [1, 1536, 16384]          [1, 1536, 16384]          10,783,232
+├─SequentialwithArgs (final_joined_convs)                                        [1, 1536, 16384]          [1, 1920, 16384]          --
+│    └─ConvBlock (0)                                                             [1, 1536, 16384]          [1, 1920, 16384]          --
+│    │    └─BatchNorm1d (norm)                                                   [1, 1536, 16384]          [1, 1536, 16384]          (3,072)
+│    │    └─GELU (activation)                                                    [1, 1536, 16384]          [1, 1536, 16384]          --
+│    │    └─ConditionalLoRAConv (conv_layer)                                     [1, 1536, 16384]          [1, 1920, 16384]          56,769,920
+│    └─Dropout (1)                                                               [1, 1920, 16384]          [1, 1920, 16384]          --
+│    └─GELU (2)                                                                  [1, 1920, 16384]          [1, 1920, 16384]          --
+├─TargetLengthCrop (crop)                                                        [1, 1920, 16384]          [1, 1920, 16352]          --
+├─OutputHead (final_output_head)                                                 [1, 1920, 16352]          [1, 1, 16352]             --
+│    └─ConditionalLoRAConv (0)                                                   [1, 1920, 16352]          [1, 1, 16352]             1,921
+│    │    └─EmbeddingMLP (lora_A_module)                                         --                        [1, 1, 1920]              757,120
+│    │    └─EmbeddingMLP (lora_B_module)                                         --                        [1, 1, 1]                 263,937
+│    │    └─Dropout (lora_dropout)                                               [1, 1, 16352]             [1, 1, 16352]             --
+│    └─Softplus (1)                                                              [1, 1, 16352]             [1, 1, 16352]             --
+===========================================================================================================================================================
+Total params: 1,201,714,785
+Trainable params: 1,024,355,617
+Non-trainable params: 177,359,168
+Total mult-adds (Units.GIGABYTES): 36.49
+===========================================================================================================================================================
+Input size (MB): 8.46
+Forward/backward pass size (MB): 2786.34
+Params size (MB): 4087.35
+Estimated Total Size (MB): 6882.15
+===========================================================================================================================================================
+EMA is not used.
+Current epoch: 1, max epochs: 1.
+Get dataloader with train mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:51,879	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:51,880	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:52,894	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:22:52,894	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; TaskPoolMapOperator[MapBatches(ReverseComplement)] -&gt; LimitOperator[limit=22]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'batch_size': 1, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [4/20] Ave Loss: 0.338; Ave Corr: 0.648 Last grad norm: 0.5991 Last batch Loss: 0.267 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [9/20] Ave Loss: 0.353; Ave Corr: 0.716 Last grad norm: 0.3308 Last batch Loss: 0.283 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/mnt/work/bolero/.pixi/envs/dev/lib/python3.11/site-packages/torch/optim/lr_scheduler.py:232: UserWarning: The epoch parameter in `scheduler.step()` was not necessary and is being deprecated where possible. Please use `scheduler.step()` to step the scheduler. During the deprecation, if epoch is different from None, the closed form is used instead of the new chainable form, where available. Please open an issue if you are unable to replicate your use case: https://github.com/pytorch/pytorch/issues/new/choose.
+  warnings.warn(EPOCH_DEPRECATION_WARNING, UserWarning)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [14/20] Ave Loss: 0.364; Ave Corr: 0.715 Last grad norm: 0.0882 Last batch Loss: 0.277 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training) 0 [19/20] Ave Loss: 0.354; Ave Corr: 0.716 Last grad norm: 0.1433 Last batch Loss: 0.243 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:23:22,705	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:23:22,705	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:23:22,873	WARNING plan.py:454 -- Warning: The Ray cluster currently does not have any available CPUs. The Dataset job will hang unless more CPUs are freed up. A common reason is that cluster resources are used by Actors or Tune trials; see the following link for more details: https://docs.ray.io/en/latest/data/data-internals.html#ray-data-and-tune
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:23:22,889	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:23:22,889	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; LimitOperator[limit=6]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'batch_size': 3, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Training)   1 Loss: 0.351; Mean Corr. : 0.726; Learning rate 4.999875000625004e-05.
+ - (Validation) 1 Loss: 0.829; Mean Corr. : 0.904.
+Saving best checkpoint...
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Load and update state dict from checkpoint file: /mnt/work/bolero/docs/tutorials/model_training/model/Borzoi10M_atac_fold0-demo.lora.best_checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:24:20,861	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:24:20,862	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; AllToAllOperator[Repartition]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Get dataloader with eval mode
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:24:21,637	INFO streaming_executor.py:108 -- Starting execution of Dataset. Full logs are in /tmp/ray/session_2026-10-27_16-22-15_178396_3600807/logs/ray-data
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>2026-10-27 16:24:21,637	INFO streaming_executor.py:109 -- Execution plan of Dataset: InputDataBuffer[Input] -&gt; ActorPoolMapOperator[MapBatches(FetchRegionOneHot)] -&gt; ActorPoolMapOperator[FlatMap(GenerateMultiGenomeParquetAndPseudobulk)] -&gt; LimitOperator[limit=16]
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Data loader kwargs {'batch_size': 3, 'prefetch_batches': 3, 'drop_last': True, 'local_shuffle_buffer_size': 300}
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre> - (Validation) 1 [4/5] Mean Loss: 0.087; Mean Track Corr: 0.553; 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run history:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:          train/learning_rate ▁▆██
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:        train/train_corr_data ▁███
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:             train/train_loss ▅█▇▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: train/train_loss_multinomial ▅██▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     train/train_loss_poisson ▆▂▁█
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:  train/train_total_grad_norm █▄▁▂
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:            val/val_corr_data ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                 val/val_loss ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     val/val_loss_multinomial ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:         val/val_loss_poisson ▁
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Run summary:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:              final_test_corr 0.55309
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:              final_test_loss 0.08714
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:  final_test_loss_multinomial 0.11609
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:      final_test_loss_poisson -0.06487
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:             final_valid_corr 0.90374
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:             final_valid_loss 0.82923
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: final_valid_loss_multinomial 1.18761
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:     final_valid_loss_poisson -1.05226
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                      success True
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:          train/learning_rate 5e-05
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>:                           +9 ...
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: 
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: You can sync this run to the cloud by running:
+<span class="ansi-blue-intense-fg ansi-bold">wandb</span>: <span class="ansi-bold">wandb sync /mnt/work/runs/wandb/offline-run-20261027_162238-nsumgvax</span>
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre><span class="ansi-blue-intense-fg ansi-bold">wandb</span>: Find logs at: <span class="ansi-magenta-intense-fg ansi-bold">/mnt/work/runs/wandb/offline-run-20261027_162238-nsumgvax/logs</span>
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c3933fab20d04ec698c2621248eb3be0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="real-training-vs-this-demo">Real training vs. this demo<a class="anchor-link" href="#real-training-vs-this-demo">¶</a></h2><p>The demo trained a few steps on two datasets. The paper's final ATAC model trains for <strong>100 epochs</strong>
+with <code>lr_total_steps=2_000_000</code> on all 42 datasets across multiple GPUs — days of compute — starting
+from the combined per-dataset checkpoint. For that run, keep the full registry (<code>full_records</code>), set
+<code>lora_checkpoint_path</code> to the stage-3 checkpoint, and drop the demo lines.</p>
 <hr/>
 <p>This is Bolero's final <strong>accessibility</strong> model. The <a href="08_train_multi_dataset_gene.ipynb">next page</a>
 extends it with the <strong>gene-expression</strong> task — adding a gene-count head and per-dataset RNA data on
