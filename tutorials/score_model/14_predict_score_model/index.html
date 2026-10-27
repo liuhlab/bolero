@@ -1007,6 +1007,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The score rides in with the cell states">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-cell-states-the-central-cell-of-each-prenatal-neuron-subclass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Cell states: the central cell of each prenatal neuron subclass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ap-1-scores-a-low-and-a-high-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. AP-1 scores: a low and a high value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-the-record-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The record file
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1435,6 +1474,45 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The score rides in with the cell states">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-cell-states-the-central-cell-of-each-prenatal-neuron-subclass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Cell states: the central cell of each prenatal neuron subclass
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ap-1-scores-a-low-and-a-high-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. AP-1 scores: a low and a high value
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-the-record-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. The record file
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2201,7 +2279,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=cc36fc6a">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=64037f5c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2215,14 +2293,16 @@ that matches it. The goal here is the <strong>I/O contract</strong>: how the sco
 the task writes out — not benchmarking.</p>
 <blockquote>
 <p><strong>This uses the <code>bolerodata</code> model zoo</strong> (the paper route, like the
-<a href="../prediction/10_qtl_task.ipynb">variant-effect page</a>) and needs the data lake. The AP-1
-model is registered as an <strong>ATAC</strong> score model (<code>Score Input = AP1</code>, no gene-count head).</p>
+<a href="../prediction/10_qtl_task.ipynb">variant-effect page</a>). The AP-1 model is the published
+<strong>Bolero-AP1-Score</strong> model, registered as an <strong>ATAC</strong> score model (<code>Score Input = AP1</code>, no
+gene-count head). The notebook downloads its checkpoint, the HumanBrainDev cell table and
+pseudobulk records, and the hg38 genome.</p>
 </blockquote>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0c5da283">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=11f01f22">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2233,7 +2313,7 @@ model is registered as an <strong>ATAC</strong> score model (<code>Score Input =
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7f5bdde3">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2009a580">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2251,15 +2331,31 @@ model is registered as an <strong>ATAC</strong> score model (<code>Score Input =
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">MODELS</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 
-<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">24</span><span class="p">)</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolero</span><span class="w"> </span><span class="kn">import</span> <span class="n">init</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">bolerodata</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATASETS</span><span class="p">,</span> <span class="n">MODELS</span><span class="p">,</span> <span class="n">metadata</span>
+
+<span class="c1"># quiet the per-file download checks</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s2">"httpx"</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">WARNING</span><span class="p">)</span>
+<span class="n">init</span><span class="p">(</span><span class="n">num_cpus</span><span class="o">=</span><span class="mi">16</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from bolero import init
-from bolerodata import MODELS
+<div class="clipboard-copy-txt" id="cell-1">import logging
 
-init(num_cpus=24)</div>
+import joblib
+import numpy as np
+import pandas as pd
+
+from bolero import init
+from bolerodata import DATASETS, MODELS, metadata
+
+# quiet the per-file download checks
+logging.getLogger("httpx").setLevel(logging.WARNING)
+init(num_cpus=16)</div>
 </div>
 </div>
 </div>
@@ -2271,7 +2367,7 @@ init(num_cpus=24)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>2026-07-17 12:14:28,125	INFO worker.py:1781 -- Started a local Ray instance.
+<pre>2026-10-27 16:06:26,479	INFO worker.py:1781 -- Started a local Ray instance.
 </pre>
 </div>
 </div>
@@ -2279,7 +2375,7 @@ init(num_cpus=24)</div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=582590ac">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ca9d958f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2292,7 +2388,7 @@ multi-dataset model, you must tell it <strong>which dataset's</strong> cell stat
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=7f401661">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=045bc3a3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2342,7 +2438,7 @@ print("model group:", model.model_group, "| score input:", model._tf_score_input
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=67661919">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7d740fdd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2350,14 +2446,35 @@ print("model group:", model.model_group, "| score input:", model._tf_score_input
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="the-score-rides-in-with-the-cell-states">The score rides in with the cell states<a class="anchor-link" href="#the-score-rides-in-with-the-cell-states">¶</a></h2><p>A prediction is made for a <strong>(region, cell state)</strong> pair. For the score model each <strong>cell
 state</strong> is a pseudobulk record that carries <strong>two</strong> things: its cell-state <code>embedding</code> <em>and</em>
-its <strong><code>__shared_data__</code></strong> — the AP-1 score for that state. These prebuilt records are what
-supply the score at inference; the model reads <code>__shared_data__</code> and folds it into the same
-conditioning vector it was trained with.</p>
+its <strong><code>__shared_data__</code></strong> — the AP-1 score for that state. The model reads
+<code>__shared_data__</code> and folds it into the same conditioning vector it was trained with.</p>
+<p>We build these records here, from published files:</p>
+<ol>
+<li><strong>Cell states.</strong> Thirteen prenatal cortical neuron subclasses of the human
+brain-development dataset (HumanBrainDev). Each state's <code>embedding</code> is the embedding of
+its most central cell: the cell closest to the mean embedding of the subclass's prenatal
+cells.</li>
+<li><strong>AP-1 scores.</strong> Each state is predicted twice, once at a <strong>low</strong> AP-1 score (-1.5) and
+once at a <strong>high</strong> one (6.0). The published score file shows where these values sit.</li>
+<li><strong>The record file.</strong> The dataset's published pseudobulk records file supplies the rest
+of the format (the condition embeddings); we swap in our states and save it.</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=740b1c84">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="1-cell-states-the-central-cell-of-each-prenatal-neuron-subclass">1. Cell states: the central cell of each prenatal neuron subclass<a class="anchor-link" href="#1-cell-states-the-central-cell-of-each-prenatal-neuron-subclass">¶</a></h3>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cc45f697">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=61d60bf3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2375,26 +2492,327 @@ conditioning vector it was trained with.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">joblib</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">dataset</span> <span class="o">=</span> <span class="n">DATASETS</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span>
+<span class="c1"># cell metadata + embedding (obsm["X_emb"])</span>
+<span class="n">cell_adata</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">get_meta_cell_adata</span><span class="p">(</span><span class="s2">"cell"</span><span class="p">)</span>
 
-<span class="c1"># prebuilt per-pseudobulk records: {embedding, __shared_data__ (the AP-1 score)} per state</span>
-<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="s2">"PseudobulkRecords.HumanBrainDev.None.1.AP1.joblib"</span>
+<span class="n">NEURON_SUBCLASSES</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"EN-L2_3-IT"</span><span class="p">,</span> <span class="s2">"EN-L4-IT"</span><span class="p">,</span> <span class="s2">"EN-L5-IT"</span><span class="p">,</span> <span class="s2">"EN-L6-IT"</span><span class="p">,</span> <span class="s2">"EN-L5-ET"</span><span class="p">,</span> <span class="s2">"EN-L5_6-NP"</span><span class="p">,</span>
+    <span class="s2">"EN-L6-CT"</span><span class="p">,</span> <span class="s2">"EN-L6b"</span><span class="p">,</span> <span class="s2">"IN-MGE-PV"</span><span class="p">,</span> <span class="s2">"IN-MGE-SST"</span><span class="p">,</span> <span class="s2">"IN-CGE-VIP"</span><span class="p">,</span> <span class="s2">"IN-CGE-SNCG"</span><span class="p">,</span>
+    <span class="s2">"IN-Mix-LAMP5"</span><span class="p">,</span>
+<span class="p">]</span>  <span class="c1"># fmt: skip</span>
 
-<span class="n">records</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">PSEUDOBULK_RECORDS</span><span class="p">)</span>
-<span class="n">records</span> <span class="o">=</span> <span class="n">records</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"pseudobulk_records"</span><span class="p">,</span> <span class="n">records</span><span class="p">)</span>
-<span class="n">_pid</span><span class="p">,</span> <span class="n">_rec</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">records</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+<span class="c1"># prenatal = the three trimesters; the other ages are postnatal</span>
+<span class="n">prenatal</span> <span class="o">=</span> <span class="n">cell_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"age"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">"_trimester"</span><span class="p">)</span>
+<span class="n">subclass</span> <span class="o">=</span> <span class="n">cell_adata</span><span class="o">.</span><span class="n">obs</span><span class="p">[</span><span class="s2">"subclass"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">center_embedding</span><span class="p">(</span><span class="n">mask</span><span class="p">):</span>
+    <span class="c1"># the embedding of the cell closest to the group's mean embedding</span>
+    <span class="n">emb</span> <span class="o">=</span> <span class="n">cell_adata</span><span class="o">.</span><span class="n">obsm</span><span class="p">[</span><span class="s2">"X_emb"</span><span class="p">][</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">mask</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="n">emb</span><span class="p">[((</span><span class="n">emb</span> <span class="o">-</span> <span class="n">emb</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">argmin</span><span class="p">()]</span>
+
+
+<span class="n">state_emb</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">+PreBirth"</span><span class="p">:</span> <span class="n">center_embedding</span><span class="p">((</span><span class="n">subclass</span> <span class="o">==</span> <span class="n">name</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">prenatal</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">NEURON_SUBCLASSES</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="n">emb_width</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">state_emb</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span><span class="o">.</span><span class="n">size</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">state_emb</span><span class="p">),</span> <span class="s2">"cell states, embedding width"</span><span class="p">,</span> <span class="n">emb_width</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-3">dataset = DATASETS[DATASET_NAME]
+# cell metadata + embedding (obsm["X_emb"])
+cell_adata = dataset.get_meta_cell_adata("cell")
+
+NEURON_SUBCLASSES = [
+    "EN-L2_3-IT", "EN-L4-IT", "EN-L5-IT", "EN-L6-IT", "EN-L5-ET", "EN-L5_6-NP",
+    "EN-L6-CT", "EN-L6b", "IN-MGE-PV", "IN-MGE-SST", "IN-CGE-VIP", "IN-CGE-SNCG",
+    "IN-Mix-LAMP5",
+]  # fmt: skip
+
+# prenatal = the three trimesters; the other ages are postnatal
+prenatal = cell_adata.obs["age"].astype(str).str.endswith("_trimester")
+subclass = cell_adata.obs["subclass"].astype(str)
+
+
+def center_embedding(mask):
+    # the embedding of the cell closest to the group's mean embedding
+    emb = cell_adata.obsm["X_emb"][np.asarray(mask)]
+    return emb[((emb - emb.mean(axis=0, keepdims=True)) ** 2).sum(axis=1).argmin()]
+
+
+state_emb = {
+    f"{name}+PreBirth": center_embedding((subclass == name) &amp; prenatal)
+    for name in sorted(NEURON_SUBCLASSES)
+}
+emb_width = next(iter(state_emb.values())).size
+print(len(state_emb), "cell states, embedding width", emb_width)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>13 cell states, embedding width 30
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=1626ebef">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="2-ap-1-scores-a-low-and-a-high-value">2. AP-1 scores: a low and a high value<a class="anchor-link" href="#2-ap-1-scores-a-low-and-a-high-value">¶</a></h3>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e79626c2">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">score_data</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">metadata</span><span class="o">.</span><span class="n">get_chromvar_score_path</span><span class="p">(</span><span class="s2">"AP1"</span><span class="p">))</span>
+<span class="n">corpus_scores</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">df</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">df</span> <span class="ow">in</span> <span class="n">score_data</span><span class="o">.</span><span class="n">values</span><span class="p">()])</span>
+<span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="n">DATASET_NAME</span><span class="p">:</span> <span class="n">score_data</span><span class="p">[</span><span class="n">DATASET_NAME</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">describe</span><span class="p">(),</span>
+        <span class="s2">"all datasets"</span><span class="p">:</span> <span class="n">corpus_scores</span><span class="o">.</span><span class="n">describe</span><span class="p">(),</span>
+    <span class="p">}</span>
+<span class="p">)</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-4">score_data = joblib.load(metadata.get_chromvar_score_path("AP1"))
+corpus_scores = pd.concat([df.iloc[:, 0] for df in score_data.values()])
+pd.DataFrame(
+    {
+        DATASET_NAME: score_data[DATASET_NAME].iloc[:, 0].describe(),
+        "all datasets": corpus_scores.describe(),
+    }
+).round(2)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>HumanBrainDev</th>
+<th>all datasets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>count</th>
+<td>535.00</td>
+<td>71634.00</td>
+</tr>
+<tr>
+<th>mean</th>
+<td>-0.51</td>
+<td>0.03</td>
+</tr>
+<tr>
+<th>std</th>
+<td>0.72</td>
+<td>1.01</td>
+</tr>
+<tr>
+<th>min</th>
+<td>-1.43</td>
+<td>-2.13</td>
+</tr>
+<tr>
+<th>25%</th>
+<td>-0.97</td>
+<td>-0.76</td>
+</tr>
+<tr>
+<th>50%</th>
+<td>-0.81</td>
+<td>-0.32</td>
+</tr>
+<tr>
+<th>75%</th>
+<td>-0.32</td>
+<td>0.71</td>
+</tr>
+<tr>
+<th>max</th>
+<td>2.38</td>
+<td>6.20</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=623cfa5c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>The HumanBrainDev pseudobulks span a narrow range, and -1.5 sits just below its bottom.
+Across all datasets the score reaches about 6, so 6.0 is an extreme AP-1 activity: near the
+top of the whole corpus and far above any HumanBrainDev cell state.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=1e6cdd4c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">AP1_SCORES</span> <span class="o">=</span> <span class="p">[</span><span class="o">-</span><span class="mf">1.5</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]</span>  <span class="c1"># low and high AP-1 activity</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-5">AP1_SCORES = [-1.5, 6.0]  # low and high AP-1 activity</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b8ea98cc">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h3 id="3-the-record-file">3. The record file<a class="anchor-link" href="#3-the-record-file">¶</a></h3><p>Each record key is <code>&lt;cell state&gt;:&lt;score index&gt;</code>, so the 13 states × 2 scores give 26
+records. The model also conditions on the dataset's own variables (age and brain region);
+<code>condition_to_related_pseudobulk</code> assigns states to a condition, and we put all 26 under one
+condition, second-trimester V1. <code>__embedding_only__</code> tells the predictor that these records
+are embeddings, with no cells to read coverage from.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=33b2060b">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">records</span> <span class="o">=</span> <span class="n">joblib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">get_meta_cell_cond_pseudobulk_records_path</span><span class="p">(</span><span class="mi">5_000_000</span><span class="p">))</span>
+
+<span class="n">records</span><span class="p">[</span><span class="s2">"pseudobulk_records"</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">state</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">idx</span><span class="si">}</span><span class="s2">"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"embedding"</span><span class="p">:</span> <span class="n">emb</span><span class="p">,</span> <span class="s2">"__shared_data__"</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">score</span><span class="p">])}</span>
+    <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">score</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">AP1_SCORES</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">state</span><span class="p">,</span> <span class="n">emb</span> <span class="ow">in</span> <span class="n">state_emb</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="n">records</span><span class="p">[</span><span class="s2">"__embedding_only__"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">records</span><span class="p">[</span><span class="s2">"condition_to_related_pseudobulk"</span><span class="p">][</span><span class="s2">"Second_trimester+V1"</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+    <span class="n">records</span><span class="p">[</span><span class="s2">"pseudobulk_records"</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="n">PSEUDOBULK_RECORDS</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">DATASET_NAME</span><span class="si">}</span><span class="s2">.AP1.pseudobulk_records.joblib"</span>
+<span class="n">joblib</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">PSEUDOBULK_RECORDS</span><span class="p">)</span>
+
+<span class="n">_pid</span><span class="p">,</span> <span class="n">_rec</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">records</span><span class="p">[</span><span class="s2">"pseudobulk_records"</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()))</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">[</span><span class="s2">"pseudobulk_records"</span><span class="p">]),</span> <span class="s2">"records; one of them:"</span><span class="p">,</span> <span class="n">_pid</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"a cell-state record holds:"</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">_rec</span><span class="p">))</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"  embedding shape :"</span><span class="p">,</span> <span class="n">_rec</span><span class="p">[</span><span class="s2">"embedding"</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"  __shared_data__ :"</span><span class="p">,</span> <span class="n">_rec</span><span class="p">[</span><span class="s2">"__shared_data__"</span><span class="p">],</span> <span class="s2">"(the AP-1 activity score)"</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">import joblib
+<div class="clipboard-copy-txt" id="cell-6">records = joblib.load(dataset.get_meta_cell_cond_pseudobulk_records_path(5_000_000))
 
-# prebuilt per-pseudobulk records: {embedding, __shared_data__ (the AP-1 score)} per state
-PSEUDOBULK_RECORDS = "PseudobulkRecords.HumanBrainDev.None.1.AP1.joblib"
+records["pseudobulk_records"] = {
+    f"{state}:{idx}": {"embedding": emb, "__shared_data__": np.array([score])}
+    for idx, score in enumerate(AP1_SCORES)
+    for state, emb in state_emb.items()
+}
+records["__embedding_only__"] = True
+records["condition_to_related_pseudobulk"]["Second_trimester+V1"] = list(
+    records["pseudobulk_records"]
+)
 
-records = joblib.load(PSEUDOBULK_RECORDS)
-records = records.get("pseudobulk_records", records)
-_pid, _rec = next(iter(records.items()))
+PSEUDOBULK_RECORDS = f"{DATASET_NAME}.AP1.pseudobulk_records.joblib"
+joblib.dump(records, PSEUDOBULK_RECORDS)
+
+_pid, _rec = next(iter(records["pseudobulk_records"].items()))
+print(len(records["pseudobulk_records"]), "records; one of them:", _pid)
 print("a cell-state record holds:", list(_rec))
 print("  embedding shape :", _rec["embedding"].shape)
 print("  __shared_data__ :", _rec["__shared_data__"], "(the AP-1 activity score)")</div>
@@ -2409,7 +2827,8 @@ print("  __shared_data__ :", _rec["__shared_data__"], "(the AP-1 activity score)
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>a cell-state record holds: ['embedding', '__shared_data__']
+<pre>26 records; one of them: EN-L2_3-IT+PreBirth:0
+a cell-state record holds: ['embedding', '__shared_data__']
   embedding shape : (30,)
   __shared_data__ : [-1.5] (the AP-1 activity score)
 </pre>
@@ -2419,7 +2838,7 @@ print("  __shared_data__ :", _rec["__shared_data__"], "(the AP-1 activity score)
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=bcda5a82">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=858d7539">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2442,15 +2861,15 @@ loading ground-truth signal.</li>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=7afd0963">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=82e6ac1f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-4">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2470,7 +2889,7 @@ loading ground-truth signal.</li>
     <span class="n">peak_bed_path</span><span class="o">=</span><span class="n">model</span><span class="o">.</span><span class="n">dataset</span><span class="o">.</span><span class="n">peak_bed_path</span><span class="p">,</span>
 <span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">predictor = model.create_predictor(
+<div class="clipboard-copy-txt" id="cell-7">predictor = model.create_predictor(
     subset_name=None,
     pseudobulk_records_path=PSEUDOBULK_RECORDS,
     sample_n_pseudobulks=None,
@@ -2485,15 +2904,15 @@ loading ground-truth signal.</li>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3bf22aed">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=da2aab69">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
-<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-5">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
 <div>
 <span class="notice" hidden="">Copied!</span>
 <svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
@@ -2512,7 +2931,7 @@ loading ground-truth signal.</li>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"wrote predictions to"</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">output_dir = f"predictions/{MODEL_NAME}:{DATASET_NAME}"
+<div class="clipboard-copy-txt" id="cell-8">output_dir = f"predictions/{MODEL_NAME}:{DATASET_NAME}"
 predictor.prediction_task(
     output_dir,
     regions="test_regions",
@@ -2531,10 +2950,10 @@ print("wrote predictions to", output_dir)</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Saving batches to /large_storage/zhoulab/hanliu/260102-ScoreModel/whole_genome/HumanBrainDev/predictions/Bolero10M+AP1+260104:HumanBrainDev/batch
-Saving stats to /large_storage/zhoulab/hanliu/260102-ScoreModel/whole_genome/HumanBrainDev/predictions/Bolero10M+AP1+260104:HumanBrainDev/summary_stats.joblib.gz
-Using temporary directory /tmp/tmpktz288jl
-0 regions has finished in /large_storage/zhoulab/hanliu/260102-ScoreModel/whole_genome/HumanBrainDev/predictions/Bolero10M+AP1+260104:HumanBrainDev/batch
+<pre>Saving batches to /tmp/bolero-docs/bolero/docs/tutorials/score_model/predictions/Bolero10M+AP1+260104:HumanBrainDev/batch
+Saving stats to /tmp/bolero-docs/bolero/docs/tutorials/score_model/predictions/Bolero10M+AP1+260104:HumanBrainDev/summary_stats.joblib.gz
+Using temporary directory /tmp/tmp38istnsn
+0 regions has finished in /tmp/bolero-docs/bolero/docs/tutorials/score_model/predictions/Bolero10M+AP1+260104:HumanBrainDev/batch
 8 regions to compute
 Data loader batch size 16
 </pre>
@@ -2543,7 +2962,7 @@ Data loader batch size 16
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading base model weights from: /home/hanliu/data/wmb/model/Borzoi/flashzoi_checkpoints/fold_0.renamed.pt
+<pre>Loading base model weights from: /tmp/bolero-docs/bdhome/flashzoi/fold_0.renamed.pt
 </pre>
 </div>
 </div>
@@ -2551,7 +2970,14 @@ Data loader batch size 16
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Model does not have gene_count_output_head, skip
-Loading checkpoint from /large_storage/zhoulab/hanliu/260102-ScoreModel/model/260102-Bolero10M_AP1_atac_fold0.lora.best_checkpoint.pt
+Loading checkpoint from /tmp/bolero-docs/bdhome/hf/models--arcinstitute--bolero-models/snapshots/eabdbb2e61072357ad0441d49eb66708fb858e33/BorzoiSignalMultiDS/Bolero10M+AP1+260104/checkpoint.pt
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Skipping checkpoint encoders of datasets not in the config: ['CZIBodyAtlas', 'HYSocialRebound', 'Torpor+Control']
 </pre>
 </div>
 </div>
@@ -2583,9 +3009,9 @@ Dataloader Batch Schema:
 - region_name: &lt;class 'numpy.ndarray'&gt; (8,) &lt;U25
 ==========
 
-Total time: 8.88s
-Inference time: 8.41s or 8.406s per batch
-Callback time: 0.28s or 0.277s per batch
+Total time: 8.36s
+Inference time: 7.97s or 7.966s per batch
+Callback time: 0.21s or 0.209s per batch
 (total 1 batches)
 
 ==========
@@ -2607,8 +3033,8 @@ Final Stats Batch Schema:
 - region: &lt;class 'numpy.ndarray'&gt; (8,) &lt;U25
 ==========
 
-Removed temporary files in /tmp/tmpktz288jl
-1 batches in /large_storage/zhoulab/hanliu/260102-ScoreModel/whole_genome/HumanBrainDev/predictions/Bolero10M+AP1+260104:HumanBrainDev
+Removed temporary files in /tmp/tmp38istnsn
+1 batches in /tmp/bolero-docs/bolero/docs/tutorials/score_model/predictions/Bolero10M+AP1+260104:HumanBrainDev
 True peak data not found in batch, skip true peak data saving.
 wrote predictions to predictions/Bolero10M+AP1+260104:HumanBrainDev
 </pre>
@@ -2618,7 +3044,7 @@ wrote predictions to predictions/Bolero10M+AP1+260104:HumanBrainDev
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=003f7bc7">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c3468996">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -2628,10 +3054,172 @@ wrote predictions to predictions/Bolero10M+AP1+260104:HumanBrainDev
 files: a per-base <strong>32 bp accessibility track</strong> for each region × cell-state, a per-peak
 accessibility value, and <code>summary_stats</code>. Rows are the cell states you supplied (their
 pseudobulk ids); each was predicted with <strong>its own AP-1 score</strong> baked in.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d17aa61c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">peak_pred</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_feather</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">output_dir</span><span class="si">}</span><span class="s2">/pred_peak_data.feather"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">peak_pred</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="s2">"(peaks x cell states)"</span><span class="p">)</span>
+
+<span class="c1"># the same cell state at low vs. high AP-1 score</span>
+<span class="n">low</span> <span class="o">=</span> <span class="n">peak_pred</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">like</span><span class="o">=</span><span class="s2">":0"</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">c</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+<span class="n">high</span> <span class="o">=</span> <span class="n">peak_pred</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">like</span><span class="o">=</span><span class="s2">":1"</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="n">c</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="s2">"mean predicted accessibility per peak, low vs. high AP-1:"</span><span class="p">)</span>
+<span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">"low AP-1"</span><span class="p">:</span> <span class="n">low</span><span class="o">.</span><span class="n">mean</span><span class="p">(),</span> <span class="s2">"high AP-1"</span><span class="p">:</span> <span class="n">high</span><span class="o">.</span><span class="n">mean</span><span class="p">()})</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-9">peak_pred = pd.read_feather(f"{output_dir}/pred_peak_data.feather")
+print(peak_pred.shape, "(peaks x cell states)")
+
+# the same cell state at low vs. high AP-1 score
+low = peak_pred.filter(like=":0").rename(columns=lambda c: c[:-2])
+high = peak_pred.filter(like=":1").rename(columns=lambda c: c[:-2])
+print("mean predicted accessibility per peak, low vs. high AP-1:")
+pd.DataFrame({"low AP-1": low.mean(), "high AP-1": high.mean()}).round(3)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>(1793, 26) (peaks x cell states)
+mean predicted accessibility per peak, low vs. high AP-1:
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/html" tabindex="0">
+<div>
+<style scoped="">
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th></th>
+<th>low AP-1</th>
+<th>high AP-1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th>EN-L2_3-IT+PreBirth</th>
+<td>14.490000</td>
+<td>12.332</td>
+</tr>
+<tr>
+<th>EN-L4-IT+PreBirth</th>
+<td>12.989000</td>
+<td>11.901</td>
+</tr>
+<tr>
+<th>EN-L5-ET+PreBirth</th>
+<td>14.439000</td>
+<td>13.177</td>
+</tr>
+<tr>
+<th>EN-L5-IT+PreBirth</th>
+<td>13.129000</td>
+<td>12.477</td>
+</tr>
+<tr>
+<th>EN-L5_6-NP+PreBirth</th>
+<td>14.153000</td>
+<td>13.277</td>
+</tr>
+<tr>
+<th>EN-L6-CT+PreBirth</th>
+<td>15.056000</td>
+<td>14.292</td>
+</tr>
+<tr>
+<th>EN-L6-IT+PreBirth</th>
+<td>12.996000</td>
+<td>12.347</td>
+</tr>
+<tr>
+<th>EN-L6b+PreBirth</th>
+<td>15.552000</td>
+<td>15.663</td>
+</tr>
+<tr>
+<th>IN-CGE-SNCG+PreBirth</th>
+<td>16.236000</td>
+<td>15.722</td>
+</tr>
+<tr>
+<th>IN-CGE-VIP+PreBirth</th>
+<td>16.759001</td>
+<td>16.657</td>
+</tr>
+<tr>
+<th>IN-MGE-PV+PreBirth</th>
+<td>16.584999</td>
+<td>16.740</td>
+</tr>
+<tr>
+<th>IN-MGE-SST+PreBirth</th>
+<td>15.722000</td>
+<td>16.403</td>
+</tr>
+<tr>
+<th>IN-Mix-LAMP5+PreBirth</th>
+<td>16.475000</td>
+<td>15.863</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=54f1c574">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <p>That is the whole contract: supply regions + score-carrying cell states, get score-aware
-accessibility back. To measure a TF's sequence effect you would predict the <strong>same</strong> regions
-and states while <strong>changing <code>__shared_data__</code></strong> and compare — but that (and benchmarking the
-predictions against held-out activity data) is beyond this I/O walkthrough.</p>
+accessibility back. The two score columns above already show the idea: predict the
+<strong>same</strong> regions and states while <strong>changing <code>__shared_data__</code></strong> and compare. Measuring a
+TF's sequence effect that way, and benchmarking the predictions against held-out activity
+data, is beyond this I/O walkthrough.</p>
 </div>
 </div>
 </div>
