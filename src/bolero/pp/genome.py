@@ -36,10 +36,10 @@ zarr.storage.default_compressor = Zstd(level=3)
 
 
 UCSC_GENOME = (
-    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
+    "https://hgdownload.soe.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.fa.gz"
 )
 UCSC_CHROM_SIZES = (
-    "https://hgdownload.cse.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
+    "https://hgdownload.soe.ucsc.edu/goldenpath/{genome}/bigZips/{genome}.chrom.sizes"
 )
 
 GENOME_TO_SPECIES = {
