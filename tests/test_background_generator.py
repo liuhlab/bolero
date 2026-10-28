@@ -24,7 +24,7 @@ def _consume(loader):
         try:
             for batch in loader:
                 result["batches"].append(batch)
-        except Exception as e:  # noqa: BLE001  (the test inspects it)
+        except Exception as e:
             result["error"] = e
 
     thread = threading.Thread(target=run, daemon=True)

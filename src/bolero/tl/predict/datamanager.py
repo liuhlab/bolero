@@ -568,14 +568,15 @@ class GenericGenomeDataManager:
 
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
+            region_names_ref = (
+                np.array(region_names[cur_start : cur_start + batch_size])
+                if region_names is not None
+                else None
+            )
+
             batch_data = {"region": regions_ref}
             if region_names is not None:
-                region_names_ref = np.array(
-                    region_names[cur_start : cur_start + batch_size]
-                )
                 batch_data["region_name"] = region_names_ref
-            else:
-                region_names_ref = None
 
             # add bigwig data
             for da_name, bw in self.bw_datasets.items():
@@ -682,7 +683,10 @@ class GenericGenomeDataManager:
         regions : list[str], optional
             The regions to query. If None, all regions will be used. Default is None.
         region_names : list[str], optional
-            The names of the regions to query. If None, all region names will be used. Default is None.
+            The names of the regions, added to each batch as "region_name". If None,
+            batches carry no "region_name" key. Required when the genome is a
+            DNASynthesisFactory, which reads the sequence info from the names.
+            Default is None.
         batch_size : int, optional
             The batch size to use. Default is 32.
         add_dna : bool, optional
