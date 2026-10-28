@@ -19,6 +19,13 @@ from .dna_gen import DNAEvolutionFactory, DNASynthesisFactory
 from .utils import convert_np_to_torch, get_device
 
 
+class _WorkerError:
+    """Carries an exception from the loader thread to the consumer."""
+
+    def __init__(self, error: BaseException):
+        self.error = error
+
+
 class BackgroundGenerator:
     def __init__(
         self, generator, max_prefetch=20, as_torch=True, device=None, collate_fn=None
@@ -44,8 +51,13 @@ class BackgroundGenerator:
             self.started = True
 
     def _worker(self):
-        for item in self.generator:
-            self.queue.put(item)
+        try:
+            for item in self.generator:
+                self.queue.put(item)
+        except BaseException as e:  # noqa: BLE001  (re-raised by the consumer)
+            # Hand the error to the consumer; otherwise it waits on the queue forever
+            self.queue.put(_WorkerError(e))
+            return
         self.queue.put(None)  # Sentinel to mark end
 
     def __iter__(self):
@@ -57,6 +69,12 @@ class BackgroundGenerator:
         item = self.queue.get()
         if item is None:
             raise StopIteration
+        if isinstance(item, _WorkerError):
+            # Put the sentinel back so later next() calls stop instead of blocking
+            self.queue.put(None)
+            if hasattr(item.error, "add_note"):  # Python >= 3.11
+                item.error.add_note("Raised in the BackgroundGenerator loader thread.")
+            raise item.error
 
         # convert numpy arrays to torch tensors
         if self.as_torch:
@@ -550,13 +568,14 @@ class GenericGenomeDataManager:
 
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
-            region_names_ref = np.array(
-                region_names[cur_start : cur_start + batch_size]
-            )
-
             batch_data = {"region": regions_ref}
             if region_names is not None:
+                region_names_ref = np.array(
+                    region_names[cur_start : cur_start + batch_size]
+                )
                 batch_data["region_name"] = region_names_ref
+            else:
+                region_names_ref = None
 
             # add bigwig data
             for da_name, bw in self.bw_datasets.items():

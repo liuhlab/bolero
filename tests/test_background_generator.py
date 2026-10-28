@@ -24,7 +24,7 @@ def _consume(loader):
         try:
             for batch in loader:
                 result["batches"].append(batch)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  (the test inspects it)
             result["error"] = e
 
     thread = threading.Thread(target=run, daemon=True)
@@ -57,6 +57,7 @@ def test_generator_error_reaches_consumer_after_earlier_batches():
     assert [b["x"].item() for b in batches] == [0, 1]
     assert isinstance(error, FileNotFoundError)
     assert str(error) == "missing pseudobulk file"
+    assert "loader thread" in " ".join(getattr(error, "__notes__", []))
 
 
 class _StubOneHotEncoder:
