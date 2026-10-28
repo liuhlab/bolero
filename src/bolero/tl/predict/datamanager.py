@@ -19,6 +19,13 @@ from .dna_gen import DNAEvolutionFactory, DNASynthesisFactory
 from .utils import convert_np_to_torch, get_device
 
 
+class _WorkerError:
+    """Carries an exception from the loader thread to the consumer."""
+
+    def __init__(self, error: BaseException):
+        self.error = error
+
+
 class BackgroundGenerator:
     def __init__(
         self, generator, max_prefetch=20, as_torch=True, device=None, collate_fn=None
@@ -44,8 +51,13 @@ class BackgroundGenerator:
             self.started = True
 
     def _worker(self):
-        for item in self.generator:
-            self.queue.put(item)
+        try:
+            for item in self.generator:
+                self.queue.put(item)
+        except BaseException as e:  # noqa: BLE001  (re-raised by the consumer)
+            # Hand the error to the consumer; otherwise it waits on the queue forever
+            self.queue.put(_WorkerError(e))
+            return
         self.queue.put(None)  # Sentinel to mark end
 
     def __iter__(self):
@@ -57,6 +69,12 @@ class BackgroundGenerator:
         item = self.queue.get()
         if item is None:
             raise StopIteration
+        if isinstance(item, _WorkerError):
+            # Put the sentinel back so later next() calls stop instead of blocking
+            self.queue.put(None)
+            if hasattr(item.error, "add_note"):  # Python >= 3.11
+                item.error.add_note("Raised in the BackgroundGenerator loader thread.")
+            raise item.error
 
         # convert numpy arrays to torch tensors
         if self.as_torch:
@@ -550,8 +568,10 @@ class GenericGenomeDataManager:
 
         for cur_start in range(0, len(regions), batch_size):
             regions_ref = np.array(regions[cur_start : cur_start + batch_size])
-            region_names_ref = np.array(
-                region_names[cur_start : cur_start + batch_size]
+            region_names_ref = (
+                np.array(region_names[cur_start : cur_start + batch_size])
+                if region_names is not None
+                else None
             )
 
             batch_data = {"region": regions_ref}
@@ -663,7 +683,10 @@ class GenericGenomeDataManager:
         regions : list[str], optional
             The regions to query. If None, all regions will be used. Default is None.
         region_names : list[str], optional
-            The names of the regions to query. If None, all region names will be used. Default is None.
+            The names of the regions, added to each batch as "region_name". If None,
+            batches carry no "region_name" key. Required when the genome is a
+            DNASynthesisFactory, which reads the sequence info from the names.
+            Default is None.
         batch_size : int, optional
             The batch size to use. Default is 32.
         add_dna : bool, optional
