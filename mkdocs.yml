@@ -28,6 +28,7 @@ plugins:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - "00. Quick start": tutorials/00_quickstart.ipynb
   - Embedding & Meta Cell:
       - "01. Cell embedding": tutorials/embedding_and_meta_cell/01_cell_embedding.ipynb
       - "02. Meta cells": tutorials/embedding_and_meta_cell/02_meta_cell.ipynb
