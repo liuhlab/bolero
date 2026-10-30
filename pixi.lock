@@ -531,7 +531,7 @@ environments:
       - pypi: git+https://github.com/austintwang/finemo_gpu.git#5c6f521c773f61f50307ff7cc59682073a56a65a
       - pypi: git+https://github.com/liuhlab/MOODS_pixi.git?branch=master#875b4da5621d2aa12083381581fdd580f39efc8b
       - pypi: git+https://github.com/liuhlab/SEACells_pixi.git?branch=main#a0a00d779ab5f51b9b005aeb251922fe6119f566
-      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
+      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#0d0f75a610992850cb015e75e771b7eea1617910
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/08/ff/a5d48de4771e2403a8ef26a20dc7457b1c8f7e398ff0caf9c0cad8805f89/duckdb-1.5.4-cp311-cp311-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/0b/11/d6cc872893faad265a1ab201bda92d8c79ca06558f36e431634beeccc51b/pybigwig-0.3.25-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -1136,7 +1136,7 @@ environments:
       - pypi: git+https://github.com/austintwang/finemo_gpu.git#5c6f521c773f61f50307ff7cc59682073a56a65a
       - pypi: git+https://github.com/liuhlab/MOODS_pixi.git?branch=master#875b4da5621d2aa12083381581fdd580f39efc8b
       - pypi: git+https://github.com/liuhlab/SEACells_pixi.git?branch=main#a0a00d779ab5f51b9b005aeb251922fe6119f566
-      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
+      - pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#0d0f75a610992850cb015e75e771b7eea1617910
       - pypi: https://files.pythonhosted.org/packages/01/75/c99571fee171bb9d34d3e1df5fdb16d57e2c4c15339eb220e6e6e4539f1c/captum-0.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/08/9c41fb51ab5b43eb21674aff13df270e8ba6c4b29c8624e328dc7a9482af/distlib-0.4.3-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/06/3a/7c448bc623fcdfa96672531beb5a616ea5e64f6975955254d7731ffb0ad9/black-26.5.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -9646,21 +9646,30 @@ packages:
   - ruff ; extra == 'dev'
   - pre-commit ; extra == 'dev'
   requires_python: '>=3.8.0'
-- pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#091040821942e986504bafed2f596e0fcea292eb
+- pypi: git+https://github.com/liuhlab/bolerodata.git?branch=main#0d0f75a610992850cb015e75e771b7eea1617910
   name: bolerodata
-  version: 0.1.dev68+g091040821
+  version: 2026.7.23.dev41+g0d0f75a61
   requires_dist:
   - anndata
+  - huggingface-hub
   - joblib
+  - numpy
   - pandas
-  - tqdm
+  - platformdirs
+  - pyarrow
   - pre-commit ; extra == 'dev'
   - twine>=4.0.2 ; extra == 'dev'
+  - pybigwig ; extra == 'diff'
+  - pyranges ; extra == 'diff'
+  - pysam ; extra == 'diff'
   - mkdocs ; extra == 'doc'
   - mkdocs-jupyter ; extra == 'doc'
   - mkdocs-material ; extra == 'doc'
   - mkdocstrings[python] ; extra == 'doc'
   - pymdown-extensions ; extra == 'doc'
+  - pybigwig ; extra == 'full'
+  - pyranges ; extra == 'full'
+  - pysam ; extra == 'full'
   - coverage ; extra == 'test'
   - pytest ; extra == 'test'
   requires_python: '>=3.10'
