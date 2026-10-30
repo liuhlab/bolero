@@ -17,31 +17,79 @@ mammals.
 
 📖 **Documentation & tutorials:** <https://liuhlab.github.io/bolero/>
 
-## What you can do with it
+## System requirements
 
-The documentation is a runnable, ordered tutorial series that walks the full workflow —
-from raw single cells to a trained model and its predictions:
-
-- **Cell embedding & metacells** — build a joint cell-state embedding and SEACells metacells.
-- **Datasets** — aggregate single-cell fragments into the parquet coverage database, then form pseudobulks with reference signal.
-- **Training** — fit Bolero on a single dataset, or the full multi-dataset ATAC (+ gene) atlas.
-- **Prediction & variant effect** — predict accessibility, score caQTLs / eQTLs, and compute per-base DNA attributions.
-- **Bolero-Score** — condition the model on a chromVAR TF-activity score (e.g. AP-1).
-- **Cross-species** — run the trained atlas model on any species' genome, DNA-only, no retraining.
+- **Operating system:** Linux, x86-64 (`linux-64`). macOS and Windows are not supported.
+- **Hardware:** one NVIDIA GPU with a driver that supports CUDA 12.0 or later. The model has no
+  CPU-only mode. Installation itself needs no GPU.
+- **Disk:** about 25 GB free for the quick-start downloads; full datasets need more.
+- **Software:** [pixi](https://pixi.sh) installs everything else, pinned in `pyproject.toml`
+  and `pixi.lock`. Main versions: Python 3.11, PyTorch 2.4 (CUDA build), CUDA 12.6 as the build
+  target, flash-attn and triton (conda-forge), Ray 2.34. Git dependencies:
+  [`bolerodata`](https://github.com/liuhlab/bolerodata), lab forks of SEACells and MOODS that
+  install cleanly in this environment, and finemo-gpu.
+- **Tested on:** Ubuntu 22.04.5 LTS, NVIDIA H100 80 GB, NVIDIA driver 560.35.05, pixi 0.72.2.
 
 ## Installation
 
-`bolero` uses [pixi](https://pixi.sh), which sets up the full GPU stack (PyTorch + CUDA,
-`ray`, `flash-attn`) in one step:
-
 ```bash
+curl -fsSL https://pixi.sh/install.sh | bash   # install pixi, then open a new shell
 git clone https://github.com/liuhlab/bolero.git
 cd bolero
 pixi install            # runtime env; or: pixi install -e dev
 ```
 
-`pixi install` also pulls the two companion git dependencies automatically. See
-[docs/installation.md](docs/installation.md) for requirements and verification.
+`pixi install` also pulls the git dependencies above. **Typical install time:** about 3 min for
+the clone and `pixi install` with an empty package cache, measured on a Linux server with a
+fast network. Allow longer on a slower connection. See
+[docs/installation.md](docs/installation.md) for the environments, Jupyter setup and checks.
+
+## Demo
+
+The quick start predicts chromatin accessibility with the pretrained Bolero model for 8
+held-out genomic windows (hg38) in 5 blood cell types from the ChromiumPBMC dataset, and
+compares the predictions with the measured single-cell ATAC signal. Every input downloads
+from the public HuggingFace repositories
+[`arcinstitute/bolero-models`](https://huggingface.co/arcinstitute/bolero-models) and
+[`arcinstitute/bolero-data`](https://huggingface.co/datasets/arcinstitute/bolero-data) on the
+first run, about 12 GB in total.
+
+```bash
+pixi run quickstart     # executes docs/tutorials/00_quickstart.ipynb in place
+```
+
+**Expected output** in `docs/tutorials/quickstart_output/`:
+
+- `pred_peak_data.feather`, `true_peak_data.feather`: predicted and measured accessibility of
+  each peak in the predicted windows, one column per cell type.
+- `summary_stats.joblib.gz`: Pearson r and R² between the two for each cell type. In the
+  reference run, Pearson r was 0.88–0.93 across 598 peaks.
+- `pred_vs_measured.png`: predicted vs measured accessibility per peak, and the predicted and
+  measured 32 bp tracks of one window for each cell type.
+
+The committed notebook
+[`docs/tutorials/00_quickstart.ipynb`](docs/tutorials/00_quickstart.ipynb) shows these outputs
+from the reference run.
+
+**Expected run time:** about 10 min of downloads and one-time setup on the first run (cached
+afterwards), then about 25 s of prediction on one NVIDIA H100 80 GB.
+
+## Instructions for use
+
+The [documentation](https://liuhlab.github.io/bolero/) is an ordered tutorial series that
+runs the full workflow on your own data, from single cells to a trained model and its
+predictions:
+
+- **Cell embedding & metacells**: build a joint cell-state embedding and SEACells metacells.
+- **Datasets**: aggregate single-cell fragments into the parquet coverage database, then form
+  pseudobulks with reference signal.
+- **Training**: fit Bolero on a single dataset, or on the full multi-dataset ATAC (+ gene)
+  atlas.
+- **Prediction & variant effect**: predict accessibility, score caQTLs and eQTLs, and compute
+  per-base DNA attributions.
+- **Bolero-Score**: condition the model on a chromVAR TF-activity score (for example AP-1).
+- **Cross-species**: run the trained atlas model on any species' genome, DNA only, with no
+  retraining.
 
 ## Companion package
 
