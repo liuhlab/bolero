@@ -271,6 +271,8 @@ ipykernel = "*"
 [tool.pixi.tasks]
 # Register the default env as a Jupyter kernel named `bolero`.
 install-kernel = "python -m ipykernel install --user --name bolero --display-name bolero"
+# Run the quick-start tutorial (needs one NVIDIA GPU); writes its outputs into the notebook.
+quickstart = "jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 docs/tutorials/00_quickstart.ipynb"
 
 # Carries only the CUDA-pinned platform; added to the GPU environments below.
 [tool.pixi.feature.gpu]
